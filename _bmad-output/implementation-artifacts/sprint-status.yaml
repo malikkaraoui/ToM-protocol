@@ -51,7 +51,7 @@ development_status:
   epic-2: in-progress
   2-1-signaling-server-bootstrap: done
   2-2-webrtc-datachannel-transport: done
-  2-3-message-routing-through-a-known-relay: backlog
+  2-3-message-routing-through-a-known-relay: done
   2-4-recipient-acknowledgment: backlog
   2-5-demo-chat-ui-lobby-and-messaging: backlog
   epic-2-retrospective: optional
