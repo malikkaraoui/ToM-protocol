@@ -96,8 +96,12 @@ export class TomClient {
         for (const handler of this.participantHandlers) handler(msg.participants);
       }
       if (msg.type === 'signal') {
-        // Handle incoming signal (WebRTC offer/answer/ICE)
-        signaling.onMessage?.(msg);
+        // Check if this is a relayed message envelope
+        if (msg.payload?.type === 'message' && msg.payload?.envelope) {
+          this.handleIncomingMessage(msg.payload.envelope);
+        } else {
+          signaling.onMessage?.(msg);
+        }
       }
     };
 
@@ -106,15 +110,19 @@ export class TomClient {
     this.emitStatus('connected');
   }
 
-  sendMessage(to: NodeId, text: string, relayId?: NodeId): MessageEnvelope | null {
-    if (!this.router) return null;
+  async sendMessage(to: NodeId, text: string, relayId?: NodeId): Promise<MessageEnvelope | null> {
+    if (!this.router || !this.transport) return null;
 
     const envelope = this.router.createEnvelope(to, 'chat', { text }, relayId ? [relayId] : []);
 
     if (relayId) {
+      // Ensure relay peer is connected
+      await this.transport.connectToPeer(relayId);
       this.router.sendViaRelay(envelope, relayId);
     } else {
-      this.transport?.sendTo(to, envelope);
+      // Ensure direct peer is connected
+      await this.transport.connectToPeer(to);
+      this.transport.sendTo(to, envelope);
     }
 
     this.emitStatus('message:sent', envelope.id);
