@@ -10,14 +10,16 @@ export interface Participant {
 }
 
 export interface SignalingMessage {
-  type: 'register' | 'signal' | 'participants' | 'error';
+  type: 'register' | 'signal' | 'participants' | 'error' | 'presence' | 'heartbeat';
   from?: string;
   to?: string;
   nodeId?: string;
   username?: string;
+  publicKey?: string;
   participants?: Participant[];
   payload?: unknown;
   error?: string;
+  action?: 'join' | 'leave';
 }
 
 export { createSignalingServer } from './server.js';

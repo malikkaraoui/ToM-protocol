@@ -12,10 +12,12 @@ const messagesEl = document.getElementById('messages') as HTMLElement;
 const messageInput = document.getElementById('message-input') as HTMLInputElement;
 const sendBtn = document.getElementById('send-btn') as HTMLElement;
 const statusBar = document.getElementById('status-bar') as HTMLElement;
+const topologyStats = document.getElementById('topology-stats') as HTMLElement;
 
 let client: TomClient | null = null;
 let selectedPeer: string | null = null;
 let participants: Array<{ nodeId: string; username: string }> = [];
+const knownPeers = new Map<string, { username: string; online: boolean }>();
 
 joinBtn.addEventListener('click', async () => {
   const username = usernameInput.value.trim();
@@ -29,20 +31,45 @@ joinBtn.addEventListener('click', async () => {
 
   client.onParticipants((list) => {
     participants = list.filter((p) => p.nodeId !== client?.getNodeId());
+    for (const p of participants) {
+      knownPeers.set(p.nodeId, { username: p.username, online: true });
+    }
+    for (const [nodeId, peer] of knownPeers.entries()) {
+      if (!participants.find((p) => p.nodeId === nodeId)) {
+        peer.online = false;
+      }
+    }
     renderParticipants();
   });
 
   client.onMessage((envelope) => {
     const payload = envelope.payload as { text?: string };
     if (payload.text) {
-      const sender = participants.find((p) => p.nodeId === envelope.from);
-      addMessage(sender?.username ?? envelope.from.slice(0, 8), payload.text, false);
+      const peer = knownPeers.get(envelope.from);
+      addMessage(peer?.username ?? envelope.from.slice(0, 8), payload.text, false);
     }
   });
 
   client.onAck((messageId) => {
     const msgEl = document.querySelector(`[data-msg-id="${messageId}"] .meta`);
     if (msgEl) msgEl.textContent = 'delivered';
+  });
+
+  client.onPeerDiscovered((peer) => {
+    knownPeers.set(peer.nodeId, { username: peer.username, online: true });
+    renderParticipants();
+  });
+
+  client.onPeerDeparted((nodeId) => {
+    const peer = knownPeers.get(nodeId);
+    if (peer) {
+      peer.online = false;
+    }
+    renderParticipants();
+  });
+
+  client.onPeerStale(() => {
+    renderParticipants();
   });
 
   try {
@@ -57,16 +84,51 @@ joinBtn.addEventListener('click', async () => {
 
 function renderParticipants(): void {
   participantsEl.innerHTML = '';
-  for (const p of participants) {
+
+  const sortedPeers = Array.from(knownPeers.entries()).sort(([, a], [, b]) => {
+    if (a.online === b.online) return 0;
+    return a.online ? -1 : 1;
+  });
+
+  let onlineCount = 0;
+  let offlineCount = 0;
+
+  for (const [nodeId, peer] of sortedPeers) {
+    const topology = client?.getTopologyInstance();
+    const peerStatus = topology ? topology.getPeerStatus(nodeId) : peer.online ? 'online' : 'offline';
+    const isOnline = peerStatus === 'online';
+    const isStale = peerStatus === 'stale';
+
+    if (isOnline || isStale) onlineCount++;
+    else offlineCount++;
+
     const el = document.createElement('div');
-    el.className = `participant${selectedPeer === p.nodeId ? ' active' : ''}`;
-    el.textContent = p.username;
-    el.addEventListener('click', () => {
-      selectedPeer = p.nodeId;
-      renderParticipants();
-    });
+    const classes = ['participant'];
+    if (selectedPeer === nodeId) classes.push('active');
+    if (!isOnline && !isStale) classes.push('offline');
+    if (isStale) classes.push('stale');
+    el.className = classes.join(' ');
+
+    const dot = document.createElement('span');
+    dot.className = `status-dot ${peerStatus}`;
+    el.appendChild(dot);
+
+    const name = document.createElement('span');
+    name.textContent = peer.username;
+    el.appendChild(name);
+
+    if (isOnline || isStale) {
+      el.addEventListener('click', () => {
+        selectedPeer = nodeId;
+        renderParticipants();
+      });
+    }
     participantsEl.appendChild(el);
   }
+
+  const total = knownPeers.size;
+  const indirect = client?.getTopologyInstance()?.getIndirectPeers().length ?? 0;
+  topologyStats.textContent = `${onlineCount} online · ${offlineCount} offline · ${indirect} indirect · ${total} total`;
 }
 
 function addMessage(from: string, text: string, isSent: boolean, msgId?: string): void {
@@ -83,8 +145,11 @@ async function sendMessage(): Promise<void> {
   const text = messageInput.value.trim();
   if (!text) return;
 
-  // For PoC, use the first other participant as relay if available
-  const relay = participants.find((p) => p.nodeId !== selectedPeer);
+  const onlinePeers = participants.filter((p) => {
+    const peer = knownPeers.get(p.nodeId);
+    return peer?.online && p.nodeId !== selectedPeer;
+  });
+  const relay = onlinePeers[0];
   const envelope = await client.sendMessage(selectedPeer, text, relay?.nodeId);
 
   if (envelope) {

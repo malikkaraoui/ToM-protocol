@@ -8,6 +8,7 @@ interface ConnectedNode {
   ws: WebSocket;
   nodeId: string;
   username: string;
+  publicKey: string;
 }
 
 export function createSignalingServer(port: number): { wss: WebSocketServer; close: () => void } {
@@ -33,6 +34,22 @@ export function createSignalingServer(port: number): { wss: WebSocketServer; clo
     }
   }
 
+  function broadcastPresence(action: 'join' | 'leave', nodeInfo: ConnectedNode): void {
+    const msg: SignalingMessage = {
+      type: 'presence',
+      action,
+      nodeId: nodeInfo.nodeId,
+      username: nodeInfo.username,
+      publicKey: nodeInfo.publicKey,
+    };
+    const payload = JSON.stringify(msg);
+    for (const node of nodes.values()) {
+      if (node.ws.readyState === node.ws.OPEN && node.nodeId !== nodeInfo.nodeId) {
+        node.ws.send(payload);
+      }
+    }
+  }
+
   wss.on('connection', (ws: WebSocket) => {
     let registeredNodeId: string | null = null;
 
@@ -51,8 +68,31 @@ export function createSignalingServer(port: number): { wss: WebSocketServer; clo
           return;
         }
         registeredNodeId = msg.nodeId;
-        nodes.set(msg.nodeId, { ws, nodeId: msg.nodeId, username: msg.username });
+        const nodeInfo: ConnectedNode = {
+          ws,
+          nodeId: msg.nodeId,
+          username: msg.username,
+          publicKey: msg.publicKey ?? '',
+        };
+        nodes.set(msg.nodeId, nodeInfo);
+        broadcastPresence('join', nodeInfo);
         broadcastParticipants();
+        return;
+      }
+
+      if (msg.type === 'heartbeat') {
+        // Broadcast heartbeat to all other nodes
+        if (!registeredNodeId) return;
+        const hbMsg: SignalingMessage = {
+          type: 'heartbeat',
+          from: registeredNodeId,
+        };
+        const payload = JSON.stringify(hbMsg);
+        for (const node of nodes.values()) {
+          if (node.ws.readyState === node.ws.OPEN && node.nodeId !== registeredNodeId) {
+            node.ws.send(payload);
+          }
+        }
         return;
       }
 
@@ -74,7 +114,11 @@ export function createSignalingServer(port: number): { wss: WebSocketServer; clo
 
     ws.on('close', () => {
       if (registeredNodeId) {
+        const nodeInfo = nodes.get(registeredNodeId);
         nodes.delete(registeredNodeId);
+        if (nodeInfo) {
+          broadcastPresence('leave', nodeInfo);
+        }
         broadcastParticipants();
       }
     });
