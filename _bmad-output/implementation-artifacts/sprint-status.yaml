@@ -48,8 +48,8 @@ development_status:
   epic-1-retrospective: optional
 
   # Epic 2: First Message Through a Relay
-  epic-2: backlog
-  2-1-signaling-server-bootstrap: backlog
+  epic-2: in-progress
+  2-1-signaling-server-bootstrap: done
   2-2-webrtc-datachannel-transport: backlog
   2-3-message-routing-through-a-known-relay: backlog
   2-4-recipient-acknowledgment: backlog
