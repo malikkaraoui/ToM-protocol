@@ -43,6 +43,8 @@ function createRouterEvents(): RouterEvents {
     onMessageDelivered: vi.fn(),
     onMessageForwarded: vi.fn(),
     onMessageRejected: vi.fn(),
+    onAckReceived: vi.fn(),
+    onAckFailed: vi.fn(),
   };
 }
 
@@ -122,5 +124,57 @@ describe('Router', () => {
     expect(envelope.via).toEqual([RELAY_R]);
     expect(envelope.id).toBeTruthy();
     expect(envelope.timestamp).toBeGreaterThan(0);
+  });
+
+  it('auto-sends ACK when message is delivered locally', async () => {
+    const transport = createTransport();
+    const events = createRouterEvents();
+    const router = new Router(LOCAL_ID, transport, events);
+
+    // Connect relay so ACK can be sent back
+    await transport.connectToPeer(RELAY_R);
+    const envelope = makeEnvelope({ from: PEER_B, to: LOCAL_ID, via: [RELAY_R] });
+    router.handleIncoming(envelope);
+
+    expect(events.onMessageDelivered).toHaveBeenCalledWith(envelope);
+    const relayPeer = transport.getPeer(RELAY_R);
+    expect(relayPeer?.send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'ack',
+        from: LOCAL_ID,
+        to: PEER_B,
+        payload: { originalMessageId: envelope.id },
+      }),
+    );
+  });
+
+  it('handles incoming ACK and fires onAckReceived', () => {
+    const transport = createTransport();
+    const events = createRouterEvents();
+    const router = new Router(LOCAL_ID, transport, events);
+
+    const ack = makeEnvelope({
+      from: PEER_B,
+      to: LOCAL_ID,
+      type: 'ack',
+      payload: { originalMessageId: 'msg-original' },
+    });
+    router.handleIncoming(ack);
+
+    expect(events.onAckReceived).toHaveBeenCalledWith('msg-original', PEER_B);
+    expect(events.onMessageDelivered).not.toHaveBeenCalled();
+  });
+
+  it('fires onAckFailed when no route for ACK', () => {
+    const transport = createTransport();
+    const events = createRouterEvents();
+    const router = new Router(LOCAL_ID, transport, events);
+
+    // No relay connected, no direct peer — ACK will fail
+    const envelope = makeEnvelope({ from: PEER_B, to: LOCAL_ID, via: [RELAY_R] });
+    router.handleIncoming(envelope);
+
+    expect(events.onMessageDelivered).toHaveBeenCalled();
+    expect(events.onAckFailed).toHaveBeenCalledWith(envelope.id, 'no route for ack');
   });
 });

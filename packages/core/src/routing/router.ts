@@ -1,10 +1,14 @@
 import type { TransportLayer } from '../transport/transport-layer.js';
 import type { MessageEnvelope } from '../types/envelope.js';
 
+export const ACK_TYPE = 'ack';
+
 export interface RouterEvents {
   onMessageDelivered: (envelope: MessageEnvelope) => void;
   onMessageForwarded: (envelope: MessageEnvelope, nextHop: string) => void;
   onMessageRejected: (envelope: MessageEnvelope, reason: string) => void;
+  onAckReceived: (originalMessageId: string, from: string) => void;
+  onAckFailed: (originalMessageId: string, reason: string) => void;
 }
 
 export interface SignatureVerifier {
@@ -27,7 +31,19 @@ export class Router {
   handleIncoming(envelope: MessageEnvelope): void {
     // If this message is addressed to us, deliver it
     if (envelope.to === this.localNodeId) {
+      // Handle ACK messages
+      if (envelope.type === ACK_TYPE) {
+        const originalId = (envelope.payload as { originalMessageId?: string })?.originalMessageId;
+        if (originalId) {
+          this.events.onAckReceived(originalId, envelope.from);
+        }
+        return;
+      }
+
       this.events.onMessageDelivered(envelope);
+
+      // Auto-send ACK back to sender via the same relay path
+      this.sendAck(envelope);
       return;
     }
 
@@ -86,5 +102,29 @@ export class Router {
     }
 
     relayPeer.send(envelope);
+  }
+
+  private sendAck(original: MessageEnvelope): void {
+    const ack = this.createEnvelope(original.from, ACK_TYPE, { originalMessageId: original.id }, [...original.via]);
+
+    // Try to send via the relay path (reversed)
+    const relay = original.via[original.via.length - 1];
+    if (relay) {
+      const relayPeer = this.transport.getPeer(relay);
+      if (relayPeer) {
+        relayPeer.send(ack);
+        return;
+      }
+    }
+
+    // Try direct send
+    const directPeer = this.transport.getPeer(original.from);
+    if (directPeer) {
+      directPeer.send(ack);
+      return;
+    }
+
+    // ACK failed - non-blocking, just emit warning
+    this.events.onAckFailed(original.id, 'no route for ack');
   }
 }
