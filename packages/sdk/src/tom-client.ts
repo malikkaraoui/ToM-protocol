@@ -136,9 +136,14 @@ export class TomClient {
       const msg = JSON.parse(event.data as string);
 
       if (msg.type === 'participants') {
-        // Sync topology with participant list — ensures peers connected before us are tracked
+        // Sync topology with participant list
         for (const p of msg.participants as Array<{ nodeId: string; username: string }>) {
-          if (p.nodeId !== this.nodeId && !this.topology.getPeer(p.nodeId)) {
+          if (p.nodeId === this.nodeId) continue;
+          const existing = this.topology.getPeer(p.nodeId);
+          if (existing) {
+            this.topology.updateLastSeen(p.nodeId);
+            this.heartbeat?.recordHeartbeat(p.nodeId);
+          } else {
             this.topology.addPeer({
               nodeId: p.nodeId,
               username: p.username,
