@@ -41,10 +41,10 @@ story_location: _bmad-output/implementation-artifacts
 
 development_status:
   # Epic 1: Project Foundation & Node Identity
-  epic-1: in-progress
+  epic-1: done
   1-1-monorepo-scaffold: done
-  1-2-node-identity-generation-and-persistence: review
-  1-3-shared-types-and-error-foundation: backlog
+  1-2-node-identity-generation-and-persistence: done
+  1-3-shared-types-and-error-foundation: done
   epic-1-retrospective: optional
 
   # Epic 2: First Message Through a Relay
