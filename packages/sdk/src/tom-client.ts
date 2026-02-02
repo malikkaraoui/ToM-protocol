@@ -117,6 +117,8 @@ export class TomClient {
           for (const handler of this.peerDepartedHandlers) handler(nodeId);
         },
       },
+      5000,
+      10000,
     );
 
     // Register with signaling server (nodeId is derived from publicKey)
