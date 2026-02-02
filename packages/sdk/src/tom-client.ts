@@ -1,9 +1,12 @@
 import {
+  HeartbeatManager,
   IdentityManager,
   type IdentityStorage,
   MemoryStorage,
   type MessageEnvelope,
+  NetworkTopology,
   type NodeId,
+  type PeerInfo,
   Router,
   type TransportEvents,
   TransportLayer,
@@ -19,6 +22,9 @@ export interface TomClientOptions {
 export type MessageHandler = (envelope: MessageEnvelope) => void;
 export type ParticipantHandler = (participants: Array<{ nodeId: string; username: string }>) => void;
 export type StatusHandler = (status: string, detail?: string) => void;
+export type PeerDiscoveredHandler = (peer: PeerInfo) => void;
+export type PeerDepartedHandler = (nodeId: string) => void;
+export type PeerStaleHandler = (nodeId: string) => void;
 
 export class TomClient {
   private identity: IdentityManager;
@@ -28,16 +34,22 @@ export class TomClient {
   private nodeId: NodeId = '';
   private username: string;
   private signalingUrl: string;
+  private topology: NetworkTopology;
+  private heartbeat: HeartbeatManager | null = null;
 
   private messageHandlers: MessageHandler[] = [];
   private participantHandlers: ParticipantHandler[] = [];
   private statusHandlers: StatusHandler[] = [];
   private ackHandlers: Array<(messageId: string) => void> = [];
+  private peerDiscoveredHandlers: PeerDiscoveredHandler[] = [];
+  private peerDepartedHandlers: PeerDepartedHandler[] = [];
+  private peerStaleHandlers: PeerStaleHandler[] = [];
 
   constructor(options: TomClientOptions) {
     this.username = options.username;
     this.signalingUrl = options.signalingUrl;
     this.identity = new IdentityManager(options.storage ?? new MemoryStorage());
+    this.topology = new NetworkTopology();
   }
 
   async connect(): Promise<void> {
@@ -86,15 +98,54 @@ export class TomClient {
       onAckFailed: (messageId, reason) => this.emitStatus('ack:failed', `${messageId}: ${reason}`),
     });
 
-    // Register with signaling server
-    this.ws.send(JSON.stringify({ type: 'register', nodeId: this.nodeId, username: this.username }));
+    // Setup heartbeat
+    this.heartbeat = new HeartbeatManager(
+      {
+        sendHeartbeat: (_nodeId) => {
+          this.ws?.send(JSON.stringify({ type: 'heartbeat' }));
+        },
+        broadcastHeartbeat: () => {
+          this.ws?.send(JSON.stringify({ type: 'heartbeat' }));
+        },
+      },
+      {
+        onPeerStale: (nodeId) => {
+          for (const handler of this.peerStaleHandlers) handler(nodeId);
+        },
+        onPeerDeparted: (nodeId) => {
+          this.topology.removePeer(nodeId);
+          for (const handler of this.peerDepartedHandlers) handler(nodeId);
+        },
+      },
+    );
+
+    // Register with signaling server (nodeId is derived from publicKey)
+    this.ws.send(
+      JSON.stringify({
+        type: 'register',
+        nodeId: this.nodeId,
+        username: this.username,
+        publicKey: this.nodeId,
+      }),
+    );
 
     // Handle signaling messages
     this.ws.onmessage = (event) => {
       const msg = JSON.parse(event.data as string);
+
       if (msg.type === 'participants') {
         for (const handler of this.participantHandlers) handler(msg.participants);
       }
+
+      if (msg.type === 'presence') {
+        this.handlePresence(msg);
+      }
+
+      if (msg.type === 'heartbeat' && msg.from) {
+        this.topology.updateLastSeen(msg.from);
+        this.heartbeat?.recordHeartbeat(msg.from);
+      }
+
       if (msg.type === 'signal') {
         // Check if this is a relayed message envelope
         if (msg.payload?.type === 'message' && msg.payload?.envelope) {
@@ -105,9 +156,39 @@ export class TomClient {
       }
     };
 
-    this.ws.onclose = () => this.emitStatus('signaling:disconnected');
+    this.ws.onclose = () => {
+      this.heartbeat?.stop();
+      this.emitStatus('signaling:disconnected');
+    };
 
+    this.heartbeat.start();
     this.emitStatus('connected');
+  }
+
+  private handlePresence(msg: {
+    action: string;
+    nodeId: string;
+    username: string;
+    publicKey?: string;
+  }): void {
+    if (msg.action === 'join') {
+      const peerInfo: PeerInfo = {
+        nodeId: msg.nodeId,
+        username: msg.username,
+        publicKey: msg.publicKey ?? '',
+        reachableVia: [],
+        lastSeen: Date.now(),
+        role: 'client',
+      };
+      this.topology.addPeer(peerInfo);
+      this.heartbeat?.trackPeer(msg.nodeId);
+      for (const handler of this.peerDiscoveredHandlers) handler(peerInfo);
+    }
+    if (msg.action === 'leave') {
+      this.topology.removePeer(msg.nodeId);
+      this.heartbeat?.untrackPeer(msg.nodeId);
+      for (const handler of this.peerDepartedHandlers) handler(msg.nodeId);
+    }
   }
 
   async sendMessage(to: NodeId, text: string, relayId?: NodeId): Promise<MessageEnvelope | null> {
@@ -145,16 +226,38 @@ export class TomClient {
     this.ackHandlers.push(handler);
   }
 
+  onPeerDiscovered(handler: PeerDiscoveredHandler): void {
+    this.peerDiscoveredHandlers.push(handler);
+  }
+
+  onPeerDeparted(handler: PeerDepartedHandler): void {
+    this.peerDepartedHandlers.push(handler);
+  }
+
+  onPeerStale(handler: PeerStaleHandler): void {
+    this.peerStaleHandlers.push(handler);
+  }
+
   getNodeId(): NodeId {
     return this.nodeId;
   }
 
+  getTopology(): PeerInfo[] {
+    return this.topology.getReachablePeers();
+  }
+
+  getTopologyInstance(): NetworkTopology {
+    return this.topology;
+  }
+
   disconnect(): void {
+    this.heartbeat?.stop();
     this.transport?.close();
     this.ws?.close();
     this.transport = null;
     this.router = null;
     this.ws = null;
+    this.heartbeat = null;
   }
 
   private handleIncomingMessage(envelope: MessageEnvelope): void {

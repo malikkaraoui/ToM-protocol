@@ -21,6 +21,19 @@ function waitForMessage(ws: WebSocket): Promise<SignalingMessage> {
   });
 }
 
+function waitForMessageOfType(ws: WebSocket, type: string): Promise<SignalingMessage> {
+  return new Promise((resolve) => {
+    const handler = (data: WebSocket.RawData) => {
+      const msg = JSON.parse(data.toString());
+      if (msg.type === type) {
+        ws.off('message', handler);
+        resolve(msg);
+      }
+    };
+    ws.on('message', handler);
+  });
+}
+
 function send(ws: WebSocket, msg: SignalingMessage): void {
   ws.send(JSON.stringify(msg));
 }
@@ -46,7 +59,7 @@ describe('signaling server', () => {
     const ws = await connectClient();
     clients.push(ws);
 
-    const participantsPromise = waitForMessage(ws);
+    const participantsPromise = waitForMessageOfType(ws, 'participants');
     send(ws, { type: 'register', nodeId: 'aaa', username: 'alice' });
 
     const msg = await participantsPromise;
@@ -61,10 +74,10 @@ describe('signaling server', () => {
     clients.push(ws1, ws2);
 
     send(ws1, { type: 'register', nodeId: 'aaa', username: 'alice' });
-    await waitForMessage(ws1); // participants with 1 node
+    await waitForMessageOfType(ws1, 'participants');
 
-    const p1 = waitForMessage(ws1);
-    const p2 = waitForMessage(ws2);
+    const p1 = waitForMessageOfType(ws1, 'participants');
+    const p2 = waitForMessageOfType(ws2, 'participants');
     send(ws2, { type: 'register', nodeId: 'bbb', username: 'bob' });
 
     const [msg1, msg2] = await Promise.all([p1, p2]);
@@ -78,12 +91,12 @@ describe('signaling server', () => {
     clients.push(ws1, ws2);
 
     send(ws1, { type: 'register', nodeId: 'aaa', username: 'alice' });
-    await waitForMessage(ws1);
+    await waitForMessageOfType(ws1, 'participants');
     send(ws2, { type: 'register', nodeId: 'bbb', username: 'bob' });
-    await waitForMessage(ws1); // 2 participants
-    await waitForMessage(ws2);
+    await waitForMessageOfType(ws1, 'participants');
+    await waitForMessageOfType(ws2, 'participants');
 
-    const p = waitForMessage(ws1);
+    const p = waitForMessageOfType(ws1, 'participants');
     ws2.close();
 
     const msg = await p;
@@ -97,12 +110,12 @@ describe('signaling server', () => {
     clients.push(ws1, ws2);
 
     send(ws1, { type: 'register', nodeId: 'aaa', username: 'alice' });
-    await waitForMessage(ws1);
+    await waitForMessageOfType(ws1, 'participants');
     send(ws2, { type: 'register', nodeId: 'bbb', username: 'bob' });
-    await waitForMessage(ws1);
-    await waitForMessage(ws2);
+    await waitForMessageOfType(ws1, 'participants');
+    await waitForMessageOfType(ws2, 'participants');
 
-    const p = waitForMessage(ws2);
+    const p = waitForMessageOfType(ws2, 'signal');
     send(ws1, { type: 'signal', from: 'aaa', to: 'bbb', payload: { sdp: 'offer-data' } });
 
     const msg = await p;
@@ -116,9 +129,9 @@ describe('signaling server', () => {
     clients.push(ws1);
 
     send(ws1, { type: 'register', nodeId: 'aaa', username: 'alice' });
-    await waitForMessage(ws1);
+    await waitForMessageOfType(ws1, 'participants');
 
-    const p = waitForMessage(ws1);
+    const p = waitForMessageOfType(ws1, 'error');
     send(ws1, { type: 'signal', from: 'aaa', to: 'unknown', payload: {} });
 
     const msg = await p;
@@ -136,5 +149,47 @@ describe('signaling server', () => {
     const msg = await p;
     expect(msg.type).toBe('error');
     expect(msg.error).toBe('invalid JSON');
+  });
+
+  it('broadcasts presence join and leave events', async () => {
+    const ws1 = await connectClient();
+    const ws2 = await connectClient();
+    clients.push(ws1, ws2);
+
+    send(ws1, { type: 'register', nodeId: 'aaa', username: 'alice' });
+    await waitForMessageOfType(ws1, 'participants');
+
+    const presenceJoin = waitForMessageOfType(ws1, 'presence');
+    send(ws2, { type: 'register', nodeId: 'bbb', username: 'bob' });
+
+    const joinMsg = await presenceJoin;
+    expect(joinMsg.action).toBe('join');
+    expect(joinMsg.nodeId).toBe('bbb');
+    expect(joinMsg.username).toBe('bob');
+
+    const presenceLeave = waitForMessageOfType(ws1, 'presence');
+    ws2.close();
+
+    const leaveMsg = await presenceLeave;
+    expect(leaveMsg.action).toBe('leave');
+    expect(leaveMsg.nodeId).toBe('bbb');
+  });
+
+  it('broadcasts heartbeat to other nodes', async () => {
+    const ws1 = await connectClient();
+    const ws2 = await connectClient();
+    clients.push(ws1, ws2);
+
+    send(ws1, { type: 'register', nodeId: 'aaa', username: 'alice' });
+    await waitForMessageOfType(ws1, 'participants');
+    send(ws2, { type: 'register', nodeId: 'bbb', username: 'bob' });
+    await waitForMessageOfType(ws2, 'participants');
+
+    const p = waitForMessageOfType(ws2, 'heartbeat');
+    send(ws1, { type: 'heartbeat' });
+
+    const msg = await p;
+    expect(msg.type).toBe('heartbeat');
+    expect(msg.from).toBe('aaa');
   });
 });

@@ -23,3 +23,8 @@ export type { PeerConnection, TransportEvents, SignalingClient } from './transpo
 
 export { Router } from './routing/index.js';
 export type { RouterEvents, SignatureVerifier } from './routing/index.js';
+
+export { NetworkTopology } from './discovery/index.js';
+export type { PeerInfo, PeerStatus, NodeRole } from './discovery/index.js';
+export { HeartbeatManager } from './discovery/index.js';
+export type { HeartbeatEvents, HeartbeatSender } from './discovery/index.js';

@@ -15,8 +15,15 @@
       .chat-layout { display: flex; height: 100%; }
       .sidebar { width: 250px; background: #16213e; border-right: 1px solid #0f3460; padding: 16px; overflow-y: auto; }
       .sidebar h2 { font-size: 14px; color: #00d4ff; margin-bottom: 12px; }
-      .participant { padding: 8px; cursor: pointer; border-radius: 4px; margin-bottom: 4px; font-size: 13px; }
+      .participant { padding: 8px; cursor: pointer; border-radius: 4px; margin-bottom: 4px; font-size: 13px; display: flex; align-items: center; gap: 8px; }
       .participant:hover, .participant.active { background: #0f3460; }
+      .participant.offline { opacity: 0.4; cursor: default; }
+      .participant.stale { opacity: 0.6; }
+      .status-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+      .status-dot.online { background: #00ff88; }
+      .status-dot.stale { background: #ffaa00; }
+      .status-dot.offline { background: #666; }
+      .topology-stats { font-size: 11px; color: #666; margin-top: 12px; padding-top: 8px; border-top: 1px solid #0f3460; }
       .main { flex: 1; display: flex; flex-direction: column; }
       .messages { flex: 1; padding: 16px; overflow-y: auto; }
       .message { margin-bottom: 8px; padding: 8px; border-radius: 4px; max-width: 70%; }
@@ -42,6 +49,7 @@
         <div class="sidebar">
           <h2>Participants</h2>
           <div id="participants"></div>
+          <div class="topology-stats" id="topology-stats"></div>
           <div class="node-id" id="node-id"></div>
         </div>
         <div class="main">
