@@ -77,6 +77,8 @@ joinBtn.addEventListener('click', async () => {
     loginEl.style.display = 'none';
     chatEl.style.display = 'block';
     nodeIdEl.textContent = `Node: ${client.getNodeId().slice(0, 16)}...`;
+    // Periodic re-render to reflect heartbeat status changes
+    setInterval(renderParticipants, 3000);
   } catch (err) {
     statusBar.textContent = `Connection failed: ${err}`;
   }
