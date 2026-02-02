@@ -17,7 +17,7 @@ describe('NetworkTopology', () => {
   let topology: NetworkTopology;
 
   beforeEach(() => {
-    topology = new NetworkTopology();
+    topology = new NetworkTopology(3000);
   });
 
   it('should add and retrieve a peer', () => {

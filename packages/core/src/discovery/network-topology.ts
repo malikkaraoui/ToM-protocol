@@ -17,7 +17,7 @@ export class NetworkTopology {
   private peers = new Map<NodeId, PeerInfo>();
   private staleThresholdMs: number;
 
-  constructor(staleThresholdMs = 3000) {
+  constructor(staleThresholdMs = 10000) {
     this.staleThresholdMs = staleThresholdMs;
   }
 
