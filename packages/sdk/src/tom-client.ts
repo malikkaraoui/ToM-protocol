@@ -113,7 +113,8 @@ export class TomClient {
           for (const handler of this.peerStaleHandlers) handler(nodeId);
         },
         onPeerDeparted: (nodeId) => {
-          this.topology.removePeer(nodeId);
+          // Don't remove from topology — status is determined by lastSeen age
+          // Removal only happens on presence:leave (actual disconnect)
           for (const handler of this.peerDepartedHandlers) handler(nodeId);
         },
       },
@@ -164,6 +165,8 @@ export class TomClient {
 
       if (msg.type === 'heartbeat' && msg.from) {
         this.topology.updateLastSeen(msg.from);
+        // Re-track peer if it was removed by departed timeout
+        this.heartbeat?.trackPeer(msg.from);
         this.heartbeat?.recordHeartbeat(msg.from);
       }
 
