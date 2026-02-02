@@ -1,0 +1,14 @@
+{
+  "name": "tom-signaling-server",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsup",
+    "start": "node dist/index.js",
+    "clean": "rm -rf dist"
+  },
+  "devDependencies": {
+    "tsup": "^8.0.0"
+  }
+}

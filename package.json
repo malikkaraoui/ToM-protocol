@@ -1,0 +1,21 @@
+{
+  "name": "tom-protocol-workspace",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "pnpm -r run build",
+    "test": "vitest run",
+    "lint": "biome check .",
+    "lint:fix": "biome check --write .",
+    "clean": "pnpm -r run clean"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^1.9.0",
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0"
+  },
+  "packageManager": "pnpm@9.15.0",
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

@@ -1,0 +1,106 @@
+# generated: 2026-02-02
+# project: tom-protocol
+# project_key: NOKEY
+# tracking_system: file-system
+# story_location: _bmad-output/implementation-artifacts
+
+# STATUS DEFINITIONS:
+# ==================
+# Epic Status:
+#   - backlog: Epic not yet started
+#   - in-progress: Epic actively being worked on
+#   - done: All stories in epic completed
+#
+# Epic Status Transitions:
+#   - backlog → in-progress: Automatically when first story is created (via create-story)
+#   - in-progress → done: Manually when all stories reach 'done' status
+#
+# Story Status:
+#   - backlog: Story only exists in epic file
+#   - ready-for-dev: Story file created in stories folder
+#   - in-progress: Developer actively working on implementation
+#   - review: Ready for code review (via Dev's code-review workflow)
+#   - done: Story completed
+#
+# Retrospective Status:
+#   - optional: Can be completed but not required
+#   - done: Retrospective has been completed
+#
+# WORKFLOW NOTES:
+# ===============
+# - Epic transitions to 'in-progress' automatically when first story is created
+# - Stories can be worked in parallel if team capacity allows
+# - SM typically creates next story after previous one is 'done' to incorporate learnings
+# - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
+
+generated: 2026-02-02
+project: tom-protocol
+project_key: NOKEY
+tracking_system: file-system
+story_location: _bmad-output/implementation-artifacts
+
+development_status:
+  # Epic 1: Project Foundation & Node Identity
+  epic-1: in-progress
+  1-1-monorepo-scaffold: done
+  1-2-node-identity-generation-and-persistence: backlog
+  1-3-shared-types-and-error-foundation: backlog
+  epic-1-retrospective: optional
+
+  # Epic 2: First Message Through a Relay
+  epic-2: backlog
+  2-1-signaling-server-bootstrap: backlog
+  2-2-webrtc-datachannel-transport: backlog
+  2-3-message-routing-through-a-known-relay: backlog
+  2-4-recipient-acknowledgment: backlog
+  2-5-demo-chat-ui-lobby-and-messaging: backlog
+  epic-2-retrospective: optional
+
+  # Epic 3: Dynamic Routing & Network Discovery
+  epic-3: backlog
+  3-1-peer-discovery-protocol: backlog
+  3-2-dynamic-role-assignment: backlog
+  3-3-automatic-relay-selection: backlog
+  3-4-dual-role-node: backlog
+  3-5-bootstrap-participation-vectors: backlog
+  epic-3-retrospective: optional
+
+  # Epic 4: Bidirectional Conversation
+  epic-4: backlog
+  4-1-direct-path-establishment: backlog
+  4-2-delivery-confirmation-and-read-receipts: backlog
+  4-3-message-path-visualization: backlog
+  4-4-reconnection-and-pending-message-delivery: backlog
+  4-5-demo-snake-multiplayer-p2p-game: backlog
+  epic-4-retrospective: optional
+
+  # Epic 5: Resilient Multi-Relay Transport
+  epic-5: backlog
+  5-1-multi-relay-message-traversal: backlog
+  5-2-automatic-rerouting-on-relay-failure: backlog
+  5-3-node-failure-resilience: backlog
+  5-4-contribution-usage-equilibrium-score: backlog
+  5-5-dynamic-role-display-in-ui: backlog
+  epic-5-retrospective: optional
+
+  # Epic 6: Private Communication
+  epic-6: backlog
+  6-1-end-to-end-encryption: backlog
+  6-2-sdk-package-and-2-line-integration: backlog
+  6-3-protocol-compliance-test-suite: backlog
+  epic-6-retrospective: optional
+
+  # Epic 7: Self-Sustaining Alpha Network
+  epic-7: backlog
+  7-1-autonomous-peer-discovery: backlog
+  7-2-ephemeral-subnets-with-sliding-genesis: backlog
+  7-3-alpha-scale-validation: backlog
+  epic-7-retrospective: optional
+
+  # Epic 8: LLM & Community Ecosystem
+  epic-8: backlog
+  8-1-llm-first-documentation: backlog
+  8-2-mcp-server-for-llm-interaction: backlog
+  8-3-vs-code-plugin-and-live-demo: backlog
+  8-4-micro-session-contribution-model: backlog
+  epic-8-retrospective: optional
