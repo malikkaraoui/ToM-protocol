@@ -48,12 +48,12 @@ development_status:
   epic-1-retrospective: optional
 
   # Epic 2: First Message Through a Relay
-  epic-2: in-progress
+  epic-2: done
   2-1-signaling-server-bootstrap: done
   2-2-webrtc-datachannel-transport: done
   2-3-message-routing-through-a-known-relay: done
   2-4-recipient-acknowledgment: done
-  2-5-demo-chat-ui-lobby-and-messaging: backlog
+  2-5-demo-chat-ui-lobby-and-messaging: done
   epic-2-retrospective: optional
 
   # Epic 3: Dynamic Routing & Network Discovery
