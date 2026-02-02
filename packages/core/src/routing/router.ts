@@ -68,7 +68,12 @@ export class Router {
     sign?: (data: Uint8Array) => Uint8Array,
   ): MessageEnvelope {
     const envelope: MessageEnvelope = {
-      id: crypto.randomUUID(),
+      id:
+        typeof crypto.randomUUID === 'function'
+          ? crypto.randomUUID()
+          : Array.from(crypto.getRandomValues(new Uint8Array(16)))
+              .map((b) => b.toString(16).padStart(2, '0'))
+              .join(''),
       from: this.localNodeId,
       to,
       via,

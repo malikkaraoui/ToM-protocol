@@ -78,20 +78,24 @@ function addMessage(from: string, text: string, isSent: boolean, msgId?: string)
   messagesEl.scrollTop = messagesEl.scrollHeight;
 }
 
-function sendMessage(): void {
+async function sendMessage(): Promise<void> {
   if (!client || !selectedPeer) return;
   const text = messageInput.value.trim();
   if (!text) return;
 
   // For PoC, use the first other participant as relay if available
   const relay = participants.find((p) => p.nodeId !== selectedPeer);
-  const envelope = client.sendMessage(selectedPeer, text, relay?.nodeId);
+  const envelope = await client.sendMessage(selectedPeer, text, relay?.nodeId);
 
   if (envelope) {
     addMessage('You', text, true, envelope.id);
     messageInput.value = '';
   }
 }
+
+usernameInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') joinBtn.click();
+});
 
 sendBtn.addEventListener('click', sendMessage);
 messageInput.addEventListener('keydown', (e) => {
