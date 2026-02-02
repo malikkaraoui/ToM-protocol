@@ -20,3 +20,6 @@ export type { TomErrorCode } from './errors/index.js';
 
 export { TransportLayer } from './transport/index.js';
 export type { PeerConnection, TransportEvents, SignalingClient } from './transport/index.js';
+
+export { Router } from './routing/index.js';
+export type { RouterEvents, SignatureVerifier } from './routing/index.js';
