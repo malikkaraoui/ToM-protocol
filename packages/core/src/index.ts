@@ -21,8 +21,8 @@ export type { TomErrorCode } from './errors/index.js';
 export { TransportLayer } from './transport/index.js';
 export type { PeerConnection, TransportEvents, SignalingClient } from './transport/index.js';
 
-export { Router } from './routing/index.js';
-export type { RouterEvents, SignatureVerifier } from './routing/index.js';
+export { Router, RelaySelector } from './routing/index.js';
+export type { RouterEvents, SignatureVerifier, RelaySelectionResult, RelaySelectorOptions } from './routing/index.js';
 
 export { NetworkTopology } from './discovery/index.js';
 export type { PeerInfo, PeerStatus, NodeRole } from './discovery/index.js';

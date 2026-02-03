@@ -8,8 +8,10 @@ import {
   type NodeId,
   type NodeRole,
   type PeerInfo,
+  RelaySelector,
   RoleManager,
   Router,
+  TomError,
   type TransportEvents,
   TransportLayer,
 } from 'tom-protocol';
@@ -40,6 +42,7 @@ export class TomClient {
   private topology: NetworkTopology;
   private heartbeat: HeartbeatManager | null = null;
   private roleManager: RoleManager;
+  private relaySelector: RelaySelector | null = null;
 
   private messageHandlers: MessageHandler[] = [];
   private participantHandlers: ParticipantHandler[] = [];
@@ -219,6 +222,9 @@ export class TomClient {
     this.heartbeat.start();
     this.roleManager.start();
 
+    // Initialize relay selector
+    this.relaySelector = new RelaySelector({ selfNodeId: this.nodeId });
+
     // Initial self-evaluation — assign own role
     this.roleManager.evaluateNode(this.nodeId, this.topology);
 
@@ -259,14 +265,30 @@ export class TomClient {
   async sendMessage(to: NodeId, text: string, relayId?: NodeId): Promise<MessageEnvelope | null> {
     if (!this.router || !this.transport) return null;
 
-    const envelope = this.router.createEnvelope(to, 'chat', { text }, relayId ? [relayId] : []);
+    // Auto-select relay if not provided
+    let selectedRelay = relayId;
+    if (!selectedRelay && this.relaySelector) {
+      const selection = this.relaySelector.selectBestRelay(to, this.topology);
 
-    if (relayId) {
+      if (selection.relayId) {
+        selectedRelay = selection.relayId;
+        this.emitStatus('relay:selected', selectedRelay);
+      } else if (selection.reason === 'recipient-is-self') {
+        throw new TomError('PEER_UNREACHABLE', 'Cannot send message to self', { to, reason: selection.reason });
+      } else if (selection.reason === 'no-relays-available' || selection.reason === 'no-peers') {
+        // No relay available - attempt direct connection as fallback
+        this.emitStatus('relay:none', selection.reason);
+      }
+    }
+
+    const envelope = this.router.createEnvelope(to, 'chat', { text }, selectedRelay ? [selectedRelay] : []);
+
+    if (selectedRelay) {
       // Ensure relay peer is connected
-      await this.transport.connectToPeer(relayId);
-      this.router.sendViaRelay(envelope, relayId);
+      await this.transport.connectToPeer(selectedRelay);
+      this.router.sendViaRelay(envelope, selectedRelay);
     } else {
-      // Ensure direct peer is connected
+      // Ensure direct peer is connected (fallback when no relay available)
       await this.transport.connectToPeer(to);
       this.transport.sendTo(to, envelope);
     }
