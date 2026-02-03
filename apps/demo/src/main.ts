@@ -10,7 +10,6 @@ const participantsEl = document.getElementById('participants') as HTMLElement;
 const nodeIdEl = document.getElementById('node-id') as HTMLElement;
 const messagesEl = document.getElementById('messages') as HTMLElement;
 const messageInput = document.getElementById('message-input') as HTMLInputElement;
-const sendBtn = document.getElementById('send-btn') as HTMLElement;
 const statusBar = document.getElementById('status-bar') as HTMLElement;
 const topologyStats = document.getElementById('topology-stats') as HTMLElement;
 const myRoleEl = document.getElementById('my-role') as HTMLElement;
@@ -192,7 +191,8 @@ usernameInput.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') joinBtn.click();
 });
 
-sendBtn.addEventListener('click', sendMessage);
-messageInput.addEventListener('keydown', (e) => {
-  if (e.key === 'Enter') sendMessage();
+const messageForm = document.getElementById('message-form') as HTMLFormElement;
+messageForm.addEventListener('submit', (e) => {
+  e.preventDefault();
+  sendMessage();
 });
