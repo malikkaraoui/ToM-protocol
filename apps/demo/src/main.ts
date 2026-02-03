@@ -174,16 +174,17 @@ async function sendMessage(): Promise<void> {
   const text = messageInput.value.trim();
   if (!text) return;
 
-  const onlinePeers = participants.filter((p) => {
-    const peer = knownPeers.get(p.nodeId);
-    return peer?.online && p.nodeId !== selectedPeer;
-  });
-  const relay = onlinePeers[0];
-  const envelope = await client.sendMessage(selectedPeer, text, relay?.nodeId);
+  try {
+    // Let SDK auto-select relay (no manual relay selection)
+    const envelope = await client.sendMessage(selectedPeer, text);
 
-  if (envelope) {
-    addMessage('You', text, true, envelope.id);
-    messageInput.value = '';
+    if (envelope) {
+      addMessage('You', text, true, envelope.id);
+      messageInput.value = '';
+    }
+  } catch (err) {
+    const error = err as Error;
+    statusBar.textContent = `Send failed: ${error.message}`;
   }
 }
 
