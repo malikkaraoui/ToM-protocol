@@ -39,6 +39,26 @@
       .input-bar button { padding: 10px 20px; margin-left: 8px; background: #0f3460; border: none; color: #00d4ff; cursor: pointer; border-radius: 4px; font-family: monospace; }
       .status-bar { padding: 8px 16px; background: #0d1117; font-size: 11px; color: #888; border-top: 1px solid #0f3460; }
       .node-id { font-size: 10px; color: #555; word-break: break-all; margin-top: 8px; }
+
+      /* Mobile responsive */
+      @media (max-width: 600px) {
+        .chat-layout { flex-direction: column; }
+        .sidebar { width: 100%; height: auto; max-height: 35vh; border-right: none; border-bottom: 1px solid #0f3460; padding: 8px; }
+        .sidebar h2 { font-size: 12px; margin-bottom: 8px; }
+        #participants { display: flex; flex-wrap: wrap; gap: 4px; }
+        .participant { padding: 6px 8px; margin-bottom: 0; font-size: 12px; background: #1a1a2e; }
+        .topology-stats { margin-top: 8px; padding-top: 6px; font-size: 10px; }
+        .my-role { font-size: 10px; margin-top: 2px; }
+        .node-id { font-size: 9px; margin-top: 4px; }
+        .main { flex: 1; min-height: 0; }
+        .messages { padding: 8px; }
+        .message { max-width: 85%; font-size: 14px; }
+        .input-bar { padding: 8px; gap: 8px; }
+        .input-bar input { padding: 12px; font-size: 16px; }
+        .input-bar button { padding: 12px 16px; margin-left: 0; }
+        .status-bar { padding: 6px 8px; font-size: 10px; }
+        #login input { width: 90%; max-width: 300px; }
+      }
     </style>
   </head>
   <body>
@@ -59,10 +79,10 @@
         </div>
         <div class="main">
           <div class="messages" id="messages"></div>
-          <div class="input-bar">
-            <input type="text" id="message-input" placeholder="Type a message..." />
-            <button id="send-btn">Send</button>
-          </div>
+          <form class="input-bar" id="message-form">
+            <input type="text" id="message-input" placeholder="Type a message..." autocomplete="off" enterkeyhint="send" />
+            <button type="submit" id="send-btn">Send</button>
+          </form>
         </div>
       </div>
       <div class="status-bar" id="status-bar">Connecting...</div>
