@@ -9,6 +9,8 @@ import {
   type NodeRole,
   type PeerInfo,
   RelaySelector,
+  RelayStats,
+  type RelayStatsData,
   RoleManager,
   Router,
   TomError,
@@ -30,6 +32,7 @@ export type PeerDiscoveredHandler = (peer: PeerInfo) => void;
 export type PeerDepartedHandler = (nodeId: string) => void;
 export type PeerStaleHandler = (nodeId: string) => void;
 export type RoleChangedHandler = (nodeId: string, roles: NodeRole[]) => void;
+export type CapacityWarningHandler = (stats: RelayStatsData, reason: string) => void;
 
 export class TomClient {
   private identity: IdentityManager;
@@ -43,6 +46,7 @@ export class TomClient {
   private heartbeat: HeartbeatManager | null = null;
   private roleManager: RoleManager;
   private relaySelector: RelaySelector | null = null;
+  private relayStats: RelayStats;
 
   private messageHandlers: MessageHandler[] = [];
   private participantHandlers: ParticipantHandler[] = [];
@@ -52,6 +56,7 @@ export class TomClient {
   private peerDepartedHandlers: PeerDepartedHandler[] = [];
   private peerStaleHandlers: PeerStaleHandler[] = [];
   private roleChangedHandlers: RoleChangedHandler[] = [];
+  private capacityWarningHandlers: CapacityWarningHandler[] = [];
 
   constructor(options: TomClientOptions) {
     this.username = options.username;
@@ -74,6 +79,14 @@ export class TomClient {
       },
     });
     this.roleManager.bindTopology(this.topology);
+    this.relayStats = new RelayStats({
+      events: {
+        onCapacityWarning: (stats, reason) => {
+          for (const handler of this.capacityWarningHandlers) handler(stats, reason);
+          this.emitStatus('capacity:warning', reason);
+        },
+      },
+    });
   }
 
   async connect(): Promise<void> {
@@ -114,7 +127,10 @@ export class TomClient {
       onMessageDelivered: (envelope) => {
         for (const handler of this.messageHandlers) handler(envelope);
       },
-      onMessageForwarded: (envelope, nextHop) => this.emitStatus('message:forwarded', nextHop),
+      onMessageForwarded: (envelope, nextHop) => {
+        this.relayStats.recordRelay();
+        this.emitStatus('message:forwarded', nextHop);
+      },
       onMessageRejected: (envelope, reason) => this.emitStatus('message:rejected', reason),
       onAckReceived: (messageId) => {
         for (const handler of this.ackHandlers) handler(messageId);
@@ -293,6 +309,7 @@ export class TomClient {
       this.transport.sendTo(to, envelope);
     }
 
+    this.relayStats.recordOwnMessage();
     this.emitStatus('message:sent', envelope.id);
     return envelope;
   }
@@ -327,6 +344,14 @@ export class TomClient {
 
   onRoleChanged(handler: RoleChangedHandler): void {
     this.roleChangedHandlers.push(handler);
+  }
+
+  onCapacityWarning(handler: CapacityWarningHandler): void {
+    this.capacityWarningHandlers.push(handler);
+  }
+
+  getRelayStats(): RelayStatsData {
+    return this.relayStats.getStats();
   }
 
   getCurrentRoles(): NodeRole[] {

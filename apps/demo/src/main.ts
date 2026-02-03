@@ -148,9 +148,10 @@ function renderParticipants(): void {
   }
 
   const total = knownPeers.size;
-  const indirect = client?.getTopologyInstance()?.getIndirectPeers().length ?? 0;
   const relayCount = client?.getTopologyInstance()?.getRelayNodes().length ?? 0;
-  topologyStats.textContent = `${onlineCount} online · ${relayCount} relays · ${offlineCount} offline · ${total} total`;
+  const stats = client?.getRelayStats();
+  const relayedCount = stats?.messagesRelayed ?? 0;
+  topologyStats.textContent = `${onlineCount} online · ${relayCount} relays · ${relayedCount} relayed · ${total} total`;
 }
 
 function renderMyRole(): void {
