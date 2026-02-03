@@ -10,5 +10,6 @@ export interface TomEventMap {
   'peer:discovered': PeerInfo;
   'peer:departed': NodeId;
   'peer:stale': NodeId;
+  'role:changed': { nodeId: NodeId; oldRoles: string[]; newRoles: string[] };
   'identity:ready': NodeId;
 }

@@ -96,6 +96,24 @@ export function createSignalingServer(port: number): { wss: WebSocketServer; clo
         return;
       }
 
+      if (msg.type === 'role-assign') {
+        // Broadcast role assignment to all connected nodes
+        if (!msg.nodeId || !msg.roles) return;
+        const roleMsg: SignalingMessage = {
+          type: 'role-assign',
+          nodeId: msg.nodeId,
+          roles: msg.roles,
+          from: registeredNodeId ?? undefined,
+        };
+        const rolePayload = JSON.stringify(roleMsg);
+        for (const node of nodes.values()) {
+          if (node.ws.readyState === node.ws.OPEN) {
+            node.ws.send(rolePayload);
+          }
+        }
+        return;
+      }
+
       if (msg.type === 'signal') {
         if (!msg.to || !msg.from) {
           ws.send(JSON.stringify({ type: 'error', error: 'missing to or from' } satisfies SignalingMessage));

@@ -28,3 +28,6 @@ export { NetworkTopology } from './discovery/index.js';
 export type { PeerInfo, PeerStatus, NodeRole } from './discovery/index.js';
 export { HeartbeatManager } from './discovery/index.js';
 export type { HeartbeatEvents, HeartbeatSender } from './discovery/index.js';
+
+export { RoleManager } from './roles/index.js';
+export type { RoleAssignment, RoleManagerEvents } from './roles/index.js';
