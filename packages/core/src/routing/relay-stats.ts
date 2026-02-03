@@ -1,6 +1,10 @@
 export interface RelayStatsData {
+  /** Messages this node forwarded for others (acting as relay) */
   messagesRelayed: number;
+  /** Own messages sent by this node */
   ownMessagesSent: number;
+  /** Relay ACKs received (own messages confirmed relayed) */
+  relayAcksReceived: number;
   relayToOwnRatio: number;
   lastRelayTimestamp: number;
   lastOwnMessageTimestamp: number;
@@ -18,6 +22,7 @@ export interface RelayStatsOptions {
 export class RelayStats {
   private messagesRelayed = 0;
   private ownMessagesSent = 0;
+  private relayAcksReceived = 0;
   private lastRelayTimestamp = 0;
   private lastOwnMessageTimestamp = 0;
   private capacityThreshold: number;
@@ -39,12 +44,17 @@ export class RelayStats {
     this.lastOwnMessageTimestamp = Date.now();
   }
 
+  recordRelayAck(): void {
+    this.relayAcksReceived++;
+  }
+
   getStats(): RelayStatsData {
     const ratio = this.ownMessagesSent > 0 ? this.messagesRelayed / this.ownMessagesSent : this.messagesRelayed;
 
     return {
       messagesRelayed: this.messagesRelayed,
       ownMessagesSent: this.ownMessagesSent,
+      relayAcksReceived: this.relayAcksReceived,
       relayToOwnRatio: Math.round(ratio * 100) / 100,
       lastRelayTimestamp: this.lastRelayTimestamp,
       lastOwnMessageTimestamp: this.lastOwnMessageTimestamp,
@@ -71,6 +81,7 @@ export class RelayStats {
   reset(): void {
     this.messagesRelayed = 0;
     this.ownMessagesSent = 0;
+    this.relayAcksReceived = 0;
     this.lastRelayTimestamp = 0;
     this.lastOwnMessageTimestamp = 0;
   }

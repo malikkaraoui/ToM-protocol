@@ -1,13 +1,32 @@
+/**
+ * BOOTSTRAP LAYER (ADR-002) — TEMPORARY
+ *
+ * This module contains bootstrap code that uses WebSocket signaling for network discovery.
+ * Per ADR-002, this is a temporary mechanism that will be replaced by distributed DHT
+ * in Epic 7 (autonomous peer discovery). The bootstrap layer is intentionally isolated
+ * to enable future replacement without affecting core protocol logic.
+ *
+ * Transition path: WebSocket signaling → Multiple seed servers → DHT → Zero fixed infrastructure
+ *
+ * @see architecture.md#ADR-002 for bootstrap elimination roadmap
+ */
+
 import {
+  type ConnectionType,
+  DirectPathManager,
   HeartbeatManager,
   IdentityManager,
   type IdentityStorage,
   MemoryStorage,
   type MessageEnvelope,
+  type MessageStatus,
+  type MessageStatusEntry,
+  MessageTracker,
   NetworkTopology,
   type NodeId,
   type NodeRole,
   type PeerInfo,
+  READ_RECEIPT_TYPE,
   RelaySelector,
   RelayStats,
   type RelayStatsData,
@@ -18,6 +37,9 @@ import {
   TransportLayer,
 } from 'tom-protocol';
 import type { PeerConnection, SignalingClient } from 'tom-protocol';
+
+// Re-export MessageStatus for SDK consumers
+export type { MessageStatus, MessageStatusEntry } from 'tom-protocol';
 
 export interface TomClientOptions {
   signalingUrl: string;
@@ -33,6 +55,13 @@ export type PeerDepartedHandler = (nodeId: string) => void;
 export type PeerStaleHandler = (nodeId: string) => void;
 export type RoleChangedHandler = (nodeId: string, roles: NodeRole[]) => void;
 export type CapacityWarningHandler = (stats: RelayStatsData, reason: string) => void;
+export type ConnectionTypeChangedHandler = (peerId: string, connectionType: ConnectionType) => void;
+export type MessageStatusChangedHandler = (
+  messageId: string,
+  previousStatus: MessageStatus,
+  newStatus: MessageStatus,
+) => void;
+export type MessageReadHandler = (messageId: string, readAt: number, from: string) => void;
 
 export class TomClient {
   private identity: IdentityManager;
@@ -47,6 +76,14 @@ export class TomClient {
   private roleManager: RoleManager;
   private relaySelector: RelaySelector | null = null;
   private relayStats: RelayStats;
+  private directPathManager: DirectPathManager | null = null;
+  private messageTracker: MessageTracker;
+  /** Map of message IDs to sender node IDs for read receipts */
+  private messageOrigins = new Map<string, NodeId>();
+  /** Set of message IDs for which read receipts have been sent */
+  private readReceiptsSent = new Set<string>();
+  /** Cleanup interval handle */
+  private cleanupInterval: ReturnType<typeof setInterval> | null = null;
 
   private messageHandlers: MessageHandler[] = [];
   private participantHandlers: ParticipantHandler[] = [];
@@ -57,6 +94,9 @@ export class TomClient {
   private peerStaleHandlers: PeerStaleHandler[] = [];
   private roleChangedHandlers: RoleChangedHandler[] = [];
   private capacityWarningHandlers: CapacityWarningHandler[] = [];
+  private connectionTypeChangedHandlers: ConnectionTypeChangedHandler[] = [];
+  private messageStatusChangedHandlers: MessageStatusChangedHandler[] = [];
+  private messageReadHandlers: MessageReadHandler[] = [];
 
   constructor(options: TomClientOptions) {
     this.username = options.username;
@@ -87,8 +127,34 @@ export class TomClient {
         },
       },
     });
+    this.messageTracker = new MessageTracker({
+      onStatusChanged: (messageId, previousStatus, newStatus) => {
+        for (const handler of this.messageStatusChangedHandlers) handler(messageId, previousStatus, newStatus);
+        this.emitStatus('message:status', `${messageId}: ${previousStatus} → ${newStatus}`);
+      },
+    });
   }
 
+  /**
+   * Connects this node to the ToM network.
+   *
+   * **Bootstrap Abstraction (ADR-002):**
+   * This method handles all network bootstrap complexity internally. The developer
+   * only provides a signaling server URL — all WebSocket management, peer discovery,
+   * role assignment, and transport setup are abstracted away.
+   *
+   * The bootstrap mechanism is temporary and will be replaced by distributed DHT
+   * in Epic 7. This abstraction ensures that future bootstrap changes won't affect
+   * application code.
+   *
+   * @example
+   * ```typescript
+   * const client = new TomClient({ signalingUrl: 'ws://localhost:3001', username: 'alice' });
+   * await client.connect(); // Bootstrap happens automatically
+   * ```
+   *
+   * @throws Error if connection to signaling server fails
+   */
   async connect(): Promise<void> {
     const identityResult = await this.identity.init();
     this.nodeId = this.identity.getNodeId();
@@ -125,6 +191,8 @@ export class TomClient {
 
     this.router = new Router(this.nodeId, this.transport, {
       onMessageDelivered: (envelope) => {
+        // Store message origin for read receipt routing
+        this.messageOrigins.set(envelope.id, envelope.from);
         for (const handler of this.messageHandlers) handler(envelope);
       },
       onMessageForwarded: (envelope, nextHop) => {
@@ -136,6 +204,18 @@ export class TomClient {
         for (const handler of this.ackHandlers) handler(messageId);
       },
       onAckFailed: (messageId, reason) => this.emitStatus('ack:failed', `${messageId}: ${reason}`),
+      // Enhanced ACK handling for status tracking
+      onRelayAckReceived: (messageId) => {
+        this.messageTracker.markRelayed(messageId);
+        this.relayStats.recordRelayAck();
+      },
+      onDeliveryAckReceived: (messageId) => {
+        this.messageTracker.markDelivered(messageId);
+      },
+      onReadReceiptReceived: (messageId, readAt, from) => {
+        this.messageTracker.markRead(messageId);
+        for (const handler of this.messageReadHandlers) handler(messageId, readAt, from);
+      },
     });
 
     // Setup heartbeat
@@ -241,10 +321,52 @@ export class TomClient {
     // Initialize relay selector
     this.relaySelector = new RelaySelector({ selfNodeId: this.nodeId });
 
+    // Initialize direct path manager for direct connections after relay introduction
+    this.directPathManager = new DirectPathManager(this.nodeId, this.transport, {
+      onDirectPathEstablished: (peerId) => {
+        for (const handler of this.connectionTypeChangedHandlers) handler(peerId, 'direct');
+        this.emitStatus('direct-path:established', peerId);
+      },
+      onDirectPathLost: (peerId) => {
+        for (const handler of this.connectionTypeChangedHandlers) handler(peerId, 'relay');
+        this.emitStatus('direct-path:lost', peerId);
+      },
+      onDirectPathRestored: (peerId) => {
+        for (const handler of this.connectionTypeChangedHandlers) handler(peerId, 'direct');
+        this.emitStatus('direct-path:restored', peerId);
+      },
+    });
+
+    // Connect DirectPathManager to Router for direct path preference
+    this.router.setDirectPathManager(this.directPathManager);
+
     // Initial self-evaluation — assign own role
     this.roleManager.evaluateNode(this.nodeId, this.topology);
 
+    // Start periodic cleanup of old message tracking data (every 5 minutes)
+    this.cleanupInterval = setInterval(() => this.cleanupMessageTracking(), 5 * 60 * 1000);
+
     this.emitStatus('connected');
+  }
+
+  /**
+   * Clean up old message tracking data to prevent memory leaks.
+   * Removes messages that have been read for more than 10 minutes.
+   */
+  private cleanupMessageTracking(): void {
+    const maxAgeMs = 10 * 60 * 1000; // 10 minutes
+    const removed = this.messageTracker.cleanupOldMessages(maxAgeMs);
+
+    if (removed > 0) {
+      // Also clean up associated data
+      for (const messageId of this.readReceiptsSent) {
+        if (!this.messageTracker.getStatus(messageId)) {
+          this.readReceiptsSent.delete(messageId);
+          this.messageOrigins.delete(messageId);
+        }
+      }
+      this.emitStatus('cleanup:completed', `${removed} messages`);
+    }
   }
 
   private handlePresence(msg: {
@@ -299,10 +421,21 @@ export class TomClient {
 
     const envelope = this.router.createEnvelope(to, 'chat', { text }, selectedRelay ? [selectedRelay] : []);
 
+    // Track message status (starts at 'pending')
+    this.messageTracker.track(envelope.id, to);
+
+    // Track conversation for direct path optimization
+    this.directPathManager?.trackConversation(envelope);
+
     if (selectedRelay) {
       // Ensure relay peer is connected
       await this.transport.connectToPeer(selectedRelay);
-      this.router.sendViaRelay(envelope, selectedRelay);
+
+      // Use sendWithDirectPreference if we have a direct path, otherwise use relay
+      const sentDirect = this.router.sendWithDirectPreference(envelope, selectedRelay);
+      if (sentDirect) {
+        this.emitStatus('message:sent:direct', envelope.id);
+      }
     } else {
       // Ensure direct peer is connected (fallback when no relay available)
       await this.transport.connectToPeer(to);
@@ -310,7 +443,16 @@ export class TomClient {
     }
 
     this.relayStats.recordOwnMessage();
+    this.messageTracker.markSent(envelope.id);
     this.emitStatus('message:sent', envelope.id);
+
+    // Attempt to establish direct path after first relay exchange (async, non-blocking)
+    if (selectedRelay && this.directPathManager) {
+      this.directPathManager.attemptDirectPath(to).catch(() => {
+        // Direct path attempt failed, continue using relay (silent failure)
+      });
+    }
+
     return envelope;
   }
 
@@ -350,6 +492,100 @@ export class TomClient {
     this.capacityWarningHandlers.push(handler);
   }
 
+  onConnectionTypeChanged(handler: ConnectionTypeChangedHandler): void {
+    this.connectionTypeChangedHandlers.push(handler);
+  }
+
+  /**
+   * Register a handler for message status changes.
+   * Fires when a message transitions through: pending → sent → relayed → delivered → read
+   */
+  onMessageStatusChanged(handler: MessageStatusChangedHandler): void {
+    this.messageStatusChangedHandlers.push(handler);
+  }
+
+  /**
+   * Register a handler for when a sent message is read by the recipient.
+   */
+  onMessageRead(handler: MessageReadHandler): void {
+    this.messageReadHandlers.push(handler);
+  }
+
+  /**
+   * Get the current status of a tracked message.
+   * @returns The message status entry, or undefined if not tracked
+   */
+  getMessageStatus(messageId: string): MessageStatusEntry | undefined {
+    return this.messageTracker.getStatus(messageId);
+  }
+
+  /**
+   * Mark a received message as read and send a read receipt to the sender.
+   * Call this when your UI displays the message to the user.
+   *
+   * Idempotent: calling multiple times for the same message only sends one receipt.
+   *
+   * @param messageId - The ID of the message that was read
+   * @returns true if read receipt was sent, false if already sent or message origin unknown
+   */
+  markAsRead(messageId: string): boolean {
+    // Prevent duplicate read receipts
+    if (this.readReceiptsSent.has(messageId)) {
+      return false;
+    }
+
+    const senderId = this.messageOrigins.get(messageId);
+    if (!senderId || !this.router || !this.relaySelector) {
+      return false;
+    }
+
+    // Mark as sent BEFORE sending to prevent race conditions
+    this.readReceiptsSent.add(messageId);
+
+    // Create read receipt envelope
+    const readReceipt = this.router.createEnvelope(
+      senderId,
+      READ_RECEIPT_TYPE,
+      { originalMessageId: messageId, readAt: Date.now() },
+      [],
+    );
+
+    // Send read receipt (best-effort, fire-and-forget)
+    try {
+      const selection = this.relaySelector.selectBestRelay(senderId, this.topology);
+      if (selection.relayId) {
+        this.router.sendWithDirectPreference(readReceipt, selection.relayId);
+      } else {
+        // Try direct send if no relay available
+        this.transport?.sendTo(senderId, readReceipt);
+      }
+      this.emitStatus('read-receipt:sent', messageId);
+      return true;
+    } catch {
+      // Read receipt failed - best effort, don't throw
+      this.emitStatus('read-receipt:failed', messageId);
+      return false;
+    }
+  }
+
+  /**
+   * Get the connection type for a peer.
+   * @returns 'direct' if direct path is active, 'relay' if using relay, 'disconnected' if no conversation
+   */
+  getConnectionType(peerId: NodeId): ConnectionType {
+    if (!this.directPathManager) {
+      return 'disconnected';
+    }
+    return this.directPathManager.getConnectionType(peerId);
+  }
+
+  /**
+   * Get list of peers with active direct connections.
+   */
+  getDirectPeers(): NodeId[] {
+    return this.directPathManager?.getDirectPeers() ?? [];
+  }
+
   getRelayStats(): RelayStatsData {
     return this.relayStats.getStats();
   }
@@ -377,6 +613,10 @@ export class TomClient {
   disconnect(): void {
     this.heartbeat?.stop();
     this.roleManager.stop();
+    if (this.cleanupInterval) {
+      clearInterval(this.cleanupInterval);
+      this.cleanupInterval = null;
+    }
     this.transport?.close();
     this.ws?.close();
     this.transport = null;
@@ -386,6 +626,8 @@ export class TomClient {
   }
 
   private handleIncomingMessage(envelope: MessageEnvelope): void {
+    // Track conversation for direct path optimization
+    this.directPathManager?.trackConversation(envelope);
     this.router?.handleIncoming(envelope);
   }
 

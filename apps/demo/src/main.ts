@@ -1,3 +1,21 @@
+/**
+ * ToM Protocol Demo Application
+ *
+ * BOOTSTRAP PARTICIPATION (ADR-002, FR20, FR23)
+ *
+ * This browser tab acts as a persistent network node contributing to bootstrap:
+ * - Creates a full ToM node with relay capability
+ * - Can be assigned relay role by the network (ADR-007)
+ * - Forwards messages for other nodes while active
+ * - Participates in peer discovery and role assignment
+ *
+ * Per ADR-002, this uses temporary WebSocket signaling for bootstrap.
+ * In Epic 7, bootstrap will transition to distributed DHT discovery.
+ *
+ * @see architecture.md#ADR-002 for bootstrap elimination roadmap
+ * @see architecture.md#ADR-006 for unified node model
+ */
+
 import { TomClient } from 'tom-sdk';
 
 const SIGNALING_URL = `ws://${window.location.hostname}:3001`;
@@ -27,6 +45,10 @@ joinBtn.addEventListener('click', async () => {
 
   client.onStatus((status, detail) => {
     statusBar.textContent = detail ? `${status}: ${detail}` : status;
+    // Update stats on relay-related events
+    if (status.startsWith('message:') || status.startsWith('direct-path:')) {
+      renderParticipants();
+    }
   });
 
   client.onParticipants((list) => {
@@ -46,13 +68,29 @@ joinBtn.addEventListener('click', async () => {
     const payload = envelope.payload as { text?: string };
     if (payload.text) {
       const peer = knownPeers.get(envelope.from);
-      addMessage(peer?.username ?? envelope.from.slice(0, 8), payload.text, false);
+      addMessage(peer?.username ?? envelope.from.slice(0, 8), payload.text, false, envelope.id);
+      // Mark message as read (sends read receipt to sender)
+      client?.markAsRead(envelope.id);
+    }
+    renderParticipants(); // Update stats after receiving message
+  });
+
+  // Enhanced status tracking: show full lifecycle
+  client.onMessageStatusChanged((messageId, _prev, newStatus) => {
+    updateMessageStatus(messageId, newStatus);
+  });
+
+  // Legacy ACK handler (fallback for backward compatibility)
+  client.onAck((messageId) => {
+    const msgEl = document.querySelector(`[data-msg-id="${messageId}"] .meta`);
+    if (msgEl && msgEl.textContent === 'sent') {
+      msgEl.textContent = 'delivered';
     }
   });
 
-  client.onAck((messageId) => {
-    const msgEl = document.querySelector(`[data-msg-id="${messageId}"] .meta`);
-    if (msgEl) msgEl.textContent = 'delivered';
+  // Read receipt: show "read" status
+  client.onMessageRead((messageId) => {
+    updateMessageStatus(messageId, 'read');
   });
 
   client.onPeerDiscovered((peer) => {
@@ -147,11 +185,21 @@ function renderParticipants(): void {
     participantsEl.appendChild(el);
   }
 
-  const total = knownPeers.size;
-  const relayCount = client?.getTopologyInstance()?.getRelayNodes().length ?? 0;
+  // Total includes self (knownPeers only has OTHER peers)
+  const total = knownPeers.size + 1;
+
+  // Relay count: other relays + self if we have relay role
+  const otherRelays = client?.getTopologyInstance()?.getRelayNodes().length ?? 0;
+  const myRoles = client?.getCurrentRoles() ?? [];
+  const selfIsRelay = myRoles.includes('relay') ? 1 : 0;
+  const relayCount = otherRelays + selfIsRelay;
+
+  // Stats: relay ACKs received (own messages confirmed relayed) and messages forwarded for others
   const stats = client?.getRelayStats();
-  const relayedCount = stats?.messagesRelayed ?? 0;
-  topologyStats.textContent = `${onlineCount} online · ${relayCount} relays · ${relayedCount} relayed · ${total} total`;
+  const ackCount = stats?.relayAcksReceived ?? 0;
+  const forwardedCount = stats?.messagesRelayed ?? 0;
+
+  topologyStats.textContent = `${onlineCount} online · ${relayCount} relays · ${ackCount}/${stats?.ownMessagesSent ?? 0} relayed · ${forwardedCount} fwd · ${total} total`;
 }
 
 function renderMyRole(): void {
@@ -170,6 +218,21 @@ function addMessage(from: string, text: string, isSent: boolean, msgId?: string)
   messagesEl.scrollTop = messagesEl.scrollHeight;
 }
 
+function updateMessageStatus(messageId: string, status: string): void {
+  const msgEl = document.querySelector(`[data-msg-id="${messageId}"] .meta`);
+  if (msgEl) {
+    // Map status to display text with visual indicator
+    const statusDisplay: Record<string, string> = {
+      pending: '...',
+      sent: 'sent',
+      relayed: 'relayed',
+      delivered: 'delivered',
+      read: 'read ✓✓',
+    };
+    msgEl.textContent = statusDisplay[status] ?? status;
+  }
+}
+
 async function sendMessage(): Promise<void> {
   if (!client || !selectedPeer) return;
   const text = messageInput.value.trim();
@@ -182,6 +245,7 @@ async function sendMessage(): Promise<void> {
     if (envelope) {
       addMessage('You', text, true, envelope.id);
       messageInput.value = '';
+      renderParticipants(); // Update stats after sending message
     }
   } catch (err) {
     const error = err as Error;

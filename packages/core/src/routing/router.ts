@@ -1,14 +1,33 @@
-import type { TransportLayer } from '../transport/transport-layer.js';
+import type { DirectPathManager } from '../transport/direct-path-manager.js';
+import type { PeerConnection, TransportLayer } from '../transport/transport-layer.js';
 import type { MessageEnvelope } from '../types/envelope.js';
 
 export const ACK_TYPE = 'ack';
+export const READ_RECEIPT_TYPE = 'read-receipt';
+
+/** ACK types for distinguishing relay vs recipient acknowledgments */
+export type AckType = 'relay-forwarded' | 'recipient-received' | 'recipient-read';
+
+export interface AckPayload {
+  originalMessageId: string;
+  ackType: AckType;
+}
 
 export interface RouterEvents {
   onMessageDelivered: (envelope: MessageEnvelope) => void;
   onMessageForwarded: (envelope: MessageEnvelope, nextHop: string) => void;
   onMessageRejected: (envelope: MessageEnvelope, reason: string) => void;
+  /** Called when any ACK is received (legacy compatibility) */
   onAckReceived: (originalMessageId: string, from: string) => void;
   onAckFailed: (originalMessageId: string, reason: string) => void;
+  /** Called when message is sent via direct path (bypassing relay) */
+  onMessageSentDirect?: (envelope: MessageEnvelope, to: string) => void;
+  /** Called when relay confirms forwarding (ackType: 'relay-forwarded') */
+  onRelayAckReceived?: (originalMessageId: string, relayId: string) => void;
+  /** Called when recipient confirms delivery (ackType: 'recipient-received') */
+  onDeliveryAckReceived?: (originalMessageId: string, recipientId: string) => void;
+  /** Called when read receipt is received */
+  onReadReceiptReceived?: (originalMessageId: string, readAt: number, from: string) => void;
 }
 
 export interface SignatureVerifier {
@@ -20,6 +39,10 @@ export class Router {
   private transport: TransportLayer;
   private events: RouterEvents;
   private verifier: SignatureVerifier | null;
+  /** Pending connection promises to prevent race conditions */
+  private pendingConnections = new Map<string, Promise<PeerConnection>>();
+  /** Optional DirectPathManager for direct path routing */
+  private directPathManager: DirectPathManager | null = null;
 
   constructor(localNodeId: string, transport: TransportLayer, events: RouterEvents, verifier?: SignatureVerifier) {
     this.localNodeId = localNodeId;
@@ -28,14 +51,43 @@ export class Router {
     this.verifier = verifier ?? null;
   }
 
+  /**
+   * Set the DirectPathManager for direct path routing support.
+   * When set, the router will prefer direct paths over relay when available.
+   */
+  setDirectPathManager(manager: DirectPathManager): void {
+    this.directPathManager = manager;
+  }
+
   handleIncoming(envelope: MessageEnvelope): void {
     // If this message is addressed to us, deliver it
     if (envelope.to === this.localNodeId) {
       // Handle ACK messages
       if (envelope.type === ACK_TYPE) {
-        const originalId = (envelope.payload as { originalMessageId?: string })?.originalMessageId;
+        const payload = envelope.payload as AckPayload | { originalMessageId?: string };
+        const originalId = payload?.originalMessageId;
         if (originalId) {
+          // Determine ACK type (default to 'recipient-received' for backward compatibility)
+          const ackType = 'ackType' in payload ? payload.ackType : 'recipient-received';
+
+          // Always emit the generic ACK event for backward compatibility
           this.events.onAckReceived(originalId, envelope.from);
+
+          // Emit specific ACK type events
+          if (ackType === 'relay-forwarded') {
+            this.events.onRelayAckReceived?.(originalId, envelope.from);
+          } else if (ackType === 'recipient-received') {
+            this.events.onDeliveryAckReceived?.(originalId, envelope.from);
+          }
+        }
+        return;
+      }
+
+      // Handle read receipt messages
+      if (envelope.type === READ_RECEIPT_TYPE) {
+        const payload = envelope.payload as { originalMessageId?: string; readAt?: number };
+        if (payload?.originalMessageId) {
+          this.events.onReadReceiptReceived?.(payload.originalMessageId, payload.readAt ?? Date.now(), envelope.from);
         }
         return;
       }
@@ -43,13 +95,43 @@ export class Router {
       this.events.onMessageDelivered(envelope);
 
       // Auto-send ACK back to sender via the same relay path
-      this.sendAck(envelope);
+      this.sendAck(envelope, 'recipient-received');
       return;
     }
 
     // Otherwise, forward to the intended recipient
+    this.forwardToRecipient(envelope);
+  }
+
+  private async forwardToRecipient(envelope: MessageEnvelope): Promise<void> {
     const nextHop = envelope.to;
-    const peer = this.transport.getPeer(nextHop);
+
+    // Try to get existing peer connection
+    let peer = this.transport.getPeer(nextHop);
+
+    // If no direct connection exists, establish one via signaling
+    if (!peer) {
+      try {
+        // Use pending connection promise to prevent race conditions
+        let connectionPromise = this.pendingConnections.get(nextHop);
+        if (!connectionPromise) {
+          connectionPromise = this.transport.connectToPeer(nextHop);
+          this.pendingConnections.set(nextHop, connectionPromise);
+          try {
+            peer = await connectionPromise;
+          } finally {
+            this.pendingConnections.delete(nextHop);
+          }
+        } else {
+          // Another connection is in progress - wait for it
+          await connectionPromise;
+          peer = this.transport.getPeer(nextHop);
+        }
+      } catch {
+        this.events.onMessageRejected(envelope, 'PEER_UNREACHABLE');
+        return;
+      }
+    }
 
     if (!peer) {
       this.events.onMessageRejected(envelope, 'PEER_UNREACHABLE');
@@ -58,6 +140,33 @@ export class Router {
 
     peer.send(envelope);
     this.events.onMessageForwarded(envelope, nextHop);
+
+    // Send relay ACK back to sender to confirm forwarding
+    this.sendRelayAck(envelope);
+  }
+
+  /**
+   * Send a relay ACK back to the sender confirming the message was forwarded.
+   */
+  private async sendRelayAck(original: MessageEnvelope): Promise<void> {
+    const payload: AckPayload = {
+      originalMessageId: original.id,
+      ackType: 'relay-forwarded',
+    };
+    const ack = this.createEnvelope(original.from, ACK_TYPE, payload, []);
+
+    // Ensure we have a connection to the sender before sending ACK
+    let directPeer = this.transport.getPeer(original.from);
+    if (!directPeer) {
+      try {
+        directPeer = await this.transport.connectToPeer(original.from);
+      } catch {
+        // Connection failed, ACK is lost (best effort)
+        return;
+      }
+    }
+
+    directPeer.send(ack);
   }
 
   createEnvelope(
@@ -106,11 +215,64 @@ export class Router {
       envelope.via.push(relayId);
     }
 
+    // Mark as relay route
+    envelope.routeType = 'relay';
     relayPeer.send(envelope);
   }
 
-  private sendAck(original: MessageEnvelope): void {
-    const ack = this.createEnvelope(original.from, ACK_TYPE, { originalMessageId: original.id }, [...original.via]);
+  /**
+   * Send a message with direct path preference.
+   * Tries direct WebRTC connection first, falls back to relay if unavailable.
+   *
+   * @param envelope - The message to send
+   * @param relayId - Fallback relay ID if direct path unavailable
+   * @returns true if sent via direct path, false if sent via relay
+   */
+  sendWithDirectPreference(envelope: MessageEnvelope, relayId: string): boolean {
+    const to = envelope.to;
+
+    // Check if we have a direct path to the recipient
+    if (this.directPathManager) {
+      const connectionType = this.directPathManager.getConnectionType(to);
+
+      if (connectionType === 'direct') {
+        // Try to send directly - get peer atomically with the check
+        const directPeer = this.transport.getPeer(to);
+        if (directPeer) {
+          // Mark as direct route and clear via (no relay needed)
+          envelope.routeType = 'direct';
+          envelope.via = [];
+          directPeer.send(envelope);
+          this.events.onMessageSentDirect?.(envelope, to);
+          return true;
+        }
+        // Peer connection was lost between state check and send attempt
+        // Sync DirectPathManager state to prevent future false positives
+        this.directPathManager.handleDirectPathLost(to);
+      }
+    }
+
+    // Fallback to relay
+    this.sendViaRelay(envelope, relayId);
+    return false;
+  }
+
+  /**
+   * Check if a direct path is available to a peer.
+   */
+  hasDirectPath(peerId: string): boolean {
+    if (!this.directPathManager) {
+      return false;
+    }
+    return this.directPathManager.getConnectionType(peerId) === 'direct';
+  }
+
+  private sendAck(original: MessageEnvelope, ackType: AckType = 'recipient-received'): void {
+    const payload: AckPayload = {
+      originalMessageId: original.id,
+      ackType,
+    };
+    const ack = this.createEnvelope(original.from, ACK_TYPE, payload, [...original.via]);
 
     // Try to send via the relay path (reversed)
     const relay = original.via[original.via.length - 1];
