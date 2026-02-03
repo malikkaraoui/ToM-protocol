@@ -10,7 +10,7 @@ export interface Participant {
 }
 
 export interface SignalingMessage {
-  type: 'register' | 'signal' | 'participants' | 'error' | 'presence' | 'heartbeat';
+  type: 'register' | 'signal' | 'participants' | 'error' | 'presence' | 'heartbeat' | 'role-assign';
   from?: string;
   to?: string;
   nodeId?: string;
@@ -20,6 +20,7 @@ export interface SignalingMessage {
   payload?: unknown;
   error?: string;
   action?: 'join' | 'leave';
+  roles?: string[];
 }
 
 export { createSignalingServer } from './server.js';

@@ -8,7 +8,7 @@ function makePeer(overrides: Partial<PeerInfo> = {}): PeerInfo {
     publicKey: 'pk-1',
     reachableVia: [],
     lastSeen: Date.now(),
-    role: 'client',
+    roles: ['client'],
     ...overrides,
   };
 }
@@ -85,5 +85,27 @@ describe('NetworkTopology', () => {
     topology.addPeer(makePeer({ nodeId: 'dead', lastSeen: now - 10000 }));
     expect(topology.getOnlinePeers()).toHaveLength(1);
     expect(topology.getOnlinePeers()[0].nodeId).toBe('alive');
+  });
+
+  it('should get relay nodes', () => {
+    topology.addPeer(makePeer({ nodeId: 'client-only', roles: ['client'] }));
+    topology.addPeer(makePeer({ nodeId: 'relay-node', roles: ['client', 'relay'] }));
+    topology.addPeer(makePeer({ nodeId: 'another-relay', roles: ['relay'] }));
+
+    const relays = topology.getRelayNodes();
+    expect(relays).toHaveLength(2);
+    expect(relays.map((r) => r.nodeId).sort()).toEqual(['another-relay', 'relay-node']);
+  });
+
+  it('should get nodes by role', () => {
+    topology.addPeer(makePeer({ nodeId: 'client-1', roles: ['client'] }));
+    topology.addPeer(makePeer({ nodeId: 'client-2', roles: ['client'] }));
+    topology.addPeer(makePeer({ nodeId: 'relay-1', roles: ['client', 'relay'] }));
+    topology.addPeer(makePeer({ nodeId: 'observer-1', roles: ['observer'] }));
+
+    expect(topology.getNodesByRole('client')).toHaveLength(3);
+    expect(topology.getNodesByRole('relay')).toHaveLength(1);
+    expect(topology.getNodesByRole('observer')).toHaveLength(1);
+    expect(topology.getNodesByRole('bootstrap')).toHaveLength(0);
   });
 });

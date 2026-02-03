@@ -13,6 +13,7 @@ const messageInput = document.getElementById('message-input') as HTMLInputElemen
 const sendBtn = document.getElementById('send-btn') as HTMLElement;
 const statusBar = document.getElementById('status-bar') as HTMLElement;
 const topologyStats = document.getElementById('topology-stats') as HTMLElement;
+const myRoleEl = document.getElementById('my-role') as HTMLElement;
 
 let client: TomClient | null = null;
 let selectedPeer: string | null = null;
@@ -72,11 +73,19 @@ joinBtn.addEventListener('click', async () => {
     renderParticipants();
   });
 
+  client.onRoleChanged((nodeId, roles) => {
+    if (nodeId === client?.getNodeId()) {
+      renderMyRole();
+    }
+    renderParticipants();
+  });
+
   try {
     await client.connect();
     loginEl.style.display = 'none';
     chatEl.style.display = 'block';
     nodeIdEl.textContent = `Node: ${client.getNodeId().slice(0, 16)}...`;
+    renderMyRole();
     // Periodic re-render to reflect heartbeat status changes
     setInterval(renderParticipants, 3000);
   } catch (err) {
@@ -117,7 +126,18 @@ function renderParticipants(): void {
 
     const name = document.createElement('span');
     name.textContent = peer.username;
+    name.style.flex = '1';
     el.appendChild(name);
+
+    // Role badge
+    const peerRoles = client?.getPeerRoles(nodeId) ?? ['client'];
+    if (peerRoles.includes('relay')) {
+      const badge = document.createElement('span');
+      badge.className = 'role-badge relay';
+      badge.textContent = 'R';
+      badge.title = 'Relay';
+      el.appendChild(badge);
+    }
 
     if (isOnline || isStale) {
       el.addEventListener('click', () => {
@@ -130,7 +150,15 @@ function renderParticipants(): void {
 
   const total = knownPeers.size;
   const indirect = client?.getTopologyInstance()?.getIndirectPeers().length ?? 0;
-  topologyStats.textContent = `${onlineCount} online · ${offlineCount} offline · ${indirect} indirect · ${total} total`;
+  const relayCount = client?.getTopologyInstance()?.getRelayNodes().length ?? 0;
+  topologyStats.textContent = `${onlineCount} online · ${relayCount} relays · ${offlineCount} offline · ${total} total`;
+}
+
+function renderMyRole(): void {
+  if (!client) return;
+  const roles = client.getCurrentRoles();
+  const roleText = roles.join(', ');
+  myRoleEl.textContent = `Role: ${roleText}`;
 }
 
 function addMessage(from: string, text: string, isSent: boolean, msgId?: string): void {

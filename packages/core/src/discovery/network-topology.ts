@@ -1,6 +1,6 @@
 import type { NodeId } from '../identity/index.js';
 
-export type NodeRole = 'client' | 'relay' | 'bootstrap';
+export type NodeRole = 'client' | 'relay' | 'observer' | 'bootstrap';
 
 export interface PeerInfo {
   nodeId: NodeId;
@@ -8,7 +8,7 @@ export interface PeerInfo {
   publicKey: string;
   reachableVia: NodeId[];
   lastSeen: number;
-  role: NodeRole;
+  roles: NodeRole[];
 }
 
 export type PeerStatus = 'online' | 'stale' | 'offline';
@@ -63,6 +63,14 @@ export class NetworkTopology {
 
   getOnlinePeers(): PeerInfo[] {
     return Array.from(this.peers.values()).filter((p) => this.getPeerStatus(p.nodeId) !== 'offline');
+  }
+
+  getRelayNodes(): PeerInfo[] {
+    return Array.from(this.peers.values()).filter((p) => p.roles.includes('relay'));
+  }
+
+  getNodesByRole(role: NodeRole): PeerInfo[] {
+    return Array.from(this.peers.values()).filter((p) => p.roles.includes(role));
   }
 
   size(): number {

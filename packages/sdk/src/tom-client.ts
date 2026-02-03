@@ -6,7 +6,9 @@ import {
   type MessageEnvelope,
   NetworkTopology,
   type NodeId,
+  type NodeRole,
   type PeerInfo,
+  RoleManager,
   Router,
   type TransportEvents,
   TransportLayer,
@@ -25,6 +27,7 @@ export type StatusHandler = (status: string, detail?: string) => void;
 export type PeerDiscoveredHandler = (peer: PeerInfo) => void;
 export type PeerDepartedHandler = (nodeId: string) => void;
 export type PeerStaleHandler = (nodeId: string) => void;
+export type RoleChangedHandler = (nodeId: string, roles: NodeRole[]) => void;
 
 export class TomClient {
   private identity: IdentityManager;
@@ -36,6 +39,7 @@ export class TomClient {
   private signalingUrl: string;
   private topology: NetworkTopology;
   private heartbeat: HeartbeatManager | null = null;
+  private roleManager: RoleManager;
 
   private messageHandlers: MessageHandler[] = [];
   private participantHandlers: ParticipantHandler[] = [];
@@ -44,12 +48,29 @@ export class TomClient {
   private peerDiscoveredHandlers: PeerDiscoveredHandler[] = [];
   private peerDepartedHandlers: PeerDepartedHandler[] = [];
   private peerStaleHandlers: PeerStaleHandler[] = [];
+  private roleChangedHandlers: RoleChangedHandler[] = [];
 
   constructor(options: TomClientOptions) {
     this.username = options.username;
     this.signalingUrl = options.signalingUrl;
     this.identity = new IdentityManager(options.storage ?? new MemoryStorage());
     this.topology = new NetworkTopology();
+    this.roleManager = new RoleManager({
+      onRoleChanged: (nodeId, _oldRoles, newRoles) => {
+        for (const handler of this.roleChangedHandlers) handler(nodeId, newRoles);
+        // Broadcast own role changes to network
+        if (nodeId === this.nodeId) {
+          this.ws?.send(JSON.stringify({ type: 'role-assign', nodeId, roles: newRoles }));
+          this.emitStatus('role:changed', newRoles.join(', '));
+        }
+        // Update topology with new roles
+        const peer = this.topology.getPeer(nodeId);
+        if (peer) {
+          peer.roles = [...newRoles];
+        }
+      },
+    });
+    this.roleManager.bindTopology(this.topology);
   }
 
   async connect(): Promise<void> {
@@ -151,7 +172,7 @@ export class TomClient {
               publicKey: p.nodeId,
               reachableVia: [],
               lastSeen: Date.now(),
-              role: 'client',
+              roles: ['client'],
             });
             this.heartbeat?.trackPeer(p.nodeId);
           }
@@ -170,6 +191,16 @@ export class TomClient {
         this.heartbeat?.recordHeartbeat(msg.from);
       }
 
+      if (msg.type === 'role-assign' && msg.nodeId && msg.roles) {
+        if (msg.nodeId !== this.nodeId) {
+          this.roleManager.setRolesFromNetwork(msg.nodeId, msg.roles);
+          const peer = this.topology.getPeer(msg.nodeId);
+          if (peer) {
+            peer.roles = [...msg.roles];
+          }
+        }
+      }
+
       if (msg.type === 'signal') {
         // Check if this is a relayed message envelope
         if (msg.payload?.type === 'message' && msg.payload?.envelope) {
@@ -186,6 +217,11 @@ export class TomClient {
     };
 
     this.heartbeat.start();
+    this.roleManager.start();
+
+    // Initial self-evaluation — assign own role
+    this.roleManager.evaluateNode(this.nodeId, this.topology);
+
     this.emitStatus('connected');
   }
 
@@ -202,16 +238,21 @@ export class TomClient {
         publicKey: msg.publicKey ?? '',
         reachableVia: [],
         lastSeen: Date.now(),
-        role: 'client',
+        roles: ['client'],
       };
       this.topology.addPeer(peerInfo);
       this.heartbeat?.trackPeer(msg.nodeId);
       for (const handler of this.peerDiscoveredHandlers) handler(peerInfo);
+      // Re-evaluate roles when network changes
+      this.roleManager.reassignRoles(this.topology);
     }
     if (msg.action === 'leave') {
       this.topology.removePeer(msg.nodeId);
       this.heartbeat?.untrackPeer(msg.nodeId);
+      this.roleManager.removeAssignment(msg.nodeId);
       for (const handler of this.peerDepartedHandlers) handler(msg.nodeId);
+      // Re-evaluate roles when network changes
+      this.roleManager.reassignRoles(this.topology);
     }
   }
 
@@ -262,6 +303,18 @@ export class TomClient {
     this.peerStaleHandlers.push(handler);
   }
 
+  onRoleChanged(handler: RoleChangedHandler): void {
+    this.roleChangedHandlers.push(handler);
+  }
+
+  getCurrentRoles(): NodeRole[] {
+    return this.roleManager.getCurrentRoles(this.nodeId);
+  }
+
+  getPeerRoles(nodeId: NodeId): NodeRole[] {
+    return this.roleManager.getCurrentRoles(nodeId);
+  }
+
   getNodeId(): NodeId {
     return this.nodeId;
   }
@@ -276,6 +329,7 @@ export class TomClient {
 
   disconnect(): void {
     this.heartbeat?.stop();
+    this.roleManager.stop();
     this.transport?.close();
     this.ws?.close();
     this.transport = null;

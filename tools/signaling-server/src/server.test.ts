@@ -192,4 +192,26 @@ describe('signaling server', () => {
     expect(msg.type).toBe('heartbeat');
     expect(msg.from).toBe('aaa');
   });
+
+  it('broadcasts role-assign to all nodes', async () => {
+    const ws1 = await connectClient();
+    const ws2 = await connectClient();
+    clients.push(ws1, ws2);
+
+    send(ws1, { type: 'register', nodeId: 'aaa', username: 'alice' });
+    await waitForMessageOfType(ws1, 'participants');
+    send(ws2, { type: 'register', nodeId: 'bbb', username: 'bob' });
+    await waitForMessageOfType(ws2, 'participants');
+
+    const p1 = waitForMessageOfType(ws1, 'role-assign');
+    const p2 = waitForMessageOfType(ws2, 'role-assign');
+    send(ws1, { type: 'role-assign', nodeId: 'aaa', roles: ['client', 'relay'] });
+
+    const [msg1, msg2] = await Promise.all([p1, p2]);
+    expect(msg1.type).toBe('role-assign');
+    expect(msg1.nodeId).toBe('aaa');
+    expect(msg1.roles).toEqual(['client', 'relay']);
+    expect(msg2.type).toBe('role-assign');
+    expect(msg2.nodeId).toBe('aaa');
+  });
 });
