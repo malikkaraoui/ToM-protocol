@@ -419,4 +419,61 @@ describe('RoleManager', () => {
       expect(manager.isBackupNode('node-1')).toBe(false);
     });
   });
+
+  describe('security fixes', () => {
+    it('should purge nodeMetrics when peer leaves topology', () => {
+      topology.addPeer(makePeer('node-1'));
+      manager.recordNodeOnline('node-1');
+      manager.updateNodeMetrics('node-1', { bandwidthScore: 80, contributionScore: 50 });
+      manager.evaluateNode('node-1', topology);
+
+      // Verify metrics exist
+      expect(manager.getNodeMetrics('node-1').bandwidthScore).toBe(80);
+
+      // Remove peer from topology
+      topology.removePeer('node-1');
+
+      // Trigger cleanup via reassignRoles
+      manager.reassignRoles(topology);
+
+      // Metrics should be purged (returns defaults now)
+      expect(manager.getNodeMetrics('node-1').bandwidthScore).toBe(50); // Default
+      expect(manager.getNodeMetrics('node-1').contributionScore).toBe(0); // Default
+    });
+
+    it('should purge nodeStartTimes when peer leaves topology', () => {
+      topology.addPeer(makePeer('node-1'));
+      manager.recordNodeOnline('node-1');
+      manager.evaluateNode('node-1', topology);
+
+      vi.advanceTimersByTime(10000);
+
+      // Verify startTime exists (timeOnlineMs > 0)
+      expect(manager.getNodeMetrics('node-1').timeOnlineMs).toBeGreaterThan(0);
+
+      // Remove peer from topology
+      topology.removePeer('node-1');
+
+      // Trigger cleanup
+      manager.reassignRoles(topology);
+
+      // StartTime should be purged (timeOnlineMs is 0 for unknown node)
+      expect(manager.getNodeMetrics('node-1').timeOnlineMs).toBe(0);
+    });
+
+    it('should not purge self metrics even if not in topology', () => {
+      // Bind with selfNodeId
+      manager.bindTopology(topology, 'self-node');
+      manager.recordNodeOnline('self-node');
+      manager.updateNodeMetrics('self-node', { bandwidthScore: 90, contributionScore: 60 });
+      manager.evaluateNode('self-node', topology);
+
+      // Self is not a peer in topology (normal case)
+      // Trigger cleanup
+      manager.reassignRoles(topology, 'self-node');
+
+      // Self's metrics should NOT be purged
+      expect(manager.getNodeMetrics('self-node').bandwidthScore).toBe(90);
+    });
+  });
 });

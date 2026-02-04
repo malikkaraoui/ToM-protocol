@@ -19,6 +19,12 @@ export interface RelayStatsOptions {
   events?: Partial<RelayStatsEvents>;
 }
 
+/** Cooldown between capacity warnings (10 seconds) @security prevents event storm */
+const WARNING_COOLDOWN_MS = 10 * 1000;
+
+/** Maximum counter value to prevent overflow (1 billion) @security prevents DoS */
+const MAX_COUNTER_VALUE = 1_000_000_000;
+
 export class RelayStats {
   private messagesRelayed = 0;
   private ownMessagesSent = 0;
@@ -27,6 +33,8 @@ export class RelayStats {
   private lastOwnMessageTimestamp = 0;
   private capacityThreshold: number;
   private events: Partial<RelayStatsEvents>;
+  /** Last time a warning was emitted @security prevents event storm */
+  private lastWarningAt = 0;
 
   constructor(options: RelayStatsOptions = {}) {
     this.capacityThreshold = options.capacityThreshold ?? 10;
@@ -34,18 +42,27 @@ export class RelayStats {
   }
 
   recordRelay(): void {
-    this.messagesRelayed++;
+    // Bound counter to prevent overflow
+    if (this.messagesRelayed < MAX_COUNTER_VALUE) {
+      this.messagesRelayed++;
+    }
     this.lastRelayTimestamp = Date.now();
     this.checkCapacity();
   }
 
   recordOwnMessage(): void {
-    this.ownMessagesSent++;
+    // Bound counter to prevent overflow
+    if (this.ownMessagesSent < MAX_COUNTER_VALUE) {
+      this.ownMessagesSent++;
+    }
     this.lastOwnMessageTimestamp = Date.now();
   }
 
   recordRelayAck(): void {
-    this.relayAcksReceived++;
+    // Bound counter to prevent overflow
+    if (this.relayAcksReceived < MAX_COUNTER_VALUE) {
+      this.relayAcksReceived++;
+    }
   }
 
   getStats(): RelayStatsData {
@@ -61,20 +78,37 @@ export class RelayStats {
     };
   }
 
+  /**
+   * Check capacity and emit warnings if thresholds exceeded.
+   * @security Cooldown prevents event storm under high load
+   */
   private checkCapacity(): void {
+    const now = Date.now();
+
+    // Cooldown: don't spam warnings
+    if (now - this.lastWarningAt < WARNING_COOLDOWN_MS) {
+      return;
+    }
+
     const stats = this.getStats();
+    let shouldWarn = false;
+    let reason = '';
 
     // Only warn if we've sent at least 1 own message and ratio exceeds threshold
     if (this.ownMessagesSent > 0 && stats.relayToOwnRatio > this.capacityThreshold) {
-      this.events.onCapacityWarning?.(
-        stats,
-        `relay:own ratio ${stats.relayToOwnRatio} exceeds threshold ${this.capacityThreshold}`,
-      );
+      shouldWarn = true;
+      reason = `relay:own ratio ${stats.relayToOwnRatio} exceeds threshold ${this.capacityThreshold}`;
     }
 
     // Also warn if we've relayed many messages but never sent our own (pure relay)
     if (this.ownMessagesSent === 0 && this.messagesRelayed > 20) {
-      this.events.onCapacityWarning?.(stats, 'node is acting as pure relay without own messaging');
+      shouldWarn = true;
+      reason = 'node is acting as pure relay without own messaging';
+    }
+
+    if (shouldWarn) {
+      this.lastWarningAt = now;
+      this.events.onCapacityWarning?.(stats, reason);
     }
   }
 
@@ -84,5 +118,6 @@ export class RelayStats {
     this.relayAcksReceived = 0;
     this.lastRelayTimestamp = 0;
     this.lastOwnMessageTimestamp = 0;
+    this.lastWarningAt = 0;
   }
 }
