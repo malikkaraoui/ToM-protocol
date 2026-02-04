@@ -1,9 +1,9 @@
 <!doctype html>
-<html lang="en">
+<html lang="fr">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>ToM Protocol Demo</title>
+    <title>ToM Protocol - Démo</title>
     <style>
       * { margin: 0; padding: 0; box-sizing: border-box; }
       body { font-family: monospace; background: #1a1a2e; color: #e0e0e0; height: 100dvh; display: flex; flex-direction: column; }
@@ -71,6 +71,34 @@
       .game-decline-btn { background: #ff4444; color: #fff; }
       .game-result { color: #00d4ff; font-style: italic; padding: 4px 0; }
 
+      /* Group Chat (Story 4.6) */
+      .group-section { margin-top: 12px; padding-top: 12px; border-top: 1px solid #0f3460; }
+      .group-section h3 { font-size: 12px; color: #00d4ff; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center; }
+      .create-group-btn { padding: 2px 6px; font-size: 10px; background: #0f3460; border: none; color: #00d4ff; cursor: pointer; border-radius: 3px; }
+      .create-group-btn:hover { background: #1a4a7a; }
+      .group-list { max-height: 150px; overflow-y: auto; }
+      .group-item { padding: 6px 8px; cursor: pointer; border-radius: 4px; margin-bottom: 4px; font-size: 12px; display: flex; align-items: center; gap: 6px; }
+      .group-item:hover, .group-item.active { background: #0f3460; }
+      .group-item .group-icon { width: 24px; height: 24px; border-radius: 4px; background: #0f3460; display: flex; align-items: center; justify-content: center; font-size: 12px; flex-shrink: 0; }
+      .group-item .group-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .group-item .group-members { font-size: 10px; color: #888; }
+      .group-invite-card { background: #16213e; border: 1px solid #0f3460; border-radius: 8px; padding: 12px; margin: 8px 0; }
+      .group-invite-card-title { color: #00d4ff; font-weight: bold; margin-bottom: 4px; font-size: 12px; }
+      .group-invite-card-info { font-size: 11px; color: #888; margin-bottom: 8px; }
+      .group-invite-card-actions { display: flex; gap: 6px; }
+      .group-invite-card-actions button { padding: 4px 12px; font-size: 11px; border: none; border-radius: 3px; cursor: pointer; font-family: monospace; }
+      .group-join-btn { background: #00ff88; color: #1a1a2e; }
+      .group-decline-btn { background: #ff4444; color: #fff; }
+      .create-group-modal { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.8); display: none; align-items: center; justify-content: center; z-index: 100; }
+      .create-group-modal.active { display: flex; }
+      .create-group-modal-content { background: #16213e; border: 1px solid #0f3460; border-radius: 8px; padding: 20px; width: 90%; max-width: 350px; }
+      .create-group-modal h4 { color: #00d4ff; margin-bottom: 16px; }
+      .create-group-modal input { width: 100%; padding: 10px; font-size: 14px; background: #1a1a2e; border: 1px solid #0f3460; color: #e0e0e0; border-radius: 4px; font-family: monospace; margin-bottom: 12px; }
+      .create-group-modal-actions { display: flex; gap: 8px; justify-content: flex-end; }
+      .create-group-modal-actions button { padding: 8px 16px; font-size: 12px; border: none; border-radius: 4px; cursor: pointer; font-family: monospace; }
+      .create-group-cancel-btn { background: #1a1a2e; color: #888; }
+      .create-group-confirm-btn { background: #00d4ff; color: #1a1a2e; }
+
       /* Mobile/Tablet responsive */
       @media (max-width: 900px) {
         .chat-layout { flex-direction: column; }
@@ -136,39 +164,54 @@
   <body>
     <div id="login">
       <h1>ToM Protocol</h1>
-      <p>Distributed messaging — no servers</p>
-      <input type="text" id="username-input" placeholder="Choose a username" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" data-form-type="other" />
-      <button id="join-btn">Join Network</button>
+      <p>Messagerie distribuée — sans serveurs</p>
+      <input type="text" id="username-input" placeholder="Choisissez un pseudo" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" data-form-type="other" />
+      <button id="join-btn">Rejoindre le réseau</button>
     </div>
     <div id="chat">
       <div class="chat-layout">
         <div class="sidebar">
-          <h2>Participants</h2>
+          <h2>Contacts</h2>
           <div id="participants"></div>
+          <div class="group-section" id="group-section">
+            <h3>Groupes <button class="create-group-btn" id="create-group-btn">+ Nouveau</button></h3>
+            <div class="group-list" id="group-list"></div>
+          </div>
           <div class="sidebar-footer">
             <div class="topology-stats" id="topology-stats"></div>
             <div class="my-role" id="my-role"></div>
             <div class="path-toggle">
               <input type="checkbox" id="path-toggle" />
-              <label for="path-toggle">Show path details</label>
+              <label for="path-toggle">Afficher le chemin</label>
             </div>
             <div class="node-id" id="node-id"></div>
           </div>
         </div>
         <div class="main">
-          <div class="chat-header" id="chat-header">Select a contact</div>
+          <div class="chat-header" id="chat-header">Sélectionnez un contact</div>
           <div class="messages" id="messages"></div>
           <div class="game-container" id="game-container">
             <canvas id="game-canvas" class="game-canvas"></canvas>
             <div class="game-controls" id="game-controls"></div>
           </div>
           <form class="input-bar" id="message-form">
-            <input type="text" id="message-input" placeholder="Type a message..." autocomplete="off" enterkeyhint="send" />
-            <button type="submit" id="send-btn">Send</button>
+            <input type="text" id="message-input" placeholder="Tapez un message..." autocomplete="off" enterkeyhint="send" />
+            <button type="submit" id="send-btn">Envoyer</button>
           </form>
         </div>
       </div>
-      <div class="status-bar" id="status-bar">Connecting...</div>
+      <div class="status-bar" id="status-bar">Connexion...</div>
+    </div>
+    <!-- Modal création de groupe -->
+    <div class="create-group-modal" id="create-group-modal">
+      <div class="create-group-modal-content">
+        <h4>👥 Créer un groupe</h4>
+        <input type="text" id="group-name-input" placeholder="Nom du groupe" autocomplete="off" />
+        <div class="create-group-modal-actions">
+          <button class="create-group-cancel-btn" id="create-group-cancel-btn">Annuler</button>
+          <button class="create-group-confirm-btn" id="create-group-confirm-btn">Créer</button>
+        </div>
+      </div>
     </div>
     <script type="module" src="/src/main.ts"></script>
   </body>

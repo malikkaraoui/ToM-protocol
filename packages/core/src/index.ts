@@ -108,3 +108,51 @@ export type {
   BootstrapMechanism,
   BootstrapFactory,
 } from './bootstrap/index.js';
+
+// Group module (Story 4.6 - Group Messaging via Relay Hub)
+export { GroupManager, GroupHub } from './groups/index.js';
+export type {
+  GroupId,
+  GroupInfo,
+  GroupMember,
+  GroupPayload,
+  GroupPayloadBase,
+  GroupCreatePayload,
+  GroupCreatedPayload,
+  GroupInvitePayload,
+  GroupJoinPayload,
+  GroupMemberJoinedPayload,
+  GroupLeavePayload,
+  GroupMemberLeftPayload,
+  GroupMessagePayload,
+  GroupSyncPayload,
+  GroupHubMigrationPayload,
+  GroupHubHeartbeatPayload,
+  GroupDeliveryAckPayload,
+  GroupReadReceiptPayload,
+  GroupManagerEvents,
+  GroupManagerOptions,
+  GroupHubEvents,
+  GroupHubOptions,
+} from './groups/index.js';
+export {
+  isGroupPayload,
+  isGroupMessage,
+  isGroupInvite,
+  isGroupCreate,
+  isGroupSync,
+  isGroupHubMigration,
+  isGroupHubHeartbeat,
+  DEFAULT_MAX_GROUP_MEMBERS,
+  MAX_SYNC_MESSAGES,
+  GROUP_RATE_LIMIT_PER_SECOND,
+  HUB_HEARTBEAT_INTERVAL_MS,
+  HUB_FAILURE_THRESHOLD,
+  // Security
+  generateNonce,
+  NonceTracker,
+  signGroupMessage,
+  verifyGroupMessageSignature,
+  GROUP_SECURITY_DEFAULTS,
+} from './groups/index.js';
+export type { GroupMigrationData, GroupSecurityConfig } from './groups/index.js';
