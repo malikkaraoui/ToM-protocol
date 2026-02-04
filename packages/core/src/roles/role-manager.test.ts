@@ -31,10 +31,11 @@ describe('RoleManager', () => {
     vi.useRealTimers();
   });
 
-  it('should assign default client role to new node', () => {
+  it('should assign relay role to single node (deterministic consensus)', () => {
+    // With 1 node: ceil(1/3) = 1 relay needed, so the only node becomes relay
     topology.addPeer(makePeer('node-1'));
     const roles = manager.evaluateNode('node-1', topology);
-    expect(roles).toEqual(['client']);
+    expect(roles).toEqual(['client', 'relay']);
   });
 
   it('should return client role for unknown node', () => {
@@ -108,11 +109,12 @@ describe('RoleManager', () => {
   });
 
   it('should get current roles', () => {
+    // With 1 node: ceil(1/3) = 1 relay, so node-1 becomes relay
     topology.addPeer(makePeer('node-1'));
     manager.evaluateNode('node-1', topology);
 
     const roles = manager.getCurrentRoles('node-1');
-    expect(roles).toEqual(['client']);
+    expect(roles).toEqual(['client', 'relay']);
   });
 
   it('should return client role for unassigned node', () => {
@@ -189,15 +191,16 @@ describe('RoleManager', () => {
     expect(manager.getAssignment('node-1')).toBeUndefined();
   });
 
-  it('should not assign relay to new node without eligibility period', () => {
-    // Add peers immediately — no time passed
+  it('should assign relay immediately based on lexicographic consensus', () => {
+    // Deterministic consensus: lowest nodeId wins relay role
+    // With 3 nodes: ceil(3/3) = 1 relay, node-1 is first alphabetically → relay
     topology.addPeer(makePeer('node-1'));
     topology.addPeer(makePeer('node-2'));
     topology.addPeer(makePeer('node-3'));
 
     const roles = manager.evaluateNode('node-1', topology);
 
-    // Should only be client — not enough time for relay eligibility
-    expect(roles).toEqual(['client']);
+    // node-1 is lowest in lexicographic order, so it becomes relay immediately
+    expect(roles).toEqual(['client', 'relay']);
   });
 });

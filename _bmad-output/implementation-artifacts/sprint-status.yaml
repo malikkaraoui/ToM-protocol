@@ -57,19 +57,19 @@ development_status:
   epic-2-retrospective: optional
 
   # Epic 3: Dynamic Routing & Network Discovery
-  epic-3: in-progress
+  epic-3: done
   3-1-peer-discovery-protocol: done
   3-2-dynamic-role-assignment: done
   3-3-automatic-relay-selection: done
   3-4-dual-role-node: done
-  3-5-bootstrap-participation-vectors: backlog
+  3-5-bootstrap-participation-vectors: done
   epic-3-retrospective: optional
 
   # Epic 4: Bidirectional Conversation
-  epic-4: backlog
-  4-1-direct-path-establishment: backlog
-  4-2-delivery-confirmation-and-read-receipts: backlog
-  4-3-message-path-visualization: backlog
+  epic-4: in-progress
+  4-1-direct-path-establishment: done
+  4-2-delivery-confirmation-and-read-receipts: done
+  4-3-message-path-visualization: done
   4-4-reconnection-and-pending-message-delivery: backlog
   4-5-demo-snake-multiplayer-p2p-game: backlog
   epic-4-retrospective: optional

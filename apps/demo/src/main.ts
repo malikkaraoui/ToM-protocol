@@ -16,7 +16,7 @@
  * @see architecture.md#ADR-006 for unified node model
  */
 
-import { TomClient } from 'tom-sdk';
+import { TomClient, formatLatency } from 'tom-sdk';
 
 const SIGNALING_URL = `ws://${window.location.hostname}:3001`;
 
@@ -32,6 +32,16 @@ const statusBar = document.getElementById('status-bar') as HTMLElement;
 const topologyStats = document.getElementById('topology-stats') as HTMLElement;
 const myRoleEl = document.getElementById('my-role') as HTMLElement;
 const chatHeaderEl = document.getElementById('chat-header') as HTMLElement;
+const pathToggleEl = document.getElementById('path-toggle') as HTMLInputElement;
+
+// Path visualization toggle state (Story 4.3 - FR14)
+let showPathDetails = localStorage.getItem('tom-show-path-details') === 'true';
+pathToggleEl.checked = showPathDetails;
+pathToggleEl.addEventListener('change', () => {
+  showPathDetails = pathToggleEl.checked;
+  localStorage.setItem('tom-show-path-details', String(showPathDetails));
+  renderMessages();
+});
 
 let client: TomClient | null = null;
 let selectedPeer: string | null = null;
@@ -292,7 +302,23 @@ function renderMessages(): void {
     };
     const statusText = msg.isSent ? (statusDisplay[msg.status] ?? msg.status) : '';
 
-    el.innerHTML = `<div>${escapeHtml(msg.text)}</div><div class="meta">${statusText}</div>`;
+    // Path visualization (Story 4.3)
+    let pathHtml = '';
+    if (showPathDetails && !msg.isSent) {
+      const pathInfo = client?.getPathInfo(msg.id);
+      if (pathInfo) {
+        const routeIcon = pathInfo.routeType === 'direct' ? '⚡' : '🔀';
+        const routeClass = pathInfo.routeType === 'direct' ? 'direct' : '';
+        const relayHopsText = pathInfo.relayHops.length > 0 ? ` via ${pathInfo.relayHops.join(' → ')}` : '';
+        pathHtml = `<div class="path-info visible">
+          <span class="route-type ${routeClass}">${routeIcon} ${pathInfo.routeType}</span>
+          <span class="relay-hops">${relayHopsText}</span>
+          <span class="latency">${formatLatency(pathInfo.latencyMs)}</span>
+        </div>`;
+      }
+    }
+
+    el.innerHTML = `<div>${escapeHtml(msg.text)}</div><div class="meta">${statusText}</div>${pathHtml}`;
     messagesEl.appendChild(el);
   }
   messagesEl.scrollTop = messagesEl.scrollHeight;

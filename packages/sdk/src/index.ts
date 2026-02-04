@@ -9,4 +9,6 @@ export type {
   MessageReadHandler,
   MessageStatus,
   MessageStatusEntry,
+  PathInfo,
 } from './tom-client.js';
+export { formatLatency } from './tom-client.js';

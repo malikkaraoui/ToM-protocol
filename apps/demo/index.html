@@ -44,6 +44,17 @@
       .status-bar { padding: 8px 16px; background: #0d1117; font-size: 11px; color: #888; border-top: 1px solid #0f3460; }
       .node-id { font-size: 10px; color: #555; word-break: break-all; margin-top: 8px; }
 
+      /* Path visualization toggle and display (Story 4.3) */
+      .path-toggle { display: flex; align-items: center; gap: 6px; font-size: 10px; color: #888; margin-top: 8px; }
+      .path-toggle input { accent-color: #00d4ff; }
+      .path-toggle label { cursor: pointer; }
+      .path-info { font-size: 10px; color: #666; margin-top: 6px; padding: 4px 6px; background: rgba(0,0,0,0.2); border-radius: 3px; display: none; }
+      .path-info.visible { display: block; }
+      .path-info .route-type { color: #00d4ff; font-weight: bold; }
+      .path-info .route-type.direct { color: #00ff88; }
+      .path-info .relay-hops { color: #ffaa00; }
+      .path-info .latency { color: #888; }
+
       /* Mobile/Tablet responsive */
       @media (max-width: 900px) {
         .chat-layout { flex-direction: column; }
@@ -121,6 +132,10 @@
           <div class="sidebar-footer">
             <div class="topology-stats" id="topology-stats"></div>
             <div class="my-role" id="my-role"></div>
+            <div class="path-toggle">
+              <input type="checkbox" id="path-toggle" />
+              <label for="path-toggle">Show path details</label>
+            </div>
             <div class="node-id" id="node-id"></div>
           </div>
         </div>

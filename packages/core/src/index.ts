@@ -18,6 +18,10 @@ export type { TomEventMap } from './types/index.js';
 // Metrics types (Golden path measurement - inversion property validation)
 export type { MessageLatency, MessagePath, NetworkMetrics, MetricsEvents } from './types/index.js';
 
+// Path visualization (Story 4.3 - FR14)
+export type { PathInfo } from './types/index.js';
+export { extractPathInfo, formatLatency } from './types/index.js';
+
 export { TomError } from './errors/index.js';
 export type { TomErrorCode } from './errors/index.js';
 
