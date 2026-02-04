@@ -55,6 +55,22 @@
       .path-info .relay-hops { color: #ffaa00; }
       .path-info .latency { color: #888; }
 
+      /* Snake Game (Story 4.5) */
+      .game-invite-btn { padding: 4px 8px; font-size: 11px; background: #0f3460; border: none; color: #00d4ff; cursor: pointer; border-radius: 3px; font-family: monospace; margin-left: 8px; }
+      .game-invite-btn:hover { background: #1a4a7a; }
+      .game-invite-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+      .game-container { display: none; flex: 1; flex-direction: column; align-items: center; justify-content: center; background: #1a1a2e; padding: 16px; }
+      .game-container.active { display: flex; }
+      .game-canvas { border: 2px solid #0f3460; border-radius: 4px; }
+      .game-controls { margin-top: 16px; font-size: 12px; color: #888; text-align: center; }
+      .game-invitation { background: #16213e; border: 1px solid #0f3460; border-radius: 8px; padding: 16px; margin: 8px 0; }
+      .game-invitation-title { color: #00d4ff; font-weight: bold; margin-bottom: 8px; }
+      .game-invitation-actions { display: flex; gap: 8px; margin-top: 12px; }
+      .game-invitation-actions button { padding: 8px 16px; font-size: 12px; border: none; border-radius: 4px; cursor: pointer; font-family: monospace; }
+      .game-accept-btn { background: #00ff88; color: #1a1a2e; }
+      .game-decline-btn { background: #ff4444; color: #fff; }
+      .game-result { color: #00d4ff; font-style: italic; padding: 4px 0; }
+
       /* Mobile/Tablet responsive */
       @media (max-width: 900px) {
         .chat-layout { flex-direction: column; }
@@ -142,6 +158,10 @@
         <div class="main">
           <div class="chat-header" id="chat-header">Select a contact</div>
           <div class="messages" id="messages"></div>
+          <div class="game-container" id="game-container">
+            <canvas id="game-canvas" class="game-canvas"></canvas>
+            <div class="game-controls" id="game-controls"></div>
+          </div>
           <form class="input-bar" id="message-form">
             <input type="text" id="message-input" placeholder="Type a message..." autocomplete="off" enterkeyhint="send" />
             <button type="submit" id="send-btn">Send</button>

@@ -1,0 +1,500 @@
+/**
+ * Game Controller (Story 4.5 - Tasks 2, 4, 6, 7)
+ *
+ * Manages game session lifecycle:
+ * - Invitation flow (invite, accept, decline)
+ * - Game state synchronization (P1 → P2)
+ * - Input handling and transmission
+ * - Connection resilience
+ * - Game end and result
+ */
+
+import type { TomClient } from 'tom-sdk';
+import {
+  DEFAULT_GRID_SIZE,
+  DEFAULT_TICK_MS,
+  type Direction,
+  type GameAcceptPayload,
+  type GameDeclinePayload,
+  type GameEndPayload,
+  type GameEndReason,
+  type GameInputPayload,
+  type GameInvitePayload,
+  type GamePayload,
+  type GameReadyPayload,
+  type GameStatePayload,
+  type GameWinner,
+  type PlayerId,
+  isGameAccept,
+  isGameDecline,
+  isGameEnd,
+  isGameInput,
+  isGameInvite,
+  isGameReady,
+  isGameState,
+} from './game-types';
+import { type GameState, SnakeGame } from './snake-game';
+import type { ConnectionQuality, SnakeRenderer } from './snake-renderer';
+
+/** Game session state */
+export type GameSessionState =
+  | 'idle'
+  | 'invited' // P2: received invitation, waiting for decision
+  | 'waiting-accept' // P1: sent invitation, waiting for response
+  | 'waiting-ready' // P1: accepted, waiting for P2 ready
+  | 'countdown' // Both: countdown before game starts
+  | 'playing' // Both: game in progress
+  | 'ended'; // Both: game over
+
+/** Active game session */
+export interface GameSession {
+  gameId: string;
+  peerId: string;
+  peerUsername: string;
+  localPlayer: PlayerId;
+  state: GameSessionState;
+  game: SnakeGame;
+  config: { gridSize: number; tickMs: number };
+}
+
+/** Game controller events */
+export interface GameControllerEvents {
+  /** Called when session state changes */
+  onSessionStateChange?: (state: GameSessionState, session: GameSession | null) => void;
+  /** Called when game state updates (for rendering) */
+  onGameStateUpdate?: (state: GameState) => void;
+  /** Called when game ends */
+  onGameEnd?: (winner: GameWinner, reason: GameEndReason, resultMessage: string) => void;
+  /** Called when invitation received */
+  onInvitationReceived?: (peerId: string, peerUsername: string, gameId: string) => void;
+  /** Called when invitation declined */
+  onInvitationDeclined?: (peerId: string) => void;
+  /** Called when connection quality changes */
+  onConnectionQualityChange?: (quality: ConnectionQuality) => void;
+}
+
+/**
+ * Game Controller
+ *
+ * Orchestrates multiplayer Snake game sessions.
+ */
+export class GameController {
+  private client: TomClient;
+  private events: GameControllerEvents;
+  private session: GameSession | null = null;
+  private renderer: SnakeRenderer | null = null;
+  private connectionQuality: ConnectionQuality = 'direct';
+  private countdownInterval: ReturnType<typeof setInterval> | null = null;
+  private stateUpdateInterval: ReturnType<typeof setInterval> | null = null;
+
+  constructor(client: TomClient, events: GameControllerEvents = {}) {
+    this.client = client;
+    this.events = events;
+  }
+
+  /**
+   * Set the renderer for the game
+   */
+  setRenderer(renderer: SnakeRenderer): void {
+    this.renderer = renderer;
+  }
+
+  /**
+   * Handle incoming game payload
+   */
+  handleGamePayload(payload: GamePayload, fromPeerId: string, peerUsername: string): void {
+    if (isGameInvite(payload)) {
+      this.handleInvite(payload, fromPeerId, peerUsername);
+    } else if (isGameAccept(payload)) {
+      this.handleAccept(payload, fromPeerId);
+    } else if (isGameDecline(payload)) {
+      this.handleDecline(payload, fromPeerId);
+    } else if (isGameReady(payload)) {
+      this.handleReady(payload);
+    } else if (isGameState(payload)) {
+      this.handleState(payload);
+    } else if (isGameInput(payload)) {
+      this.handleInput(payload);
+    } else if (isGameEnd(payload)) {
+      this.handleEnd(payload);
+    }
+  }
+
+  /**
+   * Send game invitation to peer
+   */
+  async sendInvitation(peerId: string, peerUsername: string): Promise<void> {
+    if (this.session) {
+      console.warn('[GameController] Already in a game session');
+      return;
+    }
+
+    const gameId = this.generateGameId();
+    const config = { gridSize: DEFAULT_GRID_SIZE, tickMs: DEFAULT_TICK_MS };
+
+    const payload: GameInvitePayload = {
+      type: 'game-invite',
+      gameId,
+      gameType: 'snake',
+      gridSize: config.gridSize,
+      tickMs: config.tickMs,
+    };
+
+    await this.client.sendPayload(peerId, payload);
+
+    // Create session as P1 (host)
+    this.session = {
+      gameId,
+      peerId,
+      peerUsername,
+      localPlayer: 'p1',
+      state: 'waiting-accept',
+      game: new SnakeGame(config, {
+        onStateUpdate: (state) => this.onGameStateUpdate(state),
+        onGameEnd: (winner, reason, scores) => this.onGameEnd(winner, reason, scores),
+      }),
+      config,
+    };
+
+    this.setSessionState('waiting-accept');
+  }
+
+  /**
+   * Accept pending invitation
+   */
+  async acceptInvitation(): Promise<void> {
+    if (!this.session || this.session.state !== 'invited') {
+      console.warn('[GameController] No pending invitation to accept');
+      return;
+    }
+
+    const payload: GameAcceptPayload = {
+      type: 'game-accept',
+      gameId: this.session.gameId,
+    };
+
+    await this.client.sendPayload(this.session.peerId, payload);
+    this.setSessionState('countdown');
+    this.startCountdown();
+  }
+
+  /**
+   * Decline pending invitation
+   */
+  async declineInvitation(): Promise<void> {
+    if (!this.session || this.session.state !== 'invited') {
+      console.warn('[GameController] No pending invitation to decline');
+      return;
+    }
+
+    const payload: GameDeclinePayload = {
+      type: 'game-decline',
+      gameId: this.session.gameId,
+    };
+
+    await this.client.sendPayload(this.session.peerId, payload);
+    this.endSession();
+  }
+
+  /**
+   * Handle local player input
+   */
+  handleLocalInput(direction: Direction): void {
+    if (!this.session || this.session.state !== 'playing') return;
+
+    if (this.session.localPlayer === 'p1') {
+      // P1: apply locally
+      this.session.game.setDirection('p1', direction);
+    } else {
+      // P2: send to P1
+      const payload: GameInputPayload = {
+        type: 'game-input',
+        gameId: this.session.gameId,
+        direction,
+      };
+      this.client.sendPayload(this.session.peerId, payload);
+    }
+  }
+
+  /**
+   * Handle connection quality change (from TomClient events)
+   */
+  setConnectionQuality(quality: ConnectionQuality): void {
+    this.connectionQuality = quality;
+    this.renderer?.setConnectionQuality(quality);
+    this.events.onConnectionQualityChange?.(quality);
+  }
+
+  /**
+   * Handle peer disconnect during game
+   */
+  handlePeerDisconnect(): void {
+    if (!this.session || this.session.state !== 'playing') return;
+
+    this.session.game.endByDisconnect(this.session.localPlayer === 'p1' ? 'p2' : 'p1');
+  }
+
+  /**
+   * End current session (e.g., user clicks "return to chat")
+   */
+  endSession(): void {
+    this.stopCountdown();
+    this.stopStateUpdates();
+
+    if (this.session) {
+      this.session.game.stop();
+    }
+
+    this.session = null;
+    this.setSessionState('idle');
+  }
+
+  /**
+   * Get current session
+   */
+  getSession(): GameSession | null {
+    return this.session;
+  }
+
+  /**
+   * Check if currently in a game
+   */
+  isInGame(): boolean {
+    return this.session !== null && this.session.state !== 'idle';
+  }
+
+  // ============================================
+  // Private: Invitation Handlers
+  // ============================================
+
+  private handleInvite(payload: GameInvitePayload, fromPeerId: string, peerUsername: string): void {
+    if (this.session) {
+      // Already in a session, auto-decline
+      const declinePayload: GameDeclinePayload = {
+        type: 'game-decline',
+        gameId: payload.gameId,
+      };
+      this.client.sendPayload(fromPeerId, declinePayload);
+      return;
+    }
+
+    // Create session as P2 (client)
+    const config = { gridSize: payload.gridSize, tickMs: payload.tickMs };
+
+    this.session = {
+      gameId: payload.gameId,
+      peerId: fromPeerId,
+      peerUsername,
+      localPlayer: 'p2',
+      state: 'invited',
+      game: new SnakeGame(config, {
+        onStateUpdate: (state) => this.onGameStateUpdate(state),
+        onGameEnd: (winner, reason, scores) => this.onGameEnd(winner, reason, scores),
+      }),
+      config,
+    };
+
+    this.setSessionState('invited');
+    this.events.onInvitationReceived?.(fromPeerId, peerUsername, payload.gameId);
+  }
+
+  private handleAccept(payload: GameAcceptPayload, fromPeerId: string): void {
+    if (!this.session || this.session.gameId !== payload.gameId) return;
+    if (this.session.state !== 'waiting-accept') return;
+
+    this.setSessionState('waiting-ready');
+    // Wait for P2 ready signal
+  }
+
+  private handleDecline(_payload: GameDeclinePayload, fromPeerId: string): void {
+    if (!this.session) return;
+
+    this.events.onInvitationDeclined?.(fromPeerId);
+    this.endSession();
+  }
+
+  private handleReady(payload: GameReadyPayload): void {
+    if (!this.session || this.session.gameId !== payload.gameId) return;
+    if (this.session.localPlayer !== 'p1') return;
+
+    // P1 received ready from P2 - start countdown
+    this.setSessionState('countdown');
+    this.startCountdown();
+  }
+
+  // ============================================
+  // Private: Game State Handlers
+  // ============================================
+
+  private handleState(payload: GameStatePayload): void {
+    if (!this.session || this.session.gameId !== payload.gameId) return;
+    if (this.session.localPlayer !== 'p2') return;
+
+    // P2: apply state from P1
+    this.session.game.applyState(payload);
+  }
+
+  private handleInput(payload: GameInputPayload): void {
+    if (!this.session || this.session.gameId !== payload.gameId) return;
+    if (this.session.localPlayer !== 'p1') return;
+
+    // P1: apply P2's input
+    this.session.game.setDirection('p2', payload.direction);
+  }
+
+  private handleEnd(payload: GameEndPayload): void {
+    if (!this.session || this.session.gameId !== payload.gameId) return;
+
+    // Game ended by remote
+    this.stopStateUpdates();
+    this.session.game.stop();
+    this.setSessionState('ended');
+
+    const resultMessage = this.formatResultMessage(payload.winner, payload.reason);
+    this.events.onGameEnd?.(payload.winner, payload.reason, resultMessage);
+  }
+
+  // ============================================
+  // Private: Game Loop
+  // ============================================
+
+  private startCountdown(): void {
+    let count = 3;
+
+    // Render initial countdown
+    this.renderer?.renderCountdown(count);
+
+    this.countdownInterval = setInterval(() => {
+      count--;
+      if (count > 0) {
+        this.renderer?.renderCountdown(count);
+      } else {
+        this.stopCountdown();
+        this.startGame();
+      }
+    }, 1000);
+
+    // P2: send ready signal after accepting
+    if (this.session?.localPlayer === 'p2') {
+      const payload: GameReadyPayload = {
+        type: 'game-ready',
+        gameId: this.session.gameId,
+      };
+      this.client.sendPayload(this.session.peerId, payload);
+    }
+  }
+
+  private stopCountdown(): void {
+    if (this.countdownInterval) {
+      clearInterval(this.countdownInterval);
+      this.countdownInterval = null;
+    }
+  }
+
+  private startGame(): void {
+    if (!this.session) return;
+
+    this.setSessionState('playing');
+
+    if (this.session.localPlayer === 'p1') {
+      // P1: start game loop and state broadcasting
+      this.session.game.start();
+      this.startStateUpdates();
+    }
+    // P2 just waits for state updates
+  }
+
+  private startStateUpdates(): void {
+    if (!this.session || this.session.localPlayer !== 'p1') return;
+
+    // Send state updates at tick rate
+    this.stateUpdateInterval = setInterval(() => {
+      if (!this.session || this.session.state !== 'playing') {
+        this.stopStateUpdates();
+        return;
+      }
+
+      const payload = this.session.game.toStatePayload(this.session.gameId);
+      this.client.sendPayload(this.session.peerId, payload);
+    }, this.session.config.tickMs);
+  }
+
+  private stopStateUpdates(): void {
+    if (this.stateUpdateInterval) {
+      clearInterval(this.stateUpdateInterval);
+      this.stateUpdateInterval = null;
+    }
+  }
+
+  // ============================================
+  // Private: Event Handlers
+  // ============================================
+
+  private onGameStateUpdate(state: GameState): void {
+    this.events.onGameStateUpdate?.(state);
+
+    // Render if we have a renderer
+    if (this.renderer && this.session) {
+      this.renderer.render(state, this.session.localPlayer);
+    }
+  }
+
+  private onGameEnd(winner: GameWinner, reason: GameEndReason, scores: { p1: number; p2: number }): void {
+    if (!this.session) return;
+
+    this.stopStateUpdates();
+    this.setSessionState('ended');
+
+    // P1: send game end to P2
+    if (this.session.localPlayer === 'p1') {
+      const payload: GameEndPayload = {
+        type: 'game-end',
+        gameId: this.session.gameId,
+        winner,
+        reason,
+        finalScores: scores,
+      };
+      this.client.sendPayload(this.session.peerId, payload);
+    }
+
+    const resultMessage = this.formatResultMessage(winner, reason);
+    this.events.onGameEnd?.(winner, reason, resultMessage);
+
+    // Render game over screen
+    if (this.renderer) {
+      this.renderer.renderGameOver(winner, scores, this.session.localPlayer);
+    }
+  }
+
+  // ============================================
+  // Private: Helpers
+  // ============================================
+
+  private setSessionState(state: GameSessionState): void {
+    if (this.session) {
+      this.session.state = state;
+    }
+    this.events.onSessionStateChange?.(state, this.session);
+  }
+
+  private generateGameId(): string {
+    return `game-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  }
+
+  private formatResultMessage(winner: GameWinner, reason: GameEndReason): string {
+    if (!this.session) return '';
+
+    const winnerName =
+      winner === 'draw' ? null : winner === this.session.localPlayer ? 'You' : this.session.peerUsername;
+
+    if (winner === 'draw') {
+      return "🎮 It's a draw!";
+    }
+
+    if (reason === 'disconnect') {
+      return `🎮 ${winnerName} won (opponent disconnected)`;
+    }
+
+    return `🏆 ${winnerName} won the Snake game!`;
+  }
+}

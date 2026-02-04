@@ -5,6 +5,10 @@ export interface RelayStatsData {
   ownMessagesSent: number;
   /** Relay ACKs received (own messages confirmed relayed) */
   relayAcksReceived: number;
+  /** Bytes relayed for others */
+  bytesRelayed: number;
+  /** Bytes sent in own messages */
+  bytesSent: number;
   relayToOwnRatio: number;
   lastRelayTimestamp: number;
   lastOwnMessageTimestamp: number;
@@ -29,6 +33,8 @@ export class RelayStats {
   private messagesRelayed = 0;
   private ownMessagesSent = 0;
   private relayAcksReceived = 0;
+  private bytesRelayed = 0;
+  private bytesSent = 0;
   private lastRelayTimestamp = 0;
   private lastOwnMessageTimestamp = 0;
   private capacityThreshold: number;
@@ -41,19 +47,25 @@ export class RelayStats {
     this.events = options.events ?? {};
   }
 
-  recordRelay(): void {
+  recordRelay(byteSize?: number): void {
     // Bound counter to prevent overflow
     if (this.messagesRelayed < MAX_COUNTER_VALUE) {
       this.messagesRelayed++;
+    }
+    if (byteSize && this.bytesRelayed < MAX_COUNTER_VALUE) {
+      this.bytesRelayed += byteSize;
     }
     this.lastRelayTimestamp = Date.now();
     this.checkCapacity();
   }
 
-  recordOwnMessage(): void {
+  recordOwnMessage(byteSize?: number): void {
     // Bound counter to prevent overflow
     if (this.ownMessagesSent < MAX_COUNTER_VALUE) {
       this.ownMessagesSent++;
+    }
+    if (byteSize && this.bytesSent < MAX_COUNTER_VALUE) {
+      this.bytesSent += byteSize;
     }
     this.lastOwnMessageTimestamp = Date.now();
   }
@@ -72,6 +84,8 @@ export class RelayStats {
       messagesRelayed: this.messagesRelayed,
       ownMessagesSent: this.ownMessagesSent,
       relayAcksReceived: this.relayAcksReceived,
+      bytesRelayed: this.bytesRelayed,
+      bytesSent: this.bytesSent,
       relayToOwnRatio: Math.round(ratio * 100) / 100,
       lastRelayTimestamp: this.lastRelayTimestamp,
       lastOwnMessageTimestamp: this.lastOwnMessageTimestamp,
@@ -116,6 +130,8 @@ export class RelayStats {
     this.messagesRelayed = 0;
     this.ownMessagesSent = 0;
     this.relayAcksReceived = 0;
+    this.bytesRelayed = 0;
+    this.bytesSent = 0;
     this.lastRelayTimestamp = 0;
     this.lastOwnMessageTimestamp = 0;
     this.lastWarningAt = 0;
