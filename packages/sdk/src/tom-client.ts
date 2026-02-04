@@ -14,6 +14,16 @@
 import {
   type ConnectionType,
   DirectPathManager,
+  GroupHub,
+  type GroupHubEvents,
+  type GroupId,
+  type GroupInfo,
+  GroupManager,
+  type GroupManagerEvents,
+  type GroupMember,
+  type GroupMessagePayload,
+  type GroupMigrationData,
+  type GroupPayload,
   HeartbeatManager,
   IdentityManager,
   type IdentityStorage,
@@ -37,6 +47,8 @@ import {
   type TransportEvents,
   TransportLayer,
   extractPathInfo,
+  isGroupHubHeartbeat,
+  isGroupPayload,
 } from 'tom-protocol';
 import type { PeerConnection, SignalingClient } from 'tom-protocol';
 
@@ -66,6 +78,18 @@ export type MessageStatusChangedHandler = (
 ) => void;
 export type MessageReadHandler = (messageId: string, readAt: number, from: string) => void;
 
+// Group event handlers (Story 4.6)
+export type GroupCreatedHandler = (group: GroupInfo) => void;
+export type GroupInviteHandler = (
+  groupId: string,
+  groupName: string,
+  inviterId: string,
+  inviterUsername: string,
+) => void;
+export type GroupMemberJoinedHandler = (groupId: string, member: GroupMember) => void;
+export type GroupMemberLeftHandler = (groupId: string, nodeId: string, username: string, reason: string) => void;
+export type GroupMessageHandler = (groupId: string, message: GroupMessagePayload) => void;
+
 export class TomClient {
   private identity: IdentityManager;
   private transport: TransportLayer | null = null;
@@ -89,6 +113,10 @@ export class TomClient {
   private receivedEnvelopes = new Map<string, { envelope: MessageEnvelope; receivedAt: number }>();
   /** Cleanup interval handle */
   private cleanupInterval: ReturnType<typeof setInterval> | null = null;
+  /** Group manager for this node (Story 4.6) */
+  private groupManager: GroupManager | null = null;
+  /** Group hub for relay nodes (Story 4.6) */
+  private groupHub: GroupHub | null = null;
 
   private messageHandlers: MessageHandler[] = [];
   private participantHandlers: ParticipantHandler[] = [];
@@ -102,6 +130,12 @@ export class TomClient {
   private connectionTypeChangedHandlers: ConnectionTypeChangedHandler[] = [];
   private messageStatusChangedHandlers: MessageStatusChangedHandler[] = [];
   private messageReadHandlers: MessageReadHandler[] = [];
+  // Group handlers (Story 4.6)
+  private groupCreatedHandlers: GroupCreatedHandler[] = [];
+  private groupInviteHandlers: GroupInviteHandler[] = [];
+  private groupMemberJoinedHandlers: GroupMemberJoinedHandler[] = [];
+  private groupMemberLeftHandlers: GroupMemberLeftHandler[] = [];
+  private groupMessageHandlers: GroupMessageHandler[] = [];
 
   constructor(options: TomClientOptions) {
     this.username = options.username;
@@ -115,6 +149,11 @@ export class TomClient {
         if (nodeId === this.nodeId) {
           this.ws?.send(JSON.stringify({ type: 'role-assign', nodeId, roles: newRoles }));
           this.emitStatus('role:changed', newRoles.join(', '));
+
+          // Initialize GroupHub when becoming a relay (Story 4.6)
+          if (newRoles.includes('relay') && !this.groupHub) {
+            this.initGroupHub();
+          }
         }
         // Update topology with new roles
         const peer = this.topology.getPeer(nodeId);
@@ -350,6 +389,29 @@ export class TomClient {
 
     // Connect DirectPathManager to Router for direct path preference
     this.router.setDirectPathManager(this.directPathManager);
+
+    // Initialize GroupManager for group chat (Story 4.6)
+    this.groupManager = new GroupManager(this.nodeId, this.username, {
+      onGroupCreated: (group) => {
+        for (const handler of this.groupCreatedHandlers) handler(group);
+        this.emitStatus('group:created', group.groupId);
+      },
+      onGroupInvite: (groupId, groupName, inviterId, inviterUsername) => {
+        for (const handler of this.groupInviteHandlers) handler(groupId, groupName, inviterId, inviterUsername);
+        this.emitStatus('group:invite', `${groupName} from ${inviterUsername}`);
+      },
+      onMemberJoined: (groupId, member) => {
+        for (const handler of this.groupMemberJoinedHandlers) handler(groupId, member);
+        this.emitStatus('group:member-joined', `${member.username} joined ${groupId}`);
+      },
+      onMemberLeft: (groupId, nodeId, username, reason) => {
+        for (const handler of this.groupMemberLeftHandlers) handler(groupId, nodeId, username, reason);
+        this.emitStatus('group:member-left', `${username} left ${groupId}`);
+      },
+      onGroupMessage: (groupId, message) => {
+        for (const handler of this.groupMessageHandlers) handler(groupId, message);
+      },
+    });
 
     // Initial self-evaluation — assign own role
     this.roleManager.evaluateNode(this.nodeId, this.topology);
@@ -693,6 +755,234 @@ export class TomClient {
     return this.topology;
   }
 
+  // ============================================
+  // Group Methods (Story 4.6)
+  // ============================================
+
+  /**
+   * Create a new group chat.
+   * Automatically selects a relay to act as hub.
+   */
+  async createGroup(
+    name: string,
+    initialMembers: { nodeId: string; username: string }[] = [],
+  ): Promise<GroupInfo | null> {
+    if (!this.groupManager || !this.relaySelector) return null;
+
+    // Find a relay to act as hub
+    const relays = this.topology.getReachablePeers().filter((p) => p.roles?.includes('relay'));
+
+    // Check if we are a relay ourselves - we can be our own hub
+    const myRoles = this.getCurrentRoles();
+    const selfIsRelay = myRoles.includes('relay');
+
+    let hubRelayId: string;
+    if (selfIsRelay) {
+      // Use ourselves as the hub
+      hubRelayId = this.nodeId;
+    } else if (relays.length > 0) {
+      // Select relay with best availability (most recent)
+      const hubRelay = relays.sort((a, b) => b.lastSeen - a.lastSeen)[0];
+      hubRelayId = hubRelay.nodeId;
+    } else {
+      this.emitStatus('group:error', 'No relays available to host group');
+      return null;
+    }
+
+    const group = this.groupManager.createGroup(name, hubRelayId, initialMembers);
+
+    if (group) {
+      // Send group creation request to hub
+      const createPayload: GroupPayload = {
+        type: 'group-create',
+        groupId: group.groupId,
+        name,
+        initialMembers,
+      };
+
+      if (hubRelayId === this.nodeId && this.groupHub) {
+        // We are the hub - process locally
+        this.groupHub.handlePayload(createPayload, this.nodeId);
+      } else {
+        // Send to remote hub
+        await this.sendPayload(hubRelayId, createPayload);
+      }
+    }
+
+    return group;
+  }
+
+  /**
+   * Accept a group invitation.
+   */
+  async acceptGroupInvite(groupId: string): Promise<boolean> {
+    if (!this.groupManager) return false;
+
+    const invites = this.groupManager.getPendingInvites();
+    const invite = invites.find((i) => i.groupId === groupId);
+    if (!invite) return false;
+
+    if (!this.groupManager.acceptInvite(groupId)) return false;
+
+    // Find the hub for this group and send join request
+    // For now, we'll need to get hub info from the invite
+    // This would be enhanced with proper hub discovery
+    const joinPayload: GroupPayload = {
+      type: 'group-join',
+      groupId,
+      nodeId: this.nodeId,
+      username: this.username,
+    };
+
+    // Send to inviter who will forward to hub
+    await this.sendPayload(invite.inviterId, joinPayload);
+    return true;
+  }
+
+  /**
+   * Decline a group invitation.
+   */
+  declineGroupInvite(groupId: string): boolean {
+    return this.groupManager?.declineInvite(groupId) ?? false;
+  }
+
+  /**
+   * Send a message to a group.
+   */
+  async sendGroupMessage(groupId: string, text: string): Promise<boolean> {
+    if (!this.groupManager) return false;
+
+    const group = this.groupManager.getGroup(groupId);
+    if (!group) return false;
+
+    const messageId =
+      typeof crypto.randomUUID === 'function'
+        ? crypto.randomUUID()
+        : Array.from({ length: 32 }, () => Math.floor(Math.random() * 16).toString(16)).join('');
+
+    const messagePayload: GroupPayload = {
+      type: 'group-message',
+      groupId,
+      messageId,
+      senderId: this.nodeId,
+      senderUsername: this.username,
+      text,
+      sentAt: Date.now(),
+    };
+
+    // Send to hub for fanout
+    if (group.hubRelayId === this.nodeId && this.groupHub) {
+      // We are the hub - process locally
+      this.groupHub.handlePayload(messagePayload, this.nodeId);
+    } else {
+      await this.sendPayload(group.hubRelayId, messagePayload);
+    }
+    return true;
+  }
+
+  /**
+   * Leave a group.
+   */
+  async leaveGroup(groupId: string): Promise<boolean> {
+    if (!this.groupManager) return false;
+
+    const group = this.groupManager.getGroup(groupId);
+    if (!group) return false;
+
+    const leavePayload: GroupPayload = {
+      type: 'group-leave',
+      groupId,
+      nodeId: this.nodeId,
+    };
+
+    if (group.hubRelayId === this.nodeId && this.groupHub) {
+      // We are the hub - process locally
+      this.groupHub.handlePayload(leavePayload, this.nodeId);
+    } else {
+      await this.sendPayload(group.hubRelayId, leavePayload);
+    }
+    return this.groupManager.leaveGroup(groupId);
+  }
+
+  /**
+   * Get all groups this node is a member of.
+   */
+  getGroups(): GroupInfo[] {
+    return this.groupManager?.getAllGroups() ?? [];
+  }
+
+  /**
+   * Get a specific group.
+   */
+  getGroup(groupId: string): GroupInfo | null {
+    return this.groupManager?.getGroup(groupId) ?? null;
+  }
+
+  /**
+   * Get pending group invitations.
+   */
+  getPendingGroupInvites(): Array<{ groupId: string; groupName: string; inviterId: string; inviterUsername: string }> {
+    return this.groupManager?.getPendingInvites() ?? [];
+  }
+
+  /**
+   * Get message history for a group.
+   */
+  getGroupMessages(groupId: string): GroupMessagePayload[] {
+    return this.groupManager?.getMessageHistory(groupId) ?? [];
+  }
+
+  // Group event handlers
+  onGroupCreated(handler: GroupCreatedHandler): void {
+    this.groupCreatedHandlers.push(handler);
+  }
+
+  onGroupInvite(handler: GroupInviteHandler): void {
+    this.groupInviteHandlers.push(handler);
+  }
+
+  onGroupMemberJoined(handler: GroupMemberJoinedHandler): void {
+    this.groupMemberJoinedHandlers.push(handler);
+  }
+
+  onGroupMemberLeft(handler: GroupMemberLeftHandler): void {
+    this.groupMemberLeftHandlers.push(handler);
+  }
+
+  onGroupMessage(handler: GroupMessageHandler): void {
+    this.groupMessageHandlers.push(handler);
+  }
+
+  /**
+   * Initialize GroupHub when this node becomes a relay.
+   * @internal
+   */
+  private initGroupHub(): void {
+    if (this.groupHub) return;
+
+    const hubEvents: GroupHubEvents = {
+      sendToNode: async (nodeId, payload, _groupId) => {
+        await this.sendPayload(nodeId, payload);
+      },
+      broadcastToGroup: async (groupId, payload, excludeNodeId) => {
+        const group = this.groupHub?.getGroup(groupId);
+        if (!group) return;
+
+        for (const member of group.members) {
+          if (member.nodeId !== excludeNodeId && member.nodeId !== this.nodeId) {
+            await this.sendPayload(member.nodeId, payload);
+          }
+        }
+      },
+      onHubActivity: (groupId, activity, details) => {
+        this.emitStatus(`hub:${activity}`, `${groupId}: ${JSON.stringify(details)}`);
+      },
+    };
+
+    this.groupHub = new GroupHub(this.nodeId, hubEvents);
+    this.emitStatus('group-hub:initialized');
+  }
+
   disconnect(): void {
     this.heartbeat?.stop();
     this.roleManager.stop();
@@ -711,7 +1001,81 @@ export class TomClient {
   private handleIncomingMessage(envelope: MessageEnvelope): void {
     // Track conversation for direct path optimization
     this.directPathManager?.trackConversation(envelope);
+
+    // Handle group payloads (Story 4.6)
+    if (envelope.type === 'app' && isGroupPayload(envelope.payload)) {
+      this.handleGroupPayload(envelope.payload, envelope.from);
+      return;
+    }
+
     this.router?.handleIncoming(envelope);
+  }
+
+  /**
+   * Handle incoming group payloads.
+   * Routes to GroupManager (member) or GroupHub (relay).
+   */
+  private handleGroupPayload(payload: GroupPayload, fromNodeId: string): void {
+    // If we're a relay hub, handle as hub
+    if (this.groupHub) {
+      this.groupHub.handlePayload(payload, fromNodeId);
+    }
+
+    // Also handle as member (for messages/events directed to us)
+    if (this.groupManager) {
+      switch (payload.type) {
+        case 'group-created':
+          if ('groupInfo' in payload) {
+            this.groupManager.handleGroupCreated(payload.groupInfo);
+          }
+          break;
+        case 'group-invite':
+          if ('inviteeId' in payload && payload.inviteeId === this.nodeId) {
+            this.groupManager.handleInvite(
+              payload.groupId,
+              payload.groupName,
+              payload.inviterId,
+              payload.inviterUsername,
+            );
+          }
+          break;
+        case 'group-sync':
+          if ('groupInfo' in payload) {
+            this.groupManager.handleGroupSync(payload.groupInfo, payload.recentMessages);
+          }
+          break;
+        case 'group-member-joined':
+          if ('member' in payload) {
+            this.groupManager.handleMemberJoined(payload.groupId, payload.member);
+          }
+          break;
+        case 'group-member-left':
+          if ('nodeId' in payload && 'username' in payload) {
+            this.groupManager.handleMemberLeft(
+              payload.groupId,
+              payload.nodeId,
+              payload.username,
+              payload.reason ?? 'voluntary',
+            );
+          }
+          break;
+        case 'group-message':
+          if ('messageId' in payload) {
+            this.groupManager.handleMessage(payload as GroupMessagePayload);
+          }
+          break;
+        case 'group-hub-migration':
+          if ('newHubId' in payload && 'oldHubId' in payload) {
+            this.groupManager.handleHubMigration(payload.groupId, payload.newHubId, payload.oldHubId);
+          }
+          break;
+        case 'group-hub-heartbeat':
+          if (isGroupHubHeartbeat(payload)) {
+            this.groupManager.handleHubHeartbeat(payload.groupId, payload.memberCount, payload.timestamp);
+          }
+          break;
+      }
+    }
   }
 
   private emitStatus(status: string, detail?: string): void {

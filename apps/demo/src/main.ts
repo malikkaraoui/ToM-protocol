@@ -34,7 +34,7 @@ const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
 
 /** Get appropriate control instructions based on device */
 function getControlsText(): string {
-  return isTouchDevice ? 'Swipe to move' : 'Arrow keys or WASD to move';
+  return isTouchDevice ? 'Glissez pour bouger' : 'Flèches ou WASD pour bouger';
 }
 
 const loginEl = document.getElementById('login') as HTMLElement;
@@ -86,6 +86,16 @@ let gameRenderer: SnakeRenderer | null = null;
 
 // Pending game invitations by peerId
 const pendingInvitations = new Map<string, string>(); // peerId -> gameId
+
+// Group state (Story 4.6)
+let selectedGroup: string | null = null;
+const groupUnreadCounts = new Map<string, number>();
+const groupListEl = document.getElementById('group-list') as HTMLElement;
+const createGroupBtn = document.getElementById('create-group-btn') as HTMLButtonElement;
+const createGroupModal = document.getElementById('create-group-modal') as HTMLElement;
+const groupNameInput = document.getElementById('group-name-input') as HTMLInputElement;
+const createGroupCancelBtn = document.getElementById('create-group-cancel-btn') as HTMLButtonElement;
+const createGroupConfirmBtn = document.getElementById('create-group-confirm-btn') as HTMLButtonElement;
 
 joinBtn.addEventListener('click', async () => {
   const username = usernameInput.value.trim();
@@ -219,17 +229,56 @@ joinBtn.addEventListener('click', async () => {
     renderParticipants();
   });
 
+  // Group event handlers (Story 4.6)
+  client.onGroupCreated((group) => {
+    console.log(`[Demo] Group created: ${group.name}`);
+    renderGroups();
+  });
+
+  client.onGroupInvite((groupId, groupName, inviterId, inviterUsername) => {
+    console.log(`[Demo] Group invite: ${groupName} from ${inviterUsername}`);
+    // Show invite notification
+    renderGroups();
+  });
+
+  client.onGroupMemberJoined((groupId, member) => {
+    console.log(`[Demo] ${member.username} joined group ${groupId}`);
+    renderGroups();
+    if (selectedGroup === groupId) {
+      renderGroupMessages();
+    }
+  });
+
+  client.onGroupMemberLeft((groupId, _nodeId, username) => {
+    console.log(`[Demo] ${username} left group ${groupId}`);
+    renderGroups();
+    if (selectedGroup === groupId) {
+      renderGroupMessages();
+    }
+  });
+
+  client.onGroupMessage((groupId, message) => {
+    console.log(`[Demo] Group message in ${groupId}: ${message.text}`);
+    if (selectedGroup === groupId) {
+      renderGroupMessages();
+    } else {
+      // Increment unread count for group
+      groupUnreadCounts.set(groupId, (groupUnreadCounts.get(groupId) ?? 0) + 1);
+      renderGroups();
+    }
+  });
+
   try {
     await client.connect();
     loginEl.style.display = 'none';
     chatEl.style.display = 'block';
-    nodeIdEl.textContent = `Node: ${client.getNodeId().slice(0, 16)}...`;
+    nodeIdEl.textContent = `Nœud : ${client.getNodeId().slice(0, 16)}...`;
     renderMyRole();
     renderChatHeader();
     // Periodic re-render to reflect heartbeat status changes
     setInterval(renderParticipants, 3000);
   } catch (err) {
-    statusBar.textContent = `Connection failed: ${err}`;
+    statusBar.textContent = `Échec de connexion : ${err}`;
   }
 });
 
@@ -364,7 +413,7 @@ function renderChatHeader(): void {
 
     chatHeaderEl.style.display = 'block';
   } else {
-    chatHeaderEl.textContent = 'Select a contact';
+    chatHeaderEl.textContent = 'Sélectionnez un contact';
     chatHeaderEl.style.display = 'block';
   }
 }
@@ -374,7 +423,7 @@ function renderMyRole(): void {
   const roles = client.getCurrentRoles();
   const roleText = roles.join(', ');
   console.log(`[Demo] renderMyRole: getCurrentRoles() returned [${roleText}]`);
-  myRoleEl.textContent = `Role: ${roleText}`;
+  myRoleEl.textContent = `Rôle : ${roleText}`;
 }
 
 function renderMessages(): void {
@@ -388,11 +437,11 @@ function renderMessages(): void {
     const invEl = document.createElement('div');
     invEl.className = 'game-invitation';
     invEl.innerHTML = `
-      <div class="game-invitation-title">🐍 Snake Game Invitation</div>
-      <div>You've been invited to play Snake!</div>
+      <div class="game-invitation-title">🐍 Invitation au jeu Snake</div>
+      <div>On vous invite à jouer au Snake !</div>
       <div class="game-invitation-actions">
-        <button class="game-accept-btn" data-peer="${selectedPeer}">Accept</button>
-        <button class="game-decline-btn" data-peer="${selectedPeer}">Decline</button>
+        <button class="game-accept-btn" data-peer="${selectedPeer}">Accepter</button>
+        <button class="game-decline-btn" data-peer="${selectedPeer}">Refuser</button>
       </div>
     `;
     messagesEl.appendChild(invEl);
@@ -427,10 +476,10 @@ function renderMessages(): void {
 
     const statusDisplay: Record<string, string> = {
       pending: '...',
-      sent: 'sent',
-      relayed: 'relayed',
-      delivered: 'delivered',
-      read: 'read ✓✓',
+      sent: 'envoyé',
+      relayed: 'relayé',
+      delivered: 'livré',
+      read: 'lu ✓✓',
     };
     const statusText = msg.isSent ? (statusDisplay[msg.status] ?? msg.status) : '';
 
@@ -513,7 +562,7 @@ async function sendMessage(): Promise<void> {
     }
   } catch (err) {
     const error = err as Error;
-    statusBar.textContent = `Send failed: ${error.message}`;
+    statusBar.textContent = `Échec d'envoi : ${error.message}`;
   }
 }
 
@@ -537,13 +586,13 @@ function handleGameSessionStateChange(state: GameSessionState): void {
 
   // Update controls text based on state
   if (state === 'waiting-accept') {
-    gameControlsEl.textContent = 'Waiting for opponent to accept...';
+    gameControlsEl.textContent = "En attente de l'adversaire...";
   } else if (state === 'countdown') {
-    gameControlsEl.textContent = 'Get ready!';
+    gameControlsEl.textContent = 'Préparez-vous !';
   } else if (state === 'playing') {
     gameControlsEl.textContent = getControlsText();
   } else if (state === 'ended') {
-    gameControlsEl.textContent = isTouchDevice ? 'Tap to return to chat' : 'Click to return to chat';
+    gameControlsEl.textContent = isTouchDevice ? 'Touchez pour revenir au chat' : 'Cliquez pour revenir au chat';
   }
 
   // Re-render header to show/hide invite button
@@ -589,7 +638,7 @@ function handleGameInvitationReceived(peerId: string, _peerUsername: string, gam
 }
 
 function handleGameInvitationDeclined(peerId: string): void {
-  statusBar.textContent = 'Game invitation declined';
+  statusBar.textContent = 'Invitation refusée';
   pendingInvitations.delete(peerId);
   renderMessages();
 }
@@ -701,5 +750,211 @@ usernameInput.addEventListener('keydown', (e) => {
 
 messageFormEl.addEventListener('submit', (e) => {
   e.preventDefault();
-  sendMessage();
+  if (selectedGroup) {
+    sendGroupMessage();
+  } else {
+    sendMessage();
+  }
+});
+
+// ============================================
+// Group Functions (Story 4.6)
+// ============================================
+
+function renderGroups(): void {
+  if (!groupListEl || !client) return;
+  groupListEl.innerHTML = '';
+
+  // Render pending invites first
+  const invites = client.getPendingGroupInvites();
+  for (const invite of invites) {
+    const card = document.createElement('div');
+    card.className = 'group-invite-card';
+    card.innerHTML = `
+      <div class="group-invite-card-title">Invitation : ${escapeHtml(invite.groupName)}</div>
+      <div class="group-invite-card-info">De : ${escapeHtml(invite.inviterUsername)}</div>
+      <div class="group-invite-card-actions">
+        <button class="group-join-btn" data-group-id="${invite.groupId}">Rejoindre</button>
+        <button class="group-decline-btn" data-group-id="${invite.groupId}">Refuser</button>
+      </div>
+    `;
+    groupListEl.appendChild(card);
+
+    // Add event listeners
+    card.querySelector('.group-join-btn')?.addEventListener('click', async () => {
+      await client?.acceptGroupInvite(invite.groupId);
+      renderGroups();
+    });
+    card.querySelector('.group-decline-btn')?.addEventListener('click', () => {
+      client?.declineGroupInvite(invite.groupId);
+      renderGroups();
+    });
+  }
+
+  // Render groups
+  const groups = client.getGroups();
+  for (const group of groups) {
+    const el = document.createElement('div');
+    const classes = ['group-item'];
+    if (selectedGroup === group.groupId) classes.push('active');
+    el.className = classes.join(' ');
+
+    const unread = groupUnreadCounts.get(group.groupId) ?? 0;
+    const unreadBadge = unread > 0 ? `<span class="unread-badge">${unread > 9 ? '9+' : unread}</span>` : '';
+
+    el.innerHTML = `
+      <div class="group-icon">👥</div>
+      <div class="group-name">${escapeHtml(group.name)}</div>
+      ${unreadBadge}
+      <div class="group-members">${group.members.length}</div>
+    `;
+
+    el.addEventListener('click', () => {
+      selectGroup(group.groupId);
+    });
+
+    groupListEl.appendChild(el);
+  }
+}
+
+function selectGroup(groupId: string): void {
+  selectedGroup = groupId;
+  selectedPeer = null; // Deselect peer
+  groupUnreadCounts.set(groupId, 0);
+  renderParticipants();
+  renderGroups();
+  renderGroupChatHeader();
+  renderGroupMessages();
+}
+
+function selectPeerFromGroup(): void {
+  selectedGroup = null;
+  renderGroups();
+}
+
+function renderGroupChatHeader(): void {
+  if (!chatHeaderEl || !client || !selectedGroup) return;
+  const group = client.getGroup(selectedGroup);
+  if (!group) return;
+
+  chatHeaderEl.innerHTML = '';
+
+  // Group name
+  const nameSpan = document.createElement('span');
+  nameSpan.textContent = `👥 ${group.name}`;
+  chatHeaderEl.appendChild(nameSpan);
+
+  // Member count
+  const membersSpan = document.createElement('span');
+  membersSpan.style.marginLeft = '12px';
+  membersSpan.style.fontSize = '11px';
+  membersSpan.style.color = '#888';
+  membersSpan.textContent = `${group.members.length} membres`;
+  chatHeaderEl.appendChild(membersSpan);
+
+  // Leave button
+  const leaveBtn = document.createElement('button');
+  leaveBtn.className = 'game-invite-btn';
+  leaveBtn.style.marginLeft = 'auto';
+  leaveBtn.style.background = '#ff4444';
+  leaveBtn.textContent = 'Quitter';
+  leaveBtn.addEventListener('click', async () => {
+    if (selectedGroup) {
+      await client?.leaveGroup(selectedGroup);
+      selectedGroup = null;
+      chatHeaderEl.textContent = 'Sélectionnez un contact';
+      messagesEl.innerHTML = '';
+      renderGroups();
+    }
+  });
+  chatHeaderEl.appendChild(leaveBtn);
+
+  chatHeaderEl.style.display = 'flex';
+  chatHeaderEl.style.alignItems = 'center';
+}
+
+function renderGroupMessages(): void {
+  if (!messagesEl || !client || !selectedGroup) return;
+  messagesEl.innerHTML = '';
+
+  const messages = client.getGroupMessages(selectedGroup);
+  const myNodeId = client.getNodeId();
+
+  for (const msg of messages) {
+    const isSent = msg.senderId === myNodeId;
+    const el = document.createElement('div');
+    el.className = `message ${isSent ? 'sent' : 'received'}`;
+
+    const senderDisplay = isSent
+      ? ''
+      : `<div class="meta" style="color: #00d4ff; margin-bottom: 4px;">${escapeHtml(msg.senderUsername)}</div>`;
+
+    el.innerHTML = `
+      ${senderDisplay}
+      <div>${escapeHtml(msg.text)}</div>
+      <div class="meta">${new Date(msg.sentAt).toLocaleTimeString()}</div>
+    `;
+    messagesEl.appendChild(el);
+  }
+
+  messagesEl.scrollTop = messagesEl.scrollHeight;
+}
+
+async function sendGroupMessage(): Promise<void> {
+  if (!client || !selectedGroup) return;
+  const text = messageInput.value.trim();
+  if (!text) return;
+
+  try {
+    const success = await client.sendGroupMessage(selectedGroup, text);
+    if (success) {
+      messageInput.value = '';
+      renderGroupMessages();
+    }
+  } catch (err) {
+    const error = err as Error;
+    statusBar.textContent = `Échec d'envoi groupe : ${error.message}`;
+  }
+}
+
+// Modal handlers
+createGroupBtn?.addEventListener('click', () => {
+  createGroupModal?.classList.add('active');
+  groupNameInput?.focus();
+});
+
+createGroupCancelBtn?.addEventListener('click', () => {
+  createGroupModal?.classList.remove('active');
+  if (groupNameInput) groupNameInput.value = '';
+});
+
+createGroupConfirmBtn?.addEventListener('click', async () => {
+  const name = groupNameInput?.value.trim();
+  if (!name || !client) return;
+
+  // Get a relay to use as hub
+  const relays = client.getTopologyInstance()?.getRelayNodes() ?? [];
+  const myRoles = client.getCurrentRoles();
+  const hubRelayId = myRoles.includes('relay') ? client.getNodeId() : relays[0];
+
+  if (!hubRelayId) {
+    statusBar.textContent = 'Aucun relais disponible pour le hub';
+    return;
+  }
+
+  const group = await client.createGroup(name, []);
+  if (group) {
+    createGroupModal?.classList.remove('active');
+    if (groupNameInput) groupNameInput.value = '';
+    selectGroup(group.groupId);
+  }
+});
+
+groupNameInput?.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    createGroupConfirmBtn?.click();
+  } else if (e.key === 'Escape') {
+    createGroupCancelBtn?.click();
+  }
 });
