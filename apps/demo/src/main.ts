@@ -852,6 +852,16 @@ function renderGroupChatHeader(): void {
   membersSpan.textContent = `${group.members.length} membres`;
   chatHeaderEl.appendChild(membersSpan);
 
+  // Invite button
+  const inviteBtn = document.createElement('button');
+  inviteBtn.className = 'game-invite-btn';
+  inviteBtn.style.marginLeft = '12px';
+  inviteBtn.textContent = '+ Inviter';
+  inviteBtn.addEventListener('click', () => {
+    showInviteModal(group.groupId);
+  });
+  chatHeaderEl.appendChild(inviteBtn);
+
   // Leave button
   const leaveBtn = document.createElement('button');
   leaveBtn.className = 'game-invite-btn';
@@ -957,4 +967,55 @@ groupNameInput?.addEventListener('keydown', (e) => {
   } else if (e.key === 'Escape') {
     createGroupCancelBtn?.click();
   }
+});
+
+// ============================================
+// Invite to Group Modal
+// ============================================
+
+const inviteModal = document.getElementById('invite-modal') as HTMLElement;
+const inviteModalList = document.getElementById('invite-modal-list') as HTMLElement;
+const inviteModalCloseBtn = document.getElementById('invite-modal-close-btn') as HTMLButtonElement;
+
+function showInviteModal(groupId: string): void {
+  if (!inviteModal || !inviteModalList || !client) return;
+
+  const group = client.getGroup(groupId);
+  if (!group) return;
+
+  // Get contacts not already in group
+  const memberIds = new Set(group.members.map((m) => m.nodeId));
+  const availableContacts = Array.from(knownPeers.entries()).filter(
+    ([nodeId, peer]) => !memberIds.has(nodeId) && peer.online,
+  );
+
+  inviteModalList.innerHTML = '';
+
+  if (availableContacts.length === 0) {
+    inviteModalList.innerHTML = '<div style="color: #888; padding: 12px;">Aucun contact disponible</div>';
+  } else {
+    for (const [nodeId, peer] of availableContacts) {
+      const item = document.createElement('div');
+      item.style.cssText = 'padding: 10px 12px; cursor: pointer; border-radius: 4px; margin-bottom: 4px;';
+      item.textContent = peer.username;
+      item.addEventListener('mouseenter', () => {
+        item.style.background = '#0f3460';
+      });
+      item.addEventListener('mouseleave', () => {
+        item.style.background = 'transparent';
+      });
+      item.addEventListener('click', async () => {
+        await client?.inviteToGroup(groupId, nodeId, peer.username);
+        inviteModal.classList.remove('active');
+        statusBar.textContent = `Invitation envoyée à ${peer.username}`;
+      });
+      inviteModalList.appendChild(item);
+    }
+  }
+
+  inviteModal.classList.add('active');
+}
+
+inviteModalCloseBtn?.addEventListener('click', () => {
+  inviteModal?.classList.remove('active');
 });

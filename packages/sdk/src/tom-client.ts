@@ -847,6 +847,31 @@ export class TomClient {
   }
 
   /**
+   * Invite a user to a group.
+   */
+  async inviteToGroup(groupId: string, inviteeNodeId: string, inviteeUsername: string): Promise<boolean> {
+    if (!this.groupManager) return false;
+
+    const group = this.groupManager.getGroup(groupId);
+    if (!group) return false;
+
+    const invitePayload: GroupPayload = {
+      type: 'group-invite',
+      groupId,
+      groupName: group.name,
+      inviteeId: inviteeNodeId,
+      inviteeUsername,
+      inviterId: this.nodeId,
+      inviterUsername: this.username,
+      memberCount: group.members.length,
+    };
+
+    // Send invite directly to the user
+    await this.sendPayload(inviteeNodeId, invitePayload);
+    return true;
+  }
+
+  /**
    * Send a message to a group.
    */
   async sendGroupMessage(groupId: string, text: string): Promise<boolean> {
