@@ -9,7 +9,7 @@ function makePeer(nodeId: string, username = 'user') {
     publicKey: nodeId,
     reachableVia: [],
     lastSeen: Date.now(),
-    roles: ['client'] as ('client' | 'relay' | 'observer' | 'bootstrap')[],
+    roles: ['client'] as ('client' | 'relay' | 'observer' | 'bootstrap' | 'backup')[],
   };
 }
 
@@ -202,5 +202,221 @@ describe('RoleManager', () => {
 
     // node-1 is lowest in lexicographic order, so it becomes relay immediately
     expect(roles).toEqual(['client', 'relay']);
+  });
+
+  // ============ Backup Role Tests ============
+
+  describe('backup role assignment', () => {
+    it('should record node online time', () => {
+      manager.recordNodeOnline('node-1');
+      const metrics = manager.getNodeMetrics('node-1');
+      expect(metrics.timeOnlineMs).toBeGreaterThanOrEqual(0);
+    });
+
+    it('should not record duplicate online times', () => {
+      manager.recordNodeOnline('node-1');
+      vi.advanceTimersByTime(1000);
+      manager.recordNodeOnline('node-1'); // Should be ignored
+
+      const metrics = manager.getNodeMetrics('node-1');
+      // Time should be ~1000ms, not 0
+      expect(metrics.timeOnlineMs).toBeGreaterThanOrEqual(1000);
+    });
+
+    it('should update node metrics', () => {
+      manager.updateNodeMetrics('node-1', { bandwidthScore: 80, contributionScore: 50 });
+      const metrics = manager.getNodeMetrics('node-1');
+      expect(metrics.bandwidthScore).toBe(80);
+      expect(metrics.contributionScore).toBe(50);
+    });
+
+    it('should calculate backup score', () => {
+      manager.recordNodeOnline('node-1');
+      vi.advanceTimersByTime(30 * 60 * 1000); // 30 minutes
+
+      manager.updateNodeMetrics('node-1', { bandwidthScore: 80, contributionScore: 60 });
+
+      const score = manager.calculateBackupScore('node-1');
+      // Expected: timeScore=50 (30min/60min), bandwidth=80, contribution=60
+      // Score = 50*0.3 + 80*0.4 + 60*0.3 = 15 + 32 + 18 = 65
+      expect(score).toBe(65);
+    });
+
+    it('should not be eligible for backup before minimum time online', () => {
+      topology.addPeer(makePeer('node-1'));
+      manager.recordNodeOnline('node-1');
+      manager.updateNodeMetrics('node-1', { bandwidthScore: 100, contributionScore: 100 });
+
+      // Only 1 minute online (need 5 minutes)
+      vi.advanceTimersByTime(60 * 1000);
+
+      expect(manager.isEligibleForBackup('node-1')).toBe(false);
+    });
+
+    it('should be eligible for backup after minimum time online', () => {
+      topology.addPeer(makePeer('node-1'));
+      manager.recordNodeOnline('node-1');
+      manager.updateNodeMetrics('node-1', { bandwidthScore: 60, contributionScore: 40 });
+
+      // 6 minutes online (need 5 minutes)
+      vi.advanceTimersByTime(6 * 60 * 1000);
+
+      expect(manager.isEligibleForBackup('node-1')).toBe(true);
+    });
+
+    it('should assign backup role to eligible node', () => {
+      topology.addPeer(makePeer('node-1'));
+      manager.recordNodeOnline('node-1');
+      manager.updateNodeMetrics('node-1', { bandwidthScore: 70, contributionScore: 50 });
+      manager.evaluateNode('node-1', topology); // Assign initial roles
+
+      // Meet time requirement
+      vi.advanceTimersByTime(6 * 60 * 1000);
+
+      const isBackup = manager.evaluateBackupRole('node-1', topology);
+
+      expect(isBackup).toBe(true);
+      expect(manager.isBackupNode('node-1')).toBe(true);
+      expect(manager.getCurrentRoles('node-1')).toContain('backup');
+    });
+
+    it('should not assign backup role to ineligible node', () => {
+      topology.addPeer(makePeer('node-1'));
+      manager.recordNodeOnline('node-1');
+      manager.evaluateNode('node-1', topology);
+
+      // Only 1 minute online
+      vi.advanceTimersByTime(60 * 1000);
+
+      const isBackup = manager.evaluateBackupRole('node-1', topology);
+
+      expect(isBackup).toBe(false);
+      expect(manager.isBackupNode('node-1')).toBe(false);
+    });
+
+    it('should select multiple backup nodes (cascading redundancy)', () => {
+      // Add 4 nodes
+      topology.addPeer(makePeer('node-1'));
+      topology.addPeer(makePeer('node-2'));
+      topology.addPeer(makePeer('node-3'));
+      topology.addPeer(makePeer('node-4'));
+
+      // Make all nodes online for 10 minutes with good metrics
+      for (const nodeId of ['node-1', 'node-2', 'node-3', 'node-4']) {
+        manager.recordNodeOnline(nodeId);
+        manager.updateNodeMetrics(nodeId, { bandwidthScore: 70, contributionScore: 50 });
+        manager.evaluateNode(nodeId, topology);
+      }
+      vi.advanceTimersByTime(10 * 60 * 1000);
+
+      const backupResults = manager.reassignBackupRoles(topology);
+
+      // With 4 nodes, target = ceil(4/2) = 2 backups
+      const backupCount = Array.from(backupResults.values()).filter(Boolean).length;
+      expect(backupCount).toBe(2);
+    });
+
+    it('should select backups by score (highest first)', () => {
+      topology.addPeer(makePeer('node-1'));
+      topology.addPeer(makePeer('node-2'));
+
+      manager.recordNodeOnline('node-1');
+      manager.recordNodeOnline('node-2');
+
+      // node-2 has higher metrics
+      manager.updateNodeMetrics('node-1', { bandwidthScore: 50, contributionScore: 30 });
+      manager.updateNodeMetrics('node-2', { bandwidthScore: 90, contributionScore: 80 });
+
+      manager.evaluateNode('node-1', topology);
+      manager.evaluateNode('node-2', topology);
+
+      vi.advanceTimersByTime(10 * 60 * 1000);
+
+      // With 2 nodes, target = ceil(2/2) = 1 backup
+      manager.reassignBackupRoles(topology);
+
+      // node-2 should be selected (higher score)
+      expect(manager.isBackupNode('node-2')).toBe(true);
+      expect(manager.isBackupNode('node-1')).toBe(false);
+    });
+
+    it('should increment contribution score', () => {
+      manager.updateNodeMetrics('node-1', { contributionScore: 10 });
+      manager.incrementContributionScore('node-1', 5);
+
+      const metrics = manager.getNodeMetrics('node-1');
+      expect(metrics.contributionScore).toBe(15);
+    });
+
+    it('should cap contribution score at 100', () => {
+      manager.updateNodeMetrics('node-1', { contributionScore: 98 });
+      manager.incrementContributionScore('node-1', 10);
+
+      const metrics = manager.getNodeMetrics('node-1');
+      expect(metrics.contributionScore).toBe(100);
+    });
+
+    it('should get all backup nodes', () => {
+      topology.addPeer(makePeer('node-1'));
+      topology.addPeer(makePeer('node-2'));
+      topology.addPeer(makePeer('node-3'));
+
+      for (const nodeId of ['node-1', 'node-2', 'node-3']) {
+        manager.recordNodeOnline(nodeId);
+        manager.updateNodeMetrics(nodeId, { bandwidthScore: 70, contributionScore: 50 });
+        manager.evaluateNode(nodeId, topology);
+      }
+      vi.advanceTimersByTime(10 * 60 * 1000);
+
+      manager.reassignBackupRoles(topology);
+
+      const backups = manager.getBackupNodes();
+      expect(backups.length).toBeGreaterThan(0);
+      expect(backups.length).toBeLessThanOrEqual(2); // ceil(3/2) = 2
+    });
+
+    it('should emit role changed event when backup role assigned', () => {
+      topology.addPeer(makePeer('node-1'));
+      manager.recordNodeOnline('node-1');
+      manager.updateNodeMetrics('node-1', { bandwidthScore: 70, contributionScore: 50 });
+      manager.evaluateNode('node-1', topology);
+
+      vi.advanceTimersByTime(6 * 60 * 1000);
+      onRoleChanged.mockClear();
+
+      manager.evaluateBackupRole('node-1', topology);
+
+      expect(onRoleChanged).toHaveBeenCalled();
+      const calls = onRoleChanged.mock.calls;
+      const lastCall = calls[calls.length - 1];
+      expect(lastCall[2]).toContain('backup');
+    });
+
+    it('should remove backup role when no longer eligible', () => {
+      // Setup: node-1 is backup, node-2 joins with better score
+      topology.addPeer(makePeer('node-1'));
+      manager.recordNodeOnline('node-1');
+      manager.updateNodeMetrics('node-1', { bandwidthScore: 50, contributionScore: 30 });
+      manager.evaluateNode('node-1', topology);
+
+      vi.advanceTimersByTime(6 * 60 * 1000);
+      manager.evaluateBackupRole('node-1', topology);
+      expect(manager.isBackupNode('node-1')).toBe(true);
+
+      // Add node-2 with better score
+      topology.addPeer(makePeer('node-2'));
+      manager.recordNodeOnline('node-2');
+      manager.updateNodeMetrics('node-2', { bandwidthScore: 95, contributionScore: 90 });
+      manager.evaluateNode('node-2', topology);
+
+      vi.advanceTimersByTime(6 * 60 * 1000);
+
+      // Re-evaluate - with 2 nodes, only 1 backup needed
+      // node-2 has higher score, so node-1 should lose backup role
+      manager.reassignBackupRoles(topology);
+
+      expect(manager.isBackupNode('node-2')).toBe(true);
+      expect(manager.isBackupNode('node-1')).toBe(false);
+    });
   });
 });

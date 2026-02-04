@@ -1,6 +1,6 @@
 import type { NodeId } from '../identity/index.js';
 
-export type NodeRole = 'client' | 'relay' | 'observer' | 'bootstrap';
+export type NodeRole = 'client' | 'relay' | 'observer' | 'bootstrap' | 'backup';
 
 export interface PeerInfo {
   nodeId: NodeId;
@@ -67,6 +67,10 @@ export class NetworkTopology {
 
   getRelayNodes(): PeerInfo[] {
     return Array.from(this.peers.values()).filter((p) => p.roles.includes('relay'));
+  }
+
+  getBackupNodes(): PeerInfo[] {
+    return Array.from(this.peers.values()).filter((p) => p.roles.includes('backup'));
   }
 
   getNodesByRole(role: NodeRole): PeerInfo[] {
