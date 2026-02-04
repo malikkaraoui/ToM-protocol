@@ -3,7 +3,7 @@ import type { NodeId } from '../identity/index.js';
 
 export interface RelaySelectionResult {
   relayId: string | null;
-  reason: 'best-available' | 'direct-path' | 'no-relays-available' | 'recipient-is-self' | 'no-peers';
+  reason: 'best-available' | 'direct-fallback' | 'no-relays-available' | 'recipient-is-self' | 'no-peers';
 }
 
 export interface RelaySelectorOptions {
@@ -57,6 +57,11 @@ export class RelaySelector {
 
     // If no online relays available
     if (onlineRelays.length === 0) {
+      // Fallback: in minimal networks (2-3 nodes), allow direct sending
+      // This handles bootstrap phase before relays are assigned
+      if (recipient && topology.getPeerStatus(to) === 'online') {
+        return { relayId: null, reason: 'direct-fallback' };
+      }
       return { relayId: null, reason: 'no-relays-available' };
     }
 

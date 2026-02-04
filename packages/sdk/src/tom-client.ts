@@ -159,6 +159,9 @@ export class TomClient {
     const identityResult = await this.identity.init();
     this.nodeId = this.identity.getNodeId();
 
+    // Re-bind topology with selfNodeId for periodic role re-evaluation
+    this.roleManager.bindTopology(this.topology, this.nodeId);
+
     this.emitStatus('identity:ready', this.nodeId);
 
     // Connect to signaling server
@@ -388,7 +391,7 @@ export class TomClient {
       this.heartbeat?.trackPeer(msg.nodeId);
       for (const handler of this.peerDiscoveredHandlers) handler(peerInfo);
       // Re-evaluate roles when network changes
-      this.roleManager.reassignRoles(this.topology);
+      this.roleManager.reassignRoles(this.topology, this.nodeId);
     }
     if (msg.action === 'leave') {
       this.topology.removePeer(msg.nodeId);
@@ -396,7 +399,7 @@ export class TomClient {
       this.roleManager.removeAssignment(msg.nodeId);
       for (const handler of this.peerDepartedHandlers) handler(msg.nodeId);
       // Re-evaluate roles when network changes
-      this.roleManager.reassignRoles(this.topology);
+      this.roleManager.reassignRoles(this.topology, this.nodeId);
     }
   }
 
