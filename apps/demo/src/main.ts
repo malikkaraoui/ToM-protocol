@@ -349,7 +349,7 @@ function renderChatHeader(): void {
     const peerStatus = topology?.getPeerStatus(selectedPeer) ?? 'offline';
     const isOnline = peerStatus === 'online' || peerStatus === 'stale';
 
-    if (isOnline && !gameController?.isInGame()) {
+    if (isOnline && gameController?.canStartGame()) {
       const inviteBtn = document.createElement('button');
       inviteBtn.className = 'game-invite-btn';
       inviteBtn.textContent = '🐍 Play';
