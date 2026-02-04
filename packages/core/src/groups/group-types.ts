@@ -58,6 +58,8 @@ export interface GroupPayloadBase {
 export interface GroupCreatePayload extends GroupPayloadBase {
   type: 'group-create';
   name: string;
+  /** Creator's username for display */
+  creatorUsername: string;
   /** Initial members to invite (creator is auto-included) */
   initialMembers: { nodeId: NodeId; username: string }[];
   /** Requested hub relay (optional, can be auto-selected) */
@@ -83,6 +85,8 @@ export interface GroupInvitePayload extends GroupPayloadBase {
   inviterUsername: string;
   /** Group name for display */
   groupName: string;
+  /** Hub relay ID (needed to send join request) */
+  hubRelayId: NodeId;
   /** Current member count */
   memberCount: number;
 }
@@ -193,7 +197,8 @@ export type GroupPayload =
   | GroupHubMigrationPayload
   | GroupDeliveryAckPayload
   | GroupReadReceiptPayload
-  | GroupHubHeartbeatPayload;
+  | GroupHubHeartbeatPayload
+  | GroupAnnouncementPayload;
 
 // ============================================
 // Type Guards
@@ -214,6 +219,7 @@ const GROUP_PAYLOAD_TYPES = [
   'group-delivery-ack',
   'group-read-receipt',
   'group-hub-heartbeat',
+  'group-announcement',
 ] as const;
 
 export function isGroupPayload(payload: unknown): payload is GroupPayload {
@@ -274,11 +280,38 @@ export interface GroupHubHeartbeatPayload extends GroupPayloadBase {
   timestamp: number;
 }
 
+/** Announce a public group to the network */
+export interface GroupAnnouncementPayload extends GroupPayloadBase {
+  type: 'group-announcement';
+  /** Group name */
+  groupName: string;
+  /** Hub relay hosting this group */
+  hubRelayId: NodeId;
+  /** Current member count */
+  memberCount: number;
+  /** Creator info */
+  createdBy: NodeId;
+  creatorUsername: string;
+}
+
 export function isGroupHubHeartbeat(payload: unknown): payload is GroupHubHeartbeatPayload {
   if (!isGroupPayload(payload)) return false;
   if (payload.type !== 'group-hub-heartbeat') return false;
   const p = payload as GroupHubHeartbeatPayload;
   return typeof p.memberCount === 'number' && typeof p.timestamp === 'number';
+}
+
+export function isGroupAnnouncement(payload: unknown): payload is GroupAnnouncementPayload {
+  if (!isGroupPayload(payload)) return false;
+  if (payload.type !== 'group-announcement') return false;
+  const p = payload as GroupAnnouncementPayload;
+  return (
+    typeof p.groupName === 'string' &&
+    typeof p.hubRelayId === 'string' &&
+    typeof p.memberCount === 'number' &&
+    typeof p.createdBy === 'string' &&
+    typeof p.creatorUsername === 'string'
+  );
 }
 
 // ============================================
