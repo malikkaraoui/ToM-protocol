@@ -130,10 +130,12 @@ export type {
   GroupHubHeartbeatPayload,
   GroupDeliveryAckPayload,
   GroupReadReceiptPayload,
+  GroupAnnouncementPayload,
   GroupManagerEvents,
   GroupManagerOptions,
   GroupHubEvents,
   GroupHubOptions,
+  PublicGroupInfo,
 } from './groups/index.js';
 export {
   isGroupPayload,
@@ -143,6 +145,7 @@ export {
   isGroupSync,
   isGroupHubMigration,
   isGroupHubHeartbeat,
+  isGroupAnnouncement,
   DEFAULT_MAX_GROUP_MEMBERS,
   MAX_SYNC_MESSAGES,
   GROUP_RATE_LIMIT_PER_SECOND,

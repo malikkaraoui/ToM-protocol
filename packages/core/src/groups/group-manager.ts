@@ -19,6 +19,18 @@ import {
   MAX_SYNC_MESSAGES,
 } from './group-types.js';
 
+/** Public group info (for groups we haven't joined yet) */
+export interface PublicGroupInfo {
+  groupId: GroupId;
+  groupName: string;
+  hubRelayId: NodeId;
+  memberCount: number;
+  createdBy: NodeId;
+  creatorUsername: string;
+  /** When we received this announcement */
+  announcedAt: number;
+}
+
 /** Events emitted by GroupManager */
 export interface GroupManagerEvents {
   /** New group created (we are a member) */
@@ -37,6 +49,8 @@ export interface GroupManagerEvents {
   onGroupRemoved: (groupId: GroupId, reason: string) => void;
   /** Hub failure detected - needs migration */
   onHubFailure: (groupId: GroupId, hubId: NodeId) => void;
+  /** Public group announced - available to join */
+  onPublicGroupAnnounced: (group: PublicGroupInfo) => void;
 }
 
 /** Options for GroupManager */
@@ -73,7 +87,12 @@ export class GroupManager {
   /** Recent messages per group (for sync) */
   private messageHistory = new Map<GroupId, GroupMessagePayload[]>();
   /** Pending invitations (groupId -> invite info) */
-  private pendingInvites = new Map<GroupId, { groupName: string; inviterId: NodeId; inviterUsername: string }>();
+  private pendingInvites = new Map<
+    GroupId,
+    { groupName: string; inviterId: NodeId; inviterUsername: string; hubRelayId: NodeId }
+  >();
+  /** Public groups available to join (not yet joined) */
+  private availableGroups = new Map<GroupId, PublicGroupInfo>();
   /** Hub health per group */
   private hubHealth = new Map<GroupId, HubHealthInfo>();
   /** Hub health check timer */
@@ -227,9 +246,23 @@ export class GroupManager {
   /**
    * Handle incoming group invitation
    */
-  handleInvite(groupId: GroupId, groupName: string, inviterId: NodeId, inviterUsername: string): void {
+  handleInvite(
+    groupId: GroupId,
+    groupName: string,
+    inviterId: NodeId,
+    inviterUsername: string,
+    hubRelayId: NodeId,
+  ): void {
+    // Skip if already have a pending invite for this group
+    if (this.pendingInvites.has(groupId)) {
+      return;
+    }
+    // Skip if already a member
+    if (this.groups.has(groupId)) {
+      return;
+    }
     // Store pending invite
-    this.pendingInvites.set(groupId, { groupName, inviterId, inviterUsername });
+    this.pendingInvites.set(groupId, { groupName, inviterId, inviterUsername, hubRelayId });
     this.events.onGroupInvite?.(groupId, groupName, inviterId, inviterUsername);
   }
 
@@ -261,7 +294,13 @@ export class GroupManager {
   /**
    * Get pending invitations
    */
-  getPendingInvites(): Array<{ groupId: GroupId; groupName: string; inviterId: NodeId; inviterUsername: string }> {
+  getPendingInvites(): Array<{
+    groupId: GroupId;
+    groupName: string;
+    inviterId: NodeId;
+    inviterUsername: string;
+    hubRelayId: NodeId;
+  }> {
     return Array.from(this.pendingInvites.entries()).map(([groupId, info]) => ({
       groupId,
       ...info,
@@ -465,6 +504,54 @@ export class GroupManager {
     if (!group) return false;
     const member = group.members.find((m) => m.nodeId === checkNodeId);
     return member?.role === 'admin';
+  }
+
+  // ============================================
+  // Public Groups
+  // ============================================
+
+  /**
+   * Handle a public group announcement
+   */
+  handleGroupAnnouncement(
+    groupId: GroupId,
+    groupName: string,
+    hubRelayId: NodeId,
+    memberCount: number,
+    createdBy: NodeId,
+    creatorUsername: string,
+  ): void {
+    // Don't track if we're already a member or if it's our own group
+    if (this.groups.has(groupId)) {
+      return;
+    }
+
+    const publicGroup: PublicGroupInfo = {
+      groupId,
+      groupName,
+      hubRelayId,
+      memberCount,
+      createdBy,
+      creatorUsername,
+      announcedAt: Date.now(),
+    };
+
+    this.availableGroups.set(groupId, publicGroup);
+    this.events.onPublicGroupAnnounced?.(publicGroup);
+  }
+
+  /**
+   * Get all available public groups (not yet joined)
+   */
+  getAvailableGroups(): PublicGroupInfo[] {
+    return Array.from(this.availableGroups.values());
+  }
+
+  /**
+   * Remove a group from available list (after joining or if it disappears)
+   */
+  removeFromAvailable(groupId: GroupId): void {
+    this.availableGroups.delete(groupId);
   }
 
   // ============================================
