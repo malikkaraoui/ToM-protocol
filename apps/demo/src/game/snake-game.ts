@@ -343,8 +343,64 @@ export class SnakeGame {
 
   /**
    * Apply state from P1 (for P2 to sync)
+   * Includes security validations (Fix #9, #10)
    */
   applyState(payload: GameStatePayload): void {
+    // Fix #9: Verify tick monotony (must be > current, prevent replay attacks)
+    if (payload.tick <= this.state.tick) {
+      console.warn(
+        '[SnakeGame] Rejected state: tick not monotonically increasing',
+        payload.tick,
+        '<=',
+        this.state.tick,
+      );
+      return;
+    }
+
+    // Fix #10: Validate coordinates are within grid bounds
+    const gridSize = this.config.gridSize;
+    const isValidPoint = (p: Point): boolean =>
+      typeof p.x === 'number' &&
+      typeof p.y === 'number' &&
+      Number.isInteger(p.x) &&
+      Number.isInteger(p.y) &&
+      p.x >= 0 &&
+      p.x < gridSize &&
+      p.y >= 0 &&
+      p.y < gridSize;
+
+    // Validate all snake segments
+    for (const segment of payload.snakes.p1) {
+      if (!isValidPoint(segment)) {
+        console.warn('[SnakeGame] Rejected state: invalid p1 snake coordinates');
+        return;
+      }
+    }
+    for (const segment of payload.snakes.p2) {
+      if (!isValidPoint(segment)) {
+        console.warn('[SnakeGame] Rejected state: invalid p2 snake coordinates');
+        return;
+      }
+    }
+
+    // Validate food position
+    if (!isValidPoint(payload.food)) {
+      console.warn('[SnakeGame] Rejected state: invalid food coordinates');
+      return;
+    }
+
+    // Validate scores are non-negative integers
+    if (
+      !Number.isInteger(payload.scores.p1) ||
+      payload.scores.p1 < 0 ||
+      !Number.isInteger(payload.scores.p2) ||
+      payload.scores.p2 < 0
+    ) {
+      console.warn('[SnakeGame] Rejected state: invalid scores');
+      return;
+    }
+
+    // Apply validated state
     this.state.tick = payload.tick;
     this.state.snakes = {
       p1: [...payload.snakes.p1],
