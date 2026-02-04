@@ -235,4 +235,118 @@ describe('DirectPathManager', () => {
       expect(transport.connectToPeer).not.toHaveBeenCalled();
     });
   });
+
+  describe('security fixes', () => {
+    it('should timeout connection attempts after 10 seconds', async () => {
+      vi.useFakeTimers();
+
+      // Make connectToPeer hang indefinitely
+      vi.mocked(transport.connectToPeer).mockImplementation(
+        () => new Promise(() => {}), // Never resolves
+      );
+
+      manager.trackConversation(makeEnvelope('local-node', 'peer-a'));
+
+      // Start connection attempt
+      const attemptPromise = manager.attemptDirectPath('peer-a');
+
+      // Advance past timeout
+      await vi.advanceTimersByTimeAsync(11000);
+
+      const result = await attemptPromise;
+
+      // Should have failed due to timeout
+      expect(result).toBe(false);
+      expect(manager.getConnectionType('peer-a')).toBe('relay');
+
+      vi.useRealTimers();
+    });
+
+    it('should track reconnection attempts separately from messages (lastAttemptAt)', async () => {
+      vi.useFakeTimers();
+
+      const mockPeer = makeMockPeer('peer-a');
+      vi.mocked(transport.connectToPeer)
+        .mockRejectedValueOnce(new Error('fail 1'))
+        .mockRejectedValueOnce(new Error('fail 2'))
+        .mockRejectedValueOnce(new Error('fail 3'))
+        .mockResolvedValue(mockPeer);
+
+      // Setup: had conversation with direct path, then lost it
+      manager.trackConversation(makeEnvelope('local-node', 'peer-a'));
+      manager.markDirectPathActive('peer-a');
+      manager.handleDirectPathLost('peer-a');
+
+      // Attempt reconnects that fail
+      for (let i = 0; i < 3; i++) {
+        const reconnectPromise = manager.onPeerOnline('peer-a');
+        await vi.advanceTimersByTimeAsync(5000);
+        await reconnectPromise;
+      }
+
+      // Now send a message (updates lastMessageAt but should NOT reset cooldown)
+      manager.trackConversation(makeEnvelope('local-node', 'peer-a'));
+
+      // Should still be in cooldown (30s from lastAttemptAt, not lastMessageAt)
+      const reconnectPromise = manager.onPeerOnline('peer-a');
+      await vi.advanceTimersByTimeAsync(1000);
+      await reconnectPromise;
+
+      // Should NOT have attempted (cooldown based on lastAttemptAt)
+      expect(transport.connectToPeer).toHaveBeenCalledTimes(3); // Only the 3 failed attempts
+
+      vi.useRealTimers();
+    });
+
+    it('should purge stale conversations after TTL', async () => {
+      vi.useFakeTimers();
+
+      manager.start();
+      manager.trackConversation(makeEnvelope('local-node', 'peer-a'));
+      manager.trackConversation(makeEnvelope('local-node', 'peer-b'));
+
+      expect(manager.getConversationCount()).toBe(2);
+
+      // Advance past TTL (1 hour) + purge interval (5 minutes)
+      vi.advanceTimersByTime(66 * 60 * 1000);
+
+      // Conversations should be purged
+      expect(manager.getConversationCount()).toBe(0);
+
+      manager.stop();
+      vi.useRealTimers();
+    });
+
+    it('should process reconnection batches in chunks of 50', async () => {
+      vi.useFakeTimers();
+
+      const mockPeer = makeMockPeer('peer');
+      vi.mocked(transport.connectToPeer).mockResolvedValue(mockPeer);
+
+      // Setup 100 peers with previous direct paths
+      const peerIds: string[] = [];
+      for (let i = 0; i < 100; i++) {
+        const peerId = `peer-${i}`;
+        peerIds.push(peerId);
+        manager.trackConversation(makeEnvelope('local-node', peerId));
+        manager.markDirectPathActive(peerId);
+        manager.handleDirectPathLost(peerId);
+      }
+
+      // Start batch reconnect
+      const batchPromise = manager.onMultiplePeersOnline(peerIds);
+
+      // First batch should start
+      await vi.advanceTimersByTimeAsync(50 * 100 + 2000); // Staggered + backoff
+      // Second batch should start after first completes
+      await vi.advanceTimersByTimeAsync(50 * 100 + 2000);
+
+      await batchPromise;
+
+      // All 100 should have been attempted
+      expect(transport.connectToPeer).toHaveBeenCalledTimes(100);
+
+      vi.useRealTimers();
+    });
+  });
 });

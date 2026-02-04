@@ -249,15 +249,18 @@ describe('Router', () => {
       events.onReadReceiptReceived = vi.fn();
       const router = new Router(LOCAL_ID, transport, events);
 
+      // Use a recent timestamp (within 7 days) to avoid clamping
+      const recentReadAt = Date.now() - 1000; // 1 second ago
+
       const readReceipt = makeEnvelope({
         from: PEER_B,
         to: LOCAL_ID,
         type: 'read-receipt',
-        payload: { originalMessageId: 'msg-original', readAt: 1234567890 },
+        payload: { originalMessageId: 'msg-original', readAt: recentReadAt },
       });
       router.handleIncoming(readReceipt);
 
-      expect(events.onReadReceiptReceived).toHaveBeenCalledWith('msg-original', 1234567890, PEER_B);
+      expect(events.onReadReceiptReceived).toHaveBeenCalledWith('msg-original', recentReadAt, PEER_B);
       expect(events.onMessageDelivered).not.toHaveBeenCalled();
     });
 
@@ -279,6 +282,135 @@ describe('Router', () => {
       expect(events.onReadReceiptReceived).toHaveBeenCalledWith('msg-original', expect.any(Number), PEER_B);
       const callArgs = (events.onReadReceiptReceived as ReturnType<typeof vi.fn>).mock.calls[0];
       expect(callArgs[1]).toBeGreaterThanOrEqual(now);
+    });
+
+    it('clamps readAt to not be in the future', () => {
+      const transport = createTransport();
+      const events = createRouterEvents();
+      events.onReadReceiptReceived = vi.fn();
+      const router = new Router(LOCAL_ID, transport, events);
+
+      const futureTime = Date.now() + 1000000; // Way in the future
+      const readReceipt = makeEnvelope({
+        from: PEER_B,
+        to: LOCAL_ID,
+        type: 'read-receipt',
+        payload: { originalMessageId: 'msg-future', readAt: futureTime },
+      });
+      router.handleIncoming(readReceipt);
+
+      const callArgs = (events.onReadReceiptReceived as ReturnType<typeof vi.fn>).mock.calls[0];
+      expect(callArgs[1]).toBeLessThanOrEqual(Date.now());
+    });
+
+    it('clamps readAt to not be more than 7 days in the past', () => {
+      const transport = createTransport();
+      const events = createRouterEvents();
+      events.onReadReceiptReceived = vi.fn();
+      const router = new Router(LOCAL_ID, transport, events);
+
+      const veryOldTime = Date.now() - 30 * 24 * 60 * 60 * 1000; // 30 days ago
+      const readReceipt = makeEnvelope({
+        from: PEER_B,
+        to: LOCAL_ID,
+        type: 'read-receipt',
+        payload: { originalMessageId: 'msg-old', readAt: veryOldTime },
+      });
+      router.handleIncoming(readReceipt);
+
+      const callArgs = (events.onReadReceiptReceived as ReturnType<typeof vi.fn>).mock.calls[0];
+      const maxPastMs = 7 * 24 * 60 * 60 * 1000;
+      expect(callArgs[1]).toBeGreaterThanOrEqual(Date.now() - maxPastMs - 1000); // Allow 1s tolerance
+    });
+
+    it('rejects duplicate read receipts (anti-replay)', () => {
+      const transport = createTransport();
+      const events = createRouterEvents();
+      events.onReadReceiptReceived = vi.fn();
+      const router = new Router(LOCAL_ID, transport, events);
+
+      const readReceipt = makeEnvelope({
+        from: PEER_B,
+        to: LOCAL_ID,
+        type: 'read-receipt',
+        payload: { originalMessageId: 'msg-replay', readAt: Date.now() },
+      });
+
+      router.handleIncoming(readReceipt);
+      router.handleIncoming(readReceipt); // Replay
+
+      // Should only fire once
+      expect(events.onReadReceiptReceived).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('ACK security', () => {
+    it('rejects invalid ACK types', () => {
+      const transport = createTransport();
+      const events = createRouterEvents();
+      events.onRelayAckReceived = vi.fn();
+      events.onDeliveryAckReceived = vi.fn();
+      const router = new Router(LOCAL_ID, transport, events);
+
+      const invalidAck = makeEnvelope({
+        from: PEER_B,
+        to: LOCAL_ID,
+        type: 'ack',
+        payload: { originalMessageId: 'msg-1', ackType: 'invalid-type' },
+      });
+
+      router.handleIncoming(invalidAck);
+
+      expect(events.onAckReceived).not.toHaveBeenCalled();
+      expect(events.onRelayAckReceived).not.toHaveBeenCalled();
+      expect(events.onDeliveryAckReceived).not.toHaveBeenCalled();
+    });
+
+    it('rejects duplicate ACKs (anti-replay)', () => {
+      const transport = createTransport();
+      const events = createRouterEvents();
+      const router = new Router(LOCAL_ID, transport, events);
+
+      const ack = makeEnvelope({
+        from: PEER_B,
+        to: LOCAL_ID,
+        type: 'ack',
+        payload: { originalMessageId: 'msg-replay-ack', ackType: 'recipient-received' },
+      });
+
+      router.handleIncoming(ack);
+      router.handleIncoming(ack); // Replay
+
+      // Should only fire once
+      expect(events.onAckReceived).toHaveBeenCalledTimes(1);
+    });
+
+    it('allows same messageId with different ackTypes', () => {
+      const transport = createTransport();
+      const events = createRouterEvents();
+      events.onRelayAckReceived = vi.fn();
+      events.onDeliveryAckReceived = vi.fn();
+      const router = new Router(LOCAL_ID, transport, events);
+
+      const relayAck = makeEnvelope({
+        from: RELAY_R,
+        to: LOCAL_ID,
+        type: 'ack',
+        payload: { originalMessageId: 'msg-multi', ackType: 'relay-forwarded' },
+      });
+
+      const deliveryAck = makeEnvelope({
+        from: PEER_B,
+        to: LOCAL_ID,
+        type: 'ack',
+        payload: { originalMessageId: 'msg-multi', ackType: 'recipient-received' },
+      });
+
+      router.handleIncoming(relayAck);
+      router.handleIncoming(deliveryAck);
+
+      expect(events.onRelayAckReceived).toHaveBeenCalledTimes(1);
+      expect(events.onDeliveryAckReceived).toHaveBeenCalledTimes(1);
     });
   });
 

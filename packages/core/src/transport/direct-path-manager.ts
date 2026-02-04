@@ -19,6 +19,18 @@ import type { TransportLayer } from './transport-layer.js';
 
 export type ConnectionType = 'direct' | 'relay' | 'disconnected';
 
+/** Timeout for pending WebRTC connections (10 seconds) */
+const CONNECTION_TIMEOUT_MS = 10 * 1000;
+
+/** Max idle time before conversation is purged (1 hour) */
+const CONVERSATION_TTL_MS = 60 * 60 * 1000;
+
+/** Purge interval for stale conversations (5 minutes) */
+const CONVERSATION_PURGE_INTERVAL_MS = 5 * 60 * 1000;
+
+/** Max concurrent reconnections in a batch */
+const MAX_BATCH_RECONNECTIONS = 50;
+
 export interface DirectPathEvents {
   /** Emitted when a direct path is established to a peer */
   onDirectPathEstablished: (peerId: NodeId) => void;
@@ -33,6 +45,8 @@ interface ConversationState {
   startedAt: number;
   /** Last message timestamp */
   lastMessageAt: number;
+  /** Last reconnection attempt timestamp */
+  lastAttemptAt: number;
   /** Whether direct path is currently active */
   directPathActive: boolean;
   /** Whether we previously had a direct path (for restore detection) */
@@ -52,10 +66,40 @@ export class DirectPathManager {
   /** Pending connection attempts to prevent race conditions */
   private pendingConnections = new Map<NodeId, Promise<void>>();
 
+  /** Purge interval for stale conversations */
+  private purgeInterval: ReturnType<typeof setInterval> | null = null;
+
   constructor(localNodeId: NodeId, transport: TransportLayer, events: DirectPathEvents) {
     this.localNodeId = localNodeId;
     this.transport = transport;
     this.events = events;
+  }
+
+  /** Start periodic purging of stale conversations */
+  start(): void {
+    if (this.purgeInterval) return;
+    this.purgeInterval = setInterval(() => {
+      this.purgeStaleConversations();
+    }, CONVERSATION_PURGE_INTERVAL_MS);
+  }
+
+  /** Stop periodic purging */
+  stop(): void {
+    if (this.purgeInterval) {
+      clearInterval(this.purgeInterval);
+      this.purgeInterval = null;
+    }
+  }
+
+  /** Purge conversations that have been idle for too long */
+  private purgeStaleConversations(): void {
+    const now = Date.now();
+    for (const [peerId, state] of this.conversations) {
+      if (now - state.lastMessageAt > CONVERSATION_TTL_MS) {
+        this.conversations.delete(peerId);
+        console.log(`[DirectPathManager] Purged stale conversation with ${peerId.slice(0, 8)}`);
+      }
+    }
   }
 
   /**
@@ -78,6 +122,7 @@ export class DirectPathManager {
       this.conversations.set(peerId, {
         startedAt: Date.now(),
         lastMessageAt: Date.now(),
+        lastAttemptAt: 0, // No attempt yet
         directPathActive: false,
         hadDirectPath: false,
         reconnectAttempts: 0,
@@ -136,8 +181,15 @@ export class DirectPathManager {
         return;
       }
 
-      // Attempt WebRTC connection
-      await this.transport.connectToPeer(peerId);
+      // Record attempt timestamp
+      conversation.lastAttemptAt = Date.now();
+
+      // Attempt WebRTC connection with timeout
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        setTimeout(() => reject(new Error('connection_timeout')), CONNECTION_TIMEOUT_MS);
+      });
+
+      await Promise.race([this.transport.connectToPeer(peerId), timeoutPromise]);
 
       // Mark direct path as active
       const wasRestore = conversation.hadDirectPath;
@@ -255,10 +307,11 @@ export class DirectPathManager {
     }
 
     // If we've had too many recent attempts, check cooldown FIRST
+    // Use lastAttemptAt (not lastMessageAt) to prevent message spam from bypassing cooldown
     const attempts = conversation.reconnectAttempts;
     if (attempts >= 3) {
       // Reset attempts after a cooldown period (30 seconds)
-      const lastAttemptAge = Date.now() - conversation.lastMessageAt;
+      const lastAttemptAge = Date.now() - conversation.lastAttemptAt;
       if (lastAttemptAge < 30000) {
         return; // Still in cooldown, skip entirely
       }
@@ -281,17 +334,28 @@ export class DirectPathManager {
   /**
    * Batch reconnect for multiple peers coming online.
    * Useful when network recovers after outage.
+   * Limits concurrent reconnections to avoid overwhelming signaling/event loop.
    */
   async onMultiplePeersOnline(peerIds: NodeId[]): Promise<void> {
-    // Reconnect in parallel with staggered starts to avoid overwhelming signaling
-    const promises = peerIds.map((peerId, index) => {
-      return new Promise<void>((resolve) => {
-        setTimeout(async () => {
-          await this.onPeerOnline(peerId);
-          resolve();
-        }, index * 100); // Stagger by 100ms
+    // Process in batches to prevent event loop starvation
+    for (let i = 0; i < peerIds.length; i += MAX_BATCH_RECONNECTIONS) {
+      const batch = peerIds.slice(i, i + MAX_BATCH_RECONNECTIONS);
+
+      // Reconnect batch in parallel with staggered starts
+      const promises = batch.map((peerId, index) => {
+        return new Promise<void>((resolve) => {
+          setTimeout(async () => {
+            await this.onPeerOnline(peerId);
+            resolve();
+          }, index * 100); // Stagger by 100ms
+        });
       });
-    });
-    await Promise.all(promises);
+      await Promise.all(promises);
+    }
+  }
+
+  /** Get the number of tracked conversations (for monitoring) */
+  getConversationCount(): number {
+    return this.conversations.size;
   }
 }
