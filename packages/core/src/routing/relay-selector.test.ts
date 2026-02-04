@@ -17,7 +17,7 @@ function makePeer(
 }
 
 describe('RelaySelector', () => {
-  it('should return no-relays-available when no relays in topology', () => {
+  it('should return direct-fallback when no relays but recipient is online', () => {
     const selector = new RelaySelector({ selfNodeId: 'self' });
     const topology = new NetworkTopology(3000);
 
@@ -26,6 +26,21 @@ describe('RelaySelector', () => {
     topology.addPeer(makePeer('node-2', { roles: ['client'] }));
 
     const result = selector.selectBestRelay('node-1', topology);
+    expect(result.relayId).toBeNull();
+    expect(result.reason).toBe('direct-fallback');
+  });
+
+  it('should return no-relays-available when no relays and recipient is offline', () => {
+    const selector = new RelaySelector({ selfNodeId: 'self' });
+    const topology = new NetworkTopology(3000);
+
+    const now = Date.now();
+    // Add only client nodes (no relay role)
+    topology.addPeer(makePeer('node-1', { roles: ['client'], lastSeen: now }));
+    // Recipient is offline (stale)
+    topology.addPeer(makePeer('node-2', { roles: ['client'], lastSeen: now - 20000 }));
+
+    const result = selector.selectBestRelay('node-2', topology);
     expect(result.relayId).toBeNull();
     expect(result.reason).toBe('no-relays-available');
   });
@@ -132,15 +147,30 @@ describe('RelaySelector', () => {
     expect(result.reason).toBe('best-available');
   });
 
-  it('should return no-relays-available when all relays are offline', () => {
+  it('should return direct-fallback when all relays are offline but recipient is online', () => {
     const selector = new RelaySelector({ selfNodeId: 'self' });
     const topology = new NetworkTopology(3000);
 
     const now = Date.now();
     // Add offline relay (lastSeen way too old)
     topology.addPeer(makePeer('relay-offline', { roles: ['client', 'relay'], lastSeen: now - 20000 }));
-    // Add recipient
+    // Add online recipient
     topology.addPeer(makePeer('recipient', { roles: ['client'], lastSeen: now }));
+
+    const result = selector.selectBestRelay('recipient', topology);
+    expect(result.relayId).toBeNull();
+    expect(result.reason).toBe('direct-fallback');
+  });
+
+  it('should return no-relays-available when all relays and recipient are offline', () => {
+    const selector = new RelaySelector({ selfNodeId: 'self' });
+    const topology = new NetworkTopology(3000);
+
+    const now = Date.now();
+    // Add offline relay
+    topology.addPeer(makePeer('relay-offline', { roles: ['client', 'relay'], lastSeen: now - 20000 }));
+    // Add offline recipient
+    topology.addPeer(makePeer('recipient', { roles: ['client'], lastSeen: now - 20000 }));
 
     const result = selector.selectBestRelay('recipient', topology);
     expect(result.relayId).toBeNull();

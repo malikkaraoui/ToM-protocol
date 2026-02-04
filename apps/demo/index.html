@@ -27,7 +27,9 @@
       .role-badge { font-size: 9px; padding: 1px 4px; border-radius: 3px; font-weight: bold; flex-shrink: 0; }
       .role-badge.relay { background: #0f3460; color: #00d4ff; }
       .role-badge.client { background: #1a1a2e; color: #888; }
+      .unread-badge { font-size: 10px; padding: 2px 6px; border-radius: 10px; background: #00d4ff; color: #1a1a2e; font-weight: bold; margin-right: 4px; }
       .sidebar-footer { flex-shrink: 0; }
+      .chat-header { padding: 12px 16px; background: #16213e; border-bottom: 1px solid #0f3460; font-size: 14px; color: #00d4ff; font-weight: bold; flex-shrink: 0; }
       .my-role { font-size: 11px; color: #00d4ff; margin-top: 4px; }
       .topology-stats { font-size: 11px; color: #666; margin-top: 12px; padding-top: 8px; border-top: 1px solid #0f3460; }
       .main { flex: 1; display: flex; flex-direction: column; overflow: hidden; min-width: 0; }
@@ -83,6 +85,7 @@
         .my-role { font-size: 10px; margin-top: 0; }
         .node-id { display: none; }
         .main { flex: 1; min-height: 0; overflow: hidden; }
+        .chat-header { padding: 8px 12px; font-size: 12px; }
         .messages { padding: 8px; }
         .message { max-width: 85%; font-size: 14px; }
         .input-bar { padding: 8px; gap: 8px; flex-shrink: 0; }
@@ -96,6 +99,7 @@
       @media (max-height: 500px) {
         .sidebar { max-height: 80px; padding: 4px 8px; }
         .sidebar-footer { display: none; }
+        .chat-header { display: none; }
         .status-bar { display: none; }
         .messages { padding: 4px 8px; }
         .input-bar { padding: 4px 8px; }
@@ -121,6 +125,7 @@
           </div>
         </div>
         <div class="main">
+          <div class="chat-header" id="chat-header">Select a contact</div>
           <div class="messages" id="messages"></div>
           <form class="input-bar" id="message-form">
             <input type="text" id="message-input" placeholder="Type a message..." autocomplete="off" enterkeyhint="send" />
