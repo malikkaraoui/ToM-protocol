@@ -135,7 +135,11 @@ export class RoleManager {
     return result;
   }
 
-  /** Remove assignments for peers that are no longer in topology (but never remove self) */
+  /**
+   * Remove assignments for peers that are no longer in topology (but never remove self).
+   * Also purges associated metrics and startTimes to prevent memory leaks.
+   * @security Prevents unbounded memory growth from peer churn
+   */
   private cleanupStaleAssignments(topology: NetworkTopology): void {
     const toRemove: NodeId[] = [];
 
@@ -152,6 +156,9 @@ export class RoleManager {
 
     for (const nodeId of toRemove) {
       this.assignments.delete(nodeId);
+      // Also purge associated metrics data to prevent memory leaks
+      this.nodeMetrics.delete(nodeId);
+      this.nodeStartTimes.delete(nodeId);
     }
   }
 
@@ -161,7 +168,16 @@ export class RoleManager {
     return assignment ? [...assignment.roles] : ['client'];
   }
 
-  /** Set roles externally (e.g., from signaling broadcast) */
+  /**
+   * Set roles externally (e.g., from signaling broadcast).
+   *
+   * **SECURITY WARNING**: This method accepts roles without verification.
+   * A malicious peer could broadcast false roles to self-promote to relay/backup.
+   * For production use, this should require signature verification.
+   *
+   * @security Requires signature verification in future (tracked as enhancement)
+   * @deprecated Prefer local consensus via evaluateNode() when possible
+   */
   setRolesFromNetwork(nodeId: NodeId, roles: NodeRole[]): void {
     this.setRoles(nodeId, roles);
   }
@@ -282,9 +298,19 @@ export class RoleManager {
   }
 
   /**
-   * Evaluate and assign backup role using deterministic consensus.
-   * Similar to relay: lowest eligible NodeIds become backups.
+   * Evaluate and assign backup role based on local metrics.
+   *
+   * **IMPORTANT**: Unlike relay role assignment which uses true deterministic
+   * consensus (lowest NodeId wins), backup role scoring uses LOCAL metrics
+   * (timeOnline, bandwidthScore, contributionScore) which may differ per node.
+   * This means backup assignments are ADVISORY and may not be consistent
+   * across the network.
+   *
+   * For true consensus, backup role would require signed gossip of metrics.
+   * This is tracked as a future enhancement (requires crypto infrastructure).
+   *
    * Target: ceil(totalNodes / 2) backup nodes for redundancy.
+   * @security Local metrics can be manipulated - backup role is advisory only
    */
   evaluateBackupRole(nodeId: NodeId, topology: NetworkTopology): boolean {
     const allPeers = topology.getReachablePeers();
@@ -371,7 +397,19 @@ export class RoleManager {
     return backups;
   }
 
-  /** Increment contribution score for a node (called when node relays/backs up messages) */
+  /**
+   * Increment contribution score for a node (called when node relays/backs up messages).
+   *
+   * **SECURITY WARNING**: This is a LOCAL metric without proof verification.
+   * A malicious caller could inflate scores arbitrarily. For production use,
+   * contribution increments should require proof (e.g., signed relay ACKs).
+   *
+   * Current mitigations:
+   * - Score is capped at 100
+   * - Backup role uses advisory scoring (not consensus-critical)
+   *
+   * @security Requires proof verification in future (tracked as enhancement)
+   */
   incrementContributionScore(nodeId: NodeId, amount = 1): void {
     const metrics = this.getNodeMetrics(nodeId);
     const newScore = Math.min(100, metrics.contributionScore + amount);

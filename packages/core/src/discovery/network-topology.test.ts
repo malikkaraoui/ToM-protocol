@@ -108,4 +108,60 @@ describe('NetworkTopology', () => {
     expect(topology.getNodesByRole('observer')).toHaveLength(1);
     expect(topology.getNodesByRole('bootstrap')).toHaveLength(0);
   });
+
+  describe('lastSeen clamping (security)', () => {
+    it('should clamp lastSeen when adding peer with future timestamp', () => {
+      const futureTime = Date.now() + 60 * 60 * 1000; // 1 hour in future
+      topology.addPeer(makePeer({ nodeId: 'future-peer', lastSeen: futureTime }));
+
+      const peer = topology.getPeer('future-peer');
+      // Should be clamped to at most 5 minutes in the future
+      const maxAllowed = Date.now() + 5 * 60 * 1000;
+      expect(peer?.lastSeen).toBeLessThanOrEqual(maxAllowed);
+    });
+
+    it('should clamp lastSeen when adding peer with very old timestamp', () => {
+      const veryOldTime = Date.now() - 24 * 60 * 60 * 1000; // 24 hours ago
+      topology.addPeer(makePeer({ nodeId: 'old-peer', lastSeen: veryOldTime }));
+
+      const peer = topology.getPeer('old-peer');
+      // Should be clamped to at most 1 hour in the past
+      const minAllowed = Date.now() - 60 * 60 * 1000;
+      expect(peer?.lastSeen).toBeGreaterThanOrEqual(minAllowed - 1000); // 1s tolerance
+    });
+
+    it('should clamp updateLastSeen with future timestamp', () => {
+      topology.addPeer(makePeer({ nodeId: 'a' }));
+
+      const futureTime = Date.now() + 60 * 60 * 1000; // 1 hour in future
+      topology.updateLastSeen('a', futureTime);
+
+      const peer = topology.getPeer('a');
+      // Should be clamped to at most 5 minutes in the future
+      const maxAllowed = Date.now() + 5 * 60 * 1000;
+      expect(peer?.lastSeen).toBeLessThanOrEqual(maxAllowed);
+    });
+
+    it('should clamp updateLastSeen with very old timestamp', () => {
+      topology.addPeer(makePeer({ nodeId: 'a' }));
+
+      const veryOldTime = Date.now() - 24 * 60 * 60 * 1000; // 24 hours ago
+      topology.updateLastSeen('a', veryOldTime);
+
+      const peer = topology.getPeer('a');
+      // Should be clamped to at most 1 hour in the past
+      const minAllowed = Date.now() - 60 * 60 * 1000;
+      expect(peer?.lastSeen).toBeGreaterThanOrEqual(minAllowed - 1000); // 1s tolerance
+    });
+
+    it('should allow reasonable timestamps without clamping', () => {
+      const recentTime = Date.now() - 30 * 1000; // 30 seconds ago
+      topology.addPeer(makePeer({ nodeId: 'normal-peer', lastSeen: recentTime }));
+
+      const peer = topology.getPeer('normal-peer');
+      // Should be exactly what we set (within tolerance for test execution)
+      expect(peer?.lastSeen).toBeGreaterThanOrEqual(recentTime - 1000);
+      expect(peer?.lastSeen).toBeLessThanOrEqual(recentTime + 1000);
+    });
+  });
 });

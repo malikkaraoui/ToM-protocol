@@ -2,6 +2,12 @@ import type { NodeId } from '../identity/index.js';
 
 export type NodeRole = 'client' | 'relay' | 'observer' | 'bootstrap' | 'backup';
 
+/** Maximum clock drift tolerance (5 minutes into future) */
+const MAX_FUTURE_DRIFT_MS = 5 * 60 * 1000;
+
+/** Maximum age for lastSeen (1 hour - beyond this, peer is definitely offline) */
+const MAX_PAST_LASTSEEN_MS = 60 * 60 * 1000;
+
 export interface PeerInfo {
   nodeId: NodeId;
   username: string;
@@ -21,8 +27,19 @@ export class NetworkTopology {
     this.staleThresholdMs = staleThresholdMs;
   }
 
+  /**
+   * Add a peer to the topology.
+   * Clamps lastSeen timestamp to prevent manipulation.
+   * @security Prevents forged timestamps from new peers
+   */
   addPeer(info: PeerInfo): void {
-    this.peers.set(info.nodeId, { ...info, lastSeen: info.lastSeen || Date.now() });
+    const now = Date.now();
+    let safeLastSeen = info.lastSeen || now;
+    // Clamp: not too far in the future
+    safeLastSeen = Math.min(safeLastSeen, now + MAX_FUTURE_DRIFT_MS);
+    // Clamp: not too far in the past
+    safeLastSeen = Math.max(safeLastSeen, now - MAX_PAST_LASTSEEN_MS);
+    this.peers.set(info.nodeId, { ...info, lastSeen: safeLastSeen });
   }
 
   removePeer(nodeId: NodeId): boolean {
@@ -33,10 +50,23 @@ export class NetworkTopology {
     return this.peers.get(nodeId);
   }
 
+  /**
+   * Update lastSeen timestamp for a peer.
+   * Clamps timestamp to prevent manipulation:
+   * - Not more than MAX_FUTURE_DRIFT_MS in the future
+   * - Not more than MAX_PAST_LASTSEEN_MS in the past
+   * @security Prevents forged timestamps from manipulating relay selection
+   */
   updateLastSeen(nodeId: NodeId, timestamp?: number): void {
     const peer = this.peers.get(nodeId);
     if (peer) {
-      peer.lastSeen = timestamp ?? Date.now();
+      const now = Date.now();
+      let safeTimestamp = timestamp ?? now;
+      // Clamp: not too far in the future (clock drift tolerance)
+      safeTimestamp = Math.min(safeTimestamp, now + MAX_FUTURE_DRIFT_MS);
+      // Clamp: not too far in the past (would make peer appear offline)
+      safeTimestamp = Math.max(safeTimestamp, now - MAX_PAST_LASTSEEN_MS);
+      peer.lastSeen = safeTimestamp;
     }
   }
 
