@@ -506,8 +506,14 @@ export class GameController {
   }
 
   private generateGameId(): string {
-    // Use crypto.randomUUID for secure game ID generation (Fix #7)
-    return `game-${crypto.randomUUID()}`;
+    // Use crypto.randomUUID if available, fallback for HTTP contexts (Fix #7)
+    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+      return `game-${crypto.randomUUID()}`;
+    }
+    // Fallback: generate pseudo-random ID
+    const hex = () => Math.floor(Math.random() * 16).toString(16);
+    const segment = (len: number) => Array.from({ length: len }, hex).join('');
+    return `game-${segment(8)}-${segment(4)}-${segment(4)}-${segment(4)}-${segment(12)}`;
   }
 
   private formatResultMessage(winner: GameWinner, reason: GameEndReason): string {
