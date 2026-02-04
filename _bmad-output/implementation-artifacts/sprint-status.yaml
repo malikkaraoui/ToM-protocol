@@ -70,7 +70,7 @@ development_status:
   4-1-direct-path-establishment: done
   4-2-delivery-confirmation-and-read-receipts: done
   4-3-message-path-visualization: done
-  4-4-reconnection-and-pending-message-delivery: backlog
+  4-4-reconnection-and-pending-message-delivery: done
   4-5-demo-snake-multiplayer-p2p-game: backlog
   epic-4-retrospective: optional
 

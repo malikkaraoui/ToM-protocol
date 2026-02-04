@@ -34,7 +34,15 @@ export type {
   ConnectionType,
 } from './transport/index.js';
 
-export { Router, RelaySelector, RelayStats, MessageTracker, ACK_TYPE, READ_RECEIPT_TYPE } from './routing/index.js';
+export {
+  Router,
+  RelaySelector,
+  RelayStats,
+  MessageTracker,
+  OfflineDetector,
+  ACK_TYPE,
+  READ_RECEIPT_TYPE,
+} from './routing/index.js';
 export type {
   RouterEvents,
   SignatureVerifier,
@@ -49,6 +57,8 @@ export type {
   MessageTrackerEvents,
   AckType,
   AckPayload,
+  OfflineDetectorEvents,
+  OfflinePeerInfo,
 } from './routing/index.js';
 
 export { NetworkTopology } from './discovery/index.js';
@@ -57,7 +67,38 @@ export { HeartbeatManager } from './discovery/index.js';
 export type { HeartbeatEvents, HeartbeatSender } from './discovery/index.js';
 
 export { RoleManager } from './roles/index.js';
-export type { RoleAssignment, RoleManagerEvents } from './roles/index.js';
+export type { RoleAssignment, RoleManagerEvents, NodeMetrics } from './roles/index.js';
+
+// Backup module (ADR-009 - Message Backup & Survival)
+export {
+  BackupStore,
+  MAX_TTL_MS,
+  DEFAULT_TTL_MS,
+  MessageViability,
+  REPLICATION_THRESHOLD,
+  DELETION_THRESHOLD,
+  BackupReplicator,
+  BACKUP_REPLICATION_TYPE,
+  BACKUP_REPLICATION_ACK_TYPE,
+  BackupCoordinator,
+  PENDING_QUERY_TYPE,
+  PENDING_RESPONSE_TYPE,
+  RECEIVED_CONFIRMATION_TYPE,
+} from './backup/index.js';
+export type {
+  BackedUpMessage,
+  BackupStoreEvents,
+  BackupStoreOptions,
+  ViabilityFactors,
+  MessageViabilityEvents,
+  ReplicationPayload,
+  ReplicationAckPayload,
+  BackupReplicatorEvents,
+  PendingQueryPayload,
+  PendingResponsePayload,
+  ReceivedConfirmationPayload,
+  BackupCoordinatorEvents,
+} from './backup/index.js';
 
 // Bootstrap module (ADR-002) — interface boundary for future DHT replacement
 export type {
