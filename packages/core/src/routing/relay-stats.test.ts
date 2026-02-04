@@ -203,4 +203,54 @@ describe('RelayStats', () => {
       expect(stats.getStats().relayAcksReceived).toBe(100);
     });
   });
+
+  describe('byte tracking', () => {
+    it('should track bytes relayed', () => {
+      const stats = new RelayStats();
+
+      stats.recordRelay(100);
+      stats.recordRelay(250);
+      stats.recordRelay(150);
+
+      const result = stats.getStats();
+      expect(result.bytesRelayed).toBe(500);
+      expect(result.messagesRelayed).toBe(3);
+    });
+
+    it('should track bytes sent', () => {
+      const stats = new RelayStats();
+
+      stats.recordOwnMessage(200);
+      stats.recordOwnMessage(300);
+
+      const result = stats.getStats();
+      expect(result.bytesSent).toBe(500);
+      expect(result.ownMessagesSent).toBe(2);
+    });
+
+    it('should handle undefined byte size gracefully', () => {
+      const stats = new RelayStats();
+
+      stats.recordRelay();
+      stats.recordOwnMessage();
+
+      const result = stats.getStats();
+      expect(result.bytesRelayed).toBe(0);
+      expect(result.bytesSent).toBe(0);
+      expect(result.messagesRelayed).toBe(1);
+      expect(result.ownMessagesSent).toBe(1);
+    });
+
+    it('should reset byte counters', () => {
+      const stats = new RelayStats();
+
+      stats.recordRelay(1000);
+      stats.recordOwnMessage(500);
+      stats.reset();
+
+      const result = stats.getStats();
+      expect(result.bytesRelayed).toBe(0);
+      expect(result.bytesSent).toBe(0);
+    });
+  });
 });

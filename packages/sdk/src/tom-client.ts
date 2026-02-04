@@ -206,7 +206,8 @@ export class TomClient {
         for (const handler of this.messageHandlers) handler(envelope);
       },
       onMessageForwarded: (envelope, nextHop) => {
-        this.relayStats.recordRelay();
+        const byteSize = new TextEncoder().encode(JSON.stringify(envelope)).length;
+        this.relayStats.recordRelay(byteSize);
         this.emitStatus('message:forwarded', nextHop);
       },
       onMessageRejected: (envelope, reason) => this.emitStatus('message:rejected', reason),
@@ -453,7 +454,8 @@ export class TomClient {
       this.transport.sendTo(to, envelope);
     }
 
-    this.relayStats.recordOwnMessage();
+    const byteSize = new TextEncoder().encode(JSON.stringify(envelope)).length;
+    this.relayStats.recordOwnMessage(byteSize);
     this.messageTracker.markSent(envelope.id);
     this.emitStatus('message:sent', envelope.id);
 
@@ -462,6 +464,60 @@ export class TomClient {
       this.directPathManager.attemptDirectPath(to).catch(() => {
         // Direct path attempt failed, continue using relay (silent failure)
       });
+    }
+
+    return envelope;
+  }
+
+  /**
+   * Send an arbitrary payload to a peer (for game messages, etc.)
+   * Unlike sendMessage which wraps text in { text }, this sends the payload directly.
+   */
+  async sendPayload(to: NodeId, payload: object, relayId?: NodeId): Promise<MessageEnvelope | null> {
+    if (!this.router || !this.transport) return null;
+
+    // Auto-select relay if not provided
+    let selectedRelay = relayId;
+    if (!selectedRelay && this.relaySelector) {
+      const selection = this.relaySelector.selectBestRelay(to, this.topology);
+
+      if (selection.relayId) {
+        selectedRelay = selection.relayId;
+        this.emitStatus('relay:selected', selectedRelay);
+      } else if (selection.reason === 'recipient-is-self') {
+        throw new TomError('PEER_UNREACHABLE', 'Cannot send payload to self', { to, reason: selection.reason });
+      } else if (selection.reason === 'no-relays-available' || selection.reason === 'no-peers') {
+        this.emitStatus('relay:none', selection.reason);
+      }
+    }
+
+    // Send payload directly (not wrapped in { text })
+    const envelope = this.router.createEnvelope(to, 'app', payload, selectedRelay ? [selectedRelay] : []);
+
+    // Track message status
+    this.messageTracker.track(envelope.id, to);
+
+    // Track conversation for direct path optimization
+    this.directPathManager?.trackConversation(envelope);
+
+    if (selectedRelay) {
+      await this.transport.connectToPeer(selectedRelay);
+      const sentDirect = this.router.sendWithDirectPreference(envelope, selectedRelay);
+      if (sentDirect) {
+        this.emitStatus('message:sent:direct', envelope.id);
+      }
+    } else {
+      await this.transport.connectToPeer(to);
+      this.transport.sendTo(to, envelope);
+    }
+
+    const byteSize = new TextEncoder().encode(JSON.stringify(envelope)).length;
+    this.relayStats.recordOwnMessage(byteSize);
+    this.messageTracker.markSent(envelope.id);
+    this.emitStatus('message:sent', envelope.id);
+
+    if (selectedRelay && this.directPathManager) {
+      this.directPathManager.attemptDirectPath(to).catch(() => {});
     }
 
     return envelope;
