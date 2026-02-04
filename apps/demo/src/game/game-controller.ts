@@ -78,6 +78,9 @@ export interface GameControllerEvents {
  *
  * Orchestrates multiplayer Snake game sessions.
  */
+/** Minimum interval between input messages in ms (Fix #8: rate limiting) */
+const INPUT_RATE_LIMIT_MS = 50;
+
 export class GameController {
   private client: TomClient;
   private events: GameControllerEvents;
@@ -86,6 +89,8 @@ export class GameController {
   private connectionQuality: ConnectionQuality = 'direct';
   private countdownInterval: ReturnType<typeof setInterval> | null = null;
   private stateUpdateInterval: ReturnType<typeof setInterval> | null = null;
+  private lastInputTime = 0; // Fix #8: Rate limiting (local)
+  private lastRemoteInputTime = 0; // Fix #8: Rate limiting (remote)
 
   constructor(client: TomClient, events: GameControllerEvents = {}) {
     this.client = client;
@@ -110,13 +115,13 @@ export class GameController {
     } else if (isGameDecline(payload)) {
       this.handleDecline(payload, fromPeerId);
     } else if (isGameReady(payload)) {
-      this.handleReady(payload);
+      this.handleReady(payload, fromPeerId);
     } else if (isGameState(payload)) {
-      this.handleState(payload);
+      this.handleState(payload, fromPeerId);
     } else if (isGameInput(payload)) {
-      this.handleInput(payload);
+      this.handleInput(payload, fromPeerId);
     } else if (isGameEnd(payload)) {
-      this.handleEnd(payload);
+      this.handleEnd(payload, fromPeerId);
     }
   }
 
@@ -203,10 +208,16 @@ export class GameController {
     if (!this.session || this.session.state !== 'playing') return;
 
     if (this.session.localPlayer === 'p1') {
-      // P1: apply locally
+      // P1: apply locally (no rate limit needed for local)
       this.session.game.setDirection('p1', direction);
     } else {
-      // P2: send to P1
+      // P2: send to P1 with rate limiting (Fix #8)
+      const now = Date.now();
+      if (now - this.lastInputTime < INPUT_RATE_LIMIT_MS) {
+        return; // Rate limited, skip this input
+      }
+      this.lastInputTime = now;
+
       const payload: GameInputPayload = {
         type: 'game-input',
         gameId: this.session.gameId,
@@ -300,6 +311,7 @@ export class GameController {
 
   private handleAccept(payload: GameAcceptPayload, fromPeerId: string): void {
     if (!this.session || this.session.gameId !== payload.gameId) return;
+    if (fromPeerId !== this.session.peerId) return; // Security: verify sender
     if (this.session.state !== 'waiting-accept') return;
 
     this.setSessionState('waiting-ready');
@@ -308,14 +320,17 @@ export class GameController {
 
   private handleDecline(_payload: GameDeclinePayload, fromPeerId: string): void {
     if (!this.session) return;
+    if (fromPeerId !== this.session.peerId) return; // Security: verify sender
 
     this.events.onInvitationDeclined?.(fromPeerId);
     this.endSession();
   }
 
-  private handleReady(payload: GameReadyPayload): void {
+  private handleReady(payload: GameReadyPayload, fromPeerId: string): void {
     if (!this.session || this.session.gameId !== payload.gameId) return;
+    if (fromPeerId !== this.session.peerId) return; // Security: verify sender
     if (this.session.localPlayer !== 'p1') return;
+    if (this.session.state !== 'waiting-ready') return; // Fix #3: Check state
 
     // P1 received ready from P2 - start countdown
     this.setSessionState('countdown');
@@ -326,26 +341,39 @@ export class GameController {
   // Private: Game State Handlers
   // ============================================
 
-  private handleState(payload: GameStatePayload): void {
+  private handleState(payload: GameStatePayload, fromPeerId: string): void {
     if (!this.session || this.session.gameId !== payload.gameId) return;
+    if (fromPeerId !== this.session.peerId) return; // Security: verify sender
     if (this.session.localPlayer !== 'p2') return;
+    if (this.session.state !== 'playing') return; // Only accept state during gameplay
 
     // P2: apply state from P1
     this.session.game.applyState(payload);
   }
 
-  private handleInput(payload: GameInputPayload): void {
+  private handleInput(payload: GameInputPayload, fromPeerId: string): void {
     if (!this.session || this.session.gameId !== payload.gameId) return;
+    if (fromPeerId !== this.session.peerId) return; // Security: verify sender
     if (this.session.localPlayer !== 'p1') return;
+    if (this.session.state !== 'playing') return; // Only accept input during gameplay
+
+    // Fix #8: Rate limit incoming input (prevent DoS)
+    const now = Date.now();
+    if (now - this.lastRemoteInputTime < INPUT_RATE_LIMIT_MS) {
+      return; // Rate limited, ignore
+    }
+    this.lastRemoteInputTime = now;
 
     // P1: apply P2's input
     this.session.game.setDirection('p2', payload.direction);
   }
 
-  private handleEnd(payload: GameEndPayload): void {
+  private handleEnd(payload: GameEndPayload, fromPeerId: string): void {
     if (!this.session || this.session.gameId !== payload.gameId) return;
+    if (fromPeerId !== this.session.peerId) return; // Security: verify sender
 
-    // Game ended by remote
+    // Game ended by remote - clean up intervals (Fix #5)
+    this.stopCountdown();
     this.stopStateUpdates();
     this.session.game.stop();
     this.setSessionState('ended');
@@ -478,7 +506,8 @@ export class GameController {
   }
 
   private generateGameId(): string {
-    return `game-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    // Use crypto.randomUUID for secure game ID generation (Fix #7)
+    return `game-${crypto.randomUUID()}`;
   }
 
   private formatResultMessage(winner: GameWinner, reason: GameEndReason): string {

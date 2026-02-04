@@ -143,31 +143,81 @@ export function isGamePayload(payload: unknown): payload is GamePayload {
  * Type guards for specific game payloads
  */
 export function isGameInvite(payload: unknown): payload is GameInvitePayload {
-  return isGamePayload(payload) && payload.type === 'game-invite';
+  if (!isGamePayload(payload) || payload.type !== 'game-invite') return false;
+  const p = payload as GameInvitePayload;
+  // Validate gridSize and tickMs bounds (Fix #1 & #6)
+  if (typeof p.gridSize !== 'number' || p.gridSize < MIN_GRID_SIZE || p.gridSize > MAX_GRID_SIZE) return false;
+  if (typeof p.tickMs !== 'number' || p.tickMs < MIN_TICK_MS || p.tickMs > MAX_TICK_MS) return false;
+  if (typeof p.gameId !== 'string' || p.gameId.length === 0) return false;
+  if (p.gameType !== 'snake') return false;
+  return true;
 }
 
 export function isGameAccept(payload: unknown): payload is GameAcceptPayload {
-  return isGamePayload(payload) && payload.type === 'game-accept';
+  if (!isGamePayload(payload) || payload.type !== 'game-accept') return false;
+  const p = payload as GameAcceptPayload;
+  if (typeof p.gameId !== 'string' || p.gameId.length === 0) return false;
+  return true;
 }
 
 export function isGameDecline(payload: unknown): payload is GameDeclinePayload {
-  return isGamePayload(payload) && payload.type === 'game-decline';
+  if (!isGamePayload(payload) || payload.type !== 'game-decline') return false;
+  const p = payload as GameDeclinePayload;
+  if (typeof p.gameId !== 'string' || p.gameId.length === 0) return false;
+  return true;
 }
 
 export function isGameState(payload: unknown): payload is GameStatePayload {
-  return isGamePayload(payload) && payload.type === 'game-state';
+  if (!isGamePayload(payload) || payload.type !== 'game-state') return false;
+  const p = payload as GameStatePayload;
+  if (typeof p.gameId !== 'string' || p.gameId.length === 0) return false;
+  if (typeof p.tick !== 'number' || p.tick < 0 || !Number.isInteger(p.tick)) return false;
+  // Validate snakes, food, scores, directions exist
+  if (!p.snakes || !Array.isArray(p.snakes.p1) || !Array.isArray(p.snakes.p2)) return false;
+  if (!p.food || typeof p.food.x !== 'number' || typeof p.food.y !== 'number') return false;
+  if (!p.scores || typeof p.scores.p1 !== 'number' || typeof p.scores.p2 !== 'number') return false;
+  if (!p.directions || !isValidDirection(p.directions.p1) || !isValidDirection(p.directions.p2)) return false;
+  return true;
 }
 
 export function isGameInput(payload: unknown): payload is GameInputPayload {
-  return isGamePayload(payload) && payload.type === 'game-input';
+  if (!isGamePayload(payload) || payload.type !== 'game-input') return false;
+  const p = payload as GameInputPayload;
+  if (typeof p.gameId !== 'string' || p.gameId.length === 0) return false;
+  if (!isValidDirection(p.direction)) return false;
+  return true;
 }
 
 export function isGameEnd(payload: unknown): payload is GameEndPayload {
-  return isGamePayload(payload) && payload.type === 'game-end';
+  if (!isGamePayload(payload) || payload.type !== 'game-end') return false;
+  const p = payload as GameEndPayload;
+  if (typeof p.gameId !== 'string' || p.gameId.length === 0) return false;
+  if (!isValidWinner(p.winner)) return false;
+  if (!isValidEndReason(p.reason)) return false;
+  if (!p.finalScores || typeof p.finalScores.p1 !== 'number' || typeof p.finalScores.p2 !== 'number') return false;
+  return true;
 }
 
 export function isGameReady(payload: unknown): payload is GameReadyPayload {
-  return isGamePayload(payload) && payload.type === 'game-ready';
+  if (!isGamePayload(payload) || payload.type !== 'game-ready') return false;
+  const p = payload as GameReadyPayload;
+  if (typeof p.gameId !== 'string' || p.gameId.length === 0) return false;
+  return true;
+}
+
+/** Helper to validate Direction type */
+function isValidDirection(dir: unknown): dir is Direction {
+  return dir === 'up' || dir === 'down' || dir === 'left' || dir === 'right';
+}
+
+/** Helper to validate GameWinner type */
+function isValidWinner(winner: unknown): winner is GameWinner {
+  return winner === 'p1' || winner === 'p2' || winner === 'draw';
+}
+
+/** Helper to validate GameEndReason type */
+function isValidEndReason(reason: unknown): reason is GameEndReason {
+  return reason === 'collision' || reason === 'disconnect' || reason === 'forfeit';
 }
 
 // ============================================
@@ -177,6 +227,12 @@ export function isGameReady(payload: unknown): payload is GameReadyPayload {
 /** Default game configuration */
 export const DEFAULT_GRID_SIZE = 20;
 export const DEFAULT_TICK_MS = 100;
+
+/** Configuration bounds (Fix #6: prevent DoS via extreme values) */
+export const MIN_GRID_SIZE = 10;
+export const MAX_GRID_SIZE = 50;
+export const MIN_TICK_MS = 50;
+export const MAX_TICK_MS = 1000;
 
 /** Snake starting positions (opposite corners) */
 export const P1_START: Point = { x: 3, y: 3 };
