@@ -25,6 +25,7 @@ import {
   NetworkTopology,
   type NodeId,
   type NodeRole,
+  type PathInfo,
   type PeerInfo,
   READ_RECEIPT_TYPE,
   RelaySelector,
@@ -35,11 +36,13 @@ import {
   TomError,
   type TransportEvents,
   TransportLayer,
+  extractPathInfo,
 } from 'tom-protocol';
 import type { PeerConnection, SignalingClient } from 'tom-protocol';
 
-// Re-export MessageStatus for SDK consumers
-export type { MessageStatus, MessageStatusEntry } from 'tom-protocol';
+// Re-export types for SDK consumers
+export type { MessageStatus, MessageStatusEntry, PathInfo } from 'tom-protocol';
+export { formatLatency } from 'tom-protocol';
 
 export interface TomClientOptions {
   signalingUrl: string;
@@ -82,6 +85,8 @@ export class TomClient {
   private messageOrigins = new Map<string, NodeId>();
   /** Set of message IDs for which read receipts have been sent */
   private readReceiptsSent = new Set<string>();
+  /** Map of message IDs to received envelope data for path visualization (Story 4.3) */
+  private receivedEnvelopes = new Map<string, { envelope: MessageEnvelope; receivedAt: number }>();
   /** Cleanup interval handle */
   private cleanupInterval: ReturnType<typeof setInterval> | null = null;
 
@@ -196,6 +201,8 @@ export class TomClient {
       onMessageDelivered: (envelope) => {
         // Store message origin for read receipt routing
         this.messageOrigins.set(envelope.id, envelope.from);
+        // Store envelope data for path visualization (Story 4.3)
+        this.receivedEnvelopes.set(envelope.id, { envelope, receivedAt: Date.now() });
         for (const handler of this.messageHandlers) handler(envelope);
       },
       onMessageForwarded: (envelope, nextHop) => {
@@ -366,6 +373,7 @@ export class TomClient {
         if (!this.messageTracker.getStatus(messageId)) {
           this.readReceiptsSent.delete(messageId);
           this.messageOrigins.delete(messageId);
+          this.receivedEnvelopes.delete(messageId);
         }
       }
       this.emitStatus('cleanup:completed', `${removed} messages`);
@@ -520,6 +528,22 @@ export class TomClient {
    */
   getMessageStatus(messageId: string): MessageStatusEntry | undefined {
     return this.messageTracker.getStatus(messageId);
+  }
+
+  /**
+   * Get path information for a received message (Story 4.3 - FR14).
+   * Shows route type (direct/relay), relay hops, and latency.
+   * Derived from envelope metadata — no extra network requests.
+   *
+   * @param messageId - The ID of the received message
+   * @returns PathInfo with routing details, or undefined if message not found
+   */
+  getPathInfo(messageId: string): PathInfo | undefined {
+    const stored = this.receivedEnvelopes.get(messageId);
+    if (!stored) {
+      return undefined;
+    }
+    return extractPathInfo(stored.envelope, stored.receivedAt);
   }
 
   /**
