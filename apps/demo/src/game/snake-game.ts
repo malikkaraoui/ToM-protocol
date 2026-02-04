@@ -186,20 +186,51 @@ export class SnakeGame {
     const newHead2 = this.getNextHead(this.state.snakes.p2[0], this.state.directions.p2);
 
     // Check collisions before moving
-    const p1Collision = this.checkCollision(newHead1, 'p1', newHead2);
-    const p2Collision = this.checkCollision(newHead2, 'p2', newHead1);
+    const p1SelfCollision = this.checkSelfCollision(newHead1, 'p1');
+    const p2SelfCollision = this.checkSelfCollision(newHead2, 'p2');
+    const p1HitsP2 = this.checkOpponentCollision(newHead1, 'p2');
+    const p2HitsP1 = this.checkOpponentCollision(newHead2, 'p1');
+    const headToHead = this.pointsEqual(newHead1, newHead2);
 
-    if (p1Collision && p2Collision) {
-      // Both collided - draw
+    // Self collision = immediate loss
+    if (p1SelfCollision && p2SelfCollision) {
       this.endGame('draw', 'collision');
       return;
     }
-    if (p1Collision) {
+    if (p1SelfCollision) {
       this.endGame('p2', 'collision');
       return;
     }
-    if (p2Collision) {
+    if (p2SelfCollision) {
       this.endGame('p1', 'collision');
+      return;
+    }
+
+    // Head-to-head collision - longer snake wins
+    if (headToHead) {
+      const len1 = this.state.snakes.p1.length;
+      const len2 = this.state.snakes.p2.length;
+      if (len1 > len2) {
+        this.endGame('p1', 'collision');
+      } else if (len2 > len1) {
+        this.endGame('p2', 'collision');
+      } else {
+        this.endGame('draw', 'collision');
+      }
+      return;
+    }
+
+    // Snake hitting opponent's body - longer snake wins
+    if (p1HitsP2 || p2HitsP1) {
+      const len1 = this.state.snakes.p1.length;
+      const len2 = this.state.snakes.p2.length;
+      if (len1 > len2) {
+        this.endGame('p1', 'collision');
+      } else if (len2 > len1) {
+        this.endGame('p2', 'collision');
+      } else {
+        this.endGame('draw', 'collision');
+      }
       return;
     }
 
@@ -247,49 +278,44 @@ export class SnakeGame {
   }
 
   /**
-   * Get next head position based on direction
+   * Get next head position based on direction (with wraparound)
+   * Snake wraps to opposite edge instead of wall collision
    */
   private getNextHead(head: Point, direction: Direction): Point {
+    const gridSize = this.config.gridSize;
     const moves: Record<Direction, Point> = {
-      up: { x: head.x, y: head.y - 1 },
-      down: { x: head.x, y: head.y + 1 },
-      left: { x: head.x - 1, y: head.y },
-      right: { x: head.x + 1, y: head.y },
+      up: { x: head.x, y: (head.y - 1 + gridSize) % gridSize },
+      down: { x: head.x, y: (head.y + 1) % gridSize },
+      left: { x: (head.x - 1 + gridSize) % gridSize, y: head.y },
+      right: { x: (head.x + 1) % gridSize, y: head.y },
     };
     return moves[direction];
   }
 
   /**
-   * Check if new head position causes collision
+   * Check if new head position causes self collision
    */
-  private checkCollision(newHead: Point, player: PlayerId, otherNewHead: Point): boolean {
-    // Wall collision
-    if (newHead.x < 0 || newHead.x >= this.config.gridSize || newHead.y < 0 || newHead.y >= this.config.gridSize) {
-      return true;
-    }
-
-    // Self collision (skip head, it's about to move)
+  private checkSelfCollision(newHead: Point, player: PlayerId): boolean {
     const ownSnake = this.state.snakes[player];
+    // Skip head (index 0), it's about to move
     for (let i = 1; i < ownSnake.length; i++) {
       if (this.pointsEqual(newHead, ownSnake[i])) {
         return true;
       }
     }
+    return false;
+  }
 
-    // Opponent collision (check entire body including where new head will be)
-    const opponent = player === 'p1' ? 'p2' : 'p1';
+  /**
+   * Check if new head position hits opponent's body
+   */
+  private checkOpponentCollision(newHead: Point, opponent: PlayerId): boolean {
     const opponentSnake = this.state.snakes[opponent];
     for (const segment of opponentSnake) {
       if (this.pointsEqual(newHead, segment)) {
         return true;
       }
     }
-
-    // Head-to-head collision (both moving to same spot)
-    if (this.pointsEqual(newHead, otherNewHead)) {
-      return true;
-    }
-
     return false;
   }
 
