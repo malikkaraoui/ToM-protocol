@@ -14,7 +14,6 @@
  */
 
 import type { NodeId } from '../identity/index.js';
-import type { MessageEnvelope } from '../types/envelope.js';
 import {
   GROUP_SECURITY_DEFAULTS,
   type GroupSecurityConfig,
@@ -24,6 +23,7 @@ import {
 import {
   DEFAULT_MAX_GROUP_MEMBERS,
   GROUP_RATE_LIMIT_PER_SECOND,
+  type GroupAnnouncementPayload,
   type GroupCreatePayload,
   type GroupCreatedPayload,
   type GroupDeliveryAckPayload,
@@ -34,7 +34,6 @@ import {
   type GroupJoinPayload,
   type GroupLeavePayload,
   type GroupMember,
-  type GroupMemberJoinedPayload,
   type GroupMemberLeftPayload,
   type GroupMessagePayload,
   type GroupPayload,
@@ -52,6 +51,8 @@ export interface GroupHubEvents {
   sendToNode: (nodeId: NodeId, payload: GroupPayload, groupId: GroupId) => void;
   /** Send a message to all group members */
   broadcastToGroup: (groupId: GroupId, payload: GroupPayload, excludeNodeId?: NodeId) => void;
+  /** Broadcast group announcement to all known peers (for public groups) */
+  broadcastAnnouncement?: (payload: GroupPayload) => void;
   /** Log hub activity */
   onHubActivity?: (groupId: GroupId, activity: string, details?: unknown) => void;
   /** Capacity warning */
@@ -197,7 +198,7 @@ export class GroupHub {
     switch (payload.type) {
       case 'group-create':
         if (isGroupCreate(payload)) {
-          this.handleCreate(payload, fromNodeId);
+          this.handleCreate(payload, fromNodeId, payload.creatorUsername);
         }
         break;
       case 'group-join':
@@ -224,7 +225,7 @@ export class GroupHub {
   // Group Creation
   // ============================================
 
-  private handleCreate(payload: GroupCreatePayload, fromNodeId: NodeId): void {
+  private handleCreate(payload: GroupCreatePayload, fromNodeId: NodeId, creatorUsername?: string): void {
     // Check capacity
     if (this.groups.size >= this.maxGroups) {
       this.events.onHubActivity?.(payload.groupId, 'create-rejected', { reason: 'max-groups' });
@@ -239,6 +240,7 @@ export class GroupHub {
 
     const now = Date.now();
     const groupId = payload.groupId;
+    const username = creatorUsername ?? 'Creator';
 
     // Create the group with creator as admin
     const group: GroupInfo = {
@@ -248,7 +250,7 @@ export class GroupHub {
       members: [
         {
           nodeId: fromNodeId,
-          username: 'Creator', // Will be updated when they sync
+          username,
           joinedAt: now,
           role: 'admin',
         },
@@ -272,8 +274,20 @@ export class GroupHub {
 
     // Send invitations to initial members
     for (const member of payload.initialMembers) {
-      this.sendInvite(groupId, group.name, member.nodeId, member.username, fromNodeId, 'Creator');
+      this.sendInvite(groupId, group.name, member.nodeId, member.username, fromNodeId, username);
     }
+
+    // Broadcast public group announcement to all peers
+    const announcement: GroupAnnouncementPayload = {
+      type: 'group-announcement',
+      groupId,
+      groupName: payload.name,
+      hubRelayId: this.localNodeId,
+      memberCount: 1,
+      createdBy: fromNodeId,
+      creatorUsername: username,
+    };
+    this.events.broadcastAnnouncement?.(announcement);
 
     this.events.onHubActivity?.(groupId, 'created', { creator: fromNodeId, members: payload.initialMembers.length });
   }
@@ -297,6 +311,7 @@ export class GroupHub {
       inviterId,
       inviterUsername,
       groupName,
+      hubRelayId: this.localNodeId,
       memberCount: group.members.length,
     };
 
@@ -343,18 +358,16 @@ export class GroupHub {
     group.members.push(newMember);
     group.lastActivityAt = Date.now();
 
-    // Send sync to new member
-    this.sendSync(payload.groupId, fromNodeId);
+    // Send sync to ALL members (including the new one) to ensure consistent state
+    // This guarantees everyone has the same member list and count
+    for (const member of group.members) {
+      this.sendSync(payload.groupId, member.nodeId);
+    }
 
-    // Notify existing members
-    const joinedPayload: GroupMemberJoinedPayload = {
-      type: 'group-member-joined',
-      groupId: payload.groupId,
-      member: newMember,
-    };
-    this.events.broadcastToGroup(payload.groupId, joinedPayload, fromNodeId);
-
-    this.events.onHubActivity?.(payload.groupId, 'member-joined', { nodeId: fromNodeId });
+    this.events.onHubActivity?.(payload.groupId, 'member-joined', {
+      nodeId: fromNodeId,
+      memberCount: group.members.length,
+    });
   }
 
   private handleLeave(payload: GroupLeavePayload, fromNodeId: NodeId): void {
