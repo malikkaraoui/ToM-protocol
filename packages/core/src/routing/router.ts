@@ -8,6 +8,15 @@ export const READ_RECEIPT_TYPE = 'read-receipt';
 /** ACK types for distinguishing relay vs recipient acknowledgments */
 export type AckType = 'relay-forwarded' | 'recipient-received' | 'recipient-read';
 
+/** Valid ACK types for runtime validation */
+const VALID_ACK_TYPES: AckType[] = ['relay-forwarded', 'recipient-received', 'recipient-read'];
+
+/** Max age for ACK anti-replay cache (5 minutes) */
+const ACK_REPLAY_CACHE_TTL_MS = 5 * 60 * 1000;
+
+/** Max entries in ACK anti-replay cache */
+const ACK_REPLAY_CACHE_MAX_SIZE = 5000;
+
 export interface AckPayload {
   originalMessageId: string;
   ackType: AckType;
@@ -43,12 +52,48 @@ export class Router {
   private pendingConnections = new Map<string, Promise<PeerConnection>>();
   /** Optional DirectPathManager for direct path routing */
   private directPathManager: DirectPathManager | null = null;
+  /** Anti-replay cache for ACKs: messageId -> timestamp when first seen */
+  private seenAcks = new Map<string, number>();
+  /** Anti-replay cache for read receipts: messageId -> timestamp when first seen */
+  private seenReadReceipts = new Map<string, number>();
 
   constructor(localNodeId: string, transport: TransportLayer, events: RouterEvents, verifier?: SignatureVerifier) {
     this.localNodeId = localNodeId;
     this.transport = transport;
     this.events = events;
     this.verifier = verifier ?? null;
+  }
+
+  /**
+   * Check if an ACK/receipt has been seen before (anti-replay).
+   * Also cleans up old entries to prevent memory leaks.
+   */
+  private checkAndRecordSeen(cache: Map<string, number>, key: string): boolean {
+    const now = Date.now();
+
+    // Clean up old entries periodically
+    if (cache.size > ACK_REPLAY_CACHE_MAX_SIZE / 2) {
+      for (const [k, timestamp] of cache) {
+        if (now - timestamp > ACK_REPLAY_CACHE_TTL_MS) {
+          cache.delete(k);
+        }
+      }
+    }
+
+    // Evict oldest if still over limit
+    if (cache.size >= ACK_REPLAY_CACHE_MAX_SIZE) {
+      const firstKey = cache.keys().next().value;
+      if (firstKey) cache.delete(firstKey);
+    }
+
+    // Check if already seen
+    if (cache.has(key)) {
+      return true; // Replay detected
+    }
+
+    // Record as seen
+    cache.set(key, now);
+    return false;
   }
 
   /**
@@ -68,7 +113,19 @@ export class Router {
         const originalId = payload?.originalMessageId;
         if (originalId) {
           // Determine ACK type (default to 'recipient-received' for backward compatibility)
-          const ackType = 'ackType' in payload ? payload.ackType : 'recipient-received';
+          const rawAckType = 'ackType' in payload ? payload.ackType : 'recipient-received';
+
+          // Validate ACK type (security: prevents bypass of state machine)
+          if (!VALID_ACK_TYPES.includes(rawAckType as AckType)) {
+            return; // Invalid ACK type, ignore
+          }
+          const ackType = rawAckType as AckType;
+
+          // Anti-replay check: composite key of messageId + sender + ackType
+          const replayKey = `${originalId}:${envelope.from}:${ackType}`;
+          if (this.checkAndRecordSeen(this.seenAcks, replayKey)) {
+            return; // Replay detected, ignore
+          }
 
           // Always emit the generic ACK event for backward compatibility
           this.events.onAckReceived(originalId, envelope.from);
@@ -87,7 +144,21 @@ export class Router {
       if (envelope.type === READ_RECEIPT_TYPE) {
         const payload = envelope.payload as { originalMessageId?: string; readAt?: number };
         if (payload?.originalMessageId) {
-          this.events.onReadReceiptReceived?.(payload.originalMessageId, payload.readAt ?? Date.now(), envelope.from);
+          // Anti-replay check for read receipts
+          const replayKey = `${payload.originalMessageId}:${envelope.from}`;
+          if (this.checkAndRecordSeen(this.seenReadReceipts, replayKey)) {
+            return; // Replay detected, ignore
+          }
+
+          // Validate readAt timestamp (security: prevent temporal manipulation)
+          const now = Date.now();
+          let safeReadAt = payload.readAt ?? now;
+          // Clamp to reasonable range: not in the future, not more than 7 days in the past
+          const maxPastMs = 7 * 24 * 60 * 60 * 1000;
+          safeReadAt = Math.min(safeReadAt, now); // Not in the future
+          safeReadAt = Math.max(safeReadAt, now - maxPastMs); // Not too far in the past
+
+          this.events.onReadReceiptReceived?.(payload.originalMessageId, safeReadAt, envelope.from);
         }
         return;
       }

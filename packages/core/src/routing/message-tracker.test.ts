@@ -253,4 +253,91 @@ describe('MessageTracker', () => {
       expect(status?.timestamps.read).toBeUndefined();
     });
   });
+
+  describe('security fixes', () => {
+    it('should not overwrite existing tracked message (prevents race condition)', () => {
+      tracker.track('msg-1', 'recipient-1');
+      tracker.markSent('msg-1');
+      tracker.markDelivered('msg-1');
+
+      // Try to track again (should be rejected)
+      const result = tracker.track('msg-1', 'recipient-1');
+
+      expect(result).toBe(false);
+      // Status should remain at delivered, not reset to pending
+      expect(tracker.getStatus('msg-1')?.status).toBe('delivered');
+    });
+
+    it('should evict oldest messages when at capacity', () => {
+      // Track many messages up to capacity
+      for (let i = 0; i < 10000; i++) {
+        tracker.track(`msg-${i}`, 'recipient-1');
+      }
+
+      expect(tracker.size).toBe(10000);
+
+      // Track one more - should evict oldest
+      tracker.track('msg-new', 'recipient-1');
+
+      expect(tracker.size).toBe(10000);
+      expect(tracker.getStatus('msg-new')).toBeDefined();
+    });
+
+    it('should prefer evicting read messages when at capacity', () => {
+      // Track and mark some as read
+      tracker.track('msg-old-read', 'recipient-1');
+      tracker.markRead('msg-old-read');
+
+      tracker.track('msg-old-delivered', 'recipient-1');
+      tracker.markDelivered('msg-old-delivered');
+
+      // Fill to capacity
+      for (let i = 0; i < 9998; i++) {
+        tracker.track(`msg-${i}`, 'recipient-1');
+      }
+
+      // Track one more - should evict the read one first
+      tracker.track('msg-new', 'recipient-1');
+
+      expect(tracker.getStatus('msg-old-read')).toBeUndefined(); // Evicted
+      expect(tracker.getStatus('msg-old-delivered')).toBeDefined(); // Still there
+    });
+
+    it('should cleanup stuck messages (not read) after 24 hours', () => {
+      vi.useFakeTimers();
+
+      tracker.track('msg-stuck', 'recipient-1');
+      tracker.markSent('msg-stuck');
+      tracker.markDelivered('msg-stuck');
+      // Never marked as read
+
+      // Advance time past MAX_STUCK_MESSAGE_AGE_MS (24 hours)
+      vi.advanceTimersByTime(25 * 60 * 60 * 1000);
+
+      const removed = tracker.cleanupOldMessages(10 * 60 * 1000);
+
+      expect(removed).toBe(1);
+      expect(tracker.getStatus('msg-stuck')).toBeUndefined();
+
+      vi.useRealTimers();
+    });
+
+    it('should not cleanup recent stuck messages', () => {
+      vi.useFakeTimers();
+
+      tracker.track('msg-recent-stuck', 'recipient-1');
+      tracker.markSent('msg-recent-stuck');
+      tracker.markDelivered('msg-recent-stuck');
+
+      // Only advance a few hours
+      vi.advanceTimersByTime(2 * 60 * 60 * 1000);
+
+      const removed = tracker.cleanupOldMessages(10 * 60 * 1000);
+
+      expect(removed).toBe(0);
+      expect(tracker.getStatus('msg-recent-stuck')).toBeDefined();
+
+      vi.useRealTimers();
+    });
+  });
 });

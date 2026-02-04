@@ -15,6 +15,12 @@
 
 export type MessageStatus = 'pending' | 'sent' | 'relayed' | 'delivered' | 'read';
 
+/** Maximum number of messages to track (prevents DoS) */
+const MAX_TRACKED_MESSAGES = 10000;
+
+/** Maximum age for stuck messages (not read) before forced cleanup (24 hours) */
+const MAX_STUCK_MESSAGE_AGE_MS = 24 * 60 * 60 * 1000;
+
 export interface MessageStatusTimestamps {
   pending?: number;
   sent?: number;
@@ -54,8 +60,19 @@ export class MessageTracker {
   /**
    * Start tracking a new message.
    * Initial status is 'pending'.
+   * Returns false if message is already being tracked (prevents state regression).
    */
-  track(messageId: string, to: string): void {
+  track(messageId: string, to: string): boolean {
+    // Prevent overwriting existing state (fixes race condition)
+    if (this.messages.has(messageId)) {
+      return false;
+    }
+
+    // Evict oldest messages if at capacity (DoS protection)
+    if (this.messages.size >= MAX_TRACKED_MESSAGES) {
+      this.evictOldest();
+    }
+
     const entry: MessageStatusEntry = {
       messageId,
       to,
@@ -65,6 +82,40 @@ export class MessageTracker {
       },
     };
     this.messages.set(messageId, entry);
+    return true;
+  }
+
+  /**
+   * Evict the oldest message to make room for new ones.
+   * Prefers evicting 'read' messages, then by oldest timestamp.
+   */
+  private evictOldest(): void {
+    let oldestReadId: string | null = null;
+    let oldestReadTime = Number.POSITIVE_INFINITY;
+    let oldestAnyId: string | null = null;
+    let oldestAnyTime = Number.POSITIVE_INFINITY;
+
+    for (const [id, entry] of this.messages) {
+      const time = entry.timestamps.pending ?? Number.POSITIVE_INFINITY;
+
+      if (entry.status === 'read') {
+        if (time < oldestReadTime) {
+          oldestReadTime = time;
+          oldestReadId = id;
+        }
+      }
+
+      if (time < oldestAnyTime) {
+        oldestAnyTime = time;
+        oldestAnyId = id;
+      }
+    }
+
+    // Prefer evicting read messages
+    const toEvict = oldestReadId ?? oldestAnyId;
+    if (toEvict) {
+      this.messages.delete(toEvict);
+    }
   }
 
   /**
@@ -120,7 +171,9 @@ export class MessageTracker {
 
   /**
    * Clean up messages older than the specified age (in milliseconds).
-   * Only removes messages that have reached 'read' status.
+   * Removes:
+   * - Messages that have reached 'read' status (after maxAgeMs from read time)
+   * - Messages stuck in non-read status (after MAX_STUCK_MESSAGE_AGE_MS from pending time)
    * @returns Number of messages removed
    */
   cleanupOldMessages(maxAgeMs: number): number {
@@ -128,9 +181,19 @@ export class MessageTracker {
     let removed = 0;
 
     for (const [messageId, entry] of this.messages) {
-      // Only clean up messages that are fully read
+      // Clean up messages that are fully read
       if (entry.status === 'read' && entry.timestamps.read) {
         if (now - entry.timestamps.read > maxAgeMs) {
+          this.messages.delete(messageId);
+          removed++;
+          continue;
+        }
+      }
+
+      // Clean up stuck messages (not read after MAX_STUCK_MESSAGE_AGE_MS)
+      // This prevents memory leaks from messages that never get read receipts
+      if (entry.status !== 'read' && entry.timestamps.pending) {
+        if (now - entry.timestamps.pending > MAX_STUCK_MESSAGE_AGE_MS) {
           this.messages.delete(messageId);
           removed++;
         }

@@ -11,3 +11,5 @@ export type {
   MessageStatusTimestamps,
   MessageTrackerEvents,
 } from './message-tracker.js';
+export { OfflineDetector } from './offline-detector.js';
+export type { OfflineDetectorEvents, OfflinePeerInfo } from './offline-detector.js';
