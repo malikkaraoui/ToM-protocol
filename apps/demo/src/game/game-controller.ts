@@ -129,10 +129,19 @@ export class GameController {
    * Send game invitation to peer
    */
   async sendInvitation(peerId: string, peerUsername: string): Promise<void> {
-    if (this.session) {
-      console.warn('[GameController] Already in a game session');
+    if (!this.canStartGame()) {
+      console.warn('[GameController] Already in an active game session');
       return;
     }
+
+    // Clean up any previous ended session
+    if (this.session) {
+      this.endSession();
+    }
+
+    // Reset rate limiters for new game
+    this.lastInputTime = 0;
+    this.lastRemoteInputTime = 0;
 
     const gameId = this.generateGameId();
     const config = { gridSize: DEFAULT_GRID_SIZE, tickMs: DEFAULT_TICK_MS };
@@ -237,12 +246,34 @@ export class GameController {
   }
 
   /**
-   * Handle peer disconnect during game
+   * Handle peer disconnect during any game phase
    */
   handlePeerDisconnect(): void {
-    if (!this.session || this.session.state !== 'playing') return;
+    if (!this.session) return;
 
-    this.session.game.endByDisconnect(this.session.localPlayer === 'p1' ? 'p2' : 'p1');
+    const state = this.session.state;
+
+    // Already ended, nothing to do
+    if (state === 'idle' || state === 'ended') return;
+
+    // During active gameplay, end with disconnect reason
+    if (state === 'playing') {
+      this.session.game.endByDisconnect(this.session.localPlayer === 'p1' ? 'p2' : 'p1');
+      return;
+    }
+
+    // During any pre-game phase (invited, waiting-accept, waiting-ready, countdown)
+    // Just clean up the session
+    this.stopCountdown();
+    this.stopStateUpdates();
+    this.session.game.stop();
+
+    // Notify about disconnect
+    const disconnectedPlayer = this.session.localPlayer === 'p1' ? 'p2' : 'p1';
+    const resultMessage = `🎮 Game cancelled (${this.session.peerUsername} disconnected)`;
+    this.events.onGameEnd?.(disconnectedPlayer, 'disconnect', resultMessage);
+
+    this.setSessionState('ended');
   }
 
   /**
@@ -268,10 +299,19 @@ export class GameController {
   }
 
   /**
-   * Check if currently in a game
+   * Check if currently in an active game (not ended)
    */
   isInGame(): boolean {
-    return this.session !== null && this.session.state !== 'idle';
+    if (!this.session) return false;
+    // 'ended' state allows starting a new game
+    return this.session.state !== 'idle' && this.session.state !== 'ended';
+  }
+
+  /**
+   * Check if can start a new game
+   */
+  canStartGame(): boolean {
+    return !this.session || this.session.state === 'idle' || this.session.state === 'ended';
   }
 
   // ============================================
@@ -279,8 +319,9 @@ export class GameController {
   // ============================================
 
   private handleInvite(payload: GameInvitePayload, fromPeerId: string, peerUsername: string): void {
-    if (this.session) {
-      // Already in a session, auto-decline
+    // Can accept if no session or session is ended
+    if (!this.canStartGame()) {
+      // Already in an active session, auto-decline
       const declinePayload: GameDeclinePayload = {
         type: 'game-decline',
         gameId: payload.gameId,
@@ -288,6 +329,15 @@ export class GameController {
       this.client.sendPayload(fromPeerId, declinePayload);
       return;
     }
+
+    // Clean up any previous ended session
+    if (this.session) {
+      this.endSession();
+    }
+
+    // Reset rate limiters for new game
+    this.lastInputTime = 0;
+    this.lastRemoteInputTime = 0;
 
     // Create session as P2 (client)
     const config = { gridSize: payload.gridSize, tickMs: payload.tickMs };
