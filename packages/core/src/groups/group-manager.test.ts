@@ -77,19 +77,36 @@ describe('GroupManager', () => {
       const onGroupInvite = vi.fn();
       const eventManager = new GroupManager(localNodeId, localUsername, { onGroupInvite });
 
-      eventManager.handleInvite('grp-123', 'Fun Group', 'node-bob', 'Bob');
+      eventManager.handleInvite('grp-123', 'Fun Group', 'node-bob', 'Bob', 'relay-1');
 
       expect(onGroupInvite).toHaveBeenCalledWith('grp-123', 'Fun Group', 'node-bob', 'Bob');
       expect(eventManager.getPendingInvites()).toHaveLength(1);
     });
 
     it('should accept invitation', () => {
-      manager.handleInvite('grp-123', 'Fun Group', 'node-bob', 'Bob');
+      manager.handleInvite('grp-123', 'Fun Group', 'node-bob', 'Bob', 'relay-1');
 
       const accepted = manager.acceptInvite('grp-123');
 
       expect(accepted).toBe(true);
+      // Invitation stays in pending until group-sync confirms the join
+      expect(manager.getPendingInvites()).toHaveLength(1);
+
+      // Simulate receiving group-sync (join confirmed)
+      manager.handleGroupSync({
+        groupId: 'grp-123',
+        name: 'Fun Group',
+        hubRelayId: 'relay-1',
+        members: [{ nodeId: localNodeId, username: localUsername, joinedAt: Date.now(), role: 'member' }],
+        createdBy: 'node-bob',
+        createdAt: Date.now(),
+        lastActivityAt: Date.now(),
+        maxMembers: 50,
+      });
+
+      // Now invitation should be removed
       expect(manager.getPendingInvites()).toHaveLength(0);
+      expect(manager.getGroup('grp-123')).not.toBeNull();
     });
 
     it('should decline invitation', () => {
