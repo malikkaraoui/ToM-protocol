@@ -121,6 +121,10 @@ export class TomClient {
   private groupHub: GroupHub | null = null;
   /** Track pending group join requests to prevent duplicate clicks */
   private pendingGroupJoins = new Set<string>();
+  /** Track failed relays per message for rerouting (Story 5.2) */
+  private failedRelaysPerMessage = new Map<string, Set<string>>();
+  /** Maximum reroute attempts per message */
+  private static readonly MAX_REROUTE_ATTEMPTS = 3;
 
   private messageHandlers: MessageHandler[] = [];
   private participantHandlers: ParticipantHandler[] = [];
@@ -270,6 +274,16 @@ export class TomClient {
       onReadReceiptReceived: (messageId, readAt, from) => {
         this.messageTracker.markRead(messageId);
         for (const handler of this.messageReadHandlers) handler(messageId, readAt, from);
+      },
+      // Rerouting handlers (Story 5.2)
+      onRerouteNeeded: (envelope, failedRelayId) => {
+        this.handleRerouteNeeded(envelope, failedRelayId);
+      },
+      onMessageQueued: (envelope, reason) => {
+        this.emitStatus('message:queued', `${envelope.id}: ${reason}`);
+      },
+      onDuplicateMessage: (messageId, from) => {
+        this.emitStatus('message:duplicate', `${messageId} from ${from}`);
       },
     });
 
@@ -1168,6 +1182,67 @@ export class TomClient {
     }
 
     this.router?.handleIncoming(envelope);
+  }
+
+  /**
+   * Handle rerouting when a relay fails (Story 5.2).
+   * Attempts to find an alternate path avoiding the failed relay.
+   * If no alternate path exists, queues the message for backup delivery.
+   */
+  private handleRerouteNeeded(envelope: MessageEnvelope, failedRelayId: string): void {
+    if (!this.router || !this.relaySelector || !this.transport) return;
+
+    const messageId = envelope.id;
+
+    // Track failed relays for this message
+    let failedRelays = this.failedRelaysPerMessage.get(messageId);
+    if (!failedRelays) {
+      failedRelays = new Set<string>();
+      this.failedRelaysPerMessage.set(messageId, failedRelays);
+    }
+    failedRelays.add(failedRelayId);
+
+    // Check if we've exceeded max reroute attempts
+    if (failedRelays.size >= TomClient.MAX_REROUTE_ATTEMPTS) {
+      this.emitStatus('reroute:max-attempts', `${messageId}: all relays failed`);
+      this.router.emitMessageQueued(envelope, 'max reroute attempts exceeded');
+      this.failedRelaysPerMessage.delete(messageId);
+      return;
+    }
+
+    this.emitStatus('reroute:attempting', `${messageId}: relay ${failedRelayId} failed`);
+
+    // Try to find an alternate relay
+    const selection = this.relaySelector.selectAlternateRelay(envelope.to, this.topology, failedRelays);
+
+    if (selection.relayId) {
+      this.emitStatus('reroute:alternate-found', `${messageId}: using ${selection.relayId}`);
+
+      // Reset the via path to use the new relay
+      envelope.via = [selection.relayId];
+
+      // Attempt to send via the alternate relay
+      this.transport
+        .connectToPeer(selection.relayId)
+        .then(() => {
+          const success = this.router!.sendViaRelay(envelope, selection.relayId!);
+          if (success) {
+            this.emitStatus('reroute:success', `${messageId}: sent via ${selection.relayId}`);
+            // Clean up tracking on success
+            this.failedRelaysPerMessage.delete(messageId);
+          }
+          // If sendViaRelay fails, it will call handleRerouteNeeded again
+        })
+        .catch(() => {
+          // Connection failed, will trigger another reroute attempt
+          this.handleRerouteNeeded(envelope, selection.relayId!);
+        });
+    } else {
+      // No alternate path available - queue for backup delivery
+      this.emitStatus('reroute:no-alternate', `${messageId}: no alternate relays available`);
+      this.router.emitMessageQueued(envelope, 'no alternate relays available');
+      this.failedRelaysPerMessage.delete(messageId);
+    }
   }
 
   /**

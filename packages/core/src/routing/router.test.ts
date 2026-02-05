@@ -732,4 +732,99 @@ describe('Router', () => {
       );
     });
   });
+
+  describe('Relay failure rerouting (Story 5.2)', () => {
+    it('emits onRerouteNeeded when relay is unreachable', () => {
+      const transport = createTransport();
+      const events = createRouterEvents();
+      events.onRerouteNeeded = vi.fn();
+      const router = new Router(LOCAL_ID, transport, events);
+
+      const envelope = makeEnvelope({ from: LOCAL_ID, to: PEER_B });
+
+      // Try to send via unreachable relay
+      const success = router.sendViaRelay(envelope, RELAY_R);
+
+      expect(success).toBe(false);
+      expect(events.onRerouteNeeded).toHaveBeenCalledWith(envelope, RELAY_R);
+      expect(events.onMessageRejected).toHaveBeenCalledWith(envelope, 'RELAY_UNREACHABLE');
+    });
+
+    it('returns true when sendViaRelay succeeds', async () => {
+      const transport = createTransport();
+      const events = createRouterEvents();
+      events.onRerouteNeeded = vi.fn();
+      const router = new Router(LOCAL_ID, transport, events);
+
+      await transport.connectToPeer(RELAY_R);
+      const envelope = makeEnvelope({ from: LOCAL_ID, to: PEER_B, via: [] });
+
+      const success = router.sendViaRelay(envelope, RELAY_R);
+
+      expect(success).toBe(true);
+      expect(events.onRerouteNeeded).not.toHaveBeenCalled();
+    });
+
+    it('emits onMessageQueued via emitMessageQueued', () => {
+      const transport = createTransport();
+      const events = createRouterEvents();
+      events.onMessageQueued = vi.fn();
+      const router = new Router(LOCAL_ID, transport, events);
+
+      const envelope = makeEnvelope({ from: LOCAL_ID, to: PEER_B });
+
+      router.emitMessageQueued(envelope, 'no alternate relays');
+
+      expect(events.onMessageQueued).toHaveBeenCalledWith(envelope, 'no alternate relays');
+    });
+  });
+
+  describe('Message deduplication (Story 5.2)', () => {
+    it('delivers first message and blocks duplicate', () => {
+      const transport = createTransport();
+      const events = createRouterEvents();
+      events.onDuplicateMessage = vi.fn();
+      const router = new Router(LOCAL_ID, transport, events);
+
+      const envelope = makeEnvelope({
+        id: 'msg-dedup-test',
+        from: PEER_B,
+        to: LOCAL_ID,
+        via: [RELAY_R],
+      });
+
+      // First delivery should succeed
+      router.handleIncoming(envelope);
+      expect(events.onMessageDelivered).toHaveBeenCalledTimes(1);
+      expect(events.onDuplicateMessage).not.toHaveBeenCalled();
+
+      // Second delivery of same message should be blocked
+      router.handleIncoming(envelope);
+      expect(events.onMessageDelivered).toHaveBeenCalledTimes(1); // Still only 1
+      expect(events.onDuplicateMessage).toHaveBeenCalledWith('msg-dedup-test', PEER_B);
+    });
+
+    it('allows different messages from same sender', () => {
+      const transport = createTransport();
+      const events = createRouterEvents();
+      const router = new Router(LOCAL_ID, transport, events);
+
+      const envelope1 = makeEnvelope({
+        id: 'msg-1',
+        from: PEER_B,
+        to: LOCAL_ID,
+      });
+
+      const envelope2 = makeEnvelope({
+        id: 'msg-2',
+        from: PEER_B,
+        to: LOCAL_ID,
+      });
+
+      router.handleIncoming(envelope1);
+      router.handleIncoming(envelope2);
+
+      expect(events.onMessageDelivered).toHaveBeenCalledTimes(2);
+    });
+  });
 });

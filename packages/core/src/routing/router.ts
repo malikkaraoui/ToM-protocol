@@ -38,11 +38,23 @@ export interface RouterEvents {
   onDeliveryAckReceived?: (originalMessageId: string, recipientId: string) => void;
   /** Called when read receipt is received */
   onReadReceiptReceived?: (originalMessageId: string, readAt: number, from: string) => void;
+  /** Called when relay fails and rerouting is needed (Story 5.2) */
+  onRerouteNeeded?: (envelope: MessageEnvelope, failedRelayId: string) => void;
+  /** Called when no alternate path exists and message is queued for backup (Story 5.2) */
+  onMessageQueued?: (envelope: MessageEnvelope, reason: string) => void;
+  /** Called when a duplicate message is detected (deduplication) */
+  onDuplicateMessage?: (messageId: string, from: string) => void;
 }
 
 export interface SignatureVerifier {
   verify(publicKey: Uint8Array, data: Uint8Array, signature: Uint8Array): boolean;
 }
+
+/** Max age for message deduplication cache (10 minutes) */
+const MESSAGE_DEDUP_CACHE_TTL_MS = 10 * 60 * 1000;
+
+/** Max entries in message deduplication cache */
+const MESSAGE_DEDUP_CACHE_MAX_SIZE = 10000;
 
 export class Router {
   private localNodeId: string;
@@ -57,12 +69,47 @@ export class Router {
   private seenAcks = new Map<string, number>();
   /** Anti-replay cache for read receipts: messageId -> timestamp when first seen */
   private seenReadReceipts = new Map<string, number>();
+  /** Deduplication cache for received messages: messageId -> timestamp when first seen */
+  private receivedMessages = new Map<string, number>();
 
   constructor(localNodeId: string, transport: TransportLayer, events: RouterEvents, verifier?: SignatureVerifier) {
     this.localNodeId = localNodeId;
     this.transport = transport;
     this.events = events;
     this.verifier = verifier ?? null;
+  }
+
+  /**
+   * Check if a message has already been received (deduplication).
+   * Returns true if duplicate, false if new message.
+   */
+  private checkMessageDuplicate(messageId: string, from: string): boolean {
+    const now = Date.now();
+
+    // Clean up old entries periodically
+    if (this.receivedMessages.size > MESSAGE_DEDUP_CACHE_MAX_SIZE / 2) {
+      for (const [id, timestamp] of this.receivedMessages) {
+        if (now - timestamp > MESSAGE_DEDUP_CACHE_TTL_MS) {
+          this.receivedMessages.delete(id);
+        }
+      }
+    }
+
+    // Evict oldest if still over limit
+    if (this.receivedMessages.size >= MESSAGE_DEDUP_CACHE_MAX_SIZE) {
+      const firstKey = this.receivedMessages.keys().next().value;
+      if (firstKey) this.receivedMessages.delete(firstKey);
+    }
+
+    // Check if already received
+    if (this.receivedMessages.has(messageId)) {
+      this.events.onDuplicateMessage?.(messageId, from);
+      return true;
+    }
+
+    // Record as received
+    this.receivedMessages.set(messageId, now);
+    return false;
   }
 
   /**
@@ -162,6 +209,11 @@ export class Router {
           this.events.onReadReceiptReceived?.(payload.originalMessageId, safeReadAt, envelope.from);
         }
         return;
+      }
+
+      // Deduplication: check if we've already received this message
+      if (this.checkMessageDuplicate(envelope.id, envelope.from)) {
+        return; // Duplicate message, don't deliver again
       }
 
       this.events.onMessageDelivered(envelope);
@@ -359,11 +411,19 @@ export class Router {
     return envelope;
   }
 
-  sendViaRelay(envelope: MessageEnvelope, relayId: string): void {
+  /**
+   * Send a message via a relay.
+   * If the relay is unreachable, emits onRerouteNeeded event.
+   *
+   * @returns true if sent successfully, false if relay unreachable
+   */
+  sendViaRelay(envelope: MessageEnvelope, relayId: string): boolean {
     const relayPeer = this.transport.getPeer(relayId);
     if (!relayPeer) {
+      // Emit reroute event so the sender can try an alternate path
+      this.events.onRerouteNeeded?.(envelope, relayId);
       this.events.onMessageRejected(envelope, 'RELAY_UNREACHABLE');
-      return;
+      return false;
     }
 
     // Add relay to via path if not already present
@@ -374,6 +434,16 @@ export class Router {
     // Mark as relay route
     envelope.routeType = 'relay';
     relayPeer.send(envelope);
+    return true;
+  }
+
+  /**
+   * Emit message queued event when no alternate path is available.
+   * This is called by the TomClient when rerouting fails and the message
+   * needs to be stored for later delivery.
+   */
+  emitMessageQueued(envelope: MessageEnvelope, reason: string): void {
+    this.events.onMessageQueued?.(envelope, reason);
   }
 
   /**
