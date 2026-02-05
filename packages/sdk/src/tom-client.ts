@@ -91,6 +91,12 @@ export type GroupMemberJoinedHandler = (groupId: string, member: GroupMember) =>
 export type GroupMemberLeftHandler = (groupId: string, nodeId: string, username: string, reason: string) => void;
 export type GroupMessageHandler = (groupId: string, message: GroupMessagePayload) => void;
 export type PublicGroupAnnouncedHandler = (group: PublicGroupInfo) => void;
+export type GroupJoinProgressHandler = (
+  groupId: string,
+  status: 'connecting' | 'requesting' | 'waiting' | 'retrying' | 'success' | 'failed',
+  attempt: number,
+  maxAttempts: number,
+) => void;
 
 export class TomClient {
   private identity: IdentityManager;
@@ -123,6 +129,8 @@ export class TomClient {
   private pendingGroupJoins = new Set<string>();
   /** Track failed relays per message for rerouting (Story 5.2) */
   private failedRelaysPerMessage = new Map<string, Set<string>>();
+  /** Track messages currently being rerouted (mutex to prevent parallel reroutes) */
+  private reroutingInProgress = new Set<string>();
   /** Maximum reroute attempts per message */
   private static readonly MAX_REROUTE_ATTEMPTS = 3;
 
@@ -145,6 +153,12 @@ export class TomClient {
   private groupMemberLeftHandlers: GroupMemberLeftHandler[] = [];
   private groupMessageHandlers: GroupMessageHandler[] = [];
   private publicGroupAnnouncedHandlers: PublicGroupAnnouncedHandler[] = [];
+  private groupJoinProgressHandlers: GroupJoinProgressHandler[] = [];
+  /** Promise resolvers for pending group joins - resolved when group-sync is received */
+  private pendingJoinResolvers = new Map<
+    string,
+    { resolve: (group: GroupInfo) => void; reject: (error: Error) => void }
+  >();
 
   constructor(options: TomClientOptions) {
     this.username = options.username;
@@ -448,12 +462,23 @@ export class TomClient {
   /**
    * Clean up old message tracking data to prevent memory leaks.
    * Removes messages that have been read for more than 10 minutes.
+   * Also cleans up router caches (deduplication, ACK replay).
    */
   private cleanupMessageTracking(): void {
     const maxAgeMs = 10 * 60 * 1000; // 10 minutes
     const removed = this.messageTracker.cleanupOldMessages(maxAgeMs);
 
-    if (removed > 0) {
+    // Clean up router caches (deduplication, ACK replay, read receipt replay)
+    const routerCacheRemoved = this.router?.cleanupCaches() ?? 0;
+
+    // Clean up rerouting tracking for stale messages
+    for (const messageId of this.failedRelaysPerMessage.keys()) {
+      if (!this.messageTracker.getStatus(messageId)) {
+        this.failedRelaysPerMessage.delete(messageId);
+      }
+    }
+
+    if (removed > 0 || routerCacheRemoved > 0) {
       // Also clean up associated data
       for (const messageId of this.readReceiptsSent) {
         if (!this.messageTracker.getStatus(messageId)) {
@@ -462,7 +487,7 @@ export class TomClient {
           this.receivedEnvelopes.delete(messageId);
         }
       }
-      this.emitStatus('cleanup:completed', `${removed} messages`);
+      this.emitStatus('cleanup:completed', `${removed} messages, ${routerCacheRemoved} cache entries`);
     }
   }
 
@@ -829,8 +854,27 @@ export class TomClient {
         this.initGroupHub();
         this.groupHub!.handlePayload(createPayload, this.nodeId);
       } else {
-        // Send to remote hub
-        await this.sendPayload(hubRelayId, createPayload);
+        // Connect directly to hub before sending to ensure delivery
+        console.log(`[TomClient] Creating group on remote hub ${hubRelayId}, establishing connection first`);
+        try {
+          await this.transport?.connectToPeer(hubRelayId);
+          console.log(`[TomClient] Connected to hub ${hubRelayId}, sending group-create`);
+
+          // Send directly to hub (not through another relay)
+          const envelope = this.router!.createEnvelope(hubRelayId, 'app', createPayload, []);
+          const hubPeer = this.transport?.getPeer(hubRelayId);
+          if (hubPeer) {
+            hubPeer.send(envelope);
+            console.log('[TomClient] group-create sent directly to hub');
+          } else {
+            // Fallback to relay routing
+            console.log('[TomClient] Direct connection failed, falling back to relay');
+            await this.sendPayload(hubRelayId, createPayload);
+          }
+        } catch (error) {
+          console.log('[TomClient] Failed to connect to hub, using relay:', error);
+          await this.sendPayload(hubRelayId, createPayload);
+        }
       }
     }
 
@@ -839,57 +883,173 @@ export class TomClient {
 
   /**
    * Accept a group invitation.
+   * Handles hub recovery if the original hub is no longer available.
+   * When the hub is offline, creates a new group on an available relay.
    */
-  async acceptGroupInvite(groupId: string): Promise<boolean> {
-    if (!this.groupManager) return false;
+  /**
+   * Accept a group invitation with active retry loop.
+   * Returns a Promise that resolves with the GroupInfo when join is confirmed,
+   * or rejects after max attempts.
+   *
+   * Emits progress events so the UI can show feedback.
+   */
+  async acceptGroupInvite(groupId: string): Promise<GroupInfo> {
+    if (!this.groupManager) throw new Error('GroupManager not initialized');
 
     // Prevent duplicate join requests
     if (this.pendingGroupJoins.has(groupId)) {
       console.log(`[TomClient] Join already pending for group ${groupId}, ignoring`);
-      return false;
+      throw new Error('Join already in progress');
     }
 
     const invites = this.groupManager.getPendingInvites();
     const invite = invites.find((i) => i.groupId === groupId);
-    if (!invite) return false;
+    if (!invite) throw new Error('Invitation not found');
 
-    if (!this.groupManager.acceptInvite(groupId)) return false;
+    if (!this.groupManager.acceptInvite(groupId)) throw new Error('Cannot accept invite');
 
-    // Mark as pending before sending
+    // Mark as pending
     this.pendingGroupJoins.add(groupId);
 
-    // Send join request directly to the hub
-    const joinPayload: GroupPayload = {
-      type: 'group-join',
-      groupId,
-      nodeId: this.nodeId,
-      username: this.username,
+    const MAX_ATTEMPTS = 5;
+    const RETRY_DELAY_MS = 2000;
+
+    // Create a promise that will be resolved when group-sync is received
+    const joinPromise = new Promise<GroupInfo>((resolve, reject) => {
+      this.pendingJoinResolvers.set(groupId, { resolve, reject });
+    });
+
+    // Find the hub
+    let targetHub = invite.hubRelayId;
+    const hubPeer = this.topology.getPeer(targetHub);
+    const hubStatus = this.topology.getPeerStatus(targetHub);
+    const hubIsOnline = hubPeer && hubStatus === 'online';
+
+    // If hub is offline, find an alternative
+    if (!hubIsOnline && targetHub !== this.nodeId) {
+      this.emitJoinProgress(groupId, 'connecting', 0, MAX_ATTEMPTS);
+      console.log(`[TomClient] Hub ${targetHub} is offline, finding alternative`);
+
+      const myRoles = this.getCurrentRoles();
+      if (myRoles.includes('relay')) {
+        targetHub = this.nodeId;
+        this.groupManager.updateInviteHub(groupId, targetHub);
+      } else {
+        const onlineRelays = this.topology
+          .getReachablePeers()
+          .filter(
+            (p) =>
+              p.nodeId !== this.nodeId &&
+              p.roles?.includes('relay') &&
+              this.topology.getPeerStatus(p.nodeId) === 'online',
+          )
+          .sort((a, b) => b.lastSeen - a.lastSeen);
+
+        if (onlineRelays.length > 0) {
+          targetHub = onlineRelays[0].nodeId;
+          this.groupManager.updateInviteHub(groupId, targetHub);
+        } else {
+          this.cleanupJoin(groupId, 'failed', 0, MAX_ATTEMPTS);
+          throw new Error('No online relays available');
+        }
+      }
+    }
+
+    // Active retry loop
+    const attemptJoin = async (attempt: number): Promise<void> => {
+      if (attempt > MAX_ATTEMPTS) {
+        this.cleanupJoin(groupId, 'failed', attempt, MAX_ATTEMPTS);
+        const resolver = this.pendingJoinResolvers.get(groupId);
+        resolver?.reject(new Error(`Failed to join group after ${MAX_ATTEMPTS} attempts`));
+        this.pendingJoinResolvers.delete(groupId);
+        return;
+      }
+
+      // Check if already joined (group-sync received)
+      if (this.groupManager?.isInGroup(groupId)) {
+        console.log(`[TomClient] Already in group ${groupId}, join complete`);
+        return;
+      }
+
+      console.log(`[TomClient] Join attempt ${attempt}/${MAX_ATTEMPTS} for group ${groupId}`);
+      this.emitJoinProgress(groupId, attempt === 1 ? 'requesting' : 'retrying', attempt, MAX_ATTEMPTS);
+
+      const joinPayload: GroupPayload = {
+        type: 'group-join',
+        groupId,
+        nodeId: this.nodeId,
+        username: this.username,
+      };
+
+      try {
+        if (targetHub === this.nodeId && this.groupHub) {
+          this.groupHub.handlePayload(joinPayload, this.nodeId);
+        } else {
+          // Connect and send directly to hub
+          await this.transport?.connectToPeer(targetHub);
+          const peer = this.transport?.getPeer(targetHub);
+          if (peer) {
+            const envelope = this.router!.createEnvelope(targetHub, 'app', joinPayload, []);
+            peer.send(envelope);
+          } else {
+            await this.sendPayload(targetHub, joinPayload);
+          }
+        }
+
+        this.emitJoinProgress(groupId, 'waiting', attempt, MAX_ATTEMPTS);
+
+        // Wait for response or timeout
+        await new Promise<void>((resolve) => {
+          const checkInterval = setInterval(() => {
+            if (this.groupManager?.isInGroup(groupId)) {
+              clearInterval(checkInterval);
+              resolve();
+            }
+          }, 200);
+
+          // Timeout after RETRY_DELAY_MS
+          setTimeout(() => {
+            clearInterval(checkInterval);
+            resolve();
+          }, RETRY_DELAY_MS);
+        });
+
+        // If still not in group, retry
+        if (!this.groupManager?.isInGroup(groupId)) {
+          await attemptJoin(attempt + 1);
+        }
+      } catch (error) {
+        console.warn(`[TomClient] Join attempt ${attempt} failed:`, error);
+        await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
+        await attemptJoin(attempt + 1);
+      }
     };
 
-    console.log(`[TomClient] Sending group-join to hub ${invite.hubRelayId} for group ${groupId}`);
+    // Start the retry loop (non-blocking)
+    attemptJoin(1).catch((error) => {
+      console.error('[TomClient] Join loop failed:', error);
+    });
 
-    // Timeout to clear pending state if no response (allows retry after 5s)
-    setTimeout(() => {
-      if (this.pendingGroupJoins.has(groupId)) {
-        console.log(`[TomClient] Join timeout for group ${groupId}, clearing pending state`);
-        this.pendingGroupJoins.delete(groupId);
-      }
-    }, 5000);
+    return joinPromise;
+  }
 
-    try {
-      // If hub is on our own node, process locally
-      if (invite.hubRelayId === this.nodeId && this.groupHub) {
-        console.log('[TomClient] Hub is local, processing join locally');
-        this.groupHub.handlePayload(joinPayload, this.nodeId);
-      } else {
-        await this.sendPayload(invite.hubRelayId, joinPayload);
-      }
-      console.log('[TomClient] group-join sent successfully');
-    } catch (error) {
-      this.pendingGroupJoins.delete(groupId);
-      throw error;
+  /** Emit join progress event to handlers */
+  private emitJoinProgress(
+    groupId: string,
+    status: 'connecting' | 'requesting' | 'waiting' | 'retrying' | 'success' | 'failed',
+    attempt: number,
+    maxAttempts: number,
+  ): void {
+    for (const handler of this.groupJoinProgressHandlers) {
+      handler(groupId, status, attempt, maxAttempts);
     }
-    return true;
+    this.emitStatus('group:join-progress', `${groupId}: ${status} (${attempt}/${maxAttempts})`);
+  }
+
+  /** Cleanup after join completes or fails */
+  private cleanupJoin(groupId: string, status: 'success' | 'failed', attempt: number, maxAttempts: number): void {
+    this.pendingGroupJoins.delete(groupId);
+    this.emitJoinProgress(groupId, status, attempt, maxAttempts);
   }
 
   /**
@@ -1037,54 +1197,105 @@ export class TomClient {
 
   /**
    * Join a public group without an invitation.
+   * Uses active retry loop with progress events.
+   * Returns a Promise that resolves with GroupInfo when join is confirmed.
    */
-  async joinPublicGroup(groupId: string): Promise<boolean> {
-    if (!this.groupManager) return false;
+  async joinPublicGroup(groupId: string): Promise<GroupInfo> {
+    if (!this.groupManager) throw new Error('GroupManager not initialized');
 
-    // Prevent duplicate join requests (user clicking multiple times)
+    // Prevent duplicate join requests
     if (this.pendingGroupJoins.has(groupId)) {
       console.log(`[TomClient] Join already pending for group ${groupId}, ignoring`);
-      return false;
+      throw new Error('Join already in progress');
     }
 
     const availableGroups = this.groupManager.getAvailableGroups();
     const publicGroup = availableGroups.find((g) => g.groupId === groupId);
-    if (!publicGroup) return false;
+    if (!publicGroup) throw new Error('Public group not found');
 
-    // Mark as pending before sending
+    const targetHub = publicGroup.hubRelayId;
+    const MAX_ATTEMPTS = 5;
+    const RETRY_DELAY_MS = 2000;
+
+    // Mark as pending
     this.pendingGroupJoins.add(groupId);
 
-    // Timeout to clear pending state if no response (allows retry after 5s)
-    setTimeout(() => {
-      if (this.pendingGroupJoins.has(groupId)) {
-        console.log(`[TomClient] Join timeout for group ${groupId}, clearing pending state`);
-        this.pendingGroupJoins.delete(groupId);
-      }
-    }, 5000);
+    // Create a promise that will be resolved when group-sync is received
+    const joinPromise = new Promise<GroupInfo>((resolve, reject) => {
+      this.pendingJoinResolvers.set(groupId, { resolve, reject });
+    });
 
-    // Send join request to the hub
-    const joinPayload: GroupPayload = {
-      type: 'group-join',
-      groupId,
-      nodeId: this.nodeId,
-      username: this.username,
+    // Active retry loop
+    const attemptJoin = async (attempt: number): Promise<void> => {
+      if (attempt > MAX_ATTEMPTS) {
+        this.cleanupJoin(groupId, 'failed', attempt, MAX_ATTEMPTS);
+        const resolver = this.pendingJoinResolvers.get(groupId);
+        resolver?.reject(new Error(`Failed to join group after ${MAX_ATTEMPTS} attempts`));
+        this.pendingJoinResolvers.delete(groupId);
+        return;
+      }
+
+      // Check if already joined
+      if (this.groupManager?.isInGroup(groupId)) {
+        console.log(`[TomClient] Already in group ${groupId}, join complete`);
+        return;
+      }
+
+      console.log(`[TomClient] Join attempt ${attempt}/${MAX_ATTEMPTS} for public group ${groupId}`);
+      this.emitJoinProgress(groupId, attempt === 1 ? 'requesting' : 'retrying', attempt, MAX_ATTEMPTS);
+
+      const joinPayload: GroupPayload = {
+        type: 'group-join',
+        groupId,
+        nodeId: this.nodeId,
+        username: this.username,
+      };
+
+      try {
+        // Connect and send directly to hub
+        await this.transport?.connectToPeer(targetHub);
+        const peer = this.transport?.getPeer(targetHub);
+        if (peer) {
+          const envelope = this.router!.createEnvelope(targetHub, 'app', joinPayload, []);
+          peer.send(envelope);
+        } else {
+          await this.sendPayload(targetHub, joinPayload);
+        }
+
+        this.emitJoinProgress(groupId, 'waiting', attempt, MAX_ATTEMPTS);
+
+        // Wait for response or timeout
+        await new Promise<void>((resolve) => {
+          const checkInterval = setInterval(() => {
+            if (this.groupManager?.isInGroup(groupId)) {
+              clearInterval(checkInterval);
+              resolve();
+            }
+          }, 200);
+
+          setTimeout(() => {
+            clearInterval(checkInterval);
+            resolve();
+          }, RETRY_DELAY_MS);
+        });
+
+        // If still not in group, retry
+        if (!this.groupManager?.isInGroup(groupId)) {
+          await attemptJoin(attempt + 1);
+        }
+      } catch (error) {
+        console.warn(`[TomClient] Join attempt ${attempt} failed:`, error);
+        await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
+        await attemptJoin(attempt + 1);
+      }
     };
 
-    console.log(`[TomClient] Sending group-join to hub ${publicGroup.hubRelayId} for group ${groupId}`);
+    // Start the retry loop (non-blocking)
+    attemptJoin(1).catch((error) => {
+      console.error('[TomClient] Join loop failed:', error);
+    });
 
-    try {
-      await this.sendPayload(publicGroup.hubRelayId, joinPayload);
-      console.log('[TomClient] group-join sent successfully');
-    } catch (error) {
-      // Remove from pending on failure so user can retry
-      this.pendingGroupJoins.delete(groupId);
-      throw error;
-    }
-
-    // Don't remove from available groups here - will be removed when group-sync is received
-    // pendingGroupJoins will be cleared when group-sync arrives
-
-    return true;
+    return joinPromise;
   }
 
   // Group event handlers
@@ -1113,6 +1324,14 @@ export class TomClient {
   }
 
   /**
+   * Register a handler for group join progress updates.
+   * Allows UI to show feedback during the active retry loop.
+   */
+  onGroupJoinProgress(handler: GroupJoinProgressHandler): void {
+    this.groupJoinProgressHandlers.push(handler);
+  }
+
+  /**
    * Initialize GroupHub when this node becomes a relay.
    * @internal
    */
@@ -1121,15 +1340,64 @@ export class TomClient {
 
     const hubEvents: GroupHubEvents = {
       sendToNode: async (nodeId, payload, _groupId) => {
-        await this.sendPayload(nodeId, payload);
+        // Handle self-send case: process locally instead of network send
+        if (nodeId === this.nodeId) {
+          console.log(`[TomClient] Hub sendToNode to self, processing locally: ${payload.type}`);
+          this.handleGroupPayload(payload, this.nodeId);
+          return;
+        }
+        // Hub sends DIRECTLY to the node without relay selection
+        // This is critical - the hub IS the relay, so it shouldn't route through another relay
+        console.log(`[TomClient] Hub sendToNode ${payload.type} directly to ${nodeId}`);
+        try {
+          await this.transport?.connectToPeer(nodeId);
+          const envelope = this.router!.createEnvelope(nodeId, 'app', payload, []);
+          const peer = this.transport?.getPeer(nodeId);
+          if (peer) {
+            peer.send(envelope);
+          } else {
+            console.warn(`[TomClient] Hub sendToNode: no peer connection to ${nodeId}`);
+          }
+        } catch (error) {
+          console.warn(`[TomClient] Hub sendToNode failed to ${nodeId}:`, error);
+        }
       },
       broadcastToGroup: async (groupId, payload, excludeNodeId) => {
         const group = this.groupHub?.getGroup(groupId);
         if (!group) return;
 
-        for (const member of group.members) {
-          if (member.nodeId !== excludeNodeId && member.nodeId !== this.nodeId) {
-            await this.sendPayload(member.nodeId, payload);
+        // Get list of members to send to (excluding self and excludeNodeId)
+        const targetMembers = group.members.filter((m) => m.nodeId !== this.nodeId && m.nodeId !== excludeNodeId);
+
+        // WARM-UP: Connect to ALL members in parallel first
+        // This eliminates the "cold start" delay on first messages
+        await Promise.all(
+          targetMembers.map((member) =>
+            this.transport?.connectToPeer(member.nodeId).catch(() => {
+              // Connection failures are handled below when sending
+            }),
+          ),
+        );
+
+        // Process locally for self if we're a member
+        if (group.members.some((m) => m.nodeId === this.nodeId)) {
+          console.log(`[TomClient] Hub broadcastToGroup to self, processing locally: ${payload.type}`);
+          this.handleGroupPayload(payload, this.nodeId);
+        }
+
+        // Now send to all target members (connections are already warm)
+        for (const member of targetMembers) {
+          console.log(`[TomClient] Hub broadcasting ${payload.type} directly to ${member.nodeId}`);
+          try {
+            const envelope = this.router!.createEnvelope(member.nodeId, 'app', payload, []);
+            const peer = this.transport?.getPeer(member.nodeId);
+            if (peer) {
+              peer.send(envelope);
+            } else {
+              console.warn(`[TomClient] Hub broadcast: no peer connection to ${member.nodeId}`);
+            }
+          } catch (error) {
+            console.warn(`[TomClient] Hub broadcast failed to ${member.nodeId}:`, error);
           }
         }
       },
@@ -1172,13 +1440,17 @@ export class TomClient {
     this.directPathManager?.trackConversation(envelope);
 
     // Handle group payloads (Story 4.6)
+    // IMPORTANT: Only process if this message is for us, not if we're just relaying
     if (envelope.type === 'app' && isGroupPayload(envelope.payload)) {
-      console.log(
-        `[TomClient] Received group payload: ${(envelope.payload as { type: string }).type}`,
-        envelope.payload,
-      );
-      this.handleGroupPayload(envelope.payload, envelope.from);
-      return;
+      if (envelope.to === this.nodeId) {
+        console.log(
+          `[TomClient] Received group payload: ${(envelope.payload as { type: string }).type}`,
+          envelope.payload,
+        );
+        this.handleGroupPayload(envelope.payload, envelope.from);
+        return;
+      }
+      // Message is not for us - let router handle relay
     }
 
     this.router?.handleIncoming(envelope);
@@ -1188,11 +1460,20 @@ export class TomClient {
    * Handle rerouting when a relay fails (Story 5.2).
    * Attempts to find an alternate path avoiding the failed relay.
    * If no alternate path exists, queues the message for backup delivery.
+   *
+   * Uses a mutex (reroutingInProgress) to prevent parallel reroutes for the same message,
+   * which could cause race conditions and double sends.
    */
   private handleRerouteNeeded(envelope: MessageEnvelope, failedRelayId: string): void {
     if (!this.router || !this.relaySelector || !this.transport) return;
 
     const messageId = envelope.id;
+
+    // Mutex: prevent parallel reroutes for the same message
+    if (this.reroutingInProgress.has(messageId)) {
+      this.emitStatus('reroute:skipped', `${messageId}: reroute already in progress`);
+      return;
+    }
 
     // Track failed relays for this message
     let failedRelays = this.failedRelaysPerMessage.get(messageId);
@@ -1218,14 +1499,20 @@ export class TomClient {
     if (selection.relayId) {
       this.emitStatus('reroute:alternate-found', `${messageId}: using ${selection.relayId}`);
 
-      // Reset the via path to use the new relay
-      envelope.via = [selection.relayId];
+      // Clone envelope to avoid mutation issues with retries
+      const reroutableEnvelope: MessageEnvelope = {
+        ...envelope,
+        via: [selection.relayId], // New relay path
+      };
+
+      // Lock: mark as rerouting to prevent parallel attempts
+      this.reroutingInProgress.add(messageId);
 
       // Attempt to send via the alternate relay
       this.transport
         .connectToPeer(selection.relayId)
         .then(() => {
-          const success = this.router!.sendViaRelay(envelope, selection.relayId!);
+          const success = this.router!.sendViaRelay(reroutableEnvelope, selection.relayId!);
           if (success) {
             this.emitStatus('reroute:success', `${messageId}: sent via ${selection.relayId}`);
             // Clean up tracking on success
@@ -1235,7 +1522,13 @@ export class TomClient {
         })
         .catch(() => {
           // Connection failed, will trigger another reroute attempt
-          this.handleRerouteNeeded(envelope, selection.relayId!);
+          // Release lock before recursive call
+          this.reroutingInProgress.delete(messageId);
+          this.handleRerouteNeeded(reroutableEnvelope, selection.relayId!);
+        })
+        .finally(() => {
+          // Release lock after operation completes
+          this.reroutingInProgress.delete(messageId);
         });
     } else {
       // No alternate path available - queue for backup delivery
@@ -1305,6 +1598,13 @@ export class TomClient {
             this.groupManager.removeFromAvailable(payload.groupId);
             // Clear pending join state - join is complete
             this.pendingGroupJoins.delete(payload.groupId);
+            // Resolve the pending join promise - this completes the active retry loop
+            const resolver = this.pendingJoinResolvers.get(payload.groupId);
+            if (resolver) {
+              this.emitJoinProgress(payload.groupId, 'success', 1, 5);
+              resolver.resolve(payload.groupInfo);
+              this.pendingJoinResolvers.delete(payload.groupId);
+            }
           }
           break;
         case 'group-member-joined':
