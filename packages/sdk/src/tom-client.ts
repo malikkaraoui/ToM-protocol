@@ -14,6 +14,8 @@
 import {
   type ConnectionType,
   DirectPathManager,
+  type EncryptedPayload,
+  type EncryptionKeypair,
   GroupHub,
   type GroupHubEvents,
   type GroupId,
@@ -47,7 +49,13 @@ import {
   TomError,
   type TransportEvents,
   TransportLayer,
+  decryptPayload,
+  encryptPayload,
+  encryptionKeyToHex,
   extractPathInfo,
+  getOrCreateEncryptionKeypair,
+  hexToEncryptionKey,
+  isEncryptedPayload,
   isGroupHubHeartbeat,
   isGroupPayload,
 } from 'tom-protocol';
@@ -61,6 +69,8 @@ export interface TomClientOptions {
   signalingUrl: string;
   username: string;
   storage?: IdentityStorage;
+  /** Enable end-to-end encryption (Story 6.1). Default: true */
+  encryption?: boolean;
 }
 
 export type MessageHandler = (envelope: MessageEnvelope) => void;
@@ -133,6 +143,12 @@ export class TomClient {
   private reroutingInProgress = new Set<string>();
   /** Maximum reroute attempts per message */
   private static readonly MAX_REROUTE_ATTEMPTS = 3;
+  /** E2E encryption keypair (Story 6.1) */
+  private encryptionKeypair: EncryptionKeypair;
+  /** Whether E2E encryption is enabled */
+  private encryptionEnabled: boolean;
+  /** Map of peer nodeIds to their encryption public keys */
+  private peerEncryptionKeys = new Map<string, Uint8Array>();
 
   private messageHandlers: MessageHandler[] = [];
   private participantHandlers: ParticipantHandler[] = [];
@@ -164,6 +180,9 @@ export class TomClient {
     this.username = options.username;
     this.signalingUrl = options.signalingUrl;
     this.identity = new IdentityManager(options.storage ?? new MemoryStorage());
+    // E2E encryption (Story 6.1) - enabled by default
+    this.encryptionEnabled = options.encryption ?? true;
+    this.encryptionKeypair = getOrCreateEncryptionKeypair();
     this.topology = new NetworkTopology();
     this.roleManager = new RoleManager({
       onRoleChanged: (nodeId, _oldRoles, newRoles) => {
@@ -265,7 +284,20 @@ export class TomClient {
         this.messageOrigins.set(envelope.id, envelope.from);
         // Store envelope data for path visualization (Story 4.3)
         this.receivedEnvelopes.set(envelope.id, { envelope, receivedAt: Date.now() });
-        for (const handler of this.messageHandlers) handler(envelope);
+
+        // Decrypt payload if encrypted (Story 6.1)
+        let processedEnvelope = envelope;
+        if (isEncryptedPayload(envelope.payload)) {
+          const decrypted = decryptPayload<{ text: string }>(envelope.payload, this.encryptionKeypair.secretKey);
+          if (decrypted) {
+            processedEnvelope = { ...envelope, payload: decrypted };
+          } else {
+            console.warn(`[TomClient] Failed to decrypt message ${envelope.id} from ${envelope.from}`);
+            // Still deliver the envelope but with encrypted payload
+          }
+        }
+
+        for (const handler of this.messageHandlers) handler(processedEnvelope);
       },
       onMessageForwarded: (envelope, nextHop) => {
         const byteSize = new TextEncoder().encode(JSON.stringify(envelope)).length;
@@ -332,6 +364,8 @@ export class TomClient {
         nodeId: this.nodeId,
         username: this.username,
         publicKey: this.nodeId,
+        // E2E encryption public key (Story 6.1)
+        encryptionKey: encryptionKeyToHex(this.encryptionKeypair.publicKey),
       }),
     );
 
@@ -341,7 +375,11 @@ export class TomClient {
 
       if (msg.type === 'participants') {
         // Sync topology with participant list
-        for (const p of msg.participants as Array<{ nodeId: string; username: string }>) {
+        for (const p of msg.participants as Array<{
+          nodeId: string;
+          username: string;
+          encryptionKey?: string;
+        }>) {
           if (p.nodeId === this.nodeId) continue;
           const existing = this.topology.getPeer(p.nodeId);
           if (existing) {
@@ -357,6 +395,10 @@ export class TomClient {
               roles: ['client'],
             });
             this.heartbeat?.trackPeer(p.nodeId);
+          }
+          // Store encryption key if available (Story 6.1)
+          if (p.encryptionKey) {
+            this.peerEncryptionKeys.set(p.nodeId, hexToEncryptionKey(p.encryptionKey));
           }
         }
         for (const handler of this.participantHandlers) handler(msg.participants);
@@ -541,7 +583,18 @@ export class TomClient {
       }
     }
 
-    const envelope = this.router.createEnvelope(to, 'chat', { text }, selectedRelay ? [selectedRelay] : []);
+    // Encrypt payload if E2E encryption is enabled (Story 6.1)
+    let payload: object = { text };
+    if (this.encryptionEnabled) {
+      const recipientKey = this.peerEncryptionKeys.get(to);
+      if (recipientKey) {
+        payload = encryptPayload({ text }, recipientKey);
+      } else {
+        console.warn(`[TomClient] No encryption key for ${to}, sending unencrypted`);
+      }
+    }
+
+    const envelope = this.router.createEnvelope(to, 'chat', payload, selectedRelay ? [selectedRelay] : []);
 
     // Track message status (starts at 'pending')
     this.messageTracker.track(envelope.id, to);
