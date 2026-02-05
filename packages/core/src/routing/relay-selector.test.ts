@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { NetworkTopology } from '../discovery/network-topology.js';
-import { RelaySelector } from './relay-selector.js';
+import { MAX_RELAY_DEPTH, RelaySelector } from './relay-selector.js';
 
 function makePeer(
   nodeId: string,
@@ -175,5 +175,99 @@ describe('RelaySelector', () => {
     const result = selector.selectBestRelay('recipient', topology);
     expect(result.relayId).toBeNull();
     expect(result.reason).toBe('no-relays-available');
+  });
+});
+
+describe('RelaySelector - Multi-relay path selection', () => {
+  it('should return direct when recipient is online and directly reachable', () => {
+    const selector = new RelaySelector({ selfNodeId: 'self' });
+    const topology = new NetworkTopology(3000);
+
+    const now = Date.now();
+    topology.addPeer(makePeer('recipient', { roles: ['client'], lastSeen: now }));
+
+    const result = selector.selectPathToRecipient('recipient', topology);
+    expect(result.path).toEqual([]);
+    expect(result.reason).toBe('direct');
+  });
+
+  it('should return single-relay path when relay is available', () => {
+    const selector = new RelaySelector({ selfNodeId: 'self' });
+    const topology = new NetworkTopology(3000);
+
+    const now = Date.now();
+    // Recipient is offline (needs relay)
+    topology.addPeer(makePeer('recipient', { roles: ['client'], lastSeen: now - 20000 }));
+    // Relay is online
+    topology.addPeer(makePeer('relay-1', { roles: ['client', 'relay'], lastSeen: now }));
+
+    const result = selector.selectPathToRecipient('recipient', topology);
+    expect(result.path).toEqual(['relay-1']);
+    expect(result.reason).toBe('single-relay');
+  });
+
+  it('should return recipient-is-self when sending to self', () => {
+    const selector = new RelaySelector({ selfNodeId: 'self' });
+    const topology = new NetworkTopology(3000);
+
+    const result = selector.selectPathToRecipient('self', topology);
+    expect(result.path).toEqual([]);
+    expect(result.reason).toBe('recipient-is-self');
+  });
+
+  it('should return no-path when topology is empty', () => {
+    const selector = new RelaySelector({ selfNodeId: 'self' });
+    const topology = new NetworkTopology(3000);
+
+    const result = selector.selectPathToRecipient('recipient', topology);
+    expect(result.path).toEqual([]);
+    expect(result.reason).toBe('no-path');
+  });
+
+  it('should return no-path when no online relays available', () => {
+    const selector = new RelaySelector({ selfNodeId: 'self' });
+    const topology = new NetworkTopology(3000);
+
+    const now = Date.now();
+    // Recipient is offline
+    topology.addPeer(makePeer('recipient', { roles: ['client'], lastSeen: now - 20000 }));
+    // Relay is offline too
+    topology.addPeer(makePeer('relay-offline', { roles: ['client', 'relay'], lastSeen: now - 20000 }));
+
+    const result = selector.selectPathToRecipient('recipient', topology);
+    expect(result.path).toEqual([]);
+    expect(result.reason).toBe('no-path');
+  });
+
+  it('should not include self in relay path', () => {
+    const selector = new RelaySelector({ selfNodeId: 'self' });
+    const topology = new NetworkTopology(3000);
+
+    const now = Date.now();
+    topology.addPeer(makePeer('recipient', { roles: ['client'], lastSeen: now - 20000 }));
+    topology.addPeer(makePeer('self', { roles: ['client', 'relay'], lastSeen: now }));
+    topology.addPeer(makePeer('other-relay', { roles: ['client', 'relay'], lastSeen: now }));
+
+    const result = selector.selectPathToRecipient('recipient', topology);
+    expect(result.path).not.toContain('self');
+    expect(result.path).toEqual(['other-relay']);
+  });
+
+  it('should not include recipient in relay path', () => {
+    const selector = new RelaySelector({ selfNodeId: 'self' });
+    const topology = new NetworkTopology(3000);
+
+    const now = Date.now();
+    // Recipient is a relay but offline as direct target
+    topology.addPeer(makePeer('recipient', { roles: ['client', 'relay'], lastSeen: now - 20000 }));
+    topology.addPeer(makePeer('other-relay', { roles: ['client', 'relay'], lastSeen: now }));
+
+    const result = selector.selectPathToRecipient('recipient', topology);
+    expect(result.path).not.toContain('recipient');
+    expect(result.path).toEqual(['other-relay']);
+  });
+
+  it('MAX_RELAY_DEPTH should be 4', () => {
+    expect(MAX_RELAY_DEPTH).toBe(4);
   });
 });
