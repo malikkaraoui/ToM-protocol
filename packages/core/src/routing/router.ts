@@ -82,15 +82,20 @@ export class Router {
   /**
    * Check if a message has already been received (deduplication).
    * Returns true if duplicate, false if new message.
+   *
+   * Uses composite key (messageId:from) to prevent collision when
+   * different senders happen to generate the same messageId.
    */
   private checkMessageDuplicate(messageId: string, from: string): boolean {
     const now = Date.now();
+    // Composite key prevents collision between different senders
+    const dedupKey = `${messageId}:${from}`;
 
-    // Clean up old entries periodically
+    // Clean up old entries periodically (trigger at 50% capacity)
     if (this.receivedMessages.size > MESSAGE_DEDUP_CACHE_MAX_SIZE / 2) {
-      for (const [id, timestamp] of this.receivedMessages) {
+      for (const [key, timestamp] of this.receivedMessages) {
         if (now - timestamp > MESSAGE_DEDUP_CACHE_TTL_MS) {
-          this.receivedMessages.delete(id);
+          this.receivedMessages.delete(key);
         }
       }
     }
@@ -102,13 +107,13 @@ export class Router {
     }
 
     // Check if already received
-    if (this.receivedMessages.has(messageId)) {
+    if (this.receivedMessages.has(dedupKey)) {
       this.events.onDuplicateMessage?.(messageId, from);
       return true;
     }
 
     // Record as received
-    this.receivedMessages.set(messageId, now);
+    this.receivedMessages.set(dedupKey, now);
     return false;
   }
 
@@ -415,6 +420,9 @@ export class Router {
    * Send a message via a relay.
    * If the relay is unreachable, emits onRerouteNeeded event.
    *
+   * WARNING: This method mutates the envelope (adds relayId to via, sets routeType).
+   * Callers should clone the envelope before calling if they need to retry with different relays.
+   *
    * @returns true if sent successfully, false if relay unreachable
    */
   sendViaRelay(envelope: MessageEnvelope, relayId: string): boolean {
@@ -491,6 +499,55 @@ export class Router {
       return false;
     }
     return this.directPathManager.getConnectionType(peerId) === 'direct';
+  }
+
+  /**
+   * Clean up expired entries from all caches.
+   * Call this periodically (e.g., every 5 minutes) to prevent memory leaks
+   * in long-running processes with low traffic.
+   *
+   * @returns Number of entries removed
+   */
+  cleanupCaches(): number {
+    const now = Date.now();
+    let removed = 0;
+
+    // Clean up message deduplication cache
+    for (const [key, timestamp] of this.receivedMessages) {
+      if (now - timestamp > MESSAGE_DEDUP_CACHE_TTL_MS) {
+        this.receivedMessages.delete(key);
+        removed++;
+      }
+    }
+
+    // Clean up ACK replay cache
+    for (const [key, timestamp] of this.seenAcks) {
+      if (now - timestamp > ACK_REPLAY_CACHE_TTL_MS) {
+        this.seenAcks.delete(key);
+        removed++;
+      }
+    }
+
+    // Clean up read receipt replay cache
+    for (const [key, timestamp] of this.seenReadReceipts) {
+      if (now - timestamp > ACK_REPLAY_CACHE_TTL_MS) {
+        this.seenReadReceipts.delete(key);
+        removed++;
+      }
+    }
+
+    return removed;
+  }
+
+  /**
+   * Get current cache sizes for debugging/monitoring.
+   */
+  getCacheSizes(): { receivedMessages: number; seenAcks: number; seenReadReceipts: number } {
+    return {
+      receivedMessages: this.receivedMessages.size,
+      seenAcks: this.seenAcks.size,
+      seenReadReceipts: this.seenReadReceipts.size,
+    };
   }
 
   private sendAck(original: MessageEnvelope, ackType: AckType = 'recipient-received'): void {

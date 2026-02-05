@@ -65,6 +65,22 @@ export { NetworkTopology } from './discovery/index.js';
 export type { PeerInfo, PeerStatus, NodeRole } from './discovery/index.js';
 export { HeartbeatManager } from './discovery/index.js';
 export type { HeartbeatEvents, HeartbeatSender } from './discovery/index.js';
+// Peer Gossip (Story 7.1 - Bootstrap Fade)
+export { PeerGossip, isPeerGossipMessage } from './discovery/index.js';
+export type {
+  GossipPeerInfo,
+  PeerGossipMessage,
+  PeerGossipEvents,
+  PeerGossipConfig,
+} from './discovery/index.js';
+// Ephemeral Subnets (Story 7.2 - Sliding Genesis)
+export { EphemeralSubnetManager } from './discovery/index.js';
+export type {
+  SubnetInfo,
+  CommunicationEdge,
+  SubnetEvents,
+  SubnetConfig,
+} from './discovery/index.js';
 
 export { RoleManager } from './roles/index.js';
 export type { RoleAssignment, RoleManagerEvents, NodeMetrics } from './roles/index.js';

@@ -338,3 +338,55 @@ describe('RelaySelector - Alternate relay selection (Story 5.2)', () => {
     expect(result.reason).toBe('direct-fallback');
   });
 });
+
+describe('RelaySelector - Connectivity callback (Fix #8)', () => {
+  it('should use connectivity callback when provided', () => {
+    const selector = new RelaySelector({ selfNodeId: 'self' });
+    const topology = new NetworkTopology(3000);
+
+    const now = Date.now();
+    // Recipient appears online in topology but connectivity callback says no
+    topology.addPeer(makePeer('recipient', { roles: ['client'], lastSeen: now }));
+    topology.addPeer(makePeer('relay-1', { roles: ['client', 'relay'], lastSeen: now }));
+
+    // Custom connectivity check that says recipient is NOT connected
+    const checkConnectivity = (nodeId: string) => nodeId !== 'recipient';
+
+    const result = selector.selectPathToRecipient('recipient', topology, checkConnectivity);
+
+    // Should NOT return 'direct' because connectivity callback said no
+    expect(result.reason).not.toBe('direct');
+    expect(result.path.length).toBeGreaterThan(0);
+  });
+
+  it('should return direct when connectivity callback confirms connection', () => {
+    const selector = new RelaySelector({ selfNodeId: 'self' });
+    const topology = new NetworkTopology(3000);
+
+    const now = Date.now();
+    topology.addPeer(makePeer('recipient', { roles: ['client'], lastSeen: now }));
+    topology.addPeer(makePeer('relay-1', { roles: ['client', 'relay'], lastSeen: now }));
+
+    // Custom connectivity check that confirms recipient IS connected
+    const checkConnectivity = (nodeId: string) => nodeId === 'recipient';
+
+    const result = selector.selectPathToRecipient('recipient', topology, checkConnectivity);
+
+    expect(result.path).toEqual([]);
+    expect(result.reason).toBe('direct');
+  });
+
+  it('should fallback to topology when no connectivity callback provided', () => {
+    const selector = new RelaySelector({ selfNodeId: 'self' });
+    const topology = new NetworkTopology(3000);
+
+    const now = Date.now();
+    topology.addPeer(makePeer('recipient', { roles: ['client'], lastSeen: now }));
+
+    // No connectivity callback - should use topology presence
+    const result = selector.selectPathToRecipient('recipient', topology);
+
+    expect(result.path).toEqual([]);
+    expect(result.reason).toBe('direct');
+  });
+});

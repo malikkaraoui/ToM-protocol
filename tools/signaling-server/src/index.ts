@@ -18,6 +18,8 @@ export interface SignalingMessage {
   nodeId?: string;
   username?: string;
   publicKey?: string;
+  /** E2E encryption public key (Story 6.1) */
+  encryptionKey?: string;
   participants?: Participant[];
   payload?: unknown;
   error?: string;

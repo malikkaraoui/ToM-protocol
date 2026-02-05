@@ -16,6 +16,8 @@ import {
   DirectPathManager,
   type EncryptedPayload,
   type EncryptionKeypair,
+  EphemeralSubnetManager,
+  type GossipPeerInfo,
   GroupHub,
   type GroupHubEvents,
   type GroupId,
@@ -38,6 +40,8 @@ import {
   type NodeId,
   type NodeRole,
   type PathInfo,
+  PeerGossip,
+  type PeerGossipMessage,
   type PeerInfo,
   type PublicGroupInfo,
   READ_RECEIPT_TYPE,
@@ -46,6 +50,7 @@ import {
   type RelayStatsData,
   RoleManager,
   Router,
+  type SubnetInfo,
   TomError,
   type TransportEvents,
   TransportLayer,
@@ -58,6 +63,7 @@ import {
   isEncryptedPayload,
   isGroupHubHeartbeat,
   isGroupPayload,
+  isPeerGossipMessage,
 } from 'tom-protocol';
 import type { PeerConnection, SignalingClient } from 'tom-protocol';
 
@@ -149,6 +155,12 @@ export class TomClient {
   private encryptionEnabled: boolean;
   /** Map of peer nodeIds to their encryption public keys */
   private peerEncryptionKeys = new Map<string, Uint8Array>();
+  /** Peer gossip for autonomous discovery (Story 7.1) */
+  private peerGossip: PeerGossip | null = null;
+  /** Gossip interval timer */
+  private gossipInterval: ReturnType<typeof setInterval> | null = null;
+  /** Ephemeral subnet manager (Story 7.2) */
+  private subnetManager: EphemeralSubnetManager | null = null;
 
   private messageHandlers: MessageHandler[] = [];
   private participantHandlers: ParticipantHandler[] = [];
@@ -498,6 +510,38 @@ export class TomClient {
     // Start periodic cleanup of old message tracking data (every 5 minutes)
     this.cleanupInterval = setInterval(() => this.cleanupMessageTracking(), 5 * 60 * 1000);
 
+    // Initialize peer gossip for autonomous discovery (Story 7.1)
+    this.peerGossip = new PeerGossip(this.nodeId, this.username, {
+      onPeersDiscovered: (peers, via) => {
+        this.handleGossipPeersDiscovered(peers, via);
+      },
+      onPeerListRequested: (from, _requestId) => {
+        this.emitStatus('gossip:request-received', `from ${from.slice(0, 8)}...`);
+      },
+    });
+    this.peerGossip.setSelfEncryptionKey(encryptionKeyToHex(this.encryptionKeypair.publicKey));
+    this.peerGossip.start();
+
+    // Start gossip interval - periodically request peer lists
+    this.gossipInterval = setInterval(() => this.performGossipRound(), 30000);
+
+    // Initialize ephemeral subnet manager (Story 7.2)
+    this.subnetManager = new EphemeralSubnetManager(this.nodeId, {
+      onSubnetFormed: (subnet) => {
+        this.emitStatus('subnet:formed', `${subnet.subnetId} with ${subnet.members.size} members`);
+      },
+      onSubnetDissolved: (subnetId, reason) => {
+        this.emitStatus('subnet:dissolved', `${subnetId}: ${reason}`);
+      },
+      onNodeJoinedSubnet: (subnetId, nodeId) => {
+        this.emitStatus('subnet:node-joined', `${nodeId.slice(0, 8)}... → ${subnetId}`);
+      },
+      onNodeLeftSubnet: (subnetId, nodeId) => {
+        this.emitStatus('subnet:node-left', `${nodeId.slice(0, 8)}... ← ${subnetId}`);
+      },
+    });
+    this.subnetManager.start();
+
     this.emitStatus('connected');
   }
 
@@ -538,6 +582,7 @@ export class TomClient {
     nodeId: string;
     username: string;
     publicKey?: string;
+    encryptionKey?: string;
   }): void {
     if (msg.action === 'join') {
       const peerInfo: PeerInfo = {
@@ -550,6 +595,16 @@ export class TomClient {
       };
       this.topology.addPeer(peerInfo);
       this.heartbeat?.trackPeer(msg.nodeId);
+      // Store encryption key if available (Story 6.1)
+      if (msg.encryptionKey) {
+        this.peerEncryptionKeys.set(msg.nodeId, hexToEncryptionKey(msg.encryptionKey));
+      }
+      // Register with peer gossip for autonomous discovery (Story 7.1)
+      this.peerGossip?.addBootstrapPeer({
+        nodeId: msg.nodeId,
+        username: msg.username,
+        encryptionKey: msg.encryptionKey,
+      });
       for (const handler of this.peerDiscoveredHandlers) handler(peerInfo);
       // Re-evaluate roles when network changes
       this.roleManager.reassignRoles(this.topology, this.nodeId);
@@ -589,8 +644,9 @@ export class TomClient {
       const recipientKey = this.peerEncryptionKeys.get(to);
       if (recipientKey) {
         payload = encryptPayload({ text }, recipientKey);
+        console.log(`[TomClient] 🔒 Message encrypted for ${to.slice(0, 8)}...`);
       } else {
-        console.warn(`[TomClient] No encryption key for ${to}, sending unencrypted`);
+        console.warn(`[TomClient] ⚠️ No encryption key for ${to}, sending unencrypted`);
       }
     }
 
@@ -601,6 +657,9 @@ export class TomClient {
 
     // Track conversation for direct path optimization
     this.directPathManager?.trackConversation(envelope);
+
+    // Track communication for subnet detection (Story 7.2)
+    this.subnetManager?.recordCommunication(this.nodeId, to);
 
     if (selectedRelay) {
       // Ensure relay peer is connected
@@ -1491,21 +1550,42 @@ export class TomClient {
   disconnect(): void {
     this.heartbeat?.stop();
     this.roleManager.stop();
+    this.peerGossip?.stop();
     if (this.cleanupInterval) {
       clearInterval(this.cleanupInterval);
       this.cleanupInterval = null;
     }
+    if (this.gossipInterval) {
+      clearInterval(this.gossipInterval);
+      this.gossipInterval = null;
+    }
+    this.subnetManager?.stop();
     this.transport?.close();
     this.ws?.close();
     this.transport = null;
     this.router = null;
     this.ws = null;
     this.heartbeat = null;
+    this.peerGossip = null;
+    this.subnetManager = null;
   }
 
   private handleIncomingMessage(envelope: MessageEnvelope): void {
     // Track conversation for direct path optimization
     this.directPathManager?.trackConversation(envelope);
+
+    // Track communication for subnet detection (Story 7.2)
+    if (envelope.to === this.nodeId) {
+      this.subnetManager?.recordCommunication(envelope.from, this.nodeId);
+    }
+
+    // Handle peer gossip messages (Story 7.1)
+    if (envelope.type === 'app' && isPeerGossipMessage(envelope.payload)) {
+      if (envelope.to === this.nodeId) {
+        this.handleGossipMessage(envelope.payload as PeerGossipMessage, envelope.from);
+        return;
+      }
+    }
 
     // Handle group payloads (Story 4.6)
     // IMPORTANT: Only process if this message is for us, not if we're just relaying
@@ -1734,5 +1814,134 @@ export class TomClient {
       onMessage: null,
       onClose: null,
     };
+  }
+
+  // ============================================
+  // Peer Gossip Methods (Story 7.1 - Bootstrap Fade)
+  // ============================================
+
+  /**
+   * Handle incoming gossip message
+   */
+  private handleGossipMessage(message: PeerGossipMessage, fromNodeId: string): void {
+    if (!this.peerGossip || !this.router || !this.transport) return;
+
+    // Mark peer as connected for gossip purposes
+    this.peerGossip.markConnected(fromNodeId);
+
+    // Process the message and get potential response
+    const response = this.peerGossip.handleMessage(message, fromNodeId);
+
+    // If there's a response (peer-list-response), send it back
+    if (response) {
+      const envelope = this.router.createEnvelope(fromNodeId, 'app', response, []);
+      this.transport.sendTo(fromNodeId, envelope);
+      this.emitStatus('gossip:response-sent', `to ${fromNodeId.slice(0, 8)}...`);
+    }
+  }
+
+  /**
+   * Handle newly discovered peers from gossip
+   */
+  private handleGossipPeersDiscovered(peers: GossipPeerInfo[], via: string): void {
+    this.emitStatus('gossip:peers-discovered', `${peers.length} via ${via.slice(0, 8)}...`);
+
+    for (const peer of peers) {
+      // Check if we already know this peer
+      const existing = this.topology.getPeer(peer.nodeId);
+      if (existing) continue;
+
+      // Add to topology
+      const peerInfo: PeerInfo = {
+        nodeId: peer.nodeId,
+        username: peer.username,
+        publicKey: peer.nodeId,
+        reachableVia: [],
+        lastSeen: Date.now(),
+        roles: (peer.roles as ('client' | 'relay')[]) ?? ['client'],
+      };
+      this.topology.addPeer(peerInfo);
+      this.heartbeat?.trackPeer(peer.nodeId);
+
+      // Store encryption key if available
+      if (peer.encryptionKey) {
+        this.peerEncryptionKeys.set(peer.nodeId, hexToEncryptionKey(peer.encryptionKey));
+      }
+
+      // Notify handlers
+      for (const handler of this.peerDiscoveredHandlers) handler(peerInfo);
+
+      // Attempt to connect to the newly discovered peer
+      this.transport?.connectToPeer(peer.nodeId).catch(() => {
+        // Connection failed - peer may be offline or unreachable
+      });
+    }
+
+    // Re-evaluate roles with new peers
+    this.roleManager.reassignRoles(this.topology, this.nodeId);
+  }
+
+  /**
+   * Perform a gossip round - request peer lists from connected peers
+   */
+  private performGossipRound(): void {
+    if (!this.peerGossip || !this.router || !this.transport) return;
+
+    const peersToGossipWith = this.peerGossip.getPeersToGossipWith();
+    if (peersToGossipWith.length === 0) return;
+
+    // Pick a random subset of peers to gossip with (max 3)
+    const selected = peersToGossipWith.sort(() => Math.random() - 0.5).slice(0, 3);
+
+    for (const peerId of selected) {
+      const request = this.peerGossip.createPeerListRequest();
+      this.peerGossip.markRequestSent(peerId, request.requestId);
+
+      // Send request
+      const envelope = this.router.createEnvelope(peerId, 'app', request, []);
+      this.transport.sendTo(peerId, envelope);
+      this.emitStatus('gossip:request-sent', `to ${peerId.slice(0, 8)}...`);
+    }
+  }
+
+  /**
+   * Get gossip discovery statistics (Story 7.1)
+   */
+  getGossipStats(): { totalPeers: number; bootstrapPeers: number; gossipPeers: number; connectedPeers: number } {
+    return this.peerGossip?.getStats() ?? { totalPeers: 0, bootstrapPeers: 0, gossipPeers: 0, connectedPeers: 0 };
+  }
+
+  /**
+   * Get ephemeral subnet statistics (Story 7.2)
+   */
+  getSubnetStats(): {
+    totalSubnets: number;
+    totalNodesInSubnets: number;
+    averageSubnetSize: number;
+    communicationEdges: number;
+  } {
+    return (
+      this.subnetManager?.getStats() ?? {
+        totalSubnets: 0,
+        totalNodesInSubnets: 0,
+        averageSubnetSize: 0,
+        communicationEdges: 0,
+      }
+    );
+  }
+
+  /**
+   * Get all active subnets (Story 7.2)
+   */
+  getSubnets(): SubnetInfo[] {
+    return this.subnetManager?.getAllSubnets() ?? [];
+  }
+
+  /**
+   * Check if two nodes are in the same subnet (Story 7.2)
+   * Can be used to optimize routing by preferring intra-subnet paths
+   */
+  areInSameSubnet(nodeA: NodeId, nodeB: NodeId): boolean {
+    return this.subnetManager?.areInSameSubnet(nodeA, nodeB) ?? false;
   }
 }

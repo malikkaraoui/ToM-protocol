@@ -130,6 +130,27 @@ describe('GroupManager', () => {
 
       expect(accepted).toBe(false);
     });
+
+    it('should update hub relay ID for pending invite', () => {
+      manager.handleInvite('grp-123', 'Fun Group', 'node-bob', 'Bob', 'old-relay');
+
+      // Verify initial hub
+      const invitesBefore = manager.getPendingInvites();
+      expect(invitesBefore[0].hubRelayId).toBe('old-relay');
+
+      // Update hub to new relay
+      const updated = manager.updateInviteHub('grp-123', 'new-relay');
+      expect(updated).toBe(true);
+
+      // Verify hub was updated
+      const invitesAfter = manager.getPendingInvites();
+      expect(invitesAfter[0].hubRelayId).toBe('new-relay');
+    });
+
+    it('should return false when updating hub for non-existent invite', () => {
+      const updated = manager.updateInviteHub('non-existent', 'new-relay');
+      expect(updated).toBe(false);
+    });
   });
 
   describe('handleGroupSync', () => {
