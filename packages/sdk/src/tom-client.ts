@@ -1093,9 +1093,24 @@ export class TomClient {
     };
 
     console.log(`[TomClient] Sending group invite to ${inviteeNodeId} for group ${groupId}`);
-    // Send invite directly to the user
+
+    // Connect directly to invitee before sending to ensure delivery
+    try {
+      await this.transport?.connectToPeer(inviteeNodeId);
+      const envelope = this.router!.createEnvelope(inviteeNodeId, 'app', invitePayload, []);
+      const peer = this.transport?.getPeer(inviteeNodeId);
+      if (peer) {
+        peer.send(envelope);
+        console.log('[TomClient] Group invite sent directly to invitee');
+        return true;
+      }
+    } catch (error) {
+      console.log('[TomClient] Direct connection to invitee failed, falling back to relay:', error);
+    }
+
+    // Fallback to relay routing
     await this.sendPayload(inviteeNodeId, invitePayload);
-    console.log('[TomClient] Group invite sent successfully');
+    console.log('[TomClient] Group invite sent via relay');
     return true;
   }
 
