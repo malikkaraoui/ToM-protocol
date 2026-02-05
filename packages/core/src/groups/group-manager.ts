@@ -307,6 +307,20 @@ export class GroupManager {
     }));
   }
 
+  /**
+   * Update the hub relay ID for a pending invite.
+   * Used when the original hub is no longer available.
+   * Returns true if updated, false if invite not found.
+   */
+  updateInviteHub(groupId: GroupId, newHubRelayId: NodeId): boolean {
+    const invite = this.pendingInvites.get(groupId);
+    if (!invite) {
+      return false;
+    }
+    invite.hubRelayId = newHubRelayId;
+    return true;
+  }
+
   // ============================================
   // Membership
   // ============================================

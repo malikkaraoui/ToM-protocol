@@ -44,6 +44,7 @@ export function createSignalingServer(port: number): { wss: WebSocketServer; clo
       nodeId: nodeInfo.nodeId,
       username: nodeInfo.username,
       publicKey: nodeInfo.publicKey,
+      encryptionKey: nodeInfo.encryptionKey,
     };
     const payload = JSON.stringify(msg);
     for (const node of nodes.values()) {

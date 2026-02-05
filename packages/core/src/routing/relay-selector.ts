@@ -110,8 +110,20 @@ export class RelaySelector {
    * 1. If recipient is directly reachable via a relay we can reach, use single relay
    * 2. If recipient is reachable via a relay that's reachable via another relay, chain them
    * 3. Max depth of MAX_RELAY_DEPTH to prevent infinite loops
+   *
+   * NOTE: This implementation uses simplified reachability assumptions.
+   * In a more sophisticated model, we'd use actual reachableVia info from topology.
+   * The "direct" decision is based on topology presence, not actual WebRTC connectivity.
+   *
+   * @param to - The recipient node ID
+   * @param topology - Network topology containing peer information
+   * @param checkConnectivity - Optional callback to verify actual connectivity (default: topology presence)
    */
-  selectPathToRecipient(to: NodeId, topology: NetworkTopology): RelayPathResult {
+  selectPathToRecipient(
+    to: NodeId,
+    topology: NetworkTopology,
+    checkConnectivity?: (nodeId: NodeId) => boolean,
+  ): RelayPathResult {
     // Edge case: sending to self
     if (to === this.selfNodeId) {
       return { path: [], reason: 'recipient-is-self' };
@@ -122,9 +134,13 @@ export class RelaySelector {
       return { path: [], reason: 'no-path' };
     }
 
-    // Check if recipient is directly reachable (we have direct connection)
+    // Check if recipient is directly reachable
+    // Use connectivity callback if provided, otherwise fall back to topology presence
     const recipient = topology.getPeer(to);
-    if (recipient && topology.getPeerStatus(to) === 'online') {
+    const isOnline = topology.getPeerStatus(to) === 'online';
+    const isConnected = checkConnectivity ? checkConnectivity(to) : recipient && isOnline;
+
+    if (isConnected) {
       // Recipient is directly reachable, no relays needed
       return { path: [], reason: 'direct' };
     }
@@ -140,18 +156,23 @@ export class RelaySelector {
       return { path: [], reason: 'no-path' };
     }
 
-    // Simple case: check if any single relay can reach the recipient
-    // In current architecture, if recipient was announced via a relay, that relay knows them
-    for (const relay of onlineRelays) {
-      // For now, assume any online relay can forward to any recipient
-      // This will be refined when we have proper reachability info
-      return { path: [relay.nodeId], reason: 'single-relay' };
+    // Use BFS to find the shortest path through relay nodes
+    // This handles both single-relay and multi-relay cases
+    const path = this.findMultiRelayPath(to, onlineRelays, topology);
+
+    if (path.length === 1) {
+      return { path, reason: 'single-relay' };
+    }
+    if (path.length > 1) {
+      return { path, reason: 'multi-relay' };
     }
 
-    // BFS for multi-relay path (when we have reachability info)
-    const path = this.findMultiRelayPath(to, onlineRelays, topology);
-    if (path.length > 0) {
-      return { path, reason: 'multi-relay' };
+    // Fallback: if BFS didn't find a path but we have online relays,
+    // try the first available relay (simplified model)
+    if (onlineRelays.length > 0) {
+      // Sort by lastSeen to prefer most recently active relay
+      const sortedRelays = onlineRelays.sort((a, b) => b.lastSeen - a.lastSeen);
+      return { path: [sortedRelays[0].nodeId], reason: 'single-relay' };
     }
 
     return { path: [], reason: 'no-path' };

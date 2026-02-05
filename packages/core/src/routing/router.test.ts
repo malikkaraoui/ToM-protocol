@@ -826,5 +826,74 @@ describe('Router', () => {
 
       expect(events.onMessageDelivered).toHaveBeenCalledTimes(2);
     });
+
+    it('allows same messageId from different senders (Fix #3)', () => {
+      const transport = createTransport();
+      const events = createRouterEvents();
+      events.onDuplicateMessage = vi.fn();
+      const router = new Router(LOCAL_ID, transport, events);
+
+      // Same messageId but from different senders
+      const envelope1 = makeEnvelope({
+        id: 'same-id',
+        from: PEER_B,
+        to: LOCAL_ID,
+      });
+
+      const envelope2 = makeEnvelope({
+        id: 'same-id',
+        from: RELAY_R, // Different sender
+        to: LOCAL_ID,
+      });
+
+      router.handleIncoming(envelope1);
+      router.handleIncoming(envelope2);
+
+      // Both should be delivered because they're from different senders
+      expect(events.onMessageDelivered).toHaveBeenCalledTimes(2);
+      expect(events.onDuplicateMessage).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('Cache cleanup (Fix #6)', () => {
+    it('cleanupCaches removes expired entries', () => {
+      const transport = createTransport();
+      const events = createRouterEvents();
+      const router = new Router(LOCAL_ID, transport, events);
+
+      // Receive a message to populate the cache
+      const envelope = makeEnvelope({
+        id: 'msg-cleanup-test',
+        from: PEER_B,
+        to: LOCAL_ID,
+      });
+      router.handleIncoming(envelope);
+
+      // Verify cache has entries
+      const sizesBefore = router.getCacheSizes();
+      expect(sizesBefore.receivedMessages).toBe(1);
+
+      // Cleanup should return 0 (nothing expired yet)
+      const removed = router.cleanupCaches();
+      expect(removed).toBe(0);
+
+      // Cache should still have the entry
+      const sizesAfter = router.getCacheSizes();
+      expect(sizesAfter.receivedMessages).toBe(1);
+    });
+
+    it('getCacheSizes returns current cache sizes', () => {
+      const transport = createTransport();
+      const events = createRouterEvents();
+      const router = new Router(LOCAL_ID, transport, events);
+
+      const sizes = router.getCacheSizes();
+      expect(sizes).toHaveProperty('receivedMessages');
+      expect(sizes).toHaveProperty('seenAcks');
+      expect(sizes).toHaveProperty('seenReadReceipts');
+      expect(sizes.receivedMessages).toBe(0);
+      expect(sizes.seenAcks).toBe(0);
+      expect(sizes.seenReadReceipts).toBe(0);
+    });
   });
 });
