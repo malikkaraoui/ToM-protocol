@@ -159,3 +159,17 @@ export {
   GROUP_SECURITY_DEFAULTS,
 } from './groups/index.js';
 export type { GroupMigrationData, GroupSecurityConfig } from './groups/index.js';
+
+// Crypto module (Story 6.1 - End-to-End Encryption)
+export {
+  generateEncryptionKeypair,
+  encryptionKeyToHex,
+  hexToEncryptionKey,
+  encryptPayload,
+  decryptPayload,
+  isEncryptedPayload,
+  storeEncryptionKeypair,
+  loadEncryptionKeypair,
+  getOrCreateEncryptionKeypair,
+} from './crypto/index.js';
+export type { EncryptionKeypair, EncryptedPayload } from './crypto/index.js';

@@ -9,6 +9,8 @@ interface ConnectedNode {
   nodeId: string;
   username: string;
   publicKey: string;
+  /** E2E encryption public key (Story 6.1) */
+  encryptionKey?: string;
 }
 
 export function createSignalingServer(port: number): { wss: WebSocketServer; close: () => void } {
@@ -19,6 +21,7 @@ export function createSignalingServer(port: number): { wss: WebSocketServer; clo
     const participants: Participant[] = Array.from(nodes.values()).map((n) => ({
       nodeId: n.nodeId,
       username: n.username,
+      encryptionKey: n.encryptionKey,
     }));
 
     const message: SignalingMessage = {
@@ -73,6 +76,7 @@ export function createSignalingServer(port: number): { wss: WebSocketServer; clo
           nodeId: msg.nodeId,
           username: msg.username,
           publicKey: msg.publicKey ?? '',
+          encryptionKey: (msg as { encryptionKey?: string }).encryptionKey,
         };
         nodes.set(msg.nodeId, nodeInfo);
         broadcastPresence('join', nodeInfo);

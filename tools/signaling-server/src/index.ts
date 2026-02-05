@@ -7,6 +7,8 @@ export const SIGNALING_SERVER_VERSION = '0.0.1';
 export interface Participant {
   nodeId: string;
   username: string;
+  /** E2E encryption public key (Story 6.1) */
+  encryptionKey?: string;
 }
 
 export interface SignalingMessage {
