@@ -76,6 +76,8 @@ interface StoredMessage {
   isSent: boolean;
   status: string;
   isGameResult?: boolean;
+  isGroupInvite?: boolean;
+  groupInviteData?: { groupId: string; groupName: string };
 }
 const conversations = new Map<string, StoredMessage[]>();
 const unreadCounts = new Map<string, number>();
@@ -236,8 +238,35 @@ joinBtn.addEventListener('click', async () => {
   });
 
   client.onGroupInvite((groupId, groupName, inviterId, inviterUsername) => {
-    console.log(`[Demo] Group invite: ${groupName} from ${inviterUsername}`);
-    // Show invite notification
+    // Add invitation as a message in the conversation with the inviter
+    if (!conversations.has(inviterId)) {
+      conversations.set(inviterId, []);
+    }
+
+    // Store inviter info if not known
+    if (!knownPeers.has(inviterId)) {
+      knownPeers.set(inviterId, { username: inviterUsername, online: true });
+    }
+
+    const inviteMsg: StoredMessage = {
+      id: `group-invite-${groupId}-${Date.now()}`,
+      text: `Invitation au groupe "${groupName}"`,
+      isSent: false,
+      status: inviterUsername,
+      isGroupInvite: true,
+      groupInviteData: { groupId, groupName },
+    };
+    conversations.get(inviterId)?.push(inviteMsg);
+
+    // If viewing this conversation, re-render
+    if (selectedPeer === inviterId) {
+      renderMessages();
+    } else {
+      // Increment unread count
+      unreadCounts.set(inviterId, (unreadCounts.get(inviterId) ?? 0) + 1);
+    }
+
+    renderParticipants();
     renderGroups();
   });
 
@@ -245,6 +274,7 @@ joinBtn.addEventListener('click', async () => {
     console.log(`[Demo] ${member.username} joined group ${groupId}`);
     renderGroups();
     if (selectedGroup === groupId) {
+      renderGroupChatHeader(); // Update member count
       renderGroupMessages();
     }
   });
@@ -267,6 +297,8 @@ joinBtn.addEventListener('click', async () => {
       renderGroups();
     }
   });
+
+  // Note: Public group announcements disabled - invitations only via direct 1-to-1 channels
 
   try {
     await client.connect();
@@ -364,6 +396,7 @@ function renderParticipants(): void {
 
 function selectPeer(nodeId: string): void {
   selectedPeer = nodeId;
+  selectedGroup = null; // Deselect group when selecting a peer
   // Clear unread count for this peer
   unreadCounts.set(nodeId, 0);
   // Mark all messages as read
@@ -374,6 +407,7 @@ function selectPeer(nodeId: string): void {
     }
   }
   renderParticipants();
+  renderGroups(); // Update group selection UI
   renderChatHeader();
   renderMessages();
 }
@@ -467,6 +501,65 @@ function renderMessages(): void {
     if (msg.isGameResult) {
       el.className = 'message received game-result';
       el.innerHTML = `<div>${escapeHtml(msg.text)}</div>`;
+      messagesEl.appendChild(el);
+      continue;
+    }
+
+    // Group invite messages (Story 4.6 - invitations in chat)
+    if (msg.isGroupInvite && msg.groupInviteData) {
+      const inviteData = msg.groupInviteData;
+      const isAlreadyJoined = !!client?.getGroup(inviteData.groupId);
+
+      el.className = 'message received group-invite-message';
+      el.dataset.msgId = msg.id;
+
+      if (isAlreadyJoined) {
+        el.innerHTML = `
+          <div class="group-invite-card-title">👥 Invitation au groupe</div>
+          <div class="group-invite-card-info">${escapeHtml(inviteData.groupName)}</div>
+          <div class="group-invite-card-info" style="color: #00ff88;">✓ Déjà rejoint</div>
+        `;
+      } else {
+        el.innerHTML = `
+          <div class="group-invite-card-title">👥 Invitation au groupe</div>
+          <div class="group-invite-card-info">${escapeHtml(inviteData.groupName)}</div>
+          <div class="group-invite-card-actions">
+            <button class="group-accept-btn" data-group-id="${inviteData.groupId}">Rejoindre</button>
+            <button class="group-decline-btn" data-group-id="${inviteData.groupId}">Refuser</button>
+          </div>
+        `;
+
+        // Add event listeners after appending
+        messagesEl.appendChild(el);
+
+        const acceptBtn = el.querySelector('.group-accept-btn') as HTMLButtonElement;
+        const declineBtn = el.querySelector('.group-decline-btn') as HTMLButtonElement;
+
+        acceptBtn?.addEventListener('click', async () => {
+          // Disable buttons and show loading state
+          acceptBtn.disabled = true;
+          declineBtn.disabled = true;
+          acceptBtn.textContent = 'En cours...';
+
+          const result = await client?.acceptGroupInvite(inviteData.groupId);
+          if (result) {
+            acceptBtn.textContent = '✓ Rejoint';
+            declineBtn.style.display = 'none';
+          } else {
+            acceptBtn.textContent = 'Rejoindre';
+            acceptBtn.disabled = false;
+            declineBtn.disabled = false;
+          }
+          renderGroups();
+        });
+        declineBtn?.addEventListener('click', () => {
+          client?.declineGroupInvite(inviteData.groupId);
+          renderMessages();
+          renderGroups();
+        });
+        continue;
+      }
+
       messagesEl.appendChild(el);
       continue;
     }
@@ -765,33 +858,9 @@ function renderGroups(): void {
   if (!groupListEl || !client) return;
   groupListEl.innerHTML = '';
 
-  // Render pending invites first
-  const invites = client.getPendingGroupInvites();
-  for (const invite of invites) {
-    const card = document.createElement('div');
-    card.className = 'group-invite-card';
-    card.innerHTML = `
-      <div class="group-invite-card-title">Invitation : ${escapeHtml(invite.groupName)}</div>
-      <div class="group-invite-card-info">De : ${escapeHtml(invite.inviterUsername)}</div>
-      <div class="group-invite-card-actions">
-        <button class="group-join-btn" data-group-id="${invite.groupId}">Rejoindre</button>
-        <button class="group-decline-btn" data-group-id="${invite.groupId}">Refuser</button>
-      </div>
-    `;
-    groupListEl.appendChild(card);
+  // Note: Invitations are shown in the 1-to-1 chat with the inviter, not here
 
-    // Add event listeners
-    card.querySelector('.group-join-btn')?.addEventListener('click', async () => {
-      await client?.acceptGroupInvite(invite.groupId);
-      renderGroups();
-    });
-    card.querySelector('.group-decline-btn')?.addEventListener('click', () => {
-      client?.declineGroupInvite(invite.groupId);
-      renderGroups();
-    });
-  }
-
-  // Render groups
+  // Render my groups (already joined)
   const groups = client.getGroups();
   for (const group of groups) {
     const el = document.createElement('div');
@@ -815,6 +884,8 @@ function renderGroups(): void {
 
     groupListEl.appendChild(el);
   }
+
+  // Note: Public groups discovery disabled - join only via direct invitations
 }
 
 function selectGroup(groupId: string): void {
@@ -825,11 +896,6 @@ function selectGroup(groupId: string): void {
   renderGroups();
   renderGroupChatHeader();
   renderGroupMessages();
-}
-
-function selectPeerFromGroup(): void {
-  selectedGroup = null;
-  renderGroups();
 }
 
 function renderGroupChatHeader(): void {
@@ -852,15 +918,17 @@ function renderGroupChatHeader(): void {
   membersSpan.textContent = `${group.members.length} membres`;
   chatHeaderEl.appendChild(membersSpan);
 
-  // Invite button
-  const inviteBtn = document.createElement('button');
-  inviteBtn.className = 'game-invite-btn';
-  inviteBtn.style.marginLeft = '12px';
-  inviteBtn.textContent = '+ Inviter';
-  inviteBtn.addEventListener('click', () => {
-    showInviteModal(group.groupId);
-  });
-  chatHeaderEl.appendChild(inviteBtn);
+  // Invite button - only show for group creator (admin)
+  if (group.createdBy === client.getNodeId()) {
+    const inviteBtn = document.createElement('button');
+    inviteBtn.className = 'game-invite-btn';
+    inviteBtn.style.marginLeft = '12px';
+    inviteBtn.textContent = '+ Inviter';
+    inviteBtn.addEventListener('click', () => {
+      showInviteModal(group.groupId);
+    });
+    chatHeaderEl.appendChild(inviteBtn);
+  }
 
   // Leave button
   const leaveBtn = document.createElement('button');
@@ -985,9 +1053,7 @@ function showInviteModal(groupId: string): void {
 
   // Get contacts not already in group
   const memberIds = new Set(group.members.map((m) => m.nodeId));
-  const availableContacts = Array.from(knownPeers.entries()).filter(
-    ([nodeId, peer]) => !memberIds.has(nodeId) && peer.online,
-  );
+  const availableContacts = Array.from(knownPeers.entries()).filter(([nodeId]) => !memberIds.has(nodeId));
 
   inviteModalList.innerHTML = '';
 

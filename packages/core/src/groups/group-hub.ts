@@ -23,7 +23,6 @@ import {
 import {
   DEFAULT_MAX_GROUP_MEMBERS,
   GROUP_RATE_LIMIT_PER_SECOND,
-  type GroupAnnouncementPayload,
   type GroupCreatePayload,
   type GroupCreatedPayload,
   type GroupDeliveryAckPayload,
@@ -272,22 +271,11 @@ export class GroupHub {
     };
     this.events.sendToNode(fromNodeId, createdPayload, groupId);
 
-    // Send invitations to initial members
+    // Send invitations to initial members via direct 1-to-1 channels
+    // Note: We don't broadcast public announcements - invitations are personal only
     for (const member of payload.initialMembers) {
       this.sendInvite(groupId, group.name, member.nodeId, member.username, fromNodeId, username);
     }
-
-    // Broadcast public group announcement to all peers
-    const announcement: GroupAnnouncementPayload = {
-      type: 'group-announcement',
-      groupId,
-      groupName: payload.name,
-      hubRelayId: this.localNodeId,
-      memberCount: 1,
-      createdBy: fromNodeId,
-      creatorUsername: username,
-    };
-    this.events.broadcastAnnouncement?.(announcement);
 
     this.events.onHubActivity?.(groupId, 'created', { creator: fromNodeId, members: payload.initialMembers.length });
   }
@@ -358,11 +346,16 @@ export class GroupHub {
     group.members.push(newMember);
     group.lastActivityAt = Date.now();
 
-    // Send sync to ALL members (including the new one) to ensure consistent state
-    // This guarantees everyone has the same member list and count
-    for (const member of group.members) {
-      this.sendSync(payload.groupId, member.nodeId);
-    }
+    // Send sync to the new member so they receive full state/history
+    this.sendSync(payload.groupId, fromNodeId);
+
+    // Broadcast join event to existing members (exclude the new member)
+    const joinedPayload = {
+      type: 'group-member-joined' as const,
+      groupId: payload.groupId,
+      member: newMember,
+    };
+    this.events.broadcastToGroup(payload.groupId, joinedPayload, fromNodeId);
 
     this.events.onHubActivity?.(payload.groupId, 'member-joined', {
       nodeId: fromNodeId,

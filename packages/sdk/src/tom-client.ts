@@ -48,7 +48,6 @@ import {
   type TransportEvents,
   TransportLayer,
   extractPathInfo,
-  isGroupAnnouncement,
   isGroupHubHeartbeat,
   isGroupPayload,
 } from 'tom-protocol';
@@ -854,8 +853,24 @@ export class TomClient {
     };
 
     console.log(`[TomClient] Sending group-join to hub ${invite.hubRelayId} for group ${groupId}`);
+
+    // Timeout to clear pending state if no response (allows retry after 5s)
+    setTimeout(() => {
+      if (this.pendingGroupJoins.has(groupId)) {
+        console.log(`[TomClient] Join timeout for group ${groupId}, clearing pending state`);
+        this.pendingGroupJoins.delete(groupId);
+      }
+    }, 5000);
+
     try {
-      await this.sendPayload(invite.hubRelayId, joinPayload);
+      // If hub is on our own node, process locally
+      if (invite.hubRelayId === this.nodeId && this.groupHub) {
+        console.log('[TomClient] Hub is local, processing join locally');
+        this.groupHub.handlePayload(joinPayload, this.nodeId);
+      } else {
+        await this.sendPayload(invite.hubRelayId, joinPayload);
+      }
+      console.log('[TomClient] group-join sent successfully');
     } catch (error) {
       this.pendingGroupJoins.delete(groupId);
       throw error;
@@ -1025,6 +1040,14 @@ export class TomClient {
     // Mark as pending before sending
     this.pendingGroupJoins.add(groupId);
 
+    // Timeout to clear pending state if no response (allows retry after 5s)
+    setTimeout(() => {
+      if (this.pendingGroupJoins.has(groupId)) {
+        console.log(`[TomClient] Join timeout for group ${groupId}, clearing pending state`);
+        this.pendingGroupJoins.delete(groupId);
+      }
+    }, 5000);
+
     // Send join request to the hub
     const joinPayload: GroupPayload = {
       type: 'group-join',
@@ -1033,8 +1056,11 @@ export class TomClient {
       username: this.username,
     };
 
+    console.log(`[TomClient] Sending group-join to hub ${publicGroup.hubRelayId} for group ${groupId}`);
+
     try {
       await this.sendPayload(publicGroup.hubRelayId, joinPayload);
+      console.log('[TomClient] group-join sent successfully');
     } catch (error) {
       // Remove from pending on failure so user can retry
       this.pendingGroupJoins.delete(groupId);
@@ -1070,34 +1096,6 @@ export class TomClient {
 
   onPublicGroupAnnounced(handler: PublicGroupAnnouncedHandler): void {
     this.publicGroupAnnouncedHandlers.push(handler);
-  }
-
-  /**
-   * Broadcast a group announcement to all known peers.
-   * Called by the group creator to ensure all peers know about the group.
-   */
-  private async broadcastGroupAnnouncement(group: GroupInfo): Promise<void> {
-    const announcement: GroupPayload = {
-      type: 'group-announcement',
-      groupId: group.groupId,
-      groupName: group.name,
-      hubRelayId: group.hubRelayId,
-      memberCount: group.members.length,
-      createdBy: group.createdBy,
-      creatorUsername: group.members.find((m) => m.nodeId === group.createdBy)?.username ?? 'Unknown',
-    };
-
-    const peers = this.topology.getReachablePeers();
-    for (const peer of peers) {
-      if (peer.nodeId !== this.nodeId) {
-        try {
-          await this.sendPayload(peer.nodeId, announcement);
-        } catch {
-          // Best effort - continue with other peers
-        }
-      }
-    }
-    this.emitStatus('group:announcement-broadcast', `to ${peers.length} peers`);
   }
 
   /**
@@ -1177,6 +1175,10 @@ export class TomClient {
    * Routes to GroupManager (member) or GroupHub (relay).
    */
   private handleGroupPayload(payload: GroupPayload, fromNodeId: string): void {
+    console.log(
+      `[TomClient] handleGroupPayload: type=${payload.type}, from=${fromNodeId}, hasGroupHub=${!!this.groupHub}`,
+    );
+
     // Check if we should be the hub for this group (lazy init)
     // This handles the case where we created a group but groupHub wasn't initialized
     if (!this.groupHub && this.groupManager) {
@@ -1189,7 +1191,10 @@ export class TomClient {
 
     // If we're a relay hub, handle as hub
     if (this.groupHub) {
+      console.log('[TomClient] Forwarding to GroupHub');
       this.groupHub.handlePayload(payload, fromNodeId);
+    } else {
+      console.log('[TomClient] No GroupHub, processing as member only');
     }
 
     // Also handle as member (for messages/events directed to us)
@@ -1198,8 +1203,7 @@ export class TomClient {
         case 'group-created':
           if ('groupInfo' in payload) {
             this.groupManager.handleGroupCreated(payload.groupInfo);
-            // Creator also broadcasts announcement to ensure all peers know about the group
-            this.broadcastGroupAnnouncement(payload.groupInfo);
+            // Note: No broadcast - groups are only visible via direct invitations
           }
           break;
         case 'group-invite':
@@ -1258,18 +1262,7 @@ export class TomClient {
             this.groupManager.handleHubHeartbeat(payload.groupId, payload.memberCount, payload.timestamp);
           }
           break;
-        case 'group-announcement':
-          if (isGroupAnnouncement(payload)) {
-            this.groupManager.handleGroupAnnouncement(
-              payload.groupId,
-              payload.groupName,
-              payload.hubRelayId,
-              payload.memberCount,
-              payload.createdBy,
-              payload.creatorUsername,
-            );
-          }
-          break;
+        // Note: group-announcement disabled - groups only via direct invitations
       }
     }
   }

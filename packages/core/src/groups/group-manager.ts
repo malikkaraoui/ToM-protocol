@@ -279,8 +279,8 @@ export class GroupManager {
       return false;
     }
 
-    this.pendingInvites.delete(groupId);
-    // Actual join will happen when we receive group-sync from hub
+    // Note: Don't delete from pendingInvites here - wait for group-sync confirmation
+    // This allows retry if the join request fails
     return true;
   }
 
@@ -316,6 +316,9 @@ export class GroupManager {
    */
   handleGroupSync(group: GroupInfo, recentMessages?: GroupMessagePayload[]): void {
     this.groups.set(group.groupId, group);
+
+    // Remove from pending invites - join is now confirmed
+    this.pendingInvites.delete(group.groupId);
 
     // Store recent messages
     if (recentMessages) {
