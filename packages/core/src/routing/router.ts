@@ -1,6 +1,7 @@
 import type { DirectPathManager } from '../transport/direct-path-manager.js';
 import type { PeerConnection, TransportLayer } from '../transport/transport-layer.js';
 import type { MessageEnvelope } from '../types/envelope.js';
+import { MAX_RELAY_DEPTH } from './relay-selector.js';
 
 export const ACK_TYPE = 'ack';
 export const READ_RECEIPT_TYPE = 'read-receipt';
@@ -170,8 +171,92 @@ export class Router {
       return;
     }
 
-    // Otherwise, forward to the intended recipient
+    // Check if we're an intermediate relay in a multi-relay chain
+    const myPositionInChain = this.findPositionInRelayChain(envelope);
+    if (myPositionInChain !== -1) {
+      // We're an intermediate relay, forward to next hop
+      this.forwardInChain(envelope, myPositionInChain);
+      return;
+    }
+
+    // Otherwise, forward directly to the intended recipient
     this.forwardToRecipient(envelope);
+  }
+
+  /**
+   * Find our position in a multi-relay chain.
+   * Returns -1 if we're not in the chain, otherwise returns our index.
+   */
+  private findPositionInRelayChain(envelope: MessageEnvelope): number {
+    if (!envelope.via || envelope.via.length === 0) {
+      return -1;
+    }
+    return envelope.via.indexOf(this.localNodeId);
+  }
+
+  /**
+   * Forward a message to the next hop in a multi-relay chain.
+   */
+  private async forwardInChain(envelope: MessageEnvelope, currentPosition: number): Promise<void> {
+    const viaPath = envelope.via;
+
+    // Security: reject if chain is too deep
+    if (viaPath.length > MAX_RELAY_DEPTH) {
+      this.events.onMessageRejected(envelope, 'RELAY_CHAIN_TOO_DEEP');
+      return;
+    }
+
+    // Determine next hop: if we're the last relay, forward to recipient
+    // Otherwise, forward to the next relay in the chain
+    const isLastRelay = currentPosition === viaPath.length - 1;
+    const nextHop = isLastRelay ? envelope.to : viaPath[currentPosition + 1];
+
+    if (!nextHop) {
+      this.events.onMessageRejected(envelope, 'INVALID_RELAY_CHAIN');
+      return;
+    }
+
+    // Add hop timestamp for latency tracking
+    if (!envelope.hopTimestamps) {
+      envelope.hopTimestamps = [];
+    }
+    envelope.hopTimestamps.push(Date.now());
+
+    // Try to get existing peer connection
+    let peer = this.transport.getPeer(nextHop);
+
+    // If no connection exists, try to establish one
+    if (!peer) {
+      try {
+        let connectionPromise = this.pendingConnections.get(nextHop);
+        if (!connectionPromise) {
+          connectionPromise = this.transport.connectToPeer(nextHop);
+          this.pendingConnections.set(nextHop, connectionPromise);
+          try {
+            peer = await connectionPromise;
+          } finally {
+            this.pendingConnections.delete(nextHop);
+          }
+        } else {
+          await connectionPromise;
+          peer = this.transport.getPeer(nextHop);
+        }
+      } catch {
+        this.events.onMessageRejected(envelope, 'NEXT_HOP_UNREACHABLE');
+        return;
+      }
+    }
+
+    if (!peer) {
+      this.events.onMessageRejected(envelope, 'NEXT_HOP_UNREACHABLE');
+      return;
+    }
+
+    peer.send(envelope);
+    this.events.onMessageForwarded(envelope, nextHop);
+
+    // Send relay ACK back to sender
+    this.sendRelayAck(envelope);
   }
 
   private async forwardToRecipient(envelope: MessageEnvelope): Promise<void> {
@@ -339,23 +424,29 @@ export class Router {
   }
 
   private sendAck(original: MessageEnvelope, ackType: AckType = 'recipient-received'): void {
+    // Reverse the via path for the return journey
+    // Original: sender -> relay1 -> relay2 -> recipient
+    // ACK:      recipient -> relay2 -> relay1 -> sender
+    const reversedVia = [...original.via].reverse();
+
     const payload: AckPayload = {
       originalMessageId: original.id,
       ackType,
     };
-    const ack = this.createEnvelope(original.from, ACK_TYPE, payload, [...original.via]);
+    const ack = this.createEnvelope(original.from, ACK_TYPE, payload, reversedVia);
 
-    // Try to send via the relay path (reversed)
-    const relay = original.via[original.via.length - 1];
-    if (relay) {
-      const relayPeer = this.transport.getPeer(relay);
+    // Try to send via the reversed relay path
+    // The first relay in reversedVia is the last relay that forwarded to us
+    const firstRelayBack = reversedVia[0];
+    if (firstRelayBack) {
+      const relayPeer = this.transport.getPeer(firstRelayBack);
       if (relayPeer) {
         relayPeer.send(ack);
         return;
       }
     }
 
-    // Try direct send
+    // Try direct send to the original sender
     const directPeer = this.transport.getPeer(original.from);
     if (directPeer) {
       directPeer.send(ack);

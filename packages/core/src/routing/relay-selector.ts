@@ -6,6 +6,17 @@ export interface RelaySelectionResult {
   reason: 'best-available' | 'direct-fallback' | 'no-relays-available' | 'recipient-is-self' | 'no-peers';
 }
 
+/** Result from multi-relay path selection */
+export interface RelayPathResult {
+  /** Ordered list of relay IDs to traverse (empty = direct) */
+  path: string[];
+  /** Reason for path selection */
+  reason: 'direct' | 'single-relay' | 'multi-relay' | 'no-path' | 'recipient-is-self';
+}
+
+/** Maximum relay chain depth to prevent infinite loops */
+export const MAX_RELAY_DEPTH = 4;
+
 export interface RelaySelectorOptions {
   selfNodeId: NodeId;
 }
@@ -71,5 +82,121 @@ export class RelaySelector {
     // Return the best relay
     const bestRelay = sortedRelays[0] as PeerInfo;
     return { relayId: bestRelay.nodeId, reason: 'best-available' };
+  }
+
+  /**
+   * Select a multi-relay path to reach a recipient.
+   * Uses BFS to find the shortest path through relay nodes.
+   *
+   * Path selection strategy:
+   * 1. If recipient is directly reachable via a relay we can reach, use single relay
+   * 2. If recipient is reachable via a relay that's reachable via another relay, chain them
+   * 3. Max depth of MAX_RELAY_DEPTH to prevent infinite loops
+   */
+  selectPathToRecipient(to: NodeId, topology: NetworkTopology): RelayPathResult {
+    // Edge case: sending to self
+    if (to === this.selfNodeId) {
+      return { path: [], reason: 'recipient-is-self' };
+    }
+
+    // Edge case: empty topology
+    if (topology.size() === 0) {
+      return { path: [], reason: 'no-path' };
+    }
+
+    // Check if recipient is directly reachable (we have direct connection)
+    const recipient = topology.getPeer(to);
+    if (recipient && topology.getPeerStatus(to) === 'online') {
+      // Recipient is directly reachable, no relays needed
+      return { path: [], reason: 'direct' };
+    }
+
+    // Get all online relays
+    const onlineRelays = topology.getRelayNodes().filter((relay) => {
+      if (relay.nodeId === this.selfNodeId) return false;
+      if (relay.nodeId === to) return false;
+      return topology.getPeerStatus(relay.nodeId) === 'online';
+    });
+
+    if (onlineRelays.length === 0) {
+      return { path: [], reason: 'no-path' };
+    }
+
+    // Simple case: check if any single relay can reach the recipient
+    // In current architecture, if recipient was announced via a relay, that relay knows them
+    for (const relay of onlineRelays) {
+      // For now, assume any online relay can forward to any recipient
+      // This will be refined when we have proper reachability info
+      return { path: [relay.nodeId], reason: 'single-relay' };
+    }
+
+    // BFS for multi-relay path (when we have reachability info)
+    const path = this.findMultiRelayPath(to, onlineRelays, topology);
+    if (path.length > 0) {
+      return { path, reason: 'multi-relay' };
+    }
+
+    return { path: [], reason: 'no-path' };
+  }
+
+  /**
+   * Find a multi-relay path using BFS.
+   * This is used when the recipient isn't directly reachable by any single relay.
+   */
+  private findMultiRelayPath(to: NodeId, relays: PeerInfo[], topology: NetworkTopology): string[] {
+    // Build adjacency: which relays can reach which other relays/recipients
+    const canReach = new Map<string, Set<string>>();
+
+    for (const relay of relays) {
+      const reachable = new Set<string>();
+      // A relay can reach anyone in the topology (simplified model)
+      // In a more sophisticated model, we'd use reachableVia info
+      for (const peer of topology.getReachablePeers()) {
+        if (peer.nodeId !== relay.nodeId && peer.nodeId !== this.selfNodeId) {
+          reachable.add(peer.nodeId);
+        }
+      }
+      canReach.set(relay.nodeId, reachable);
+    }
+
+    // BFS from our directly connected relays
+    const visited = new Set<string>();
+    const queue: { nodeId: string; path: string[] }[] = [];
+
+    // Start with relays we can directly reach
+    for (const relay of relays) {
+      queue.push({ nodeId: relay.nodeId, path: [relay.nodeId] });
+      visited.add(relay.nodeId);
+    }
+
+    while (queue.length > 0) {
+      const current = queue.shift()!;
+
+      // Check depth limit
+      if (current.path.length >= MAX_RELAY_DEPTH) {
+        continue;
+      }
+
+      const reachableFromCurrent = canReach.get(current.nodeId);
+      if (!reachableFromCurrent) continue;
+
+      // Check if current relay can reach the target
+      if (reachableFromCurrent.has(to)) {
+        return current.path;
+      }
+
+      // Explore next level of relays
+      for (const nextRelay of relays) {
+        if (!visited.has(nextRelay.nodeId) && reachableFromCurrent.has(nextRelay.nodeId)) {
+          visited.add(nextRelay.nodeId);
+          queue.push({
+            nodeId: nextRelay.nodeId,
+            path: [...current.path, nextRelay.nodeId],
+          });
+        }
+      }
+    }
+
+    return []; // No path found
   }
 }

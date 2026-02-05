@@ -9,6 +9,7 @@ import { Router } from './router.js';
 const LOCAL_ID = 'a'.repeat(64);
 const PEER_B = 'b'.repeat(64);
 const RELAY_R = 'r'.repeat(64);
+const RELAY_S = 's'.repeat(64);
 
 function makeEnvelope(overrides?: Partial<MessageEnvelope>): MessageEnvelope {
   return {
@@ -524,6 +525,211 @@ describe('Router', () => {
 
       // DirectPathManager state should be synced (no longer thinks it's 'direct')
       expect(directPathManager.getConnectionType(PEER_B)).toBe('relay');
+    });
+  });
+
+  describe('Multi-relay chain forwarding', () => {
+    it('forwards to next relay when we are intermediate in the chain', async () => {
+      const transport = createTransport();
+      const events = createRouterEvents();
+      const router = new Router(LOCAL_ID, transport, events);
+
+      // Connect to next relay in chain
+      await transport.connectToPeer(RELAY_S);
+
+      // Message with multi-relay path: PEER_B -> RELAY_R -> LOCAL_ID -> RELAY_S -> recipient
+      // We are LOCAL_ID, positioned between RELAY_R and RELAY_S
+      const envelope = makeEnvelope({
+        from: PEER_B,
+        to: 'recipient',
+        via: [RELAY_R, LOCAL_ID, RELAY_S],
+      });
+
+      router.handleIncoming(envelope);
+
+      // Wait for async forward
+      await new Promise((resolve) => setTimeout(resolve, 10));
+
+      // Should forward to RELAY_S (next hop after us)
+      expect(events.onMessageForwarded).toHaveBeenCalledWith(envelope, RELAY_S);
+      const nextRelay = transport.getPeer(RELAY_S);
+      expect(nextRelay?.send).toHaveBeenCalledWith(envelope);
+    });
+
+    it('forwards to recipient when we are the last relay in the chain', async () => {
+      const transport = createTransport();
+      const events = createRouterEvents();
+      const router = new Router(LOCAL_ID, transport, events);
+
+      // Connect to recipient
+      await transport.connectToPeer(PEER_B);
+
+      // Message with multi-relay path: sender -> RELAY_R -> LOCAL_ID -> PEER_B (recipient)
+      // We are LOCAL_ID, the last relay before recipient
+      const envelope = makeEnvelope({
+        from: RELAY_R,
+        to: PEER_B,
+        via: [RELAY_R, LOCAL_ID],
+      });
+
+      router.handleIncoming(envelope);
+
+      // Wait for async forward
+      await new Promise((resolve) => setTimeout(resolve, 10));
+
+      // Should forward to PEER_B (recipient)
+      expect(events.onMessageForwarded).toHaveBeenCalledWith(envelope, PEER_B);
+      const recipient = transport.getPeer(PEER_B);
+      expect(recipient?.send).toHaveBeenCalledWith(envelope);
+    });
+
+    it('delivers message when addressed to us even if we are in via chain', () => {
+      const transport = createTransport();
+      const events = createRouterEvents();
+      const router = new Router(LOCAL_ID, transport, events);
+
+      // Message addressed to us
+      const envelope = makeEnvelope({
+        from: PEER_B,
+        to: LOCAL_ID,
+        via: [RELAY_R],
+      });
+
+      router.handleIncoming(envelope);
+
+      // Should deliver to us, not forward
+      expect(events.onMessageDelivered).toHaveBeenCalledWith(envelope);
+      expect(events.onMessageForwarded).not.toHaveBeenCalled();
+    });
+
+    it('forwards directly when we are not in the via chain', async () => {
+      const transport = createTransport();
+      const events = createRouterEvents();
+      const router = new Router(LOCAL_ID, transport, events);
+
+      await transport.connectToPeer(PEER_B);
+
+      // Message where we are not in the via chain - standard single-hop forwarding
+      const envelope = makeEnvelope({
+        from: RELAY_R,
+        to: PEER_B,
+        via: [RELAY_R], // Only RELAY_R, not us
+      });
+
+      router.handleIncoming(envelope);
+
+      // Wait for async forward
+      await new Promise((resolve) => setTimeout(resolve, 10));
+
+      // Should forward to recipient directly
+      expect(events.onMessageForwarded).toHaveBeenCalledWith(envelope, PEER_B);
+    });
+
+    it('adds hop timestamp when forwarding in chain', async () => {
+      const transport = createTransport();
+      const events = createRouterEvents();
+      const router = new Router(LOCAL_ID, transport, events);
+
+      await transport.connectToPeer(RELAY_S);
+
+      const envelope = makeEnvelope({
+        from: PEER_B,
+        to: 'recipient',
+        via: [RELAY_R, LOCAL_ID, RELAY_S],
+        hopTimestamps: [Date.now() - 100], // Previous relay's timestamp
+      });
+
+      const originalTimestampCount = envelope.hopTimestamps?.length ?? 0;
+
+      router.handleIncoming(envelope);
+
+      // Wait for async forward
+      await new Promise((resolve) => setTimeout(resolve, 10));
+
+      // Should have added our hop timestamp
+      expect(envelope.hopTimestamps?.length).toBe(originalTimestampCount + 1);
+    });
+
+    it('rejects message with via chain too deep', async () => {
+      const transport = createTransport();
+      const events = createRouterEvents();
+      const router = new Router(LOCAL_ID, transport, events);
+
+      // Create a chain with 6 relays (exceeds MAX_RELAY_DEPTH of 4)
+      const envelope = makeEnvelope({
+        from: PEER_B,
+        to: 'recipient',
+        via: ['r1', 'r2', 'r3', LOCAL_ID, 'r5', 'r6'],
+      });
+
+      router.handleIncoming(envelope);
+
+      // Wait for async forward
+      await new Promise((resolve) => setTimeout(resolve, 10));
+
+      // Should reject due to chain depth
+      expect(events.onMessageRejected).toHaveBeenCalledWith(envelope, 'RELAY_CHAIN_TOO_DEEP');
+    });
+
+    it('sends relay ACK when forwarding in chain', async () => {
+      const transport = createTransport();
+      const events = createRouterEvents();
+      const router = new Router(LOCAL_ID, transport, events);
+
+      // Connect to both sender and next hop
+      await transport.connectToPeer(RELAY_R);
+      await transport.connectToPeer(RELAY_S);
+
+      const envelope = makeEnvelope({
+        from: RELAY_R,
+        to: 'recipient',
+        via: [RELAY_R, LOCAL_ID, RELAY_S],
+      });
+
+      router.handleIncoming(envelope);
+
+      // Wait for async forward
+      await new Promise((resolve) => setTimeout(resolve, 10));
+
+      // Should send relay ACK back to sender
+      const senderPeer = transport.getPeer(RELAY_R);
+      expect(senderPeer?.send).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'ack',
+          from: LOCAL_ID,
+          to: RELAY_R,
+          payload: { originalMessageId: envelope.id, ackType: 'relay-forwarded' },
+        }),
+      );
+    });
+
+    it('reverses via path for ACK return journey', async () => {
+      const transport = createTransport();
+      const events = createRouterEvents();
+      const router = new Router(LOCAL_ID, transport, events);
+
+      // Connect to the last relay in the original path
+      await transport.connectToPeer(RELAY_S);
+
+      // Message came through RELAY_R -> RELAY_S -> us
+      const envelope = makeEnvelope({
+        from: PEER_B,
+        to: LOCAL_ID,
+        via: [RELAY_R, RELAY_S],
+      });
+
+      router.handleIncoming(envelope);
+
+      // Should send ACK via reversed path: RELAY_S first (was last in original)
+      const relayPeer = transport.getPeer(RELAY_S);
+      expect(relayPeer?.send).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'ack',
+          from: LOCAL_ID,
+          to: PEER_B,
+          via: [RELAY_S, RELAY_R], // Reversed!
+        }),
+      );
     });
   });
 });
