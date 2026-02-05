@@ -271,3 +271,70 @@ describe('RelaySelector - Multi-relay path selection', () => {
     expect(MAX_RELAY_DEPTH).toBe(4);
   });
 });
+
+describe('RelaySelector - Alternate relay selection (Story 5.2)', () => {
+  it('should exclude failed relays when selecting alternate', () => {
+    const selector = new RelaySelector({ selfNodeId: 'self' });
+    const topology = new NetworkTopology(3000);
+
+    const now = Date.now();
+    topology.addPeer(makePeer('relay-failed', { roles: ['client', 'relay'], lastSeen: now }));
+    topology.addPeer(makePeer('relay-working', { roles: ['client', 'relay'], lastSeen: now }));
+    topology.addPeer(makePeer('recipient', { roles: ['client'], lastSeen: now }));
+
+    const failedRelays = new Set(['relay-failed']);
+    const result = selector.selectAlternateRelay('recipient', topology, failedRelays);
+
+    expect(result.relayId).toBe('relay-working');
+    expect(result.reason).toBe('best-available');
+  });
+
+  it('should return no-relays-available when all relays are failed', () => {
+    const selector = new RelaySelector({ selfNodeId: 'self' });
+    const topology = new NetworkTopology(3000);
+
+    const now = Date.now();
+    topology.addPeer(makePeer('relay-1', { roles: ['client', 'relay'], lastSeen: now }));
+    topology.addPeer(makePeer('relay-2', { roles: ['client', 'relay'], lastSeen: now }));
+    topology.addPeer(makePeer('recipient', { roles: ['client'], lastSeen: now - 20000 }));
+
+    const failedRelays = new Set(['relay-1', 'relay-2']);
+    const result = selector.selectAlternateRelay('recipient', topology, failedRelays);
+
+    expect(result.relayId).toBeNull();
+    expect(result.reason).toBe('no-relays-available');
+  });
+
+  it('should use selectBestRelay with excludeRelays parameter', () => {
+    const selector = new RelaySelector({ selfNodeId: 'self' });
+    const topology = new NetworkTopology(3000);
+
+    const now = Date.now();
+    // Best relay (most recent) is excluded
+    topology.addPeer(makePeer('relay-best', { roles: ['client', 'relay'], lastSeen: now }));
+    // Fallback relay
+    topology.addPeer(makePeer('relay-fallback', { roles: ['client', 'relay'], lastSeen: now - 500 }));
+    topology.addPeer(makePeer('recipient', { roles: ['client'], lastSeen: now }));
+
+    const excludeRelays = new Set(['relay-best']);
+    const result = selector.selectBestRelay('recipient', topology, excludeRelays);
+
+    expect(result.relayId).toBe('relay-fallback');
+    expect(result.reason).toBe('best-available');
+  });
+
+  it('should return direct-fallback when all relays excluded but recipient online', () => {
+    const selector = new RelaySelector({ selfNodeId: 'self' });
+    const topology = new NetworkTopology(3000);
+
+    const now = Date.now();
+    topology.addPeer(makePeer('relay-only', { roles: ['client', 'relay'], lastSeen: now }));
+    topology.addPeer(makePeer('recipient', { roles: ['client'], lastSeen: now }));
+
+    const excludeRelays = new Set(['relay-only']);
+    const result = selector.selectBestRelay('recipient', topology, excludeRelays);
+
+    expect(result.relayId).toBeNull();
+    expect(result.reason).toBe('direct-fallback');
+  });
+});

@@ -34,8 +34,12 @@ export class RelaySelector {
    * 1. Must have 'relay' role
    * 2. Must be online (not stale or offline)
    * 3. Prefer most recently seen (highest lastSeen)
+   *
+   * @param to - The recipient node ID
+   * @param topology - Network topology containing peer information
+   * @param excludeRelays - Optional set of relay IDs to exclude (e.g., failed relays)
    */
-  selectBestRelay(to: NodeId, topology: NetworkTopology): RelaySelectionResult {
+  selectBestRelay(to: NodeId, topology: NetworkTopology, excludeRelays?: Set<string>): RelaySelectionResult {
     // Edge case: sending to self
     if (to === this.selfNodeId) {
       return { relayId: null, reason: 'recipient-is-self' };
@@ -62,6 +66,8 @@ export class RelaySelector {
       if (relay.nodeId === this.selfNodeId) return false;
       // Don't select recipient as relay
       if (relay.nodeId === to) return false;
+      // Exclude failed/unavailable relays
+      if (excludeRelays?.has(relay.nodeId)) return false;
       // Must be online
       return topology.getPeerStatus(relay.nodeId) === 'online';
     });
@@ -82,6 +88,18 @@ export class RelaySelector {
     // Return the best relay
     const bestRelay = sortedRelays[0] as PeerInfo;
     return { relayId: bestRelay.nodeId, reason: 'best-available' };
+  }
+
+  /**
+   * Select an alternate relay for rerouting, excluding failed relays.
+   * This is used when the primary relay fails and we need to reroute.
+   *
+   * @param to - The recipient node ID
+   * @param topology - Network topology containing peer information
+   * @param failedRelays - Set of relay IDs that have failed
+   */
+  selectAlternateRelay(to: NodeId, topology: NetworkTopology, failedRelays: Set<string>): RelaySelectionResult {
+    return this.selectBestRelay(to, topology, failedRelays);
   }
 
   /**
