@@ -110,7 +110,7 @@ describe('GroupManager', () => {
     });
 
     it('should decline invitation', () => {
-      manager.handleInvite('grp-123', 'Fun Group', 'node-bob', 'Bob');
+      manager.handleInvite('grp-123', 'Fun Group', 'node-bob', 'Bob', 'relay-1');
 
       const declined = manager.declineInvite('grp-123');
 
@@ -125,7 +125,7 @@ describe('GroupManager', () => {
       limitedManager.createGroup('Group 1', 'relay-1');
 
       // Try to accept invite
-      limitedManager.handleInvite('grp-123', 'Fun Group', 'node-bob', 'Bob');
+      limitedManager.handleInvite('grp-123', 'Fun Group', 'node-bob', 'Bob', 'relay-2');
       const accepted = limitedManager.acceptInvite('grp-123');
 
       expect(accepted).toBe(false);
