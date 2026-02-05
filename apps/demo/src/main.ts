@@ -22,13 +22,6 @@ import type { Direction, GameSessionState } from './game/index';
 
 const SIGNALING_URL = `ws://${window.location.hostname}:3001`;
 
-/** Format bytes to human-readable string */
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes}B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(2)}MB`;
-}
-
 /** Detect if device has touch capability */
 const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
 
@@ -375,23 +368,24 @@ function renderParticipants(): void {
     participantsEl.appendChild(el);
   }
 
-  // Total includes self (knownPeers only has OTHER peers)
-  const total = knownPeers.size + 1;
-
   // Relay count: other relays + self if we have relay role
   const otherRelays = client?.getTopologyInstance()?.getRelayNodes().length ?? 0;
   const myRoles = client?.getCurrentRoles() ?? [];
   const selfIsRelay = myRoles.includes('relay') ? 1 : 0;
   const relayCount = otherRelays + selfIsRelay;
 
-  // Stats: relay ACKs received (own messages confirmed relayed) and messages forwarded for others
+  // Stats for contribution/usage equilibrium score (Story 5.4)
   const stats = client?.getRelayStats();
-  const ackCount = stats?.relayAcksReceived ?? 0;
   const forwardedCount = stats?.messagesRelayed ?? 0;
-  const bytesRelayed = stats?.bytesRelayed ?? 0;
-  const bytesSent = stats?.bytesSent ?? 0;
+  const equilibriumScore = stats?.relayToOwnRatio ?? 0;
+  const scoreDisplay =
+    equilibriumScore >= 1
+      ? `⚡${equilibriumScore.toFixed(1)}`
+      : equilibriumScore > 0
+        ? `${equilibriumScore.toFixed(1)}`
+        : '0';
 
-  topologyStats.textContent = `${onlineCount} online · ${relayCount} relays · ${ackCount}/${stats?.ownMessagesSent ?? 0} relayed · ${forwardedCount} fwd (${formatBytes(bytesRelayed)}) · ↑${formatBytes(bytesSent)} · ${total} total`;
+  topologyStats.textContent = `${onlineCount} en ligne · ${relayCount} relais · Score: ${scoreDisplay} · ↑${stats?.ownMessagesSent ?? 0} ↔${forwardedCount}`;
 }
 
 function selectPeer(nodeId: string): void {
