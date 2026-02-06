@@ -14,6 +14,32 @@
 import * as readline from 'node:readline';
 import { TomMcpServer } from './index.js';
 
+/** Timeout for tool execution (30 seconds) */
+const TOOL_TIMEOUT_MS = 30000;
+
+/** Execute with timeout */
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, errorMessage: string): Promise<T> {
+  let timeoutId: ReturnType<typeof setTimeout>;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(() => reject(new Error(errorMessage)), timeoutMs);
+  });
+  try {
+    return await Promise.race([promise, timeoutPromise]);
+  } finally {
+    clearTimeout(timeoutId!);
+  }
+}
+
+/** Check if value is a valid JSON-RPC request object */
+function isValidRequest(value: unknown): value is { jsonrpc: string; method: string; id?: unknown; params?: unknown } {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    !Array.isArray(value) &&
+    typeof (value as Record<string, unknown>).method === 'string'
+  );
+}
+
 interface JsonRpcRequest {
   jsonrpc: '2.0';
   id: number | string;
@@ -96,17 +122,25 @@ async function main(): Promise<void> {
   }
 
   rl.on('line', async (line) => {
-    let request: JsonRpcRequest;
+    let parsed: unknown;
 
     try {
-      request = JSON.parse(line);
+      parsed = JSON.parse(line);
     } catch {
       sendError(null, -32700, 'Parse error');
       return;
     }
 
+    // Validate JSON-RPC structure
+    if (!isValidRequest(parsed)) {
+      sendError(null, -32600, 'Invalid Request: must be an object with method');
+      return;
+    }
+
+    const request = parsed as JsonRpcRequest;
+
     if (request.jsonrpc !== '2.0') {
-      sendError(request.id, -32600, 'Invalid Request');
+      sendError(request.id, -32600, 'Invalid Request: jsonrpc must be "2.0"');
       return;
     }
 
@@ -143,11 +177,22 @@ async function main(): Promise<void> {
         }
 
         case 'tools/call': {
-          const params = request.params as { name: string; arguments?: Record<string, unknown> };
-          const result = await server.executeTool({
-            name: params.name,
-            arguments: params.arguments ?? {},
-          });
+          // Validate params
+          const params = request.params as { name?: string; arguments?: Record<string, unknown> } | undefined;
+          if (!params?.name || typeof params.name !== 'string') {
+            sendError(request.id, -32602, 'Invalid params: missing or invalid "name"');
+            break;
+          }
+
+          // Execute with timeout
+          const result = await withTimeout(
+            server.executeTool({
+              name: params.name,
+              arguments: params.arguments ?? {},
+            }),
+            TOOL_TIMEOUT_MS,
+            `Tool execution timed out after ${TOOL_TIMEOUT_MS / 1000}s`,
+          );
           sendResponse({
             jsonrpc: '2.0',
             id: request.id,

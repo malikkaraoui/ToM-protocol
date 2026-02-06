@@ -21,15 +21,19 @@ ToM is a transport layer protocol (not a blockchain) that enables peer-to-peer m
 ```typescript
 import { TomClient } from 'tom-sdk';
 
-const client = new TomClient({ username: 'alice' });
-await client.connect('wss://signaling.example.com');
+const client = new TomClient({
+  signalingUrl: 'wss://signaling.example.com',
+  username: 'alice'
+});
+await client.connect();
 
 // Send a message
 await client.sendMessage(recipientNodeId, 'Hello!');
 
 // Receive messages
-client.onMessage((from, text, envelope) => {
-  console.log(`${from}: ${text}`);
+client.onMessage((envelope) => {
+  const payload = envelope.payload as { text?: string };
+  console.log(`${envelope.from}: ${payload.text}`);
 });
 ```
 
@@ -71,22 +75,18 @@ interface MessageEnvelope {
 
 | Method | Description |
 |--------|-------------|
-| `connect(url)` | Connect to signaling server |
+| `connect()` | Connect to signaling server |
 | `disconnect()` | Disconnect from network |
 | `sendMessage(to, text)` | Send encrypted message |
-| `onMessage(callback)` | Register message handler |
-| `onParticipantJoined(callback)` | Peer joined network |
-| `onParticipantLeft(callback)` | Peer left network |
-| `getParticipants()` | List online peers |
-| `getMessageStatus(id)` | Get delivery status |
-
-### TomClient Properties
-
-| Property | Description |
-|----------|-------------|
-| `nodeId` | This node's public key |
-| `username` | Display name |
-| `currentRole` | Assigned network role |
+| `onMessage(callback)` | Register message handler (receives MessageEnvelope) |
+| `onParticipants(callback)` | List of online peers updated |
+| `onPeerDiscovered(callback)` | New peer discovered |
+| `onPeerDeparted(callback)` | Peer left network |
+| `getTopology()` | Get current peer list |
+| `getNodeId()` | Get this node's public key |
+| `getCurrentRoles()` | Get assigned network roles |
+| `getGossipStats()` | Get peer discovery statistics |
+| `getSubnetStats()` | Get ephemeral subnet statistics |
 
 ## Technical Stack
 

@@ -10,6 +10,14 @@
 import type { MessageEnvelope, PeerInfo } from 'tom-protocol';
 import { TomClient } from 'tom-sdk';
 
+/** Maximum messages to keep in history to prevent memory issues */
+const MAX_HISTORY = 1000;
+
+/** Clamp a number between min and max */
+function clamp(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, value));
+}
+
 export interface McpTool {
   name: string;
   description: string;
@@ -188,7 +196,7 @@ export class TomMcpServer {
     // Set up message handler
     this.client.onMessage((envelope: MessageEnvelope) => {
       const payload = envelope.payload as { text?: string };
-      this.messageHistory.push({
+      this.addToHistory({
         id: envelope.id,
         from: envelope.from,
         to: envelope.to,
@@ -231,27 +239,39 @@ export class TomMcpServer {
     }
 
     const { to, message } = args;
+    const normalizedTo = to.trim();
 
-    // Find recipient by username or node ID
+    // Find recipient by node ID first, then by username
     const participants = this.client.getTopology();
-    let recipientId = to;
 
-    // If 'to' doesn't look like a node ID, try to find by username
-    if (to.length < 32) {
-      const participant = participants.find((p: PeerInfo) => p.username.toLowerCase() === to.toLowerCase());
-      if (participant) {
-        recipientId = participant.nodeId;
-      } else {
-        return this.errorResult(
-          `Participant not found: ${to}. Available: ${participants.map((p: PeerInfo) => p.username).join(', ')}`,
-        );
-      }
+    // Try exact nodeId match first
+    const byNodeId = participants.find((p: PeerInfo) => p.nodeId === normalizedTo);
+    if (byNodeId) {
+      return this.doSendMessage(byNodeId.nodeId, message);
+    }
+
+    // Try username match (case-insensitive)
+    const normalizedUsername = normalizedTo.toLocaleLowerCase();
+    const byUsername = participants.find((p: PeerInfo) => p.username.trim().toLocaleLowerCase() === normalizedUsername);
+    if (byUsername) {
+      return this.doSendMessage(byUsername.nodeId, message);
+    }
+
+    // Not found
+    return this.errorResult(
+      `Participant not found: ${normalizedTo}. Available: ${participants.map((p: PeerInfo) => p.username).join(', ')}`,
+    );
+  }
+
+  private async doSendMessage(recipientId: string, message: string): Promise<McpToolResult> {
+    if (!this.client) {
+      return this.errorResult('Not connected. Call tom_connect first.');
     }
 
     const envelope = await this.client.sendMessage(recipientId, message);
 
     if (envelope) {
-      this.messageHistory.push({
+      this.addToHistory({
         id: envelope.id,
         from: this.client.getNodeId(),
         to: recipientId,
@@ -328,8 +348,9 @@ export class TomMcpServer {
   }
 
   private handleGetMessageHistory(args: { limit?: number }): McpToolResult {
-    const limit = args.limit ?? 20;
-    const messages = this.messageHistory.slice(-limit);
+    const rawLimit = Number(args.limit) || 20;
+    const safeLimit = clamp(rawLimit, 1, MAX_HISTORY);
+    const messages = this.messageHistory.slice(-safeLimit);
 
     return this.successResult(
       JSON.stringify(
@@ -400,6 +421,22 @@ export class TomMcpServer {
         2,
       ),
     );
+  }
+
+  /** Add message to history with size limit */
+  private addToHistory(msg: {
+    id: string;
+    from: string;
+    to: string;
+    text: string;
+    timestamp: number;
+    status: string;
+  }): void {
+    this.messageHistory.push(msg);
+    // Truncate if exceeds max
+    if (this.messageHistory.length > MAX_HISTORY) {
+      this.messageHistory = this.messageHistory.slice(-MAX_HISTORY);
+    }
   }
 
   private successResult(text: string): McpToolResult {
