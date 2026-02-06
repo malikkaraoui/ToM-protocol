@@ -1,0 +1,93 @@
+{
+  "name": "tom-vscode",
+  "displayName": "ToM Protocol",
+  "description": "Distributed serverless messaging for VS Code with LLM integration",
+  "version": "1.0.0",
+  "publisher": "tom-protocol",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": ["Other"],
+  "activationEvents": [],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "tom.openChat",
+        "title": "ToM: Open Chat Panel"
+      },
+      {
+        "command": "tom.connect",
+        "title": "ToM: Connect to Network"
+      },
+      {
+        "command": "tom.disconnect",
+        "title": "ToM: Disconnect from Network"
+      },
+      {
+        "command": "tom.showStatus",
+        "title": "ToM: Show Network Status"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "tom-explorer",
+          "title": "ToM Protocol",
+          "icon": "$(comment-discussion)"
+        }
+      ]
+    },
+    "views": {
+      "tom-explorer": [
+        {
+          "type": "webview",
+          "id": "tom.chatView",
+          "name": "Chat"
+        },
+        {
+          "id": "tom.participantsView",
+          "name": "Participants"
+        },
+        {
+          "id": "tom.networkView",
+          "name": "Network Status"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "ToM Protocol",
+      "properties": {
+        "tom.signalingUrl": {
+          "type": "string",
+          "default": "ws://localhost:3001",
+          "description": "WebSocket URL for the signaling server"
+        },
+        "tom.username": {
+          "type": "string",
+          "default": "",
+          "description": "Username for the ToM network"
+        },
+        "tom.autoConnect": {
+          "type": "boolean",
+          "default": false,
+          "description": "Automatically connect to the network on startup"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "package": "vsce package"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.0",
+    "@types/vscode": "^1.85.0",
+    "tsup": "^8.5.1",
+    "typescript": "^5.7.3"
+  },
+  "dependencies": {
+    "tom-sdk": "workspace:*"
+  }
+}
