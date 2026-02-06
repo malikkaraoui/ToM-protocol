@@ -111,6 +111,17 @@ export interface GameReadyPayload {
 }
 
 /**
+ * Game start signal with synchronized timestamp (TD-001 fix)
+ * Sent from P1 to P2 to ensure both players start at exactly the same time
+ */
+export interface GameStartPayload {
+  type: 'game-start';
+  gameId: string;
+  /** Absolute timestamp (Date.now()) when the game should begin */
+  startTimestamp: number;
+}
+
+/**
  * Union type for all game payloads
  */
 export type GamePayload =
@@ -120,7 +131,8 @@ export type GamePayload =
   | GameStatePayload
   | GameInputPayload
   | GameEndPayload
-  | GameReadyPayload;
+  | GameReadyPayload
+  | GameStartPayload;
 
 /**
  * Type guard to check if a payload is a game payload
@@ -135,7 +147,8 @@ export function isGamePayload(payload: unknown): payload is GamePayload {
     p.type === 'game-state' ||
     p.type === 'game-input' ||
     p.type === 'game-end' ||
-    p.type === 'game-ready'
+    p.type === 'game-ready' ||
+    p.type === 'game-start'
   );
 }
 
@@ -202,6 +215,14 @@ export function isGameReady(payload: unknown): payload is GameReadyPayload {
   if (!isGamePayload(payload) || payload.type !== 'game-ready') return false;
   const p = payload as GameReadyPayload;
   if (typeof p.gameId !== 'string' || p.gameId.length === 0) return false;
+  return true;
+}
+
+export function isGameStart(payload: unknown): payload is GameStartPayload {
+  if (!isGamePayload(payload) || payload.type !== 'game-start') return false;
+  const p = payload as GameStartPayload;
+  if (typeof p.gameId !== 'string' || p.gameId.length === 0) return false;
+  if (typeof p.startTimestamp !== 'number' || p.startTimestamp <= 0) return false;
   return true;
 }
 

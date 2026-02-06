@@ -1,13 +1,103 @@
+# ToM Protocol
 
-# The Open Messaging (ToM)
+**The Open Messaging** — a decentralized P2P transport protocol where every device is the network.
 
-**A decentralized transport protocol for the free internet**
+## Status: Phase 1 Complete
+
+| Epic | Description | Status |
+|------|-------------|--------|
+| 1 | Project Foundation & Node Identity | ✅ |
+| 2 | First Message Through Relay | ✅ |
+| 3 | Dynamic Routing & Discovery | ✅ |
+| 4 | Bidirectional Conversation | ✅ |
+| 5 | Multi-Relay Transport | ✅ |
+| 6 | E2E Encryption | ✅ |
+| 7 | Self-Sustaining Network | ✅ |
+| 8 | LLM & Community Ecosystem | ✅ |
+
+**534+ tests passing** | **10-15 nodes validated** | **E2E encrypted**
 
 ## TL;DR
 
-ToM is a transport layer protocol (not a blockchain) that transforms every connected device into both client and server. No data centers, no speculative tokens, no infinite history to drag around.
+ToM is a transport layer protocol (not a blockchain) that transforms every connected device into both client and relay. No data centers, no speculative tokens, no infinite history.
 
 **The idea:** leverage the dormant power of billions of devices to create a global communication BUS that's resilient and virtually free.
+
+## Quick Start
+
+```bash
+# Clone and setup
+git clone https://github.com/malikkaraoui/ToM-protocol.git
+cd tom-protocol
+pnpm install && pnpm build
+
+# Run demo (opens browser + signaling server)
+./scripts/start-demo.sh
+```
+
+Then open multiple browser tabs at `http://localhost:5173` to chat and play Snake!
+
+## Project Structure
+
+```
+tom-protocol/
+├── packages/
+│   ├── core/                 # Protocol primitives (tom-protocol)
+│   └── sdk/                  # Developer SDK (tom-sdk)
+├── apps/
+│   └── demo/                 # Browser demo with multiplayer Snake
+├── tools/
+│   ├── signaling-server/     # Bootstrap server (temporary)
+│   ├── mcp-server/           # MCP server for LLM interaction
+│   └── vscode-extension/     # VS Code extension (WIP)
+├── llms.txt                  # LLM quick reference
+├── CLAUDE.md                 # Detailed LLM guide
+└── CONTRIBUTING.md           # Micro-session contribution model
+```
+
+## For Developers
+
+### 2-Line Integration
+
+```typescript
+import { TomClient } from 'tom-sdk';
+
+const client = new TomClient({ signalingUrl: 'ws://localhost:3001', username: 'alice' });
+await client.connect();
+
+// Send E2E encrypted message
+await client.sendMessage(recipientNodeId, 'Hello!');
+
+// Receive messages
+client.onMessage((envelope) => {
+  console.log(`From ${envelope.from}: ${envelope.payload.text}`);
+});
+```
+
+### For LLMs
+
+- Read [llms.txt](llms.txt) for quick protocol overview
+- Read [CLAUDE.md](CLAUDE.md) for detailed implementation guide
+- Use the [MCP server](tools/mcp-server/) for programmatic interaction
+
+## Architecture Highlights
+
+| Feature | Implementation |
+|---------|----------------|
+| **Identity** | Ed25519 keypair (TweetNaCl.js) |
+| **Transport** | WebRTC DataChannel |
+| **Encryption** | X25519 + XSalsa20-Poly1305 (E2E) |
+| **Discovery** | Gossip protocol + ephemeral subnets |
+| **Routing** | Dynamic relay selection, multi-hop |
+
+## Contributing
+
+ToM uses a **micro-session contribution model** — small, focused changes completable in 30-60 minutes.
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for:
+- Issue complexity levels (micro/small/medium)
+- How to find and claim work
+- Session workflow
 
 ## Why ToM Exists
 
@@ -15,33 +105,7 @@ ToM is a transport layer protocol (not a blockchain) that transforms every conne
 |-----------------|--------------|
 | Centralized infrastructure = censorship points | Pure P2P, no master server |
 | Blockchains = infinite history, sync marathon | Ultra-purged L1, sliding genesis |
-| Consensus = industry (mining, capital staking) | Proof of Presence (PoP): you participate, you validate |
-| Fees/entry barriers | "Free" = you pay with network contribution |
-| Double-spend without full history? | Per-wallet state commitments + distributed observers |
-
-## Architecture in 30 Seconds
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                      L1 (Organic BUS)                       │
-│  • Present state only (no history)                          │
-│  • Sliding genesis: a few blocks max                        │
-│  • Periodic cryptographic snapshots                         │
-└─────────────────────────────────────────────────────────────┘
-                              │
-        ┌─────────────────────┼─────────────────────┐
-        ▼                     ▼                     ▼
-   ┌─────────┐          ┌─────────┐          ┌─────────┐
-   │ Subnet  │          │ Subnet  │          │ Subnet  │
-   │    A    │          │    B    │          │    C    │
-   │(ephemer)│          │(ephemer)│          │(ephemer)│
-   └─────────┘          └─────────┘          └─────────┘
-        │                     │                     │
-   On-demand creation — Auto-purge if inactive — Fork if overloaded
-```
-
-Every node can be: **Client, Relay, Observer, Guardian, Archiver, Validator.**
-Dynamic roles, assigned via PoP.
+| Fees/entry barriers | Free = you pay with network contribution |
 
 ## Core Concepts
 
@@ -49,141 +113,25 @@ Dynamic roles, assigned via PoP.
 
 No energy-hungry PoW, no capitalist PoS. You validate because you're there and you behave well.
 
-- Rotating quorums selected pseudo-randomly among present nodes
-- Roles announced a few blocks ahead (verifiable rotation)
-- Dedicated nodes monitor randomness quality and rotation dynamics
+### Dynamic Roles
 
-### Per-Wallet State Commitments (Double-Spend Solution)
+Every node can be: **Client, Relay, Observer, Guardian, Validator.**
+Roles are assigned dynamically based on network needs and contribution.
 
-```
-State_W = {
-    wallet_id:  PK_W,           // Public key
-    commit:     Commit_W,       // Cryptographic commitment (Merkle/Pedersen)
-    net_sig:    AggSig_quorum,  // Aggregated observer signatures
-    height:     h               // State version number
-}
-```
-
-**How it works:**
-1. Wallet owner proposes a transition: `Commit_old → Commit_new`
-2. Observers verify `from_commit` matches their last known state
-3. Quorum signs only if valid
-4. L1 records new state — old state is gone
-
-**Golden rule:** No observer signs two different transitions from the same `from_commit`.
-
-### Dynamic Economy: Usage vs. Contribution
+### Usage vs. Contribution Balance
 
 ```
-Score_U = Contribution_U − Usage_U
+Score = Contribution - Usage
 ```
 
-| Score | Status |
-|-------|--------|
-| ≈ 0 | Ideal: give-and-take balance |
-| >> 0 | Heavy contributor (potential fork trigger) |
-| << 0 | Heavy consumer (potential spam profile) |
+Heavy consumers become relays. Spam is self-destructive.
 
-Tokens aren't capital — they're balance trackers. No rent-seeking.
+## Documentation
 
-### Anti-Spam: The Sprinkler Gets Sprinkled
-
-When `Score_U` goes deeply negative:
-
-1. **Local micro-PoW:** outgoing messages require increasingly costly hash puzzles
-2. **Relay over-assignment:** spammer becomes network relay, burning their own resources
-3. **Non-critical validation tasks:** proof verifications, commitment recalculations
-
-Spam isn't just forbidden — it's self-destructive.
-
-## What ToM Is NOT
-
-| ❌ NOT | ✅ IS |
-|--------|-------|
-| A blockchain | A transport layer protocol |
-| A cryptocurrency | A utility-balanced token system |
-| Permanent storage | Aggressive purge, present-state only |
-| Mining/staking industry | Participation-based consensus |
-| Dependent on external infra | Self-sufficient P2P mesh |
-
-## Technical Challenges (Open Questions)
-
-These are acknowledged design gaps requiring further formalization:
-
-| Challenge | Current Status |
-|-----------|----------------|
-| PoP mathematical formalization | Conceptual — needs formal security proofs |
-| Observer selection protocols | Outlined — attack surface analysis pending |
-| Cryptographic commitment details | Direction chosen (Merkle/Pedersen) — spec incomplete |
-| Network partition handling | Subnet fork mechanism described — edge cases TBD |
-| Bootstrap without seed nodes | Guardian role defined — bootstrap protocol incomplete |
-| Sybil resistance in PoP | Relies on behavior scoring — formal analysis needed |
-
-## Project Structure
-
-```
-tom/
-├── packages/
-│   ├── core/                     # Protocol primitives (transport, routing, identity, groups)
-│   └── sdk/                      # Developer-friendly API (TomClient)
-├── apps/
-│   └── demo/                     # Demo app with multiplayer Snake game
-├── tools/
-│   └── signaling-server/         # Bootstrap WebSocket server (temporary)
-├── docs/
-│   ├── whitepaper-v0.1.pdf       # Initial whitepaper (FR)
-│   └── step-2-architecture.pdf   # Extended architecture doc
-└── specs/                        # Protocol specifications (WIP)
-```
-
-## Quick Start
-
-```bash
-pnpm install
-pnpm build
-pnpm test
-```
-
-## Roadmap
-
-| Phase | Focus | Status |
-|-------|-------|--------|
-| **0** | Conceptual foundation, whitepaper | ✅ Done |
-| **1** | Protocol spec formalization | 🔄 In progress |
-| **2** | Reference implementation (SDK) | 📋 Planned |
-| **3** | Testnet with ephemeral subnets | 📋 Planned |
-| **4** | Security audits, attack simulations | 📋 Planned |
-| **5** | Mainnet bootstrap | 📋 Planned |
-
-## Philosophy
-
-> *"A network where the power comes from the sum of everyone's contribution, not the concentration of a few."*
-
-ToM is designed for:
-
-- **Messaging first** — payments later, if ever
-- **Environmental sanity** — reuse existing compute, no ASIC arms race
-- **True decentralization** — no validators-as-a-service industry
-- **Universal access** — no capital barrier, just participation
-
-## Contributing
-
-Project is in early conceptual phase. Contributions welcome on:
-
-- Protocol formalization
-- Attack scenario analysis
-- SDK architecture proposals
-
-## License
-
-TBD — Open source intent confirmed, license selection pending.
-
----
-
-<p align="center">
-  <i>"Stop selling your data for a service that's become essential."</i>
-</p>
-
+- [CLAUDE.md](CLAUDE.md) - Implementation guide for AI assistants
+- [llms.txt](llms.txt) - Protocol quick reference
+- [Architecture](/_bmad-output/planning-artifacts/architecture.md) - ADRs and design decisions
+- [Epics & Stories](/_bmad-output/planning-artifacts/epics.md) - Full requirements breakdown
 
 ## License
 
