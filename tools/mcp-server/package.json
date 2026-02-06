@@ -1,0 +1,27 @@
+{
+  "name": "tom-mcp-server",
+  "version": "1.0.0",
+  "description": "MCP Server for ToM Protocol - enables LLM interaction with the network",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "tom-mcp": "dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "tom-protocol": "workspace:*",
+    "tom-sdk": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.0",
+    "tsup": "^8.5.1",
+    "typescript": "^5.7.3",
+    "vitest": "^3.2.4"
+  },
+  "keywords": ["mcp", "llm", "tom-protocol", "messaging"],
+  "license": "MIT"
+}
