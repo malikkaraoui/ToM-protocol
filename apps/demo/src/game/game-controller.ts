@@ -22,6 +22,7 @@ import {
   type GameInvitePayload,
   type GamePayload,
   type GameReadyPayload,
+  type GameStartPayload,
   type GameStatePayload,
   type GameWinner,
   type PlayerId,
@@ -31,6 +32,7 @@ import {
   isGameInput,
   isGameInvite,
   isGameReady,
+  isGameStart,
   isGameState,
 } from './game-types';
 import { type GameState, SnakeGame } from './snake-game';
@@ -117,6 +119,8 @@ export class GameController {
       this.handleDecline(payload, fromPeerId);
     } else if (isGameReady(payload)) {
       this.handleReady(payload, fromPeerId);
+    } else if (isGameStart(payload)) {
+      this.handleGameStart(payload, fromPeerId);
     } else if (isGameState(payload)) {
       this.handleState(payload, fromPeerId);
     } else if (isGameInput(payload)) {
@@ -395,9 +399,24 @@ export class GameController {
     if (this.session.localPlayer !== 'p1') return;
     if (this.session.state !== 'waiting-ready') return; // Fix #3: Check state
 
-    // P1 received ready from P2 - start countdown
+    // P1 received ready from P2 - start countdown and send game-start with timestamp
     this.setSessionState('countdown');
     this.startCountdown();
+  }
+
+  /**
+   * Handle game-start message (TD-001: synchronized countdown)
+   * P2 receives startTimestamp from P1 and displays synchronized countdown
+   */
+  private handleGameStart(payload: GameStartPayload, fromPeerId: string): void {
+    if (!this.session || this.session.gameId !== payload.gameId) return;
+    if (fromPeerId !== this.session.peerId) return; // Security: verify sender
+    if (this.session.localPlayer !== 'p2') return; // Only P2 should receive game-start
+    if (this.session.state !== 'waiting-game-start') return;
+
+    // TD-001: P2 receives timestamp and runs synchronized countdown
+    this.setSessionState('countdown');
+    this.startSynchronizedCountdown(payload.startTimestamp);
   }
 
   // ============================================
@@ -409,9 +428,10 @@ export class GameController {
     if (fromPeerId !== this.session.peerId) return; // Security: verify sender
     if (this.session.localPlayer !== 'p2') return;
 
-    // GPT-5.2 Fix: P2 transitions to 'playing' on first game-state received
-    // This ensures P2 is synced with P1's game start
+    // TD-001: With synchronized countdown, P2 should already be in 'playing' state
+    // Fallback: if still in 'waiting-game-start', transition (backwards compatibility)
     if (this.session.state === 'waiting-game-start') {
+      this.stopCountdown(); // Clear any pending countdown
       this.setSessionState('playing');
     }
 
@@ -463,24 +483,61 @@ export class GameController {
   // Private: Game Loop
   // ============================================
 
+  /**
+   * Start countdown for P1 and send game-start to P2 (TD-001)
+   * P1 calculates when game should start and sends timestamp to P2
+   */
   private startCountdown(): void {
-    // GPT-5.2 Fix: Only P1 runs countdown (P2 uses waiting-game-start)
-    if (this.session?.localPlayer !== 'p1') return;
+    // Only P1 initiates countdown
+    if (!this.session || this.session.localPlayer !== 'p1') return;
 
-    let count = 3;
+    // TD-001: Calculate start timestamp (3 seconds from now + small buffer)
+    const countdownMs = 3000;
+    const startTimestamp = Date.now() + countdownMs + 100; // +100ms buffer for network
 
-    // Render initial countdown
-    this.renderer?.renderCountdown(count);
+    // Send game-start to P2 with timestamp
+    const startPayload: GameStartPayload = {
+      type: 'game-start',
+      gameId: this.session.gameId,
+      startTimestamp,
+    };
+    this.client.sendPayload(this.session.peerId, startPayload);
 
-    this.countdownInterval = setInterval(() => {
-      count--;
-      if (count > 0) {
-        this.renderer?.renderCountdown(count);
-      } else {
+    // P1 runs its own countdown based on remaining time
+    this.runCountdownUntil(startTimestamp);
+  }
+
+  /**
+   * P2 synchronized countdown based on received timestamp (TD-001)
+   */
+  private startSynchronizedCountdown(startTimestamp: number): void {
+    this.runCountdownUntil(startTimestamp);
+  }
+
+  /**
+   * Run countdown until target timestamp (used by both P1 and P2)
+   */
+  private runCountdownUntil(startTimestamp: number): void {
+    const updateCountdown = () => {
+      const remaining = startTimestamp - Date.now();
+
+      if (remaining <= 0) {
+        // Time to start!
         this.stopCountdown();
         this.startGame();
+        return;
       }
-    }, 1000);
+
+      // Calculate countdown number (3, 2, 1)
+      const seconds = Math.ceil(remaining / 1000);
+      this.renderer?.renderCountdown(seconds);
+    };
+
+    // Initial render
+    updateCountdown();
+
+    // Update every 100ms for smooth countdown
+    this.countdownInterval = setInterval(updateCountdown, 100);
   }
 
   private stopCountdown(): void {

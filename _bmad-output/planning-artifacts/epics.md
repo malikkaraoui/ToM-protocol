@@ -1043,3 +1043,77 @@ The complete solution requires:
 **Then** both P1 and P2 display synchronized countdown
 **And** both enter playing state within 100ms of each other
 **And** P2's countdown matches P1's countdown visually (accounting for RTT)
+
+### TD-002: VS Code Extension Network Integration (Story 8.3)
+
+**Identified:** 2026-02-06 (Implementation Audit)
+**Severity:** HIGH
+**Current State:** UI scaffolded, network code mocked
+**Story:** 8.3 - VS Code Plugin & Live Demo
+
+#### Problem Description
+
+The VS Code extension has a complete UI implementation (chat panel, participants tree, network status tree, commands) but the network layer is entirely mocked. The `connectToNetwork()` and `handleSendMessage()` functions simulate behavior without actually connecting to the ToM network.
+
+**Root Cause:** TomClient from tom-sdk was not integrated due to complexity of running WebSocket/WebRTC in VS Code extension context.
+
+#### Current State
+
+The extension provides:
+- ✅ Beautiful chat webview with message input
+- ✅ Participants tree view (empty)
+- ✅ Network status tree view (hardcoded)
+- ✅ 4 registered commands: openChat, connect, disconnect, showStatus
+- ❌ `connectToNetwork()` is a mock (1 second delay, no real connection)
+- ❌ `handleSendMessage()` shows info message, doesn't send
+- ❌ Participants list not populated from network
+- ❌ Network status hardcoded as "coming soon"
+
+**Files affected:**
+- `tools/vscode-extension/src/extension.ts` (lines 105-154 are mocks)
+- `tools/vscode-extension/package.json` (features declared but not functional)
+
+#### Full Fix (Future Implementation)
+
+The complete solution requires:
+
+1. **TomClient integration**
+   - Import and initialize TomClient in extension activation
+   - Handle WebSocket connection in VS Code extension context
+   - Consider using extension host for network code
+
+2. **State management**
+   - Store connection state
+   - Update UI when participants change
+   - Handle reconnection on extension reload
+
+3. **Message handling**
+   - Wire chat input to `client.sendMessage()`
+   - Update chat webview when messages received
+   - Handle encryption/decryption in extension
+
+4. **Implementation steps:**
+   - Create `NetworkManager` class to encapsulate TomClient
+   - Replace mock `connectToNetwork()` with real connection
+   - Implement `onMessage` handler to update webview
+   - Populate participants tree from `client.getTopology()`
+   - Update network status tree with real data
+
+5. **Testing requirements:**
+   - Manual testing in VS Code Extension Development Host
+   - Integration tests with mock signaling server
+
+#### Estimate
+
+**Complexity:** LARGE (multiple sessions)
+**Effort:** 4-8 hours across multiple micro-sessions
+**Dependencies:** None (tom-sdk already published)
+
+#### Acceptance Criteria for Resolution
+
+**Given** the user opens VS Code with the ToM extension
+**When** they click "Connect to ToM Network"
+**Then** a real WebSocket connection is established
+**And** participants appear in the sidebar
+**And** the user can send/receive encrypted messages
+**And** network status shows real connection quality
