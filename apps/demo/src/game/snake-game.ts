@@ -185,11 +185,17 @@ export class SnakeGame {
     const newHead1 = this.getNextHead(this.state.snakes.p1[0], this.state.directions.p1);
     const newHead2 = this.getNextHead(this.state.snakes.p2[0], this.state.directions.p2);
 
-    // Check collisions before moving
-    const p1SelfCollision = this.checkSelfCollision(newHead1, 'p1');
-    const p2SelfCollision = this.checkSelfCollision(newHead2, 'p2');
-    const p1HitsP2 = this.checkOpponentCollision(newHead1, 'p2');
-    const p2HitsP1 = this.checkOpponentCollision(newHead2, 'p1');
+    // GPT-5.2 Fix: Calculate food consumption BEFORE collision detection
+    // This determines if tails will move (affects collision logic)
+    const p1WillEatFood = this.pointsEqual(newHead1, this.state.food);
+    const p2WillEatFood = this.pointsEqual(newHead2, this.state.food);
+
+    // GPT-5.2 Fix: Pass ignoreTail flag based on whether snake will eat food
+    // If snake won't eat, its tail will move, so don't collide with tail
+    const p1SelfCollision = this.checkSelfCollision(newHead1, 'p1', !p1WillEatFood);
+    const p2SelfCollision = this.checkSelfCollision(newHead2, 'p2', !p2WillEatFood);
+    const p1HitsP2 = this.checkOpponentCollision(newHead1, 'p2', !p2WillEatFood);
+    const p2HitsP1 = this.checkOpponentCollision(newHead2, 'p1', !p1WillEatFood);
     const headToHead = this.pointsEqual(newHead1, newHead2);
 
     // Self collision = immediate loss
@@ -207,9 +213,10 @@ export class SnakeGame {
     }
 
     // Head-to-head collision - longer snake wins
+    // GPT-5.2 Fix: Consider food eaten for effective length
     if (headToHead) {
-      const len1 = this.state.snakes.p1.length;
-      const len2 = this.state.snakes.p2.length;
+      const len1 = this.state.snakes.p1.length + (p1WillEatFood ? 1 : 0);
+      const len2 = this.state.snakes.p2.length + (p2WillEatFood ? 1 : 0);
       if (len1 > len2) {
         this.endGame('p1', 'collision');
       } else if (len2 > len1) {
@@ -221,9 +228,10 @@ export class SnakeGame {
     }
 
     // Snake hitting opponent's body - longer snake wins
+    // GPT-5.2 Fix: Consider food eaten for effective length
     if (p1HitsP2 || p2HitsP1) {
-      const len1 = this.state.snakes.p1.length;
-      const len2 = this.state.snakes.p2.length;
+      const len1 = this.state.snakes.p1.length + (p1WillEatFood ? 1 : 0);
+      const len2 = this.state.snakes.p2.length + (p2WillEatFood ? 1 : 0);
       if (len1 > len2) {
         this.endGame('p1', 'collision');
       } else if (len2 > len1) {
@@ -238,9 +246,9 @@ export class SnakeGame {
     this.state.snakes.p1.unshift(newHead1);
     this.state.snakes.p2.unshift(newHead2);
 
-    // Check food consumption
-    const p1AteFood = this.pointsEqual(newHead1, this.state.food);
-    const p2AteFood = this.pointsEqual(newHead2, this.state.food);
+    // Apply food consumption (already calculated above)
+    const p1AteFood = p1WillEatFood;
+    const p2AteFood = p2WillEatFood;
 
     if (p1AteFood) {
       this.state.scores.p1++;
@@ -294,11 +302,14 @@ export class SnakeGame {
 
   /**
    * Check if new head position causes self collision
+   * GPT-5.2 Fix: ignoreTail=true when snake won't eat food (tail will move)
    */
-  private checkSelfCollision(newHead: Point, player: PlayerId): boolean {
+  private checkSelfCollision(newHead: Point, player: PlayerId, ignoreTail: boolean): boolean {
     const ownSnake = this.state.snakes[player];
     // Skip head (index 0), it's about to move
-    for (let i = 1; i < ownSnake.length; i++) {
+    // GPT-5.2 Fix: Also skip tail (last index) if it will move (no food eaten)
+    const endIndex = ignoreTail ? ownSnake.length - 1 : ownSnake.length;
+    for (let i = 1; i < endIndex; i++) {
       if (this.pointsEqual(newHead, ownSnake[i])) {
         return true;
       }
@@ -308,11 +319,14 @@ export class SnakeGame {
 
   /**
    * Check if new head position hits opponent's body
+   * GPT-5.2 Fix: ignoreTail=true when opponent won't eat food (their tail will move)
    */
-  private checkOpponentCollision(newHead: Point, opponent: PlayerId): boolean {
+  private checkOpponentCollision(newHead: Point, opponent: PlayerId, ignoreTail: boolean): boolean {
     const opponentSnake = this.state.snakes[opponent];
-    for (const segment of opponentSnake) {
-      if (this.pointsEqual(newHead, segment)) {
+    // GPT-5.2 Fix: Skip opponent's tail if it will move (no food eaten)
+    const endIndex = ignoreTail ? opponentSnake.length - 1 : opponentSnake.length;
+    for (let i = 0; i < endIndex; i++) {
+      if (this.pointsEqual(newHead, opponentSnake[i])) {
         return true;
       }
     }

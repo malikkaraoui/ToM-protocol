@@ -42,7 +42,8 @@ export type GameSessionState =
   | 'invited' // P2: received invitation, waiting for decision
   | 'waiting-accept' // P1: sent invitation, waiting for response
   | 'waiting-ready' // P1: accepted, waiting for P2 ready
-  | 'countdown' // Both: countdown before game starts
+  | 'countdown' // P1: countdown before game starts
+  | 'waiting-game-start' // P2: waiting for first game-state from P1 (GPT-5.2 fix)
   | 'playing' // Both: game in progress
   | 'ended'; // Both: game over
 
@@ -188,8 +189,20 @@ export class GameController {
     };
 
     await this.client.sendPayload(this.session.peerId, payload);
-    this.setSessionState('countdown');
-    this.startCountdown();
+
+    // GPT-5.2 Fix: P2 waits for first game-state instead of starting its own countdown
+    // This prevents desync where P2 starts playing before P1
+    this.setSessionState('waiting-game-start');
+
+    // Send ready signal to P1
+    const readyPayload: GameReadyPayload = {
+      type: 'game-ready',
+      gameId: this.session.gameId,
+    };
+    await this.client.sendPayload(this.session.peerId, readyPayload);
+
+    // Render waiting screen
+    this.renderer?.renderWaiting();
   }
 
   /**
@@ -395,6 +408,13 @@ export class GameController {
     if (!this.session || this.session.gameId !== payload.gameId) return;
     if (fromPeerId !== this.session.peerId) return; // Security: verify sender
     if (this.session.localPlayer !== 'p2') return;
+
+    // GPT-5.2 Fix: P2 transitions to 'playing' on first game-state received
+    // This ensures P2 is synced with P1's game start
+    if (this.session.state === 'waiting-game-start') {
+      this.setSessionState('playing');
+    }
+
     if (this.session.state !== 'playing') return; // Only accept state during gameplay
 
     // P2: apply state from P1
@@ -422,7 +442,14 @@ export class GameController {
     if (!this.session || this.session.gameId !== payload.gameId) return;
     if (fromPeerId !== this.session.peerId) return; // Security: verify sender
 
-    // Game ended by remote - clean up intervals (Fix #5)
+    // GPT-5.2 Fix: P1 is authoritative - ignore game-end from P2
+    // Only P2 should receive game-end from P1
+    if (this.session.localPlayer === 'p1') {
+      console.warn('[GameController] P1 ignoring game-end from P2 (P1 is authoritative)');
+      return;
+    }
+
+    // Game ended by remote (P1) - clean up intervals (Fix #5)
     this.stopCountdown();
     this.stopStateUpdates();
     this.session.game.stop();
@@ -437,6 +464,9 @@ export class GameController {
   // ============================================
 
   private startCountdown(): void {
+    // GPT-5.2 Fix: Only P1 runs countdown (P2 uses waiting-game-start)
+    if (this.session?.localPlayer !== 'p1') return;
+
     let count = 3;
 
     // Render initial countdown
@@ -451,15 +481,6 @@ export class GameController {
         this.startGame();
       }
     }, 1000);
-
-    // P2: send ready signal after accepting
-    if (this.session?.localPlayer === 'p2') {
-      const payload: GameReadyPayload = {
-        type: 'game-ready',
-        gameId: this.session.gameId,
-      };
-      this.client.sendPayload(this.session.peerId, payload);
-    }
   }
 
   private stopCountdown(): void {

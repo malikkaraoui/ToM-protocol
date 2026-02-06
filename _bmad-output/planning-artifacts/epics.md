@@ -974,3 +974,72 @@ So that I can complete a meaningful contribution in a 30-minute micro-session.
 **When** maintainers review available work
 **Then** a permanent backlog of 20+ available issues exists across all categories (FR40)
 **And** contributing guidelines document the micro-session model explicitly (FR38)
+
+---
+
+## Technical Debt Register
+
+This section tracks known technical debt items discovered during implementation that require future attention.
+
+### TD-001: Snake Game Countdown Synchronization (Story 4.5)
+
+**Identified:** 2026-02-06 (GPT-5.2 Code Review)
+**Severity:** MEDIUM
+**Current State:** Workaround implemented
+**Story:** 4.5 - Demo Snake Multiplayer P2P Game
+
+#### Problem Description
+
+The countdown sequence (3, 2, 1, GO!) before game start can desynchronize between P1 (host) and P2 (client) due to network latency. When P1 starts countdown, P2 receives the signal after RTT (Round Trip Time), causing P2 to see the countdown later and effectively start the game before P1 has finished their countdown.
+
+**Root Cause:** The current implementation uses simple message passing without timestamp-based synchronization. P2 starts countdown immediately upon receiving `game-ready-ack`, but this doesn't account for network latency.
+
+#### Current Workaround
+
+Implemented in Story 4.5:
+- P2 uses `waiting-game-start` state instead of `countdown`
+- P2 transitions directly to `playing` state upon receiving first `game-state` from P1
+- P2 does not display countdown - waits for game to appear
+- This prevents P2 from playing before P1 but provides degraded UX for P2
+
+**Files affected:**
+- `apps/demo/src/game/game-controller.ts` (lines ~300-350)
+- `GameSessionState` type includes `waiting-game-start`
+
+#### Full Fix (Future Implementation)
+
+The complete solution requires:
+
+1. **New message type: `game-start`**
+   ```typescript
+   interface GameStartPayload {
+     type: 'game-start';
+     gameId: string;
+     startTimestamp: number; // Precise timestamp when game begins
+   }
+   ```
+
+2. **Clock synchronization**
+   - P1 sends `game-start` with future timestamp (e.g., now + 3500ms)
+   - P2 calculates local start time adjusting for clock drift
+   - Both clients display countdown based on remaining time to startTimestamp
+
+3. **Implementation steps:**
+   - Add `game-start` to `GameMessageType` union
+   - Add `isGameStartPayload` type guard
+   - Modify `startCountdown` to calculate and send `startTimestamp`
+   - Modify P2 countdown to use received timestamp
+   - Handle edge cases: late arrival, clock drift > threshold
+
+4. **Testing requirements:**
+   - Unit tests for timestamp-based countdown
+   - Integration test with simulated network latency
+   - Edge case: P2 receives start message after countdown should have begun
+
+#### Acceptance Criteria for Resolution
+
+**Given** P1 initiates game start
+**When** P2 receives the game-start message
+**Then** both P1 and P2 display synchronized countdown
+**And** both enter playing state within 100ms of each other
+**And** P2's countdown matches P1's countdown visually (accounting for RTT)
