@@ -73,6 +73,28 @@ Every node runs identical code. Role is determined by network topology, not conf
 ### ADR-009: Message Backup (Virus Metaphor)
 Messages for offline recipients self-replicate across backup nodes, self-delete when delivered or after 24h TTL.
 
+## Foundational Design Decisions (LOCKED)
+
+**These 7 decisions are non-negotiable and define ToM's character. All code must respect them.**
+
+See full details: `_bmad-output/planning-artifacts/design-decisions.md`
+
+| # | Decision | Rule |
+|---|----------|------|
+| 1 | **Delivery** | Message delivered ⟺ recipient emits ACK |
+| 2 | **TTL** | 24h max lifespan, then global purge (no exceptions) |
+| 3 | **L1 Role** | L1 anchors state, never arbitrates |
+| 4 | **Reputation** | Progressive fade, no permanent bans |
+| 5 | **Anti-spam** | "Sprinkler gets sprinkled" - progressive load, not exclusion |
+| 6 | **Invisibility** | Protocol layer invisible to end users |
+| 7 | **Scope** | Universal foundation (like TCP/IP), not a product |
+
+**Before writing code, verify:**
+- No user-visible protocol state
+- L1 doesn't make operational decisions
+- No permanent bans or binary states
+- No message persistence beyond TTL
+
 ## Core Components
 
 ### TomClient (SDK)
@@ -286,7 +308,7 @@ console.log(pathInfo.hopCount, pathInfo.relayLatencies);
 
 ## Network Stats
 
-- **Tests**: 534 passing
+- **Tests**: 568 passing
 - **Packages**: 4 (core, sdk, demo, signaling-server)
 - **Target Scale**: 10-15 simultaneous nodes (alpha)
 
