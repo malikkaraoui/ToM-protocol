@@ -13,6 +13,7 @@
  * @see architecture.md#ADR-002 for bootstrap elimination roadmap
  */
 
+import { secureId } from '../crypto/secure-random.js';
 import type { NodeId } from '../identity/keypair.js';
 
 // ============================================
@@ -377,7 +378,7 @@ export class PeerGossip {
   }
 
   private generateRequestId(): string {
-    return `gossip-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    return secureId('gossip', 8);
   }
 }
 

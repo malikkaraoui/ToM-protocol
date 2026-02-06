@@ -14,6 +14,7 @@
  * @see architecture.md for subnet design rationale
  */
 
+import { secureId } from '../crypto/secure-random.js';
 import type { NodeId } from '../identity/keypair.js';
 
 // ============================================
@@ -266,7 +267,7 @@ export class EphemeralSubnetManager {
    * Form a new subnet from a cluster of nodes
    */
   private formSubnet(members: Set<NodeId>): void {
-    const subnetId = `subnet-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    const subnetId = secureId('subnet', 6);
 
     const subnet: SubnetInfo = {
       subnetId,

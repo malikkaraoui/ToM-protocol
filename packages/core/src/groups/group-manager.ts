@@ -7,6 +7,7 @@
  * @see group-types.ts for type definitions
  */
 
+import { secureRandomUUID } from '../crypto/secure-random.js';
 import type { NodeId } from '../identity/index.js';
 import {
   DEFAULT_MAX_GROUP_MEMBERS,
@@ -576,11 +577,6 @@ export class GroupManager {
   // ============================================
 
   private generateGroupId(): GroupId {
-    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
-      return `grp-${crypto.randomUUID()}`;
-    }
-    const hex = () => Math.floor(Math.random() * 16).toString(16);
-    const segment = (len: number) => Array.from({ length: len }, hex).join('');
-    return `grp-${segment(8)}-${segment(4)}-${segment(4)}-${segment(4)}-${segment(12)}`;
+    return `grp-${secureRandomUUID()}`;
   }
 }

@@ -9,6 +9,7 @@
  * @see architecture.md for security requirements
  */
 
+import { secureRandomHex } from '../crypto/secure-random.js';
 import { signData, verifySignature } from '../identity/index.js';
 import type { NodeId } from '../identity/index.js';
 import type { GroupMessagePayload } from './group-types.js';
@@ -24,9 +25,8 @@ export function generateNonce(): string {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
     return crypto.randomUUID();
   }
-  // Fallback for environments without crypto.randomUUID
-  const hex = () => Math.floor(Math.random() * 16).toString(16);
-  return Array.from({ length: 32 }, hex).join('');
+  // Fallback using cryptographically secure random
+  return secureRandomHex(32);
 }
 
 /**
