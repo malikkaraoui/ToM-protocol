@@ -356,4 +356,292 @@ describe('SnakeGame', () => {
       expect(state1.snakes.p1).not.toBe(state2.snakes.p1);
     });
   });
+
+  describe('GPT-5.2 security fixes', () => {
+    describe('tick monotonicity validation', () => {
+      it('should reject state with non-increasing tick (replay attack prevention)', () => {
+        const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+        // First, advance to tick 5
+        const validPayload: GameStatePayload = {
+          type: 'game-state',
+          gameId: 'test-game',
+          tick: 5,
+          snakes: {
+            p1: [
+              { x: 5, y: 5 },
+              { x: 4, y: 5 },
+              { x: 3, y: 5 },
+            ],
+            p2: [
+              { x: 15, y: 15 },
+              { x: 16, y: 15 },
+              { x: 17, y: 15 },
+            ],
+          },
+          food: { x: 10, y: 10 },
+          scores: { p1: 0, p2: 0 },
+          directions: { p1: 'right', p2: 'left' },
+        };
+        game.applyState(validPayload);
+        expect(game.getState().tick).toBe(5);
+
+        // Now try to apply a state with a lower tick (replay attack)
+        const replayPayload: GameStatePayload = {
+          ...validPayload,
+          tick: 3,
+          scores: { p1: 100, p2: 0 }, // Attacker trying to manipulate score
+        };
+        game.applyState(replayPayload);
+
+        // State should NOT have changed
+        expect(game.getState().tick).toBe(5);
+        expect(game.getState().scores.p1).toBe(0);
+        expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('tick not monotonically increasing'), 3, '<=', 5);
+
+        warnSpy.mockRestore();
+      });
+
+      it('should reject state with equal tick', () => {
+        const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+        const payload: GameStatePayload = {
+          type: 'game-state',
+          gameId: 'test-game',
+          tick: 1,
+          snakes: {
+            p1: [
+              { x: 5, y: 5 },
+              { x: 4, y: 5 },
+              { x: 3, y: 5 },
+            ],
+            p2: [
+              { x: 15, y: 15 },
+              { x: 16, y: 15 },
+              { x: 17, y: 15 },
+            ],
+          },
+          food: { x: 10, y: 10 },
+          scores: { p1: 0, p2: 0 },
+          directions: { p1: 'right', p2: 'left' },
+        };
+        game.applyState(payload);
+        expect(game.getState().tick).toBe(1);
+
+        // Try to apply same tick again
+        const duplicatePayload: GameStatePayload = { ...payload, scores: { p1: 999, p2: 0 } };
+        game.applyState(duplicatePayload);
+
+        expect(game.getState().tick).toBe(1);
+        expect(game.getState().scores.p1).toBe(0);
+
+        warnSpy.mockRestore();
+      });
+    });
+
+    describe('collision edge cases with tail movement', () => {
+      it('should not collide with own tail when snake is moving (not eating)', () => {
+        // Create a game where P1 snake forms a loop
+        // When not eating, tail moves so the position is vacated
+        const testGame = new SnakeGame({ gridSize: 10 });
+
+        // Manually set up a snake in near-loop formation
+        // Head at (3,3), body forms L-shape, tail at (3,4)
+        // If snake moves down to (3,4), it should NOT self-collide
+        // because tail at (3,4) will move away
+        const loopPayload: GameStatePayload = {
+          type: 'game-state',
+          gameId: 'test',
+          tick: 1,
+          snakes: {
+            p1: [
+              { x: 3, y: 3 }, // head
+              { x: 2, y: 3 },
+              { x: 2, y: 4 },
+              { x: 3, y: 4 }, // tail - P1 moving down will land here
+            ],
+            p2: [
+              { x: 8, y: 8 },
+              { x: 9, y: 8 },
+              { x: 9, y: 9 },
+            ],
+          },
+          food: { x: 0, y: 0 }, // Food far away so snake won't eat
+          scores: { p1: 0, p2: 0 },
+          directions: { p1: 'down', p2: 'left' },
+        };
+        testGame.applyState(loopPayload);
+
+        // Tick - P1 moves down to (3,4), but tail vacates that position
+        testGame.tick();
+
+        // Game should NOT be over - tail moved out of the way
+        expect(testGame.isGameOver()).toBe(false);
+        expect(testGame.getState().snakes.p1[0]).toEqual({ x: 3, y: 4 });
+
+        testGame.stop();
+      });
+
+      it('should collide with own tail when snake eats food (tail stays)', () => {
+        const onGameEnd = vi.fn();
+        const testGame = new SnakeGame({ gridSize: 10 }, { onGameEnd });
+
+        // Same L-shape but food is at (3,4) where tail is
+        // When eating, tail does NOT move, so collision occurs
+        const loopPayload: GameStatePayload = {
+          type: 'game-state',
+          gameId: 'test',
+          tick: 1,
+          snakes: {
+            p1: [
+              { x: 3, y: 3 }, // head
+              { x: 2, y: 3 },
+              { x: 2, y: 4 },
+              { x: 3, y: 4 }, // tail - P1 moving down will hit this
+            ],
+            p2: [
+              { x: 8, y: 8 },
+              { x: 9, y: 8 },
+              { x: 9, y: 9 },
+            ],
+          },
+          food: { x: 3, y: 4 }, // Food at tail position - snake will eat
+          scores: { p1: 0, p2: 0 },
+          directions: { p1: 'down', p2: 'left' },
+        };
+        testGame.applyState(loopPayload);
+
+        // Tick - P1 moves down to (3,4) and eats food, but tail stays
+        testGame.tick();
+
+        // Game SHOULD be over - tail didn't move because snake ate food
+        expect(testGame.isGameOver()).toBe(true);
+        expect(onGameEnd).toHaveBeenCalledWith('p2', 'collision', expect.any(Object));
+
+        testGame.stop();
+      });
+    });
+
+    describe('collision with food affecting effective length', () => {
+      it('should count effective length including food when body collision occurs', () => {
+        const onGameEnd = vi.fn();
+        const testGame = new SnakeGame({ gridSize: 10 }, { onGameEnd });
+
+        // P1 (length 3) moves to food position, eating food → effective length 4
+        // P2 (length 3) head hits P1's body (not head-to-head)
+        // P1 should win because 4 > 3
+        const collisionPayload: GameStatePayload = {
+          type: 'game-state',
+          gameId: 'test',
+          tick: 1,
+          snakes: {
+            p1: [
+              { x: 4, y: 5 }, // head moving right to (5,5) - food is there
+              { x: 3, y: 5 },
+              { x: 2, y: 5 },
+            ],
+            p2: [
+              { x: 4, y: 4 }, // head moving down to (4,4) → (4,5) which is P1's second segment
+              { x: 4, y: 3 },
+              { x: 4, y: 2 },
+            ],
+          },
+          food: { x: 5, y: 5 }, // Food at P1's next head position
+          scores: { p1: 0, p2: 0 },
+          directions: { p1: 'right', p2: 'down' },
+        };
+        testGame.applyState(collisionPayload);
+
+        // After tick:
+        // P1: head at (5,5) eating food, body at (4,5), (3,5), (2,5) → stays 4 segments
+        // P2: head at (4,5) which is P1's body position → collision!
+        // P1 effective length = 3 + 1 (food) = 4
+        // P2 effective length = 3
+        // P1 wins
+        testGame.tick();
+
+        expect(testGame.isGameOver()).toBe(true);
+        expect(onGameEnd).toHaveBeenCalledWith('p1', 'collision', expect.any(Object));
+
+        testGame.stop();
+      });
+
+      it('should result in draw when both snakes eat food at head-to-head', () => {
+        const onGameEnd = vi.fn();
+        const testGame = new SnakeGame({ gridSize: 10 }, { onGameEnd });
+
+        // Both snakes have same length and both will "eat food" at collision
+        // (Both heads land on food position)
+        const collisionPayload: GameStatePayload = {
+          type: 'game-state',
+          gameId: 'test',
+          tick: 1,
+          snakes: {
+            p1: [
+              { x: 4, y: 5 },
+              { x: 3, y: 5 },
+              { x: 2, y: 5 },
+            ],
+            p2: [
+              { x: 6, y: 5 },
+              { x: 7, y: 5 },
+              { x: 8, y: 5 },
+            ],
+          },
+          food: { x: 5, y: 5 },
+          scores: { p1: 0, p2: 0 },
+          directions: { p1: 'right', p2: 'left' },
+        };
+        testGame.applyState(collisionPayload);
+
+        // Both heads go to (5,5) and both "eat" food
+        // Length 3 + 1 = 4 for both → draw
+        testGame.tick();
+
+        expect(testGame.isGameOver()).toBe(true);
+        expect(onGameEnd).toHaveBeenCalledWith('draw', 'collision', expect.any(Object));
+
+        testGame.stop();
+      });
+
+      it('should give win to snake eating food when equal length collide', () => {
+        const onGameEnd = vi.fn();
+        const testGame = new SnakeGame({ gridSize: 10 }, { onGameEnd });
+
+        // Both snakes length 3, head-to-head collision
+        // Only P1's head lands on food (impossible in true head-to-head)
+        // This tests the case where food is NOT at collision point
+        const collisionPayload: GameStatePayload = {
+          type: 'game-state',
+          gameId: 'test',
+          tick: 1,
+          snakes: {
+            p1: [
+              { x: 4, y: 5 },
+              { x: 3, y: 5 },
+              { x: 2, y: 5 },
+            ],
+            p2: [
+              { x: 6, y: 5 },
+              { x: 7, y: 5 },
+              { x: 8, y: 5 },
+            ],
+          },
+          food: { x: 0, y: 0 }, // Food far away, neither eats
+          scores: { p1: 0, p2: 0 },
+          directions: { p1: 'right', p2: 'left' },
+        };
+        testGame.applyState(collisionPayload);
+
+        // Both heads go to (5,5), no food there
+        // Length 3 = 3 for both → draw
+        testGame.tick();
+
+        expect(testGame.isGameOver()).toBe(true);
+        expect(onGameEnd).toHaveBeenCalledWith('draw', 'collision', expect.any(Object));
+
+        testGame.stop();
+      });
+    });
+  });
 });
