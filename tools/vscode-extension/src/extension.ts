@@ -12,10 +12,16 @@
  * @see CLAUDE.md for LLM integration guide
  */
 
+import * as crypto from 'node:crypto';
 import * as vscode from 'vscode';
 
 let chatPanel: vscode.WebviewPanel | undefined;
 let statusBarItem: vscode.StatusBarItem;
+
+/** Generate a nonce for CSP */
+function getNonce(): string {
+  return crypto.randomBytes(16).toString('base64');
+}
 
 export function activate(context: vscode.ExtensionContext) {
   console.log('ToM Protocol extension activated');
@@ -53,6 +59,9 @@ export function activate(context: vscode.ExtensionContext) {
 }
 
 export function deactivate() {
+  // Clean up resources
+  chatPanel?.dispose();
+  chatPanel = undefined;
   disconnectFromNetwork();
 }
 
@@ -145,12 +154,16 @@ function handleSendMessage(to: string, text: string) {
 }
 
 function getChatWebviewContent(webview: vscode.Webview): string {
+  const nonce = getNonce();
+  const cspSource = webview.cspSource;
+
   return `
 <!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}';">
   <title>ToM Chat</title>
   <style>
     body {
@@ -239,8 +252,10 @@ function getChatWebviewContent(webview: vscode.Webview): string {
     <input type="text" id="messageInput" placeholder="Type a message..." disabled />
     <button id="sendBtn" disabled onclick="send()">Send</button>
   </div>
-  <script>
+  <script nonce="${nonce}">
     const vscode = acquireVsCodeApi();
+    // Note: When adding messages dynamically, use textContent instead of innerHTML
+    // to prevent XSS attacks: element.textContent = userMessage;
 
     function connect() {
       vscode.postMessage({ command: 'connect' });

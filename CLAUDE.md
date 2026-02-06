@@ -83,23 +83,25 @@ The main entry point for developers:
 import { TomClient } from 'tom-sdk';
 
 const client = new TomClient({
+  signalingUrl: 'wss://signaling.example.com',
   username: 'alice',
-  enableEncryption: true,  // E2E encryption (default: true)
+  encryption: true,  // E2E encryption (default: true)
 });
 
-await client.connect('wss://signaling.example.com');
+await client.connect();
 
 // Send message (automatically selects relay, encrypts)
 await client.sendMessage(recipientNodeId, 'Hello!');
 
 // Receive messages (automatically decrypts)
-client.onMessage((from, text, envelope) => {
-  console.log(`Message from ${from}: ${text}`);
+client.onMessage((envelope) => {
+  const payload = envelope.payload as { text?: string };
+  console.log(`Message from ${envelope.from}: ${payload.text}`);
 });
 
 // Track message status
-client.onMessageStatusChanged((id, status) => {
-  // status: 'pending' | 'sent' | 'delivered' | 'read'
+client.onMessageStatusChanged((id, previousStatus, newStatus) => {
+  // newStatus: 'pending' | 'sent' | 'relayed' | 'delivered' | 'read'
 });
 ```
 
