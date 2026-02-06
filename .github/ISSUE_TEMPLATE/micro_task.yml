@@ -1,0 +1,112 @@
+name: Micro-Session Task
+description: A scoped task designed for completion in a single session
+labels: ["good first issue", "help wanted"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## Micro-Session Task
+
+        This template is for creating LLM-friendly, scoped tasks that can be completed in a single coding session (30-60 minutes).
+
+        **Maintainers**: Use this to populate the permanent backlog (FR40).
+
+  - type: dropdown
+    id: complexity
+    attributes:
+      label: Complexity
+      description: Time estimate for completion
+      options:
+        - "micro (< 30 min)"
+        - "small (30-60 min)"
+        - "medium (1-2 hours)"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: category
+    attributes:
+      label: Task Category
+      description: Type of work involved
+      options:
+        - "verification (code review, testing existing features)"
+        - "building (new features, bug fixes)"
+        - "analysis (investigation, documentation)"
+        - "testing (add tests, improve coverage)"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Codebase Area
+      description: Which part of the codebase?
+      options:
+        - "core/routing"
+        - "core/transport"
+        - "core/discovery"
+        - "core/crypto"
+        - "core/groups"
+        - "core/roles"
+        - "core/backup"
+        - "sdk"
+        - "demo"
+        - "signaling-server"
+        - "mcp-server"
+        - "vscode-extension"
+        - "documentation"
+        - "ci-cd"
+    validations:
+      required: true
+
+  - type: textarea
+    id: objective
+    attributes:
+      label: Objective
+      description: What should be accomplished?
+      placeholder: |
+        Add integration tests for RelaySelector.selectAlternateRelay()
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Context for LLMs
+      description: All information needed to start immediately
+      placeholder: |
+        **Relevant files:**
+        - packages/core/src/routing/relay-selector.ts (main file)
+        - packages/core/src/routing/relay-selector.test.ts (existing tests)
+
+        **Related ADRs:**
+        - ADR-001: WebRTC DataChannel via Relay
+
+        **Acceptance criteria:**
+        - [ ] Test covers relay fallback on failure
+        - [ ] Test uses mock topology data
+        - [ ] All existing tests still pass
+    validations:
+      required: true
+
+  - type: textarea
+    id: verification
+    attributes:
+      label: Verification Steps
+      description: How to verify the task is complete
+      placeholder: |
+        ```bash
+        pnpm test -- --filter relay-selector
+        pnpm lint
+        ```
+    validations:
+      required: true
+
+  - type: textarea
+    id: hints
+    attributes:
+      label: Implementation Hints (Optional)
+      description: Suggestions or gotchas
+      placeholder: |
+        - Look at existing tests in relay-selector.test.ts for patterns
+        - Use vi.fn() for mock callbacks

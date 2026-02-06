@@ -1,0 +1,80 @@
+name: Bug Report
+description: Report a bug in ToM Protocol
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug! Please fill out the sections below.
+
+        **For LLM assistants**: Include relevant file paths and line numbers.
+
+  - type: dropdown
+    id: complexity
+    attributes:
+      label: Estimated Complexity
+      description: How complex is this bug to fix?
+      options:
+        - "micro (< 30 min, single file)"
+        - "small (30-60 min, 2-3 files)"
+        - "medium (1-2 hours, multiple components)"
+        - "unknown"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: category
+    attributes:
+      label: Category
+      description: Which part of the codebase is affected?
+      options:
+        - "core/routing"
+        - "core/transport"
+        - "core/discovery"
+        - "core/crypto"
+        - "core/groups"
+        - "sdk"
+        - "demo"
+        - "signaling-server"
+        - "mcp-server"
+        - "documentation"
+        - "other"
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Bug Description
+      description: What's happening? What did you expect?
+      placeholder: |
+        **Current behavior:**
+        ...
+
+        **Expected behavior:**
+        ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to Reproduce
+      description: How can we reproduce this bug?
+      placeholder: |
+        1. Run `pnpm test`
+        2. ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: LLM Context (Optional)
+      description: For LLM assistants - relevant files, ADRs, or code snippets
+      placeholder: |
+        Relevant files:
+        - packages/core/src/routing/router.ts:123
+
+        Related ADRs:
+        - ADR-003: Wire Format

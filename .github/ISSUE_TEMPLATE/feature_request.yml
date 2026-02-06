@@ -1,0 +1,80 @@
+name: Feature Request
+description: Propose a new feature for ToM Protocol
+labels: ["enhancement", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for suggesting a feature! Please provide context so we can evaluate it.
+
+        **Note**: Features must align with the 7 locked design decisions (see design-decisions.md).
+
+  - type: dropdown
+    id: complexity
+    attributes:
+      label: Estimated Complexity
+      description: How much work would this require?
+      options:
+        - "micro (< 30 min, single file)"
+        - "small (30-60 min, 2-3 files)"
+        - "medium (1-2 hours, multiple components)"
+        - "large (requires planning/story)"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Codebase Area
+      description: Which part of the codebase would this affect?
+      options:
+        - "core/routing"
+        - "core/transport"
+        - "core/discovery"
+        - "core/crypto"
+        - "core/groups"
+        - "sdk"
+        - "demo"
+        - "signaling-server"
+        - "mcp-server"
+        - "documentation"
+        - "new component"
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Feature Description
+      description: What would you like to see?
+      placeholder: |
+        **Problem:**
+        Currently, the SDK doesn't provide...
+
+        **Proposed solution:**
+        Add a method that...
+    validations:
+      required: true
+
+  - type: textarea
+    id: design_check
+    attributes:
+      label: Design Decisions Compliance
+      description: How does this align with the 7 locked decisions?
+      placeholder: |
+        - DD-1 (Delivery): ✅ Compatible
+        - DD-6 (Invisibility): ✅ No user-visible protocol state
+        - ...
+    validations:
+      required: false
+
+  - type: textarea
+    id: implementation
+    attributes:
+      label: Implementation Ideas (Optional)
+      description: Technical approach if you have one
+      placeholder: |
+        Could add a new method to TomClient:
+        ```typescript
+        client.onConnectionQualityChange((quality) => {...})
+        ```

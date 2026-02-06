@@ -9,6 +9,30 @@ ToM Protocol is designed for **micro-session contributions** - small, focused ch
 - Short coding sessions
 - Learning the codebase
 
+### Issue Complexity Levels
+
+| Level | Time | Scope | Example |
+|-------|------|-------|---------|
+| **micro** | < 30 min | Single file | Fix typo, add JSDoc |
+| **small** | 30-60 min | 2-3 files | Add a test, fix a bug |
+| **medium** | 1-2 hours | Multiple components | New feature, refactor |
+
+### Issue Categories
+
+| Category | Description |
+|----------|-------------|
+| **verification** | Code review, testing existing features |
+| **building** | New features, bug fixes |
+| **analysis** | Investigation, documentation |
+| **testing** | Add tests, improve coverage |
+
+### Finding Work
+
+1. Browse [open issues](https://github.com/malikkaraoui/ToM-protocol/issues)
+2. Filter by `good first issue` or complexity level (`micro`, `small`)
+3. Check for `help wanted` label
+4. Claim an issue by commenting before starting
+
 ### What Makes a Good Micro-Session?
 
 | Good ✅ | Avoid ❌ |
@@ -21,11 +45,13 @@ ToM Protocol is designed for **micro-session contributions** - small, focused ch
 
 ### Session Workflow
 
-1. **Understand** - Read relevant files (CLAUDE.md, llms.txt)
-2. **Plan** - Identify specific, scoped changes
-3. **Implement** - Make focused changes
-4. **Test** - Run `pnpm test` to verify
-5. **Commit** - One commit per logical change
+1. **Claim** - Comment on the issue to claim it
+2. **Understand** - Read relevant files (CLAUDE.md, llms.txt)
+3. **Plan** - Identify specific, scoped changes
+4. **Implement** - Make focused changes
+5. **Test** - Run `pnpm test` to verify
+6. **Commit** - One commit per logical change
+7. **PR** - Reference the issue in your PR
 
 ## Quick Start
 
