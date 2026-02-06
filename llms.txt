@@ -1,0 +1,109 @@
+# ToM Protocol - LLM Quick Reference
+
+> The Open Messaging - A decentralized P2P transport protocol
+
+## What is ToM?
+
+ToM is a transport layer protocol (not a blockchain) that enables peer-to-peer messaging where every device acts as both client and relay. No central servers, no data storage on relays, end-to-end encrypted.
+
+## Key Capabilities
+
+- Send messages between peers via relay nodes
+- Automatic relay selection and failover
+- End-to-end encryption (TweetNaCl.js)
+- Dynamic role assignment (client, relay)
+- Self-organizing network (gossip discovery, ephemeral subnets)
+- Multi-relay message traversal
+- Delivery confirmations and read receipts
+
+## Quick Integration
+
+```typescript
+import { TomClient } from 'tom-sdk';
+
+const client = new TomClient({ username: 'alice' });
+await client.connect('wss://signaling.example.com');
+
+// Send a message
+await client.sendMessage(recipientNodeId, 'Hello!');
+
+// Receive messages
+client.onMessage((from, text, envelope) => {
+  console.log(`${from}: ${text}`);
+});
+```
+
+## Package Structure
+
+- `tom-protocol` (packages/core) - Protocol primitives
+- `tom-sdk` (packages/sdk) - Developer-friendly TomClient API
+- `tom-demo` (apps/demo) - Browser demo with chat and Snake game
+- `tom-signaling-server` (tools/signaling-server) - Bootstrap server (temporary)
+
+## Core Concepts
+
+### Message Envelope
+```typescript
+interface MessageEnvelope {
+  id: string;           // Unique message ID
+  from: string;         // Sender's node ID (public key)
+  to: string;           // Recipient's node ID
+  via: string[];        // Relay chain
+  type: 'chat' | 'ack' | 'app';
+  payload: object;      // Encrypted content
+  timestamp: number;
+  signature: string;
+}
+```
+
+### Node Roles
+- **Client**: Sends and receives own messages
+- **Relay**: Forwards messages for others (network-assigned)
+
+### Network Discovery
+- Bootstrap via WebSocket signaling server
+- Gossip-based peer discovery reduces server dependency
+- Ephemeral subnets form based on communication patterns
+
+## API Reference
+
+### TomClient Methods
+
+| Method | Description |
+|--------|-------------|
+| `connect(url)` | Connect to signaling server |
+| `disconnect()` | Disconnect from network |
+| `sendMessage(to, text)` | Send encrypted message |
+| `onMessage(callback)` | Register message handler |
+| `onParticipantJoined(callback)` | Peer joined network |
+| `onParticipantLeft(callback)` | Peer left network |
+| `getParticipants()` | List online peers |
+| `getMessageStatus(id)` | Get delivery status |
+
+### TomClient Properties
+
+| Property | Description |
+|----------|-------------|
+| `nodeId` | This node's public key |
+| `username` | Display name |
+| `currentRole` | Assigned network role |
+
+## Technical Stack
+
+- TypeScript 5.x (strict mode)
+- WebRTC DataChannels for transport
+- TweetNaCl.js for cryptography (X25519, XSalsa20-Poly1305)
+- Ed25519 keypairs for node identity
+- pnpm monorepo with vitest + biome
+
+## Use Cases
+
+1. **P2P Chat**: Direct messaging without servers
+2. **Real-time Games**: Low-latency multiplayer (Snake demo included)
+3. **IoT Communication**: Device-to-device messaging
+4. **Decentralized Apps**: Backend-free messaging layer
+
+## Links
+
+- Repository: https://github.com/malikkaraoui/ToM-protocol
+- Detailed Docs: See CLAUDE.md for comprehensive documentation
