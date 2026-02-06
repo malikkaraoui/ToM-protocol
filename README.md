@@ -1,6 +1,4 @@
-# ToM Protocol
 
-The Open Messaging — a distributed P2P data transport protocol where every device is the network.
 # The Open Messaging (ToM)
 
 **A decentralized transport protocol for the free internet**
