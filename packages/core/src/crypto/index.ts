@@ -11,3 +11,5 @@ export {
   loadEncryptionKeypair,
   getOrCreateEncryptionKeypair,
 } from './encryption.js';
+
+export { secureRandomBytes, secureRandomHex, secureRandomUUID, secureId } from './secure-random.js';
