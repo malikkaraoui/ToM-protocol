@@ -22,6 +22,7 @@ import {
   type GroupHubEvents,
   type GroupId,
   type GroupInfo,
+  type GroupInviteAckPayload,
   GroupManager,
   type GroupManagerEvents,
   type GroupMember,
@@ -29,6 +30,8 @@ import {
   type GroupMigrationData,
   type GroupPayload,
   HeartbeatManager,
+  INVITE_MAX_RETRIES,
+  INVITE_RETRY_DELAY_MS,
   IdentityManager,
   type IdentityStorage,
   MemoryStorage,
@@ -62,6 +65,7 @@ import {
   hexToEncryptionKey,
   isEncryptedPayload,
   isGroupHubHeartbeat,
+  isGroupInviteAck,
   isGroupPayload,
   isPeerGossipMessage,
 } from 'tom-protocol';
@@ -186,6 +190,11 @@ export class TomClient {
   private pendingJoinResolvers = new Map<
     string,
     { resolve: (group: GroupInfo) => void; reject: (error: Error) => void }
+  >();
+  /** Track pending invitation acknowledgments - resolved when invite-ack is received */
+  private pendingInviteAcks = new Map<
+    string,
+    { resolve: () => void; reject: (error: Error) => void; inviteId: string; groupId: string }
   >();
 
   constructor(options: TomClientOptions) {
@@ -507,6 +516,9 @@ export class TomClient {
         this.handleHubFailure(groupId, failedHubId);
       },
     });
+
+    // Start invite expiry monitoring (TTL cleanup for pending invites)
+    this.groupManager.startInviteExpiryMonitoring();
 
     // Initial self-evaluation — assign own role
     this.roleManager.evaluateNode(this.nodeId, this.topology);
@@ -1029,10 +1041,22 @@ export class TomClient {
 
     const MAX_ATTEMPTS = 5;
     const RETRY_DELAY_MS = 2000;
+    // Hard timeout: MAX_ATTEMPTS * RETRY_DELAY_MS + buffer for network operations
+    const HARD_TIMEOUT_MS = MAX_ATTEMPTS * RETRY_DELAY_MS + 5000;
 
     // Create a promise that will be resolved when group-sync is received
+    // With a hard timeout to prevent hanging forever
     const joinPromise = new Promise<GroupInfo>((resolve, reject) => {
       this.pendingJoinResolvers.set(groupId, { resolve, reject });
+
+      // Hard timeout - reject if not resolved within expected time
+      setTimeout(() => {
+        if (this.pendingJoinResolvers.has(groupId)) {
+          this.cleanupJoin(groupId, 'failed', MAX_ATTEMPTS, MAX_ATTEMPTS);
+          this.pendingJoinResolvers.delete(groupId);
+          reject(new Error(`Join timed out after ${HARD_TIMEOUT_MS}ms`));
+        }
+      }, HARD_TIMEOUT_MS);
     });
 
     // Find the hub
@@ -1196,6 +1220,12 @@ export class TomClient {
       return false;
     }
 
+    // Generate unique invite ID for acknowledgment tracking
+    const inviteId =
+      typeof crypto.randomUUID === 'function'
+        ? crypto.randomUUID()
+        : Array.from({ length: 16 }, () => Math.floor(Math.random() * 16).toString(16)).join('');
+
     const invitePayload: GroupPayload = {
       type: 'group-invite',
       groupId,
@@ -1208,26 +1238,111 @@ export class TomClient {
       memberCount: group.members.length,
     };
 
-    console.log(`[TomClient] Sending group invite to ${inviteeNodeId} for group ${groupId}`);
+    console.log(
+      `[TomClient] Sending group invite to ${inviteeNodeId} for group ${groupId} (inviteId: ${inviteId.slice(0, 8)}...)`,
+    );
 
-    // Connect directly to invitee before sending to ensure delivery
-    try {
-      await this.transport?.connectToPeer(inviteeNodeId);
-      const envelope = this.router!.createEnvelope(inviteeNodeId, 'app', invitePayload, []);
-      const peer = this.transport?.getPeer(inviteeNodeId);
-      if (peer) {
-        peer.send(envelope);
-        console.log('[TomClient] Group invite sent directly to invitee');
-        return true;
+    // Retry loop with exponential backoff
+    for (let attempt = 1; attempt <= INVITE_MAX_RETRIES; attempt++) {
+      try {
+        // Try direct connection first
+        let sent = false;
+        try {
+          await this.transport?.connectToPeer(inviteeNodeId);
+          const envelope = this.router!.createEnvelope(inviteeNodeId, 'app', invitePayload, []);
+          const peer = this.transport?.getPeer(inviteeNodeId);
+          if (peer) {
+            peer.send(envelope);
+            sent = true;
+            console.log(`[TomClient] Invite sent directly (attempt ${attempt}/${INVITE_MAX_RETRIES})`);
+          }
+        } catch {
+          // Direct failed, try relay
+        }
+
+        // Fallback to relay routing if direct failed
+        if (!sent) {
+          await this.sendPayload(inviteeNodeId, invitePayload);
+          console.log(`[TomClient] Invite sent via relay (attempt ${attempt}/${INVITE_MAX_RETRIES})`);
+        }
+
+        // Wait for acknowledgment with timeout
+        const ackReceived = await this.waitForInviteAck(inviteId, groupId, INVITE_RETRY_DELAY_MS);
+        if (ackReceived) {
+          console.log(`[TomClient] Invite acknowledged by ${inviteeNodeId.slice(0, 8)}...`);
+          return true;
+        }
+
+        // No ack received, check if invitee is online before retrying
+        const inviteeStatus = this.topology.getPeerStatus(inviteeNodeId);
+        if (inviteeStatus === 'offline') {
+          console.log(`[TomClient] Invitee ${inviteeNodeId.slice(0, 8)}... is offline, stopping retry`);
+          // Still return true - invite was sent, will be delivered when they come online
+          return true;
+        }
+
+        if (attempt < INVITE_MAX_RETRIES) {
+          console.log(`[TomClient] No ack received, retrying... (${attempt}/${INVITE_MAX_RETRIES})`);
+        }
+      } catch (error) {
+        console.log(`[TomClient] Invite attempt ${attempt} failed:`, error);
+        if (attempt === INVITE_MAX_RETRIES) {
+          return false;
+        }
       }
-    } catch (error) {
-      console.log('[TomClient] Direct connection to invitee failed, falling back to relay:', error);
     }
 
-    // Fallback to relay routing
-    await this.sendPayload(inviteeNodeId, invitePayload);
-    console.log('[TomClient] Group invite sent via relay');
+    // All retries exhausted but we sent the invite
+    console.log(`[TomClient] Invite sent but no ack received after ${INVITE_MAX_RETRIES} attempts`);
     return true;
+  }
+
+  /**
+   * Wait for an invitation acknowledgment with timeout
+   */
+  private waitForInviteAck(inviteId: string, groupId: string, timeoutMs: number): Promise<boolean> {
+    return new Promise((resolve) => {
+      const key = `${groupId}:${inviteId}`;
+      const timeout = setTimeout(() => {
+        this.pendingInviteAcks.delete(key);
+        resolve(false);
+      }, timeoutMs);
+
+      this.pendingInviteAcks.set(key, {
+        resolve: () => {
+          clearTimeout(timeout);
+          this.pendingInviteAcks.delete(key);
+          resolve(true);
+        },
+        reject: () => {
+          clearTimeout(timeout);
+          this.pendingInviteAcks.delete(key);
+          resolve(false);
+        },
+        inviteId,
+        groupId,
+      });
+    });
+  }
+
+  /**
+   * Send an acknowledgment back to the inviter that we received their invitation
+   */
+  private async sendInviteAck(groupId: string, inviterId: string): Promise<void> {
+    const ackPayload: GroupInviteAckPayload = {
+      type: 'group-invite-ack',
+      groupId,
+      inviteeId: this.nodeId,
+      inviteId: groupId, // Use groupId as correlation since we don't have the original inviteId
+      receivedAt: Date.now(),
+    };
+
+    try {
+      await this.sendPayload(inviterId, ackPayload);
+      console.log(`[TomClient] Sent invite ack to ${inviterId.slice(0, 8)}...`);
+    } catch (error) {
+      console.log('[TomClient] Failed to send invite ack:', error);
+    }
   }
 
   /**
@@ -1568,6 +1683,7 @@ export class TomClient {
     this.heartbeat?.stop();
     this.roleManager.stop();
     this.peerGossip?.stop();
+    this.groupManager?.stopInviteExpiryMonitoring();
     if (this.cleanupInterval) {
       clearInterval(this.cleanupInterval);
       this.cleanupInterval = null;
@@ -1752,8 +1868,25 @@ export class TomClient {
               payload.inviterUsername,
               payload.hubRelayId,
             );
+            // Send acknowledgment back to inviter (robust invitations)
+            this.sendInviteAck(payload.groupId, payload.inviterId);
           } else {
             console.log('[TomClient] Invite not for me or missing hubRelayId, ignoring');
+          }
+          break;
+        case 'group-invite-ack':
+          if (isGroupInviteAck(payload)) {
+            console.log(
+              `[TomClient] Invite ack received from ${payload.inviteeId.slice(0, 8)}... for group ${payload.groupId}`,
+            );
+            // Resolve any pending invite ack promises
+            for (const [key, pending] of this.pendingInviteAcks) {
+              if (pending.groupId === payload.groupId) {
+                pending.resolve();
+                this.pendingInviteAcks.delete(key);
+                break;
+              }
+            }
           }
           break;
         case 'group-sync':
