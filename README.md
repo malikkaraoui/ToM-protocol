@@ -15,7 +15,7 @@
 | 7 | Self-Sustaining Network | ✅ |
 | 8 | LLM & Community Ecosystem | ✅ |
 
-**534+ tests passing** | **10-15 nodes validated** | **E2E encrypted**
+**568+ tests passing** | **10-15 nodes validated** | **E2E encrypted** | **Hub failover automatique**
 
 ## TL;DR
 
@@ -89,6 +89,39 @@ client.onMessage((envelope) => {
 | **Encryption** | X25519 + XSalsa20-Poly1305 (E2E) |
 | **Discovery** | Gossip protocol + ephemeral subnets |
 | **Routing** | Dynamic relay selection, multi-hop |
+
+## Tests E2E Automatisés
+
+Tests Playwright avec génération de rapport détaillé :
+
+```bash
+# Lancer les tests E2E (headless)
+pnpm test:e2e
+
+# Lancer avec navigateur visible
+pnpm test:e2e:headed
+
+# Interface graphique Playwright
+pnpm test:e2e:ui
+
+# Voir le rapport HTML
+pnpm test:e2e:report
+```
+
+### Rapport généré
+
+```
+╔══════════════════════════════════════════════════════════════════╗
+║                  ToM Protocol E2E Test Report                     ║
+╠══════════════════════════════════════════════════════════════════╣
+│  Messages: 15 envoyés, 14 reçus (93.3%)                          │
+│  Invitations: 3/3 acceptées (100%)                               │
+│  Latence moyenne: 352ms                                          │
+│  Hub failover: automatique si hub offline                        │
+╚══════════════════════════════════════════════════════════════════╝
+```
+
+Tests progressifs : 2 users → 3 users → groupes → invitations → déconnexion hub.
 
 ## Contributing
 

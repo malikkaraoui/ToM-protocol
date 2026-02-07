@@ -502,6 +502,10 @@ export class TomClient {
         for (const handler of this.publicGroupAnnouncedHandlers) handler(group);
         this.emitStatus('group:announced', `${group.groupName} by ${group.creatorUsername}`);
       },
+      // Hub failover (Consolidation Action 1)
+      onHubFailure: (groupId, failedHubId) => {
+        this.handleHubFailure(groupId, failedHubId);
+      },
     });
 
     // Initial self-evaluation — assign own role
@@ -1228,12 +1232,25 @@ export class TomClient {
 
   /**
    * Send a message to a group.
+   * Includes immediate hub failover detection if hub is offline.
    */
   async sendGroupMessage(groupId: string, text: string): Promise<boolean> {
     if (!this.groupManager) return false;
 
-    const group = this.groupManager.getGroup(groupId);
+    let group = this.groupManager.getGroup(groupId);
     if (!group) return false;
+
+    // Check if hub is online before sending (immediate failover detection)
+    if (group.hubRelayId !== this.nodeId) {
+      const hubStatus = this.topology.getPeerStatus(group.hubRelayId);
+      if (hubStatus !== 'online') {
+        console.log(`[TomClient] Hub ${group.hubRelayId.slice(0, 8)}... is ${hubStatus}, triggering failover`);
+        this.handleHubFailure(groupId, group.hubRelayId);
+        // Re-fetch group after failover (hubRelayId may have changed)
+        group = this.groupManager.getGroup(groupId);
+        if (!group) return false;
+      }
+    }
 
     const messageId =
       typeof crypto.randomUUID === 'function'
@@ -1792,6 +1809,101 @@ export class TomClient {
 
   private emitStatus(status: string, detail?: string): void {
     for (const handler of this.statusHandlers) handler(status, detail);
+  }
+
+  /**
+   * Handle hub failure - find alternative hub and migrate group (Consolidation Action 1)
+   */
+  private handleHubFailure(groupId: GroupId, failedHubId: NodeId): void {
+    if (!this.groupManager) return;
+
+    const group = this.groupManager.getGroup(groupId);
+    if (!group) {
+      console.log(`[TomClient] Hub failure for unknown group ${groupId}`);
+      return;
+    }
+
+    console.log(`[TomClient] Hub ${failedHubId} failed for group ${group.name}, finding alternative...`);
+    this.emitStatus('group:hub-failure', `${group.name}: hub ${failedHubId.slice(0, 8)}... offline`);
+
+    // Strategy: Find a new hub
+    // 1. Check if we're a relay - we can become the new hub
+    // 2. Otherwise, find another online relay
+
+    const myRoles = this.getCurrentRoles();
+    let newHubId: string | null = null;
+
+    if (myRoles.includes('relay')) {
+      // We can become the new hub
+      newHubId = this.nodeId;
+      console.log(`[TomClient] We are a relay, becoming new hub for ${group.name}`);
+    } else {
+      // Find an online relay (excluding the failed one)
+      const onlineRelays = this.topology
+        .getReachablePeers()
+        .filter(
+          (p) =>
+            p.nodeId !== failedHubId &&
+            p.nodeId !== this.nodeId &&
+            p.roles?.includes('relay') &&
+            this.topology.getPeerStatus(p.nodeId) === 'online',
+        )
+        .sort((a, b) => b.lastSeen - a.lastSeen);
+
+      if (onlineRelays.length > 0) {
+        newHubId = onlineRelays[0].nodeId;
+        console.log(`[TomClient] Found alternative relay ${newHubId.slice(0, 8)}... for ${group.name}`);
+      }
+    }
+
+    if (!newHubId) {
+      console.log(`[TomClient] No alternative hub found for ${group.name}`);
+      this.emitStatus('group:hub-recovery-failed', `${group.name}: no relays available`);
+      return;
+    }
+
+    // Update local group state with new hub
+    this.groupManager.handleHubMigration(groupId, newHubId, failedHubId);
+    this.emitStatus('group:hub-migrated', `${group.name}: new hub ${newHubId.slice(0, 8)}...`);
+
+    // If we became the hub, initialize GroupHub and import group state
+    if (newHubId === this.nodeId) {
+      this.initGroupHub();
+
+      // Create updated GroupInfo with new hub
+      const updatedGroupInfo: GroupInfo = {
+        ...group,
+        hubRelayId: this.nodeId,
+      };
+
+      // Export group state from GroupManager and import to GroupHub
+      const migrationData: GroupMigrationData = {
+        groupInfo: updatedGroupInfo,
+        messageHistory: this.groupManager.getMessagesForSync(groupId),
+        pendingDeliveries: [],
+      };
+
+      this.groupHub!.importGroupFromMigration(migrationData);
+      console.log(`[TomClient] Imported group ${group.name} to local GroupHub`);
+
+      // Notify other members about the hub migration
+      const migrationPayload: GroupPayload = {
+        type: 'group-hub-migration',
+        groupId,
+        newHubId: this.nodeId,
+        oldHubId: failedHubId,
+        reason: 'failure',
+      };
+
+      // Broadcast to all members (except ourselves)
+      for (const member of group.members) {
+        if (member.nodeId !== this.nodeId) {
+          this.sendPayload(member.nodeId, migrationPayload).catch((err) => {
+            console.warn(`[TomClient] Failed to notify ${member.username} of hub migration:`, err);
+          });
+        }
+      }
+    }
   }
 
   private createSimplePeerConnection(peerId: string): PeerConnection {
