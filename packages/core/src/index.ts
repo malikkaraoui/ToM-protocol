@@ -126,7 +126,7 @@ export type {
 } from './bootstrap/index.js';
 
 // Group module (Story 4.6 - Group Messaging via Relay Hub)
-export { GroupManager, GroupHub } from './groups/index.js';
+export { GroupManager, GroupHub, HubElection } from './groups/index.js';
 export type {
   GroupId,
   GroupInfo,
@@ -153,6 +153,10 @@ export type {
   GroupHubEvents,
   GroupHubOptions,
   PublicGroupInfo,
+  HubCandidate,
+  ElectionResult,
+  HubElectionEvents,
+  HubElectionOptions,
 } from './groups/index.js';
 export {
   isGroupPayload,
