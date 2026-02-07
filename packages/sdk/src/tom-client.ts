@@ -30,6 +30,8 @@ import {
   type GroupMigrationData,
   type GroupPayload,
   HeartbeatManager,
+  type HubCandidate,
+  HubElection,
   INVITE_MAX_RETRIES,
   INVITE_RETRY_DELAY_MS,
   IdentityManager,
@@ -1946,6 +1948,7 @@ export class TomClient {
 
   /**
    * Handle hub failure - find alternative hub and migrate group (Consolidation Action 1)
+   * Uses deterministic HubElection to prevent split-brain scenarios.
    */
   private handleHubFailure(groupId: GroupId, failedHubId: NodeId): void {
     if (!this.groupManager) return;
@@ -1956,44 +1959,61 @@ export class TomClient {
       return;
     }
 
-    console.log(`[TomClient] Hub ${failedHubId} failed for group ${group.name}, finding alternative...`);
+    console.log(`[TomClient] Hub ${failedHubId} failed for group ${group.name}, initiating election...`);
     this.emitStatus('group:hub-failure', `${group.name}: hub ${failedHubId.slice(0, 8)}... offline`);
 
-    // Strategy: Find a new hub
-    // 1. Check if we're a relay - we can become the new hub
-    // 2. Otherwise, find another online relay
-
+    // Build candidate list from online relays
     const myRoles = this.getCurrentRoles();
-    let newHubId: string | null = null;
+    const candidates: HubCandidate[] = [];
 
+    // Add ourselves if we're a relay
     if (myRoles.includes('relay')) {
-      // We can become the new hub
-      newHubId = this.nodeId;
-      console.log(`[TomClient] We are a relay, becoming new hub for ${group.name}`);
-    } else {
-      // Find an online relay (excluding the failed one)
-      const onlineRelays = this.topology
-        .getReachablePeers()
-        .filter(
-          (p) =>
-            p.nodeId !== failedHubId &&
-            p.nodeId !== this.nodeId &&
-            p.roles?.includes('relay') &&
-            this.topology.getPeerStatus(p.nodeId) === 'online',
-        )
-        .sort((a, b) => b.lastSeen - a.lastSeen);
-
-      if (onlineRelays.length > 0) {
-        newHubId = onlineRelays[0].nodeId;
-        console.log(`[TomClient] Found alternative relay ${newHubId.slice(0, 8)}... for ${group.name}`);
-      }
+      candidates.push({
+        nodeId: this.nodeId,
+        isRelay: true,
+        lastSeen: Date.now(),
+      });
     }
 
-    if (!newHubId) {
+    // Add online relays from topology
+    const onlineRelays = this.topology
+      .getReachablePeers()
+      .filter(
+        (p: PeerInfo) =>
+          p.nodeId !== failedHubId && p.roles?.includes('relay') && this.topology.getPeerStatus(p.nodeId) === 'online',
+      );
+
+    for (const relay of onlineRelays) {
+      candidates.push({
+        nodeId: relay.nodeId,
+        isRelay: true,
+        lastSeen: relay.lastSeen,
+      });
+    }
+
+    // Use HubElection for deterministic selection (all nodes select same hub)
+    const election = new HubElection(this.nodeId, {
+      onElectedAsHub: (_gid: GroupId, _info: GroupInfo) => {
+        console.log(`[TomClient] We were elected as new hub for ${group.name}`);
+      },
+      onHubElected: (_gid: GroupId, newHub: NodeId) => {
+        console.log(`[TomClient] ${newHub.slice(0, 8)}... elected as new hub for ${group.name}`);
+      },
+      onElectionFailed: (_gid: GroupId, reason: string) => {
+        console.log(`[TomClient] Election failed for ${group.name}: ${reason}`);
+      },
+    });
+
+    const result = election.initiateElection(groupId, failedHubId, candidates, group);
+
+    if (!result.newHubId) {
       console.log(`[TomClient] No alternative hub found for ${group.name}`);
       this.emitStatus('group:hub-recovery-failed', `${group.name}: no relays available`);
       return;
     }
+
+    const newHubId = result.newHubId;
+    console.log(`[TomClient] Elected ${newHubId.slice(0, 8)}... as new hub (${result.reason})`);
 
     // Update local group state with new hub
     this.groupManager.handleHubMigration(groupId, newHubId, failedHubId);

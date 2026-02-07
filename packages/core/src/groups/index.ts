@@ -9,3 +9,4 @@ export * from './group-types.js';
 export * from './group-manager.js';
 export * from './group-hub.js';
 export * from './group-security.js';
+export * from './hub-election.js';
