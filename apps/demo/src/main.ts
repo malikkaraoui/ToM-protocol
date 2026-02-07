@@ -19,6 +19,7 @@
 import { TomClient, formatLatency } from 'tom-sdk';
 import { GameController, SnakeRenderer, isGamePayload } from './game/index';
 import type { Direction, GameSessionState } from './game/index';
+import { type UIStateManager, getUIStateManager } from './ui-state';
 
 const SIGNALING_URL = `ws://${window.location.hostname}:3001`;
 
@@ -54,7 +55,7 @@ pathToggleEl.checked = showPathDetails;
 pathToggleEl.addEventListener('change', () => {
   showPathDetails = pathToggleEl.checked;
   localStorage.setItem('tom-show-path-details', String(showPathDetails));
-  renderMessages();
+  uiState?.emit('messages:changed');
 });
 
 let client: TomClient | null = null;
@@ -92,6 +93,9 @@ const groupNameInput = document.getElementById('group-name-input') as HTMLInputE
 const createGroupCancelBtn = document.getElementById('create-group-cancel-btn') as HTMLButtonElement;
 const createGroupConfirmBtn = document.getElementById('create-group-confirm-btn') as HTMLButtonElement;
 
+// UI State Manager (Action 3: Reactive UI & Hooks)
+let uiState: UIStateManager | null = null;
+
 joinBtn.addEventListener('click', async () => {
   const username = usernameInput.value.trim();
   if (!username) return;
@@ -117,7 +121,7 @@ joinBtn.addEventListener('click', async () => {
     statusBar.textContent = detail ? `${status}: ${detail}` : status;
     // Update stats on relay-related events
     if (status.startsWith('message:') || status.startsWith('direct-path:')) {
-      renderParticipants();
+      uiState?.emit('participants:changed');
     }
     // Track connection quality for game
     if (status === 'direct-path:lost' && gameController?.isInGame()) {
@@ -137,7 +141,7 @@ joinBtn.addEventListener('click', async () => {
         peer.online = false;
       }
     }
-    renderParticipants();
+    uiState?.emit('participants:changed');
   });
 
   client.onMessage((envelope) => {
@@ -169,14 +173,14 @@ joinBtn.addEventListener('click', async () => {
 
       // If this conversation is active, render it
       if (selectedPeer === envelope.from) {
-        renderMessages();
+        uiState?.emit('messages:changed');
         client?.markAsRead(envelope.id);
       } else {
         // Increment unread count
         unreadCounts.set(envelope.from, (unreadCounts.get(envelope.from) ?? 0) + 1);
       }
     }
-    renderParticipants();
+    uiState?.emit('participants:changed');
   });
 
   // Enhanced status tracking: show full lifecycle
@@ -196,7 +200,7 @@ joinBtn.addEventListener('click', async () => {
 
   client.onPeerDiscovered((peer) => {
     knownPeers.set(peer.nodeId, { username: peer.username, online: true });
-    renderParticipants();
+    uiState?.emit('participants:changed');
   });
 
   client.onPeerDeparted((nodeId) => {
@@ -208,11 +212,11 @@ joinBtn.addEventListener('click', async () => {
     if (gameController?.getSession()?.peerId === nodeId) {
       gameController.handlePeerDisconnect();
     }
-    renderParticipants();
+    uiState?.emit('participants:changed');
   });
 
   client.onPeerStale(() => {
-    renderParticipants();
+    uiState?.emit('participants:changed');
   });
 
   client.onRoleChanged((nodeId, newRoles) => {
@@ -221,13 +225,13 @@ joinBtn.addEventListener('click', async () => {
       console.log(`[Demo] It's ME! Updating my role display to: ${newRoles.join(',')}`);
       renderMyRole();
     }
-    renderParticipants();
+    uiState?.emit('participants:changed');
   });
 
   // Group event handlers (Story 4.6)
   client.onGroupCreated((group) => {
     console.log(`[Demo] Group created: ${group.name}`);
-    renderGroups();
+    uiState?.emit('groups:changed');
   });
 
   client.onGroupInvite((groupId, groupName, inviterId, inviterUsername) => {
@@ -253,41 +257,41 @@ joinBtn.addEventListener('click', async () => {
 
     // If viewing this conversation, re-render
     if (selectedPeer === inviterId) {
-      renderMessages();
+      uiState?.emit('messages:changed');
     } else {
       // Increment unread count
       unreadCounts.set(inviterId, (unreadCounts.get(inviterId) ?? 0) + 1);
     }
 
-    renderParticipants();
-    renderGroups();
+    uiState?.emit('participants:changed');
+    uiState?.emit('groups:changed');
   });
 
   client.onGroupMemberJoined((groupId, member) => {
     console.log(`[Demo] ${member.username} joined group ${groupId}`);
-    renderGroups();
+    uiState?.emit('members:changed');
     if (selectedGroup === groupId) {
       renderGroupChatHeader(); // Update member count
-      renderGroupMessages();
+      uiState?.emit('messages:changed');
     }
   });
 
   client.onGroupMemberLeft((groupId, _nodeId, username) => {
     console.log(`[Demo] ${username} left group ${groupId}`);
-    renderGroups();
+    uiState?.emit('members:changed');
     if (selectedGroup === groupId) {
-      renderGroupMessages();
+      uiState?.emit('messages:changed');
     }
   });
 
   client.onGroupMessage((groupId, message) => {
     console.log(`[Demo] Group message in ${groupId}: ${message.text}`);
     if (selectedGroup === groupId) {
-      renderGroupMessages();
+      uiState?.emit('messages:changed');
     } else {
       // Increment unread count for group
       groupUnreadCounts.set(groupId, (groupUnreadCounts.get(groupId) ?? 0) + 1);
-      renderGroups();
+      uiState?.emit('groups:changed');
     }
   });
 
@@ -298,10 +302,38 @@ joinBtn.addEventListener('click', async () => {
     loginEl.style.display = 'none';
     chatEl.style.display = 'block';
     nodeIdEl.textContent = `Nœud : ${client.getNodeId().slice(0, 16)}...`;
+
+    // Initialize UI State Manager with reactive hooks (Action 3)
+    uiState = getUIStateManager();
+    uiState.onParticipantsChanged(renderParticipants);
+    uiState.onGroupsChanged(renderGroups);
+    uiState.onMessagesChanged(() => {
+      if (selectedGroup) {
+        renderGroupMessages();
+      } else {
+        renderMessages();
+      }
+    });
+    uiState.onSelectionChanged(() => {
+      renderParticipants();
+      renderGroups();
+      if (selectedGroup) {
+        renderGroupChatHeader();
+        renderGroupMessages();
+      } else {
+        renderChatHeader();
+        renderMessages();
+      }
+    });
+    uiState.onInvitesChanged(() => {
+      renderGroups();
+      renderMessages();
+    });
+
     renderMyRole();
     renderChatHeader();
     // Periodic re-render to reflect heartbeat status changes
-    setInterval(renderParticipants, 3000);
+    setInterval(() => uiState?.emit('participants:changed'), 3000);
   } catch (err) {
     statusBar.textContent = `Échec de connexion : ${err}`;
   }
@@ -400,10 +432,8 @@ function selectPeer(nodeId: string): void {
       client?.markAsRead(msg.id);
     }
   }
-  renderParticipants();
-  renderGroups(); // Update group selection UI
-  renderChatHeader();
-  renderMessages();
+  // Emit selection change - triggers renderParticipants, renderGroups, renderChatHeader, renderMessages
+  uiState?.emitImmediate('selection:changed');
 }
 
 function renderChatHeader(): void {
@@ -479,12 +509,12 @@ function renderMessages(): void {
     invEl.querySelector('.game-accept-btn')?.addEventListener('click', () => {
       gameController?.acceptInvitation();
       if (currentPeer) pendingInvitations.delete(currentPeer);
-      renderMessages();
+      uiState?.emitImmediate('messages:changed');
     });
     invEl.querySelector('.game-decline-btn')?.addEventListener('click', () => {
       gameController?.declineInvitation();
       if (currentPeer) pendingInvitations.delete(currentPeer);
-      renderMessages();
+      uiState?.emitImmediate('messages:changed');
     });
   }
 
@@ -544,12 +574,11 @@ function renderMessages(): void {
             acceptBtn.disabled = false;
             declineBtn.disabled = false;
           }
-          renderGroups();
+          uiState?.emit('groups:changed');
         });
         declineBtn?.addEventListener('click', () => {
           client?.declineGroupInvite(inviteData.groupId);
-          renderMessages();
-          renderGroups();
+          uiState?.emitImmediate('invites:changed');
         });
         continue;
       }
@@ -615,7 +644,7 @@ function updateStoredMessageStatus(messageId: string, status: string): void {
   if (selectedPeer) {
     const msgs = conversations.get(selectedPeer) ?? [];
     if (msgs.some((m) => m.id === messageId)) {
-      renderMessages();
+      uiState?.emit('messages:changed');
     }
   }
 }
@@ -643,9 +672,9 @@ async function sendMessage(): Promise<void> {
       }
       conversations.get(selectedPeer)?.push(msg);
 
-      renderMessages();
+      uiState?.emitImmediate('messages:changed');
       messageInput.value = '';
-      renderParticipants(); // Update stats after sending message
+      uiState?.emit('participants:changed'); // Update stats after sending message
     }
   } catch (err) {
     const error = err as Error;
@@ -706,7 +735,7 @@ function handleGameEnd(_winner: string, _reason: string, resultMessage: string):
   const returnToChat = () => {
     gameController?.endSession();
     gameCanvasEl.removeEventListener('click', returnToChat);
-    renderMessages();
+    uiState?.emitImmediate('messages:changed');
   };
   gameCanvasEl.addEventListener('click', returnToChat);
 }
@@ -716,18 +745,18 @@ function handleGameInvitationReceived(peerId: string, _peerUsername: string, gam
 
   // If we're viewing this peer's conversation, show the invitation
   if (selectedPeer === peerId) {
-    renderMessages();
+    uiState?.emitImmediate('messages:changed');
   } else {
     // Increment unread count to notify user
     unreadCounts.set(peerId, (unreadCounts.get(peerId) ?? 0) + 1);
-    renderParticipants();
+    uiState?.emit('participants:changed');
   }
 }
 
 function handleGameInvitationDeclined(peerId: string): void {
   statusBar.textContent = 'Invitation refusée';
   pendingInvitations.delete(peerId);
-  renderMessages();
+  uiState?.emitImmediate('messages:changed');
 }
 
 // ============================================
@@ -886,10 +915,8 @@ function selectGroup(groupId: string): void {
   selectedGroup = groupId;
   selectedPeer = null; // Deselect peer
   groupUnreadCounts.set(groupId, 0);
-  renderParticipants();
-  renderGroups();
-  renderGroupChatHeader();
-  renderGroupMessages();
+  // Emit selection change - triggers renderParticipants, renderGroups, renderGroupChatHeader, renderGroupMessages
+  uiState?.emitImmediate('selection:changed');
 }
 
 function renderGroupChatHeader(): void {
@@ -936,7 +963,7 @@ function renderGroupChatHeader(): void {
       selectedGroup = null;
       chatHeaderEl.textContent = 'Sélectionnez un contact';
       messagesEl.innerHTML = '';
-      renderGroups();
+      uiState?.emit('groups:changed');
     }
   });
   chatHeaderEl.appendChild(leaveBtn);
@@ -981,7 +1008,7 @@ async function sendGroupMessage(): Promise<void> {
     const success = await client.sendGroupMessage(selectedGroup, text);
     if (success) {
       messageInput.value = '';
-      renderGroupMessages();
+      uiState?.emitImmediate('messages:changed');
     }
   } catch (err) {
     const error = err as Error;
