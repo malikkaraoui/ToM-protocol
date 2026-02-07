@@ -74,6 +74,33 @@ File: `packages/core/src/groups/hub-election.test.ts`
 | 23 | edge cases | should handle all candidates being the failed hub |
 | 24 | edge cases | should handle backup hub not in candidates |
 
+### E2E Test Infrastructure Improvements (Robustness)
+
+**No new tests, but critical improvements to existing E2E tests for reliability.**
+
+File: `scripts/e2e/tests/test-helpers.ts` (NEW)
+
+Robust testing infrastructure with:
+- `withRetry()` - Retry mechanism with exponential backoff
+- `waitForHubRecovery()` - Wait for hub failover completion
+- `waitForConnectionsReady()` - Wait for WebRTC peer connections
+- `reconnectWithVerification()` - Robust user reconnection
+- `POST_DISCONNECT_TIMEOUTS` - Extended timeouts for post-disconnect scenarios
+- `STANDARD_TIMEOUTS` - Consistent timeout values across tests
+
+Files Updated:
+- `scripts/e2e/tests/metrics-test.spec.ts` - Phase 6 now uses robust helpers
+- `scripts/e2e/tests/relay-disconnect.spec.ts` - Uses retry mechanisms
+
+Key Improvements:
+| Feature | Before | After |
+|---------|--------|-------|
+| Phase 6 timeout | 60s | 180s (3 min) |
+| Disconnect test timeout | 60s | 120s (2 min) |
+| Pending message timeout | 60s | 150s (2.5 min) |
+| Message delivery retry | None | 2-3 attempts with backoff |
+| WebRTC reconnection wait | 5s fixed | 10s with verification |
+
 ---
 
 ## Previous Sessions
