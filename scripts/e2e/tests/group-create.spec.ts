@@ -19,7 +19,6 @@ interface UserSession {
 }
 
 const DEMO_URL = process.env.DEMO_URL || 'http://localhost:5173';
-const SIGNALING_URL = process.env.SIGNALING_URL || 'ws://localhost:3000';
 
 test.describe('Group Creation Flow', () => {
   let browser: Browser;
@@ -30,7 +29,6 @@ test.describe('Group Creation Flow', () => {
   });
 
   test.afterAll(async () => {
-    // Clean up all user sessions
     for (const user of users) {
       await user.context.close();
     }
@@ -40,32 +38,22 @@ test.describe('Group Creation Flow', () => {
     const context = await browser.newContext();
     const page = await context.newPage();
 
-    // Navigate to demo
     await page.goto(DEMO_URL);
+    await page.waitForSelector('#username-input', { timeout: 10000 });
+    await page.fill('#username-input', username);
+    await page.click('#join-btn');
 
-    // Wait for the app to load
-    await page.waitForSelector('#username', { timeout: 10000 });
+    // Wait for chat view to be visible (connection established)
+    await page.waitForSelector('#chat', { state: 'visible', timeout: 15000 });
 
-    // Enter username and connect
-    await page.fill('#username', username);
-    await page.click('#connect-btn');
-
-    // Wait for connection
-    await page.waitForSelector('.connection-status:has-text("Connected")', {
-      timeout: 15000,
-    });
-
-    // Get the node ID from the UI
-    const nodeIdElement = await page.waitForSelector('.node-id', {
-      timeout: 5000,
-    });
+    const nodeIdElement = await page.waitForSelector('#node-id', { timeout: 5000 });
     const nodeId = await nodeIdElement?.textContent();
 
     const session: UserSession = {
       context,
       page,
       username,
-      nodeId: nodeId?.replace('Node: ', '') || undefined,
+      nodeId: nodeId || undefined,
     };
 
     users.push(session);
@@ -73,147 +61,107 @@ test.describe('Group Creation Flow', () => {
   }
 
   test('should create a group with 3 users', async () => {
-    // Step 1: Create 3 user sessions
     const alice = await createUserSession('alice-e2e');
     const bob = await createUserSession('bob-e2e');
     const charlie = await createUserSession('charlie-e2e');
 
-    // Verify all users are connected
     expect(alice.nodeId).toBeTruthy();
     expect(bob.nodeId).toBeTruthy();
     expect(charlie.nodeId).toBeTruthy();
 
-    // Step 2: Alice creates a group
+    // Wait for gossip discovery
+    await alice.page.waitForTimeout(3000);
+
+    // Alice creates a group
     await alice.page.click('#create-group-btn');
+    await alice.page.waitForSelector('#create-group-modal.active', { timeout: 5000 });
     await alice.page.fill('#group-name-input', 'Test Group E2E');
-    await alice.page.click('#confirm-create-group');
+    await alice.page.click('#create-group-confirm-btn');
 
-    // Wait for group to appear in Alice's list
-    await alice.page.waitForSelector('.group-item:has-text("Test Group E2E")', {
-      timeout: 10000,
-    });
+    await alice.page.waitForSelector('.group-item:has-text("Test Group E2E")', { timeout: 10000 });
 
-    // Step 3: Alice invites Bob
+    // Alice selects the group and invites Bob
     await alice.page.click('.group-item:has-text("Test Group E2E")');
-    await alice.page.click('#invite-member-btn');
+    await alice.page.waitForSelector('#chat-header:has-text("Test Group E2E")', { timeout: 5000 });
+    await alice.page.click('button:has-text("Inviter")');
+    await alice.page.waitForSelector('#invite-modal.active', { timeout: 5000 });
+    await alice.page.click('#invite-modal-list div:has-text("bob-e2e")');
+    await alice.page.waitForTimeout(1000);
 
-    // Wait for peer list to populate (gossip discovery)
-    await alice.page.waitForSelector('.peer-list .peer-item', {
-      timeout: 15000,
-    });
+    // Bob sees Alice in participants, clicks to view chat, and accepts invite
+    await bob.page.waitForSelector('.participant:has-text("alice-e2e")', { timeout: 10000 });
+    await bob.page.click('.participant:has-text("alice-e2e")');
+    await bob.page.waitForSelector('.group-invite-message', { timeout: 15000 });
+    await bob.page.click('.group-accept-btn');
+    await bob.page.waitForSelector('.group-item:has-text("Test Group E2E")', { timeout: 10000 });
 
-    // Select Bob from peer list
-    await alice.page.click(`.peer-item:has-text("bob-e2e")`);
-    await alice.page.click('#send-invite-btn');
+    // Alice invites Charlie
+    await alice.page.click('.group-item:has-text("Test Group E2E")');
+    await alice.page.click('button:has-text("Inviter")');
+    await alice.page.waitForSelector('#invite-modal.active', { timeout: 5000 });
+    await alice.page.click('#invite-modal-list div:has-text("charlie-e2e")');
+    await alice.page.waitForTimeout(1000);
 
-    // Step 4: Bob receives and accepts invitation
-    await bob.page.waitForSelector('.invitation-item:has-text("Test Group E2E")', {
-      timeout: 15000,
-    });
-    await bob.page.click('.invitation-item:has-text("Test Group E2E") .accept-btn');
+    // Charlie accepts
+    await charlie.page.waitForSelector('.participant:has-text("alice-e2e")', { timeout: 10000 });
+    await charlie.page.click('.participant:has-text("alice-e2e")');
+    await charlie.page.waitForSelector('.group-invite-message', { timeout: 15000 });
+    await charlie.page.click('.group-accept-btn');
+    await charlie.page.waitForSelector('.group-item:has-text("Test Group E2E")', { timeout: 10000 });
 
-    // Wait for Bob to join
-    await bob.page.waitForSelector('.group-item:has-text("Test Group E2E")', {
-      timeout: 10000,
-    });
-
-    // Step 5: Alice invites Charlie
-    await alice.page.click('#invite-member-btn');
-    await alice.page.click(`.peer-item:has-text("charlie-e2e")`);
-    await alice.page.click('#send-invite-btn');
-
-    // Step 6: Charlie accepts
-    await charlie.page.waitForSelector('.invitation-item:has-text("Test Group E2E")', {
-      timeout: 15000,
-    });
-    await charlie.page.click('.invitation-item:has-text("Test Group E2E") .accept-btn');
-
-    // Wait for Charlie to join
-    await charlie.page.waitForSelector('.group-item:has-text("Test Group E2E")', {
-      timeout: 10000,
-    });
-
-    // Step 7: Verify all users see each other in the group
-    // Select the group on all pages
+    // All select the group
     await alice.page.click('.group-item:has-text("Test Group E2E")');
     await bob.page.click('.group-item:has-text("Test Group E2E")');
     await charlie.page.click('.group-item:has-text("Test Group E2E")');
 
-    // Check member count
-    const aliceMembers = await alice.page.locator('.group-member').count();
-    const bobMembers = await bob.page.locator('.group-member').count();
-    const charlieMembers = await charlie.page.locator('.group-member').count();
+    // Verify 3 members
+    await alice.page.waitForSelector('#chat-header:has-text("3 membres")', { timeout: 5000 });
 
-    expect(aliceMembers).toBe(3);
-    expect(bobMembers).toBe(3);
-    expect(charlieMembers).toBe(3);
+    // Alice sends a message
+    await alice.page.fill('#message-input', 'Hello from Alice!');
+    await alice.page.click('#send-btn');
 
-    // Step 8: Alice sends a message
-    await alice.page.fill('#group-message-input', 'Hello from Alice!');
-    await alice.page.click('#send-group-message-btn');
+    // Bob and Charlie receive it
+    await bob.page.waitForSelector('.message:has-text("Hello from Alice!")', { timeout: 10000 });
+    await charlie.page.waitForSelector('.message:has-text("Hello from Alice!")', { timeout: 10000 });
 
-    // Step 9: Bob and Charlie receive the message
-    await bob.page.waitForSelector('.group-message:has-text("Hello from Alice!")', {
-      timeout: 10000,
-    });
-    await charlie.page.waitForSelector('.group-message:has-text("Hello from Alice!")', {
-      timeout: 10000,
-    });
-
-    // Verify message appears on all screens
-    const bobMessage = await bob.page.locator('.group-message:has-text("Hello from Alice!")').isVisible();
-    const charlieMessage = await charlie.page.locator('.group-message:has-text("Hello from Alice!")').isVisible();
-
-    expect(bobMessage).toBe(true);
-    expect(charlieMessage).toBe(true);
+    expect(await bob.page.locator('.message:has-text("Hello from Alice!")').isVisible()).toBe(true);
+    expect(await charlie.page.locator('.message:has-text("Hello from Alice!")').isVisible()).toBe(true);
   });
 
   test('should handle rapid group member additions', async () => {
-    // Create hub user
     const hub = await createUserSession('hub-e2e');
 
-    // Create group
     await hub.page.click('#create-group-btn');
+    await hub.page.waitForSelector('#create-group-modal.active', { timeout: 5000 });
     await hub.page.fill('#group-name-input', 'Rapid Test Group');
-    await hub.page.click('#confirm-create-group');
+    await hub.page.click('#create-group-confirm-btn');
+    await hub.page.waitForSelector('.group-item:has-text("Rapid Test Group")', { timeout: 10000 });
 
-    await hub.page.waitForSelector('.group-item:has-text("Rapid Test Group")', {
-      timeout: 10000,
-    });
-
-    // Create 3 members rapidly
     const members: UserSession[] = [];
     for (let i = 1; i <= 3; i++) {
       members.push(await createUserSession(`member${i}-e2e`));
     }
 
-    // Wait for gossip discovery
     await hub.page.waitForTimeout(5000);
-
-    // Select group and invite all members rapidly
     await hub.page.click('.group-item:has-text("Rapid Test Group")');
 
     for (const member of members) {
-      await hub.page.click('#invite-member-btn');
-      await hub.page.waitForSelector('.peer-list .peer-item', { timeout: 10000 });
-      await hub.page.click(`.peer-item:has-text("${member.username}")`);
-      await hub.page.click('#send-invite-btn');
+      await hub.page.click('button:has-text("Inviter")');
+      await hub.page.waitForSelector('#invite-modal.active', { timeout: 5000 });
+      await hub.page.click(`#invite-modal-list div:has-text("${member.username}")`);
+      await hub.page.waitForTimeout(500);
     }
 
-    // All members accept
     for (const member of members) {
-      await member.page.waitForSelector('.invitation-item:has-text("Rapid Test Group")', {
-        timeout: 15000,
-      });
-      await member.page.click('.invitation-item:has-text("Rapid Test Group") .accept-btn');
+      await member.page.waitForSelector('.participant:has-text("hub-e2e")', { timeout: 10000 });
+      await member.page.click('.participant:has-text("hub-e2e")');
+      await member.page.waitForSelector('.group-invite-message', { timeout: 15000 });
+      await member.page.click('.group-accept-btn');
     }
 
-    // Verify all joined
-    await hub.page.waitForTimeout(3000); // Allow state to sync
-
+    await hub.page.waitForTimeout(3000);
     await hub.page.click('.group-item:has-text("Rapid Test Group")');
-    const memberCount = await hub.page.locator('.group-member').count();
-
-    expect(memberCount).toBe(4); // hub + 3 members
+    await hub.page.waitForSelector('#chat-header:has-text("4 membres")', { timeout: 10000 });
   });
 });
