@@ -17,6 +17,7 @@ import {
   type GroupMessagePayload,
   HUB_FAILURE_THRESHOLD,
   HUB_HEARTBEAT_INTERVAL_MS,
+  INVITE_TTL_MS,
   MAX_SYNC_MESSAGES,
 } from './group-types.js';
 
@@ -90,8 +91,10 @@ export class GroupManager {
   /** Pending invitations (groupId -> invite info) */
   private pendingInvites = new Map<
     GroupId,
-    { groupName: string; inviterId: NodeId; inviterUsername: string; hubRelayId: NodeId }
+    { groupName: string; inviterId: NodeId; inviterUsername: string; hubRelayId: NodeId; receivedAt: number }
   >();
+  /** Invite expiry check timer */
+  private inviteExpiryTimer: ReturnType<typeof setInterval> | null = null;
   /** Public groups available to join (not yet joined) */
   private availableGroups = new Map<GroupId, PublicGroupInfo>();
   /** Hub health per group */
@@ -262,8 +265,14 @@ export class GroupManager {
     if (this.groups.has(groupId)) {
       return;
     }
-    // Store pending invite
-    this.pendingInvites.set(groupId, { groupName, inviterId, inviterUsername, hubRelayId });
+    // Store pending invite with timestamp for TTL
+    this.pendingInvites.set(groupId, {
+      groupName,
+      inviterId,
+      inviterUsername,
+      hubRelayId,
+      receivedAt: Date.now(),
+    });
     this.events.onGroupInvite?.(groupId, groupName, inviterId, inviterUsername);
   }
 
@@ -301,11 +310,49 @@ export class GroupManager {
     inviterId: NodeId;
     inviterUsername: string;
     hubRelayId: NodeId;
+    receivedAt: number;
   }> {
     return Array.from(this.pendingInvites.entries()).map(([groupId, info]) => ({
       groupId,
       ...info,
     }));
+  }
+
+  /**
+   * Start monitoring invite expiry (TTL cleanup)
+   */
+  startInviteExpiryMonitoring(): void {
+    if (this.inviteExpiryTimer) return;
+    // Check every 5 minutes
+    this.inviteExpiryTimer = setInterval(
+      () => {
+        this.cleanupExpiredInvites();
+      },
+      5 * 60 * 1000,
+    );
+  }
+
+  /**
+   * Stop invite expiry monitoring
+   */
+  stopInviteExpiryMonitoring(): void {
+    if (this.inviteExpiryTimer) {
+      clearInterval(this.inviteExpiryTimer);
+      this.inviteExpiryTimer = null;
+    }
+  }
+
+  /**
+   * Remove invites that have exceeded TTL
+   */
+  private cleanupExpiredInvites(): void {
+    const now = Date.now();
+    for (const [groupId, invite] of this.pendingInvites) {
+      if (now - invite.receivedAt > INVITE_TTL_MS) {
+        console.log(`[GroupManager] Removing expired invite for group ${groupId} (TTL exceeded)`);
+        this.pendingInvites.delete(groupId);
+      }
+    }
   }
 
   /**

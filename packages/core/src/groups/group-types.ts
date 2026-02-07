@@ -180,6 +180,17 @@ export interface GroupReadReceiptPayload extends GroupPayloadBase {
   readAt: number;
 }
 
+/** Acknowledgment that invitation was received */
+export interface GroupInviteAckPayload extends GroupPayloadBase {
+  type: 'group-invite-ack';
+  /** Who received the invite */
+  inviteeId: NodeId;
+  /** Invite ID for correlation */
+  inviteId: string;
+  /** Timestamp when received */
+  receivedAt: number;
+}
+
 // ============================================
 // Union Type
 // ============================================
@@ -188,6 +199,7 @@ export type GroupPayload =
   | GroupCreatePayload
   | GroupCreatedPayload
   | GroupInvitePayload
+  | GroupInviteAckPayload
   | GroupJoinPayload
   | GroupMemberJoinedPayload
   | GroupLeavePayload
@@ -209,6 +221,7 @@ const GROUP_PAYLOAD_TYPES = [
   'group-create',
   'group-created',
   'group-invite',
+  'group-invite-ack',
   'group-join',
   'group-member-joined',
   'group-leave',
@@ -314,6 +327,13 @@ export function isGroupAnnouncement(payload: unknown): payload is GroupAnnouncem
   );
 }
 
+export function isGroupInviteAck(payload: unknown): payload is GroupInviteAckPayload {
+  if (!isGroupPayload(payload)) return false;
+  if (payload.type !== 'group-invite-ack') return false;
+  const p = payload as GroupInviteAckPayload;
+  return typeof p.inviteeId === 'string' && typeof p.inviteId === 'string' && typeof p.receivedAt === 'number';
+}
+
 // ============================================
 // Constants
 // ============================================
@@ -332,3 +352,12 @@ export const HUB_HEARTBEAT_INTERVAL_MS = 30_000;
 
 /** Hub failure threshold (missed heartbeats) */
 export const HUB_FAILURE_THRESHOLD = 3;
+
+/** Invitation TTL - auto-expire after 24 hours */
+export const INVITE_TTL_MS = 24 * 60 * 60 * 1000;
+
+/** Max invitation retry attempts */
+export const INVITE_MAX_RETRIES = 3;
+
+/** Delay between invitation retry attempts (ms) */
+export const INVITE_RETRY_DELAY_MS = 2000;
