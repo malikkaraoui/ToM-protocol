@@ -5,11 +5,13 @@
 import { describe, expect, it } from 'vitest';
 import {
   type GroupCreatePayload,
+  type GroupInviteAckPayload,
   type GroupInvitePayload,
   type GroupMessagePayload,
   type GroupSyncPayload,
   isGroupCreate,
   isGroupInvite,
+  isGroupInviteAck,
   isGroupMessage,
   isGroupPayload,
   isGroupSync,
@@ -22,6 +24,7 @@ describe('Group Type Guards', () => {
         { type: 'group-create', groupId: 'grp-123' },
         { type: 'group-message', groupId: 'grp-456' },
         { type: 'group-invite', groupId: 'grp-789' },
+        { type: 'group-invite-ack', groupId: 'grp-ack' },
         { type: 'group-join', groupId: 'grp-abc' },
         { type: 'group-leave', groupId: 'grp-def' },
         { type: 'group-sync', groupId: 'grp-ghi' },
@@ -179,6 +182,73 @@ describe('Group Type Guards', () => {
       for (const payload of invalidPayloads) {
         expect(isGroupCreate(payload)).toBe(false);
       }
+    });
+  });
+
+  describe('isGroupInviteAck', () => {
+    it('should return true for valid invite ack payloads', () => {
+      const payload: GroupInviteAckPayload = {
+        type: 'group-invite-ack',
+        groupId: 'grp-123',
+        inviteeId: 'node-bob',
+        inviteId: 'inv-456',
+        receivedAt: Date.now(),
+      };
+
+      expect(isGroupInviteAck(payload)).toBe(true);
+    });
+
+    it('should return false for incomplete invite ack payloads', () => {
+      const invalidPayloads = [
+        {
+          type: 'group-invite-ack',
+          groupId: 'grp-123',
+          // Missing inviteeId, inviteId, receivedAt
+        },
+        {
+          type: 'group-invite-ack',
+          groupId: 'grp-123',
+          inviteeId: 'node-bob',
+          // Missing inviteId, receivedAt
+        },
+        {
+          type: 'group-invite-ack',
+          groupId: 'grp-123',
+          inviteeId: 'node-bob',
+          inviteId: 'inv-456',
+          // Missing receivedAt
+        },
+        {
+          type: 'group-invite-ack',
+          groupId: 'grp-123',
+          inviteeId: 123, // Wrong type
+          inviteId: 'inv-456',
+          receivedAt: Date.now(),
+        },
+        {
+          type: 'group-invite-ack',
+          groupId: 'grp-123',
+          inviteeId: 'node-bob',
+          inviteId: 'inv-456',
+          receivedAt: 'not a number', // Wrong type
+        },
+      ];
+
+      for (const payload of invalidPayloads) {
+        expect(isGroupInviteAck(payload)).toBe(false);
+      }
+    });
+
+    it('should return false for wrong type', () => {
+      const payload = {
+        type: 'group-invite', // Wrong type
+        groupId: 'grp-123',
+        inviteeId: 'node-bob',
+        inviteId: 'inv-456',
+        receivedAt: Date.now(),
+      };
+
+      expect(isGroupInviteAck(payload)).toBe(false);
     });
   });
 

@@ -391,6 +391,115 @@ describe('GroupManager', () => {
     });
   });
 
+  describe('invite TTL and expiry', () => {
+    it('should include receivedAt timestamp in pending invites', () => {
+      const beforeTime = Date.now();
+      manager.handleInvite('grp-123', 'Fun Group', 'node-bob', 'Bob', 'relay-1');
+      const afterTime = Date.now();
+
+      const invites = manager.getPendingInvites();
+      expect(invites).toHaveLength(1);
+      expect(invites[0].receivedAt).toBeGreaterThanOrEqual(beforeTime);
+      expect(invites[0].receivedAt).toBeLessThanOrEqual(afterTime);
+    });
+
+    it('should start and stop invite expiry monitoring', () => {
+      vi.useFakeTimers();
+
+      manager.startInviteExpiryMonitoring();
+      // Should not throw
+      vi.advanceTimersByTime(10 * 60 * 1000);
+
+      manager.stopInviteExpiryMonitoring();
+      vi.useRealTimers();
+    });
+
+    it('should cleanup expired invites after TTL', () => {
+      vi.useFakeTimers();
+
+      // Add an invite
+      manager.handleInvite('grp-expired', 'Old Group', 'node-bob', 'Bob', 'relay-1');
+      expect(manager.getPendingInvites()).toHaveLength(1);
+
+      manager.startInviteExpiryMonitoring();
+
+      // Advance time past TTL (24 hours + buffer)
+      vi.advanceTimersByTime(25 * 60 * 60 * 1000);
+
+      // Invite should be expired now
+      expect(manager.getPendingInvites()).toHaveLength(0);
+
+      manager.stopInviteExpiryMonitoring();
+      vi.useRealTimers();
+    });
+
+    it('should not expire invites before TTL', () => {
+      vi.useFakeTimers();
+
+      manager.handleInvite('grp-fresh', 'Fresh Group', 'node-bob', 'Bob', 'relay-1');
+      manager.startInviteExpiryMonitoring();
+
+      // Advance time less than TTL (12 hours)
+      vi.advanceTimersByTime(12 * 60 * 60 * 1000);
+
+      // Invite should still be there
+      expect(manager.getPendingInvites()).toHaveLength(1);
+
+      manager.stopInviteExpiryMonitoring();
+      vi.useRealTimers();
+    });
+
+    it('should cleanup multiple expired invites', () => {
+      vi.useFakeTimers();
+
+      // Add multiple invites at different times
+      manager.handleInvite('grp-1', 'Group 1', 'node-bob', 'Bob', 'relay-1');
+      vi.advanceTimersByTime(1000);
+      manager.handleInvite('grp-2', 'Group 2', 'node-charlie', 'Charlie', 'relay-2');
+
+      expect(manager.getPendingInvites()).toHaveLength(2);
+
+      manager.startInviteExpiryMonitoring();
+
+      // Advance past TTL for both
+      vi.advanceTimersByTime(25 * 60 * 60 * 1000);
+
+      // Both should be expired
+      expect(manager.getPendingInvites()).toHaveLength(0);
+
+      manager.stopInviteExpiryMonitoring();
+      vi.useRealTimers();
+    });
+
+    it('should not cleanup invites that were accepted (removed by group-sync)', () => {
+      vi.useFakeTimers();
+
+      manager.handleInvite('grp-accepted', 'Accepted Group', 'node-bob', 'Bob', 'relay-1');
+      manager.startInviteExpiryMonitoring();
+
+      // Accept invite and receive group-sync before TTL
+      vi.advanceTimersByTime(1000);
+      manager.acceptInvite('grp-accepted');
+      manager.handleGroupSync({
+        groupId: 'grp-accepted',
+        name: 'Accepted Group',
+        hubRelayId: 'relay-1',
+        members: [{ nodeId: localNodeId, username: localUsername, joinedAt: Date.now(), role: 'member' }],
+        createdBy: 'node-bob',
+        createdAt: Date.now(),
+        lastActivityAt: Date.now(),
+        maxMembers: 50,
+      });
+
+      // Invite should be removed by group-sync, not by expiry
+      expect(manager.getPendingInvites()).toHaveLength(0);
+      expect(manager.isInGroup('grp-accepted')).toBe(true);
+
+      manager.stopInviteExpiryMonitoring();
+      vi.useRealTimers();
+    });
+  });
+
   describe('hub health monitoring', () => {
     it('should track hub heartbeats', () => {
       const group = manager.createGroup('Test Group', 'relay-1')!;
