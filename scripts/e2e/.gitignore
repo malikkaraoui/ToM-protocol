@@ -1,0 +1,4 @@
+# Generated test artifacts
+reports/
+test-results/
+playwright-report/

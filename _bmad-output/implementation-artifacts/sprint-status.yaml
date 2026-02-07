@@ -72,7 +72,7 @@ development_status:
   4-3-message-path-visualization: done
   4-4-reconnection-and-pending-message-delivery: done
   4-5-demo-snake-multiplayer-p2p-game: done
-  epic-4-retrospective: optional
+  epic-4-retrospective: done  # Combined retro for Epics 4-8 on 2026-02-07
 
   # Epic 5: Resilient Multi-Relay Transport
   epic-5: done
@@ -81,21 +81,21 @@ development_status:
   5-3-node-failure-resilience: done
   5-4-contribution-usage-equilibrium-score: done
   5-5-dynamic-role-display-in-ui: done
-  epic-5-retrospective: optional
+  epic-5-retrospective: done  # Combined retro for Epics 4-8 on 2026-02-07
 
   # Epic 6: Private Communication
   epic-6: done
   6-1-end-to-end-encryption: done
   6-2-sdk-package-and-2-line-integration: done
   6-3-protocol-compliance-test-suite: done
-  epic-6-retrospective: optional
+  epic-6-retrospective: done  # Combined retro for Epics 4-8 on 2026-02-07
 
   # Epic 7: Self-Sustaining Alpha Network
   epic-7: done
   7-1-autonomous-peer-discovery: done
   7-2-ephemeral-subnets-with-sliding-genesis: done
   7-3-alpha-scale-validation: done
-  epic-7-retrospective: optional
+  epic-7-retrospective: done  # Combined retro for Epics 4-8 on 2026-02-07
 
   # Epic 8: LLM & Community Ecosystem
   epic-8: done
@@ -103,4 +103,10 @@ development_status:
   8-2-mcp-server-for-llm-interaction: done
   8-3-vs-code-plugin-and-live-demo: done
   8-4-micro-session-contribution-model: done
-  epic-8-retrospective: optional
+  epic-8-retrospective: done  # Combined retro for Epics 4-8 on 2026-02-07
+
+  # Consolidation Phase (Post Epics 4-8 Retro)
+  consolidation-e2e-testing: done  # Framework ready: 50 tests, 3 specs, 5 browsers
+  consolidation-hub-failover: backlog
+  consolidation-invitations: backlog
+  consolidation-ui-hooks: backlog

@@ -5,6 +5,10 @@
   "scripts": {
     "build": "pnpm -r run build",
     "test": "vitest run",
+    "test:e2e": "playwright test --config=scripts/e2e/playwright.config.ts",
+    "test:e2e:headed": "playwright test --config=scripts/e2e/playwright.config.ts --headed",
+    "test:e2e:ui": "playwright test --config=scripts/e2e/playwright.config.ts --ui",
+    "test:e2e:report": "playwright show-report scripts/e2e/reports/html",
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
     "clean": "pnpm -r run clean",
@@ -14,6 +18,7 @@
     "@biomejs/biome": "^1.9.0",
     "@commitlint/cli": "^20.4.1",
     "@commitlint/config-conventional": "^20.4.1",
+    "@playwright/test": "^1.58.2",
     "husky": "^9.1.7",
     "typescript": "^5.7.0",
     "vitest": "^3.0.0"
