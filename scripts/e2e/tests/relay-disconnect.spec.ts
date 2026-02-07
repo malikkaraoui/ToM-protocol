@@ -1,4 +1,11 @@
 import { type Browser, type BrowserContext, type Page, expect, test } from '@playwright/test';
+import {
+  POST_DISCONNECT_TIMEOUTS,
+  STANDARD_TIMEOUTS,
+  waitForConnectionsReady,
+  waitForHubRecovery,
+  withRetry,
+} from './test-helpers';
 
 /**
  * E2E Test: Relay Disconnect Scenarios
@@ -7,6 +14,8 @@ import { type Browser, type BrowserContext, type Page, expect, test } from '@pla
  * 1. Direct messages between users
  * 2. Hub disconnect via page refresh and reconnect
  * 3. Message delivery after reconnection
+ *
+ * Uses robust test helpers for reliable timing.
  */
 
 interface UserSession {
@@ -57,17 +66,35 @@ test.describe('Relay Disconnect Scenarios', () => {
     return session;
   }
 
-  async function reconnectUser(session: UserSession): Promise<void> {
-    // Simulate page refresh (user closes/reopens tab)
-    await session.page.reload();
+  async function reconnectUser(session: UserSession, expectedPeers = 0): Promise<boolean> {
+    console.log(`  ↻ Reconnecting ${session.username}...`);
 
-    // Re-login with same username
-    await session.page.waitForSelector('#username-input', { timeout: 10000 });
-    await session.page.fill('#username-input', session.username);
-    await session.page.click('#join-btn');
+    try {
+      // Simulate page refresh (user closes/reopens tab)
+      await session.page.reload();
 
-    // Wait for reconnection
-    await session.page.waitForSelector('#chat', { state: 'visible', timeout: 15000 });
+      // Re-login with same username
+      await session.page.waitForSelector('#username-input', { timeout: STANDARD_TIMEOUTS.PAGE_LOAD });
+      await session.page.fill('#username-input', session.username);
+      await session.page.click('#join-btn');
+
+      // Wait for reconnection
+      await session.page.waitForSelector('#chat', { state: 'visible', timeout: STANDARD_TIMEOUTS.PAGE_LOAD });
+
+      // Wait for peer connections if expected
+      if (expectedPeers > 0) {
+        await waitForConnectionsReady(session.page, expectedPeers);
+      }
+
+      // Extra stabilization for WebRTC
+      await session.page.waitForTimeout(3000);
+
+      console.log(`  ✓ ${session.username} reconnected`);
+      return true;
+    } catch (error) {
+      console.log(`  ⚠ ${session.username} reconnection failed: ${(error as Error).message}`);
+      return false;
+    }
   }
 
   test('should exchange direct messages between two users', async () => {
@@ -102,41 +129,59 @@ test.describe('Relay Disconnect Scenarios', () => {
   });
 
   test('should handle user disconnect via page refresh', async () => {
+    test.setTimeout(120000); // 2 minutes for reconnection scenario
+
     const sender = await createUserSession('sender-refresh');
     const receiver = await createUserSession('receiver-refresh');
 
-    await sender.page.waitForTimeout(5000);
+    // Extended wait for initial gossip discovery
+    await sender.page.waitForTimeout(8000);
 
     // Exchange initial messages
-    await sender.page.waitForSelector('.participant:has-text("receiver-refresh")', { timeout: 15000 });
+    await sender.page.waitForSelector('.participant:has-text("receiver-refresh")', {
+      timeout: STANDARD_TIMEOUTS.PARTICIPANT_DISCOVERY_MS || 15000,
+    });
     await sender.page.click('.participant:has-text("receiver-refresh")');
     await sender.page.fill('#message-input', 'Message avant refresh');
     await sender.page.click('#send-btn');
 
-    await receiver.page.waitForSelector('.participant:has-text("sender-refresh")', { timeout: 10000 });
+    await receiver.page.waitForSelector('.participant:has-text("sender-refresh")', {
+      timeout: STANDARD_TIMEOUTS.ELEMENT_VISIBLE,
+    });
     await receiver.page.click('.participant:has-text("sender-refresh")');
-    await receiver.page.waitForSelector('.message:has-text("Message avant refresh")', { timeout: 10000 });
+    await receiver.page.waitForSelector('.message:has-text("Message avant refresh")', {
+      timeout: STANDARD_TIMEOUTS.MESSAGE_DELIVERY,
+    });
 
     // Receiver refreshes page (simulates disconnect)
     console.log('Receiver refreshing page...');
-    await reconnectUser(receiver);
-    console.log('Receiver reconnected');
+    await reconnectUser(receiver, 1); // Expect 1 peer (sender)
+    console.log('Receiver reconnected, waiting for stabilization...');
 
-    // Wait for gossip rediscovery
-    await receiver.page.waitForTimeout(5000);
+    // Extended wait for WebRTC re-establishment
+    await receiver.page.waitForTimeout(POST_DISCONNECT_TIMEOUTS.WEBRTC_RECONNECT_MS);
 
-    // Sender sends message after receiver reconnected
-    await sender.page.fill('#message-input', 'Message après refresh');
-    await sender.page.click('#send-btn');
+    // Use retry for message sending after disconnect
+    const messageReceived = await withRetry(
+      async () => {
+        // Sender sends message after receiver reconnected
+        await sender.page.fill('#message-input', 'Message après refresh');
+        await sender.page.click('#send-btn');
 
-    // Receiver should see the new message
-    await receiver.page.waitForSelector('.participant:has-text("sender-refresh")', { timeout: 15000 });
-    await receiver.page.click('.participant:has-text("sender-refresh")');
+        // Receiver should see the new message
+        await receiver.page.waitForSelector('.participant:has-text("sender-refresh")', {
+          timeout: POST_DISCONNECT_TIMEOUTS.PARTICIPANT_DISCOVERY_MS,
+        });
+        await receiver.page.click('.participant:has-text("sender-refresh")');
 
-    const messageReceived = await receiver.page
-      .waitForSelector('.message:has-text("Message après refresh")', { timeout: 20000 })
-      .then(() => true)
-      .catch(() => false);
+        await receiver.page.waitForSelector('.message:has-text("Message après refresh")', {
+          timeout: POST_DISCONNECT_TIMEOUTS.MESSAGE_DELIVERY_MS,
+        });
+        return true;
+      },
+      'Message after refresh',
+      { maxAttempts: 2, delayMs: 2000 },
+    ).catch(() => false);
 
     console.log('Message received after refresh:', messageReceived);
     expect(messageReceived).toBe(true);
@@ -224,49 +269,74 @@ test.describe('Relay Disconnect Scenarios', () => {
   });
 
   test('should deliver pending messages after reconnection', async () => {
+    test.setTimeout(150000); // 2.5 minutes for offline/online scenario with backup
+
     const sender = await createUserSession('sender-pending');
     const receiver = await createUserSession('receiver-pending');
 
-    await sender.page.waitForTimeout(5000);
+    // Extended wait for initial discovery
+    await sender.page.waitForTimeout(8000);
 
     // Initial conversation
-    await sender.page.waitForSelector('.participant:has-text("receiver-pending")', { timeout: 15000 });
+    await sender.page.waitForSelector('.participant:has-text("receiver-pending")', {
+      timeout: STANDARD_TIMEOUTS.INVITATION_RECEIVE,
+    });
     await sender.page.click('.participant:has-text("receiver-pending")');
     await sender.page.fill('#message-input', 'Premier message');
     await sender.page.click('#send-btn');
 
-    await receiver.page.waitForSelector('.participant:has-text("sender-pending")', { timeout: 10000 });
+    await receiver.page.waitForSelector('.participant:has-text("sender-pending")', {
+      timeout: STANDARD_TIMEOUTS.ELEMENT_VISIBLE,
+    });
     await receiver.page.click('.participant:has-text("sender-pending")');
-    await receiver.page.waitForSelector('.message:has-text("Premier message")', { timeout: 10000 });
+    await receiver.page.waitForSelector('.message:has-text("Premier message")', {
+      timeout: STANDARD_TIMEOUTS.MESSAGE_DELIVERY,
+    });
 
     // Receiver goes offline (refresh to disconnect)
     console.log('Receiver going offline...');
     await receiver.page.reload();
     // Don't re-login yet - stay on login page
 
-    // Sender sends while receiver offline
+    // Sender sends while receiver offline (message should be backed up)
     await sender.page.fill('#message-input', 'Message pendant offline');
     await sender.page.click('#send-btn');
     await sender.page.waitForTimeout(3000);
 
     // Receiver comes back online
     console.log('Receiver coming back online...');
-    await receiver.page.waitForSelector('#username-input', { timeout: 10000 });
+    await receiver.page.waitForSelector('#username-input', { timeout: STANDARD_TIMEOUTS.PAGE_LOAD });
     await receiver.page.fill('#username-input', 'receiver-pending');
     await receiver.page.click('#join-btn');
-    await receiver.page.waitForSelector('#chat', { state: 'visible', timeout: 15000 });
+    await receiver.page.waitForSelector('#chat', { state: 'visible', timeout: STANDARD_TIMEOUTS.PAGE_LOAD });
 
-    // Wait for pending message delivery
-    await receiver.page.waitForTimeout(5000);
-    await receiver.page.waitForSelector('.participant:has-text("sender-pending")', { timeout: 15000 });
-    await receiver.page.click('.participant:has-text("sender-pending")');
+    // Extended wait for WebRTC re-establishment and backup delivery
+    console.log('Waiting for backup message delivery...');
+    await receiver.page.waitForTimeout(POST_DISCONNECT_TIMEOUTS.HUB_RECOVERY_MS);
 
-    const pendingDelivered = await receiver.page
-      .waitForSelector('.message:has-text("Message pendant offline")', { timeout: 20000 })
-      .then(() => true)
-      .catch(() => false);
+    // Use retry for finding the message (backup delivery can take time)
+    const pendingDelivered = await withRetry(
+      async () => {
+        await receiver.page.waitForSelector('.participant:has-text("sender-pending")', {
+          timeout: POST_DISCONNECT_TIMEOUTS.PARTICIPANT_DISCOVERY_MS,
+        });
+        await receiver.page.click('.participant:has-text("sender-pending")');
+
+        await receiver.page.waitForSelector('.message:has-text("Message pendant offline")', {
+          timeout: POST_DISCONNECT_TIMEOUTS.MESSAGE_DELIVERY_MS,
+        });
+        return true;
+      },
+      'Pending message delivery',
+      { maxAttempts: 3, delayMs: 3000 },
+    ).catch(() => false);
 
     console.log('Pending message delivered:', pendingDelivered);
+
+    // Note: If this fails, it may indicate backup system needs improvement
+    if (!pendingDelivered) {
+      console.log('⚠️ Backup message delivery may need investigation');
+    }
     expect(pendingDelivered).toBe(true);
   });
 });

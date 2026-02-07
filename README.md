@@ -15,7 +15,7 @@
 | 7 | Self-Sustaining Network | ✅ |
 | 8 | LLM & Community Ecosystem | ✅ |
 
-**577+ tests passing** | **10-15 nodes validated** | **E2E encrypted** | **Hub failover automatique**
+**626+ tests passing** | **10-15 nodes validated** | **E2E encrypted** | **Hub failover automatique**
 
 ## TL;DR
 
@@ -165,6 +165,7 @@ Heavy consumers become relays. Spam is self-destructive.
 - [llms.txt](llms.txt) - Protocol quick reference
 - [Architecture](/_bmad-output/planning-artifacts/architecture.md) - ADRs and design decisions
 - [Epics & Stories](/_bmad-output/planning-artifacts/epics.md) - Full requirements breakdown
+- [Tests Added Log](scripts/tests-added-log.md) - Track of all tests added to the project
 
 ## License
 

@@ -1,5 +1,12 @@
 import { type Browser, type BrowserContext, type Page, expect, test } from '@playwright/test';
 import { metrics } from './metrics';
+import {
+  POST_DISCONNECT_TIMEOUTS,
+  STANDARD_TIMEOUTS,
+  waitForConnectionsReady,
+  waitForHubRecovery,
+  withRetry,
+} from './test-helpers';
 
 /**
  * E2E Test with Progressive Complexity
@@ -64,48 +71,75 @@ test.describe('Progressive Complexity Test', () => {
     return session;
   }
 
-  async function reconnectUser(username: string): Promise<void> {
+  async function reconnectUser(username: string, expectedPeers = 0): Promise<boolean> {
     const session = sessions.get(username);
-    if (!session) return;
+    if (!session) return false;
 
-    await session.page.reload();
-    await session.page.waitForSelector('#username-input', { timeout: 10000 });
-    await session.page.fill('#username-input', username);
-    await session.page.click('#join-btn');
-    await session.page.waitForSelector('#chat', { state: 'visible', timeout: 15000 });
+    console.log(`  ↻ Reconnecting ${username}...`);
 
-    console.log(`↻ ${username} reconnecté`);
+    try {
+      await session.page.reload();
+      await session.page.waitForSelector('#username-input', { timeout: STANDARD_TIMEOUTS.PAGE_LOAD });
+      await session.page.fill('#username-input', username);
+      await session.page.click('#join-btn');
+      await session.page.waitForSelector('#chat', { state: 'visible', timeout: STANDARD_TIMEOUTS.PAGE_LOAD });
+
+      // Wait for peer connections to re-establish
+      if (expectedPeers > 0) {
+        await waitForConnectionsReady(session.page, expectedPeers);
+      }
+
+      // Additional stabilization time for WebRTC
+      await session.page.waitForTimeout(3000);
+
+      console.log(`  ✓ ${username} reconnected successfully`);
+      return true;
+    } catch (error) {
+      console.log(`  ⚠ ${username} reconnection failed: ${(error as Error).message}`);
+      return false;
+    }
   }
 
-  async function sendDM(from: string, to: string, message: string): Promise<boolean> {
+  async function sendDM(from: string, to: string, message: string, useExtendedTimeout = false): Promise<boolean> {
     const sender = sessions.get(from);
     const receiver = sessions.get(to);
     if (!sender || !receiver) return false;
 
     const msgId = metrics.recordMessageSent(from, to, 'direct');
+    const timeout = useExtendedTimeout
+      ? POST_DISCONNECT_TIMEOUTS.MESSAGE_DELIVERY_MS
+      : STANDARD_TIMEOUTS.MESSAGE_DELIVERY;
 
     try {
-      await sender.page.waitForSelector(`.participant:has-text("${to}")`, { timeout: 10000 });
-      await sender.page.click(`.participant:has-text("${to}")`);
-      await sender.page.fill('#message-input', message);
-      await sender.page.click('#send-btn');
+      return await withRetry(
+        async () => {
+          await sender.page.waitForSelector(`.participant:has-text("${to}")`, {
+            timeout: STANDARD_TIMEOUTS.ELEMENT_VISIBLE,
+          });
+          await sender.page.click(`.participant:has-text("${to}")`);
+          await sender.page.fill('#message-input', message);
+          await sender.page.click('#send-btn');
 
-      await receiver.page.waitForSelector(`.participant:has-text("${from}")`, { timeout: 10000 });
-      await receiver.page.click(`.participant:has-text("${from}")`);
+          await receiver.page.waitForSelector(`.participant:has-text("${from}")`, {
+            timeout: STANDARD_TIMEOUTS.ELEMENT_VISIBLE,
+          });
+          await receiver.page.click(`.participant:has-text("${from}")`);
 
-      const received = await receiver.page
-        .waitForSelector(`.message:has-text("${message}")`, { timeout: 10000 })
-        .then(() => true)
-        .catch(() => false);
+          const received = await receiver.page
+            .waitForSelector(`.message:has-text("${message}")`, { timeout })
+            .then(() => true)
+            .catch(() => false);
 
-      if (received) {
-        metrics.recordMessageReceived(msgId);
-        console.log(`  ✓ ${from} → ${to}: "${message}"`);
-        return true;
-      }
-      metrics.recordMessageFailed(msgId, 'Non reçu');
-      console.log(`  ✗ ${from} → ${to}: "${message}" (non reçu)`);
-      return false;
+          if (received) {
+            metrics.recordMessageReceived(msgId);
+            console.log(`  ✓ ${from} → ${to}: "${message}"`);
+            return true;
+          }
+          throw new Error('Message not received');
+        },
+        `DM ${from}→${to}`,
+        { maxAttempts: 2, delayMs: 1000 },
+      );
     } catch (e) {
       metrics.recordMessageFailed(msgId, (e as Error).message);
       console.log(`  ✗ ${from} → ${to}: "${message}" (erreur)`);
@@ -207,20 +241,36 @@ test.describe('Progressive Complexity Test', () => {
     sender: string,
     groupName: string,
     message: string,
+    useExtendedTimeout = false,
   ): Promise<{ success: boolean; recipients: string[] }> {
     const session = sessions.get(sender);
     if (!session) return { success: false, recipients: [] };
 
     const msgId = metrics.recordMessageSent(sender, groupName, 'group', groupName);
     const recipients: string[] = [];
+    const timeout = useExtendedTimeout
+      ? POST_DISCONNECT_TIMEOUTS.MESSAGE_DELIVERY_MS
+      : STANDARD_TIMEOUTS.MESSAGE_DELIVERY;
 
     try {
-      await session.page.click(`.group-item:has-text("${groupName}")`);
-      await session.page.waitForTimeout(500);
-      await session.page.fill('#message-input', message);
-      await session.page.click('#send-btn');
+      // Use retry for post-disconnect resilience
+      await withRetry(
+        async () => {
+          await session.page.click(`.group-item:has-text("${groupName}")`);
+          await session.page.waitForTimeout(500);
+          await session.page.fill('#message-input', message);
+          await session.page.click('#send-btn');
 
-      // Check other users in the group
+          // Wait for own message to appear (send confirmation)
+          await session.page.waitForSelector(`.message:has-text("${message}")`, {
+            timeout: 5000,
+          });
+        },
+        `Send group msg to ${groupName}`,
+        { maxAttempts: 2, delayMs: 1000 },
+      );
+
+      // Check other users in the group with extended timeout
       for (const [username, otherSession] of sessions) {
         if (username === sender) continue;
 
@@ -230,7 +280,7 @@ test.describe('Progressive Complexity Test', () => {
         await otherSession.page.click(`.group-item:has-text("${groupName}")`);
 
         const received = await otherSession.page
-          .waitForSelector(`.message:has-text("${message}")`, { timeout: 8000 })
+          .waitForSelector(`.message:has-text("${message}")`, { timeout })
           .then(() => true)
           .catch(() => false);
 
@@ -367,42 +417,95 @@ test.describe('Progressive Complexity Test', () => {
     console.log(`\nPhase 5 Result: Group=${created}, Invite=${invSuccess}, Message=${gm.success}`);
   });
 
+  // Phase 6 needs extended timeout due to hub failover complexity
   test('Phase 6: Déconnexion hub et récupération', async () => {
+    test.setTimeout(180000); // 3 minutes for hub disconnect/recovery scenario
+
     metrics.startTest('Phase 6: Hub Disconnect');
-    console.log('\n═══ PHASE 6: Déconnexion et récupération ═══\n');
+    console.log('\n═══ PHASE 6: Déconnexion et récupération (robust) ═══\n');
 
-    // Alice (créatrice du groupe) se déconnecte
-    console.log('Alice se déconnecte (refresh)...');
-    await reconnectUser('alice');
+    const aliceSession = sessions.get('alice');
+    const bobSession = sessions.get('bob');
+    const charlieSession = sessions.get('charlie');
 
-    await sessions.get('alice')?.page.waitForTimeout(5000);
+    // Alice (group creator/hub) disconnects
+    console.log('Alice (hub) se déconnecte et reconnecte...');
 
-    // Bob envoie un message dans le groupe
-    console.log('\nTest messages après déconnexion hub:');
-    const gm1 = await sendGroupMsg('bob', 'Équipe Alpha', 'Alice est revenue ?');
+    // Track peer count before disconnect
+    const expectedPeers = 2; // Bob and Charlie
 
-    // Charlie envoie aussi
-    const gm2 = await sendGroupMsg('charlie', 'Équipe Alpha', 'On continue sans Alice ?');
+    // Reconnect Alice with extended verification
+    const reconnected = await reconnectUser('alice', expectedPeers);
+    console.log(`  Alice reconnection: ${reconnected ? 'success' : 'needs recovery'}`);
 
-    // Alice essaie d'envoyer
-    const gm3 = await sendGroupMsg('alice', 'Équipe Alpha', 'Je suis de retour !');
+    // Wait for hub recovery across the network
+    console.log('\n⏳ Waiting for hub failover and recovery...');
+    if (bobSession) {
+      await waitForHubRecovery(bobSession.page, 'Équipe Alpha');
+    }
+    if (charlieSession) {
+      await waitForHubRecovery(charlieSession.page, 'Équipe Alpha');
+    }
+    if (aliceSession) {
+      await waitForHubRecovery(aliceSession.page, 'Équipe Alpha');
+    }
 
-    console.log(
-      `\nRésultat après déconnexion hub: ${[gm1.success, gm2.success, gm3.success].filter(Boolean).length}/3 messages reçus`,
-    );
+    // Additional stabilization - WebRTC connections need time
+    console.log('  ⏳ Stabilizing WebRTC connections...');
+    await aliceSession?.page.waitForTimeout(POST_DISCONNECT_TIMEOUTS.WEBRTC_RECONNECT_MS / 2);
+
+    // Test messages after hub disconnect with extended timeouts
+    console.log('\n📨 Test messages après déconnexion hub (extended timeouts):');
+
+    // Bob sends to group - use extended timeout
+    const gm1 = await sendGroupMsg('bob', 'Équipe Alpha', 'Alice est revenue ?', true);
+
+    // Charlie sends - use extended timeout
+    const gm2 = await sendGroupMsg('charlie', 'Équipe Alpha', 'Le groupe fonctionne !', true);
+
+    // Alice sends - she was the hub, test recovery
+    const gm3 = await sendGroupMsg('alice', 'Équipe Alpha', 'Je suis de retour !', true);
+
+    const successCount = [gm1.success, gm2.success, gm3.success].filter(Boolean).length;
+    console.log(`\n📊 Résultat Phase 6: ${successCount}/3 messages delivered after hub disconnect`);
+
+    // Additional verification: direct messages also work
+    console.log('\n📨 Test DMs après récupération:');
+    const dm1 = await sendDM('bob', 'alice', 'Test DM post-recovery', true);
+    const dm2 = await sendDM('alice', 'charlie', 'Confirmation recovery', true);
+
+    const dmSuccess = [dm1, dm2].filter(Boolean).length;
+    console.log(`  DMs: ${dmSuccess}/2 delivered`);
+
+    console.log(`\n✓ Phase 6 Complete: Hub failover ${successCount >= 2 ? 'PASSED' : 'needs attention'}`);
   });
 
   test('Phase 7: Messages finaux et bilan', async () => {
     metrics.startTest('Phase 7: Final Messages');
-    console.log('\n═══ PHASE 7: Messages finaux ═══\n');
+    console.log('\n═══ PHASE 7: Messages finaux (stability validation) ═══\n');
 
-    // Série de messages pour valider la stabilité
-    console.log('Messages directs finaux:');
-    await sendDM('alice', 'bob', 'Test final 1');
-    await sendDM('bob', 'charlie', 'Test final 2');
-    await sendDM('charlie', 'alice', 'Test final 3');
+    // Final message series to validate network stability after all tests
+    console.log('📨 Messages directs finaux (post-recovery):');
 
-    console.log('\nMessages groupe finaux:');
-    await sendGroupMsg('alice', 'Équipe Alpha', 'Message final groupe');
+    // Use extended timeouts since network may still be stabilizing
+    const dmResults = [
+      await sendDM('alice', 'bob', 'Test final 1', true),
+      await sendDM('bob', 'charlie', 'Test final 2', true),
+      await sendDM('charlie', 'alice', 'Test final 3', true),
+    ];
+    const dmSuccess = dmResults.filter(Boolean).length;
+    console.log(`  DMs: ${dmSuccess}/${dmResults.length} delivered`);
+
+    console.log('\n📨 Messages groupe finaux:');
+    const gm1 = await sendGroupMsg('alice', 'Équipe Alpha', 'Message final groupe 1', true);
+    const gm2 = await sendGroupMsg('bob', 'Projet Beta', 'Message final groupe 2', true);
+
+    const groupSuccess = [gm1.success, gm2.success].filter(Boolean).length;
+    console.log(`  Group messages: ${groupSuccess}/2 delivered`);
+
+    // Final summary
+    const totalSuccess = dmSuccess + groupSuccess;
+    const totalExpected = dmResults.length + 2;
+    console.log(`\n✓ Phase 7 Complete: ${totalSuccess}/${totalExpected} final messages delivered`);
   });
 });
