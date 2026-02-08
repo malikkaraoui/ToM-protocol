@@ -36,6 +36,10 @@ Objectif : rendre la messagerie décentralisée aussi « banale » qu’un tuyau
 - [Spécification technique (v0.0.1)](spec-technique.md)
 - [SDK — TomClient](sdk-tomclient.md)
 - [Sécurité & modèle de menace](securite-modele-menace.md)
+- [State machine — delivery & read receipts](state-machine-delivery.md)
+- [Routage & reroute](routage-reroute.md)
+- [Spécification groupes (hub, payloads, failover)](spec-groupes.md)
+- [Troubleshooting (LAN, WebRTC/WS, Safari)](troubleshooting-webrtc-lan-safari.md)
 
 ## Contribuer
 
