@@ -1,0 +1,9 @@
+# GitBook Git Sync configuration
+# This repository contains many internal Markdown files that are not meant to be rendered as docs.
+# We pin the documentation root to the GitBook-ready pack.
+
+root: ./docs/gitbook
+
+structure:
+  readme: home.md
+  summary: SUMMARY.md

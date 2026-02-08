@@ -17,7 +17,6 @@ advancedElicitationTask: '{project-root}/_bmad/core/workflows/advanced-elicitati
 partyModeWorkflow: '{project-root}/_bmad/core/workflows/party-mode/workflow.md'
 
 # Template References
-epicsTemplate: '{workflow_path}/templates/epics-template.md'
 ---
 
 # Step 1: Validate Prerequisites and Extract Requirements
