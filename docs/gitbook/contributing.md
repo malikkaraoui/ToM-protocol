@@ -1,4 +1,4 @@
-Contribuer
+# Contribuer
 
 Modèle micro-session
 
@@ -18,8 +18,8 @@ Règles simples
 - Respecter la direction des dépendances (demo → sdk → core)
 - Garder le protocole invisible côté user
 
-Sources
+## Sources
 
-- Guide complet : ../../CONTRIBUTING.md
-- Backlog prêt : ../../.github/ISSUE_BACKLOG.md
-- Guide LLM : ../../CLAUDE.md
+- Guide complet : https://github.com/malikkaraoui/ToM-protocol/blob/main/CONTRIBUTING.md
+- Backlog prêt : https://github.com/malikkaraoui/ToM-protocol/blob/main/.github/ISSUE_BACKLOG.md
+- Guide LLM : https://github.com/malikkaraoui/ToM-protocol/blob/main/CLAUDE.md

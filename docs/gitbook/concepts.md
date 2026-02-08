@@ -1,23 +1,23 @@
-\# Core Concepts
+# Concepts clés
 
-ToM est une couche de transport. Les applications s’en servent, mais les utilisateurs finaux ne devraient pas “voir” ToM.
+ToM est une couche de transport. Les applications s’en servent, mais les utilisateurs finaux ne devraient pas « voir » ToM.
 
-\{% hint style="info" %\}
-Si tu dois retenir une idée: ToM veut être l’équivalent d’un **tuyau**. Pas une app, pas une plateforme.
-\{% endhint %\}
+{% hint style="info" %}
+Si tu ne retiens qu’une idée : ToM veut être l’équivalent d’un **tuyau**. Pas une app, pas une plateforme.
+{% endhint %}
 
-## No central server
+## Pas de serveur central
 
 Il n’y a pas de serveur applicatif qui route et stocke les messages.
 Un serveur de signaling existe aujourd’hui uniquement pour le bootstrap WebRTC, et il est marqué comme temporaire.
 
-## Relay
+## Relais
 
 Un relais est un nœud qui transmet des messages pour d’autres.
 Le relais ne doit pas stocker le contenu.
 Le relais est un mécanisme de contribution au réseau, pas une optimisation optionnelle.
 
-## ACK
+## ACK (accusé de réception)
 
 Un message est considéré comme délivré si et seulement si le destinataire final émet un ACK.
 C’est une règle de définition (pas une métrique UI).
@@ -33,12 +33,12 @@ Le protocole promet un effort maximal borné dans le temps, pas une conservation
 Les rôles (client, relay, etc.) peuvent évoluer.
 L’idée n’est pas de “configurer un rôle”, mais de laisser le réseau attribuer du travail.
 
-## E2E
+## Chiffrement E2E
 
 Le contenu des messages est chiffré bout-en-bout.
 Les relais ne peuvent pas lire le contenu, seulement le routage.
 
 ## Références
 
-- Décisions verrouillées : ../../_bmad-output/planning-artifacts/design-decisions.md
-- Architecture / ADRs : ../../_bmad-output/planning-artifacts/architecture.md
+- Décisions verrouillées : https://github.com/malikkaraoui/ToM-protocol/blob/main/_bmad-output/planning-artifacts/design-decisions.md
+- Architecture / ADRs : https://github.com/malikkaraoui/ToM-protocol/blob/main/_bmad-output/planning-artifacts/architecture.md
