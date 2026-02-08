@@ -420,6 +420,142 @@ describe('RoleManager', () => {
     });
   });
 
+  describe('edge cases', () => {
+    it('should handle single-peer network (self only)', () => {
+      // Bind with selfNodeId but no peers
+      manager.bindTopology(topology, 'self-node');
+
+      const roles = manager.evaluateNode('self-node', topology);
+
+      // With 1 node: ceil(1/3) = 1 relay, self becomes relay
+      expect(roles).toEqual(['client', 'relay']);
+    });
+
+    it('should handle role transition cycles (relay → client → relay)', () => {
+      // Start with a larger network where node-z is not a relay
+      for (let i = 0; i < 6; i++) {
+        topology.addPeer(makePeer(`node-${String.fromCharCode(97 + i)}`)); // node-a to node-f
+      }
+
+      // Initial: with 6 nodes, ceil(6/3)=2 relays → node-a, node-b are relays
+      manager.evaluateNode('node-f', topology);
+      expect(manager.getCurrentRoles('node-f')).toEqual(['client']); // Not a relay
+
+      // Remove some low-lexicographic nodes
+      topology.removePeer('node-a');
+      topology.removePeer('node-b');
+      topology.removePeer('node-c');
+
+      // Now with 3 nodes (node-d, node-e, node-f): ceil(3/3)=1 relay → node-d is relay
+      manager.evaluateNode('node-f', topology);
+      expect(manager.getCurrentRoles('node-f')).toEqual(['client']); // Still not a relay
+
+      // Remove more to make node-f become relay
+      topology.removePeer('node-d');
+      topology.removePeer('node-e');
+
+      // Now only node-f: ceil(1/3)=1 relay → node-f becomes relay
+      manager.evaluateNode('node-f', topology);
+      expect(manager.getCurrentRoles('node-f')).toEqual(['client', 'relay']);
+    });
+
+    it('should handle metrics with 0 contribution score', () => {
+      manager.updateNodeMetrics('node-1', { bandwidthScore: 50, contributionScore: 0 });
+      const score = manager.calculateBackupScore('node-1');
+
+      // timeScore=0, bandwidth=50, contribution=0
+      // Score = 0*0.3 + 50*0.4 + 0*0.3 = 20
+      expect(score).toBe(20);
+    });
+
+    it('should handle metrics with maximum values', () => {
+      manager.recordNodeOnline('node-1');
+      vi.advanceTimersByTime(2 * 60 * 60 * 1000); // 2 hours (exceeds max)
+
+      manager.updateNodeMetrics('node-1', { bandwidthScore: 100, contributionScore: 100 });
+      const score = manager.calculateBackupScore('node-1');
+
+      // timeScore=100 (capped), bandwidth=100, contribution=100
+      // Score = 100*0.3 + 100*0.4 + 100*0.3 = 100
+      expect(score).toBe(100);
+    });
+
+    it('should handle large network scale (50+ peers)', () => {
+      // Add 50 peers
+      for (let i = 0; i < 50; i++) {
+        topology.addPeer(makePeer(`node-${i.toString().padStart(3, '0')}`));
+      }
+
+      const result = manager.reassignRoles(topology);
+
+      // With 50 nodes: ceil(50/3) = 17 relays
+      expect(result.size).toBe(50);
+
+      const relayCount = Array.from(result.values()).filter((roles) => roles.includes('relay')).length;
+      expect(relayCount).toBe(17);
+    });
+
+    it('should handle reevaluation timer idempotency (start/stop cycles)', () => {
+      manager.start();
+      manager.start(); // Second start should be no-op
+      manager.stop();
+      manager.start();
+      manager.stop();
+      manager.stop(); // Second stop should be no-op
+
+      // No errors should occur
+      expect(true).toBe(true);
+    });
+
+    it('should handle empty topology', () => {
+      const roles = manager.evaluateNode('node-1', topology);
+      // No peers, just the unknown node-1
+      expect(roles).toEqual(['client']);
+    });
+
+    it('should handle nodes with no startTime recorded', () => {
+      // Get metrics without recording online first
+      const metrics = manager.getNodeMetrics('unknown-node');
+
+      expect(metrics.timeOnlineMs).toBe(0);
+      expect(metrics.bandwidthScore).toBe(50); // Default
+      expect(metrics.contributionScore).toBe(0); // Default
+    });
+
+    it('should handle backup evaluation with no eligible nodes', () => {
+      topology.addPeer(makePeer('node-1'));
+      topology.addPeer(makePeer('node-2'));
+
+      // Don't record online times - nodes won't be eligible
+      manager.evaluateNode('node-1', topology);
+      manager.evaluateNode('node-2', topology);
+
+      const isBackup = manager.evaluateBackupRole('node-1', topology);
+      expect(isBackup).toBe(false);
+    });
+
+    it('should use lexicographic tiebreaker for backup score ties', () => {
+      topology.addPeer(makePeer('node-a'));
+      topology.addPeer(makePeer('node-b'));
+
+      // Same metrics = same score
+      for (const nodeId of ['node-a', 'node-b']) {
+        manager.recordNodeOnline(nodeId);
+        manager.updateNodeMetrics(nodeId, { bandwidthScore: 70, contributionScore: 50 });
+        manager.evaluateNode(nodeId, topology);
+      }
+
+      vi.advanceTimersByTime(10 * 60 * 1000);
+
+      // With 2 nodes, 1 backup needed. node-a wins tiebreaker
+      manager.reassignBackupRoles(topology);
+
+      // Due to same scores, lexicographic order determines winner
+      // node-a comes before node-b
+      expect(manager.isBackupNode('node-a')).toBe(true);
+    });
+  });
+
   describe('security fixes', () => {
     it('should purge nodeMetrics when peer leaves topology', () => {
       topology.addPeer(makePeer('node-1'));

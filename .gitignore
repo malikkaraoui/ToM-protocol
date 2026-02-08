@@ -4,3 +4,6 @@ dist/
 .turbo/
 .DS_Store
 *.local
+
+# Secrets
+.env

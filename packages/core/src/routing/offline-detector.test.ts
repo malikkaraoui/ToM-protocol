@@ -171,6 +171,138 @@ describe('OfflineDetector', () => {
     });
   });
 
+  describe('edge cases', () => {
+    it('should handle debounce = 0ms (immediate transitions)', () => {
+      const zeroDebounceDetector = new OfflineDetector(events, 0);
+
+      zeroDebounceDetector.handlePeerDeparted('peer-1');
+      zeroDebounceDetector.recordPeerActivity('peer-1');
+
+      // With 0ms debounce, should transition immediately after timer executes
+      vi.advanceTimersByTime(0);
+
+      expect(zeroDebounceDetector.isOffline('peer-1')).toBe(false);
+      expect(events.onPeerOnline).toHaveBeenCalledWith('peer-1');
+
+      zeroDebounceDetector.destroy();
+    });
+
+    it('should handle very large debounce values', () => {
+      const longDebounceDetector = new OfflineDetector(events, 60000); // 1 minute
+
+      longDebounceDetector.handlePeerDeparted('peer-1');
+      longDebounceDetector.recordPeerActivity('peer-1');
+
+      // Advance 30 seconds - still offline
+      vi.advanceTimersByTime(30000);
+      expect(longDebounceDetector.isOffline('peer-1')).toBe(true);
+      expect(events.onPeerOnline).not.toHaveBeenCalled();
+
+      // Advance remaining 30 seconds - now online
+      vi.advanceTimersByTime(30000);
+      expect(longDebounceDetector.isOffline('peer-1')).toBe(false);
+      expect(events.onPeerOnline).toHaveBeenCalled();
+
+      longDebounceDetector.destroy();
+    });
+
+    it('should handle activity then immediate departure (same tick)', () => {
+      const nodeId = 'peer-race';
+
+      // Record activity and immediate departure
+      detector.recordPeerActivity(nodeId);
+      detector.handlePeerDeparted(nodeId);
+
+      // Should be offline since departure happened after activity
+      expect(detector.isOffline(nodeId)).toBe(true);
+      expect(events.onPeerOffline).toHaveBeenCalledWith(nodeId, expect.any(Number));
+    });
+
+    it('should handle multiple rapid cycles correctly', () => {
+      const nodeId = 'peer-flaky';
+
+      // Cycle 1: offline -> activity -> abort
+      detector.handlePeerDeparted(nodeId);
+      detector.recordPeerActivity(nodeId);
+      vi.advanceTimersByTime(50);
+      detector.handlePeerDeparted(nodeId);
+
+      // Cycle 2: activity -> abort
+      detector.recordPeerActivity(nodeId);
+      vi.advanceTimersByTime(50);
+      detector.handlePeerDeparted(nodeId);
+
+      // Cycle 3: activity -> complete
+      detector.recordPeerActivity(nodeId);
+      vi.advanceTimersByTime(150);
+
+      // Should finally be online after completing a full debounce
+      expect(detector.isOffline(nodeId)).toBe(false);
+      expect(events.onPeerOnline).toHaveBeenCalledTimes(1);
+    });
+
+    it('should return correct offline peers during debounce transition', () => {
+      // Mark two peers offline
+      detector.handlePeerDeparted('peer-1');
+      detector.handlePeerDeparted('peer-2');
+
+      // Start reconnecting peer-1
+      detector.recordPeerActivity('peer-1');
+      vi.advanceTimersByTime(50); // In the middle of debounce
+
+      // peer-1 is still in offlinePeers because debounce hasn't completed
+      const offlinePeers = detector.getOfflinePeers();
+      expect(offlinePeers.length).toBe(2);
+      expect(offlinePeers.map((p) => p.nodeId)).toContain('peer-1');
+      expect(offlinePeers.map((p) => p.nodeId)).toContain('peer-2');
+
+      // Complete the debounce
+      vi.advanceTimersByTime(100);
+
+      // Now peer-1 should be removed
+      const offlinePeersAfter = detector.getOfflinePeers();
+      expect(offlinePeersAfter.length).toBe(1);
+      expect(offlinePeersAfter[0].nodeId).toBe('peer-2');
+    });
+
+    it('should handle peer with no prior activity going offline', () => {
+      // Peer goes offline without any prior recordPeerActivity
+      detector.handlePeerDeparted('never-seen');
+
+      expect(detector.isOffline('never-seen')).toBe(true);
+      expect(events.onPeerOffline).toHaveBeenCalledWith('never-seen', expect.any(Number));
+
+      // lastSeen should be set to departure time
+      const info = detector.getOfflinePeerInfo('never-seen');
+      expect(info).toBeDefined();
+      expect(info?.lastSeen).toBe(info?.detectedAt);
+    });
+
+    it('should not emit onPeerOnline for peer that was never offline', () => {
+      detector.recordPeerActivity('healthy-peer');
+      vi.advanceTimersByTime(200);
+
+      // No events should be emitted for a healthy peer
+      expect(events.onPeerOnline).not.toHaveBeenCalled();
+      expect(events.onPeerOffline).not.toHaveBeenCalled();
+    });
+
+    it('should handle destroy with many pending timers', () => {
+      // Create many pending transitions
+      for (let i = 0; i < 100; i++) {
+        detector.handlePeerDeparted(`peer-${i}`);
+        detector.recordPeerActivity(`peer-${i}`);
+      }
+
+      // Should not throw
+      expect(() => detector.destroy()).not.toThrow();
+
+      // Advance time - no events should fire
+      vi.advanceTimersByTime(500);
+      expect(events.onPeerOnline).not.toHaveBeenCalled();
+    });
+  });
+
   describe('destroy', () => {
     it('should clear all state and timers', () => {
       detector.recordPeerActivity('peer-1');

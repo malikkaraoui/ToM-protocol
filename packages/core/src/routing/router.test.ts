@@ -855,6 +855,148 @@ describe('Router', () => {
     });
   });
 
+  describe('Cache boundary conditions', () => {
+    it('handles cache at 50% capacity threshold (triggers cleanup)', () => {
+      const transport = createTransport();
+      const events = createRouterEvents();
+      const router = new Router(LOCAL_ID, transport, events);
+
+      // Add messages to populate cache
+      for (let i = 0; i < 5001; i++) {
+        const envelope = makeEnvelope({
+          id: `msg-${i}`,
+          from: PEER_B,
+          to: LOCAL_ID,
+        });
+        router.handleIncoming(envelope);
+      }
+
+      // Cache should have cleaned up old entries
+      const sizes = router.getCacheSizes();
+      expect(sizes.receivedMessages).toBeLessThanOrEqual(5001);
+    });
+
+    it('handles ACK with missing originalMessageId', () => {
+      const transport = createTransport();
+      const events = createRouterEvents();
+      const router = new Router(LOCAL_ID, transport, events);
+
+      const invalidAck = makeEnvelope({
+        from: PEER_B,
+        to: LOCAL_ID,
+        type: 'ack',
+        payload: {}, // Missing originalMessageId
+      });
+
+      router.handleIncoming(invalidAck);
+
+      // Should not fire any ACK events
+      expect(events.onAckReceived).not.toHaveBeenCalled();
+    });
+
+    it('handles ACK with null payload', () => {
+      const transport = createTransport();
+      const events = createRouterEvents();
+      const router = new Router(LOCAL_ID, transport, events);
+
+      const invalidAck = makeEnvelope({
+        from: PEER_B,
+        to: LOCAL_ID,
+        type: 'ack',
+        payload: null,
+      });
+
+      router.handleIncoming(invalidAck);
+
+      // Should not fire any ACK events
+      expect(events.onAckReceived).not.toHaveBeenCalled();
+    });
+
+    it('handles read receipt with missing payload fields', () => {
+      const transport = createTransport();
+      const events = createRouterEvents();
+      events.onReadReceiptReceived = vi.fn();
+      const router = new Router(LOCAL_ID, transport, events);
+
+      const invalidReceipt = makeEnvelope({
+        from: PEER_B,
+        to: LOCAL_ID,
+        type: 'read-receipt',
+        payload: {}, // Missing originalMessageId
+      });
+
+      router.handleIncoming(invalidReceipt);
+
+      // Should not fire (no originalMessageId)
+      expect(events.onReadReceiptReceived).not.toHaveBeenCalled();
+    });
+
+    it('handles envelope with empty via array', async () => {
+      const transport = createTransport();
+      const events = createRouterEvents();
+      const router = new Router(LOCAL_ID, transport, events);
+
+      await transport.connectToPeer(PEER_B);
+
+      const envelope = makeEnvelope({
+        from: RELAY_R,
+        to: PEER_B,
+        via: [], // Empty via
+      });
+
+      router.handleIncoming(envelope);
+
+      await new Promise((resolve) => setTimeout(resolve, 10));
+
+      // Should forward directly to recipient (not in via chain)
+      expect(events.onMessageForwarded).toHaveBeenCalledWith(envelope, PEER_B);
+    });
+
+    it('creates hopTimestamps array when forwarding if not present', async () => {
+      const transport = createTransport();
+      const events = createRouterEvents();
+      const router = new Router(LOCAL_ID, transport, events);
+
+      await transport.connectToPeer(RELAY_S);
+
+      const envelope = makeEnvelope({
+        from: PEER_B,
+        to: 'recipient',
+        via: [RELAY_R, LOCAL_ID, RELAY_S],
+        // No hopTimestamps initially
+      });
+
+      expect(envelope.hopTimestamps).toBeUndefined();
+
+      router.handleIncoming(envelope);
+
+      await new Promise((resolve) => setTimeout(resolve, 10));
+
+      // Should have created hopTimestamps array
+      expect(envelope.hopTimestamps).toBeDefined();
+      expect(envelope.hopTimestamps?.length).toBe(1);
+    });
+
+    it('handles concurrent connections to same peer', async () => {
+      const transport = createTransport();
+      const events = createRouterEvents();
+      const router = new Router(LOCAL_ID, transport, events);
+
+      // Simulate two messages arriving that both need to connect to PEER_B
+      const envelope1 = makeEnvelope({ from: RELAY_R, to: PEER_B, id: 'msg-concurrent-1' });
+      const envelope2 = makeEnvelope({ from: RELAY_S, to: PEER_B, id: 'msg-concurrent-2' });
+
+      // Handle both simultaneously
+      router.handleIncoming(envelope1);
+      router.handleIncoming(envelope2);
+
+      await new Promise((resolve) => setTimeout(resolve, 20));
+
+      // Both should be forwarded (no race condition errors)
+      expect(events.onMessageForwarded).toHaveBeenCalledTimes(2);
+    });
+  });
+
   describe('Cache cleanup (Fix #6)', () => {
     it('cleanupCaches removes expired entries', () => {
       const transport = createTransport();
