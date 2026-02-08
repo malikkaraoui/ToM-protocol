@@ -12,6 +12,12 @@
 * [Décisions verrouillées (7 locks)](design-decisions.md)
 * [Serveur de signaling (WebSocket)](signaling-server.md)
 
+## Technique
+
+* [Spécification technique (v0.0.1)](spec-technique.md)
+* [SDK — TomClient](sdk-tomclient.md)
+* [Sécurité & modèle de menace](securite-modele-menace.md)
+
 ## Ressources
 
 * [Contribuer](contributing.md)

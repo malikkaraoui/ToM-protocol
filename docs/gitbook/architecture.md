@@ -24,6 +24,12 @@ Le repo est structuré comme un protocole, pas comme une application.
 - PRD : https://github.com/malikkaraoui/ToM-protocol/blob/main/_bmad-output/planning-artifacts/prd.md
 - Guide “comment naviguer le code” : https://github.com/malikkaraoui/ToM-protocol/blob/main/CLAUDE.md
 
+## Pour les développeurs (détails techniques)
+
+- [Spécification technique (v0.0.1)](spec-technique.md)
+- [SDK — TomClient](sdk-tomclient.md)
+- [Sécurité & modèle de menace](securite-modele-menace.md)
+
 ## État d’avancement
 
 Le sprint-status indique Epics 1 à 8 comme livrés.
