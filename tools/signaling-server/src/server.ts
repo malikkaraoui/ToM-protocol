@@ -1,5 +1,6 @@
 // TEMPORARY: Bootstrap signaling server (ADR-002) — marked for elimination
 
+import http from 'node:http';
 import { WebSocketServer } from 'ws';
 import type WebSocket from 'ws';
 import type { Participant, SignalingMessage } from './index.js';
@@ -13,8 +14,34 @@ interface ConnectedNode {
   encryptionKey?: string;
 }
 
-export function createSignalingServer(port: number): { wss: WebSocketServer; close: () => void } {
-  const wss = new WebSocketServer({ port });
+export function createSignalingServer(port: number): {
+  wss: WebSocketServer;
+  close: () => void;
+  listening: Promise<void>;
+} {
+  const server = http.createServer((req, res) => {
+    // Minimal HTTP surface for health checks / readiness probes.
+    // (The signaling protocol itself is WebSocket-only.)
+    if (req.method === 'GET' && req.url?.split('?')[0] === '/health') {
+      res.statusCode = 200;
+      res.setHeader('content-type', 'application/json; charset=utf-8');
+      res.end(JSON.stringify({ ok: true }));
+      return;
+    }
+
+    res.statusCode = 404;
+    res.setHeader('content-type', 'application/json; charset=utf-8');
+    res.end(JSON.stringify({ error: 'not found' }));
+  });
+
+  const listening = new Promise<void>((resolve, reject) => {
+    server.once('listening', () => resolve());
+    server.once('error', (err) => reject(err));
+  });
+
+  server.listen(port);
+
+  const wss = new WebSocketServer({ server });
   const nodes = new Map<string, ConnectedNode>();
 
   function broadcastParticipants(): void {
@@ -149,12 +176,14 @@ export function createSignalingServer(port: number): { wss: WebSocketServer; clo
 
   return {
     wss,
+    listening,
     close: () => {
       for (const node of nodes.values()) {
         node.ws.close();
       }
       nodes.clear();
       wss.close();
+      server.close();
     },
   };
 }
