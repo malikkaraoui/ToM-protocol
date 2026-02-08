@@ -72,9 +72,13 @@ export default defineConfig({
 
   // Local dev server configuration
   webServer: {
-    command: 'pnpm --filter demo dev',
+    // E2E tests require BOTH the demo (5173) and the signaling server (3001).
+    // Start the full local demo stack so the UI can transition from #login → #chat.
+    command: './scripts/start-demo.sh',
     url: 'http://localhost:5173',
-    reuseExistingServer: !process.env.CI,
+    // Keep deterministic environment even on local runs.
+    // start-demo.sh is idempotent and will reuse running ports if already up.
+    reuseExistingServer: false,
     timeout: 120000,
     cwd: '../../', // Root of monorepo
   },
