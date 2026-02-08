@@ -308,7 +308,7 @@ console.log(pathInfo.hopCount, pathInfo.relayLatencies);
 
 ## Network Stats
 
-- **Tests**: 568 passing
+- **Tests**: 663 passing
 - **Packages**: 4 (core, sdk, demo, signaling-server)
 - **Target Scale**: 10-15 simultaneous nodes (alpha)
 

@@ -5,6 +5,65 @@ Updated automatically when tests are added.
 
 ---
 
+## Session 2026-02-08 (Foundation Hardening)
+
+**Before:** 626 tests
+**After:** 663 tests
+**Added:** 37 tests
+
+### Crypto Secure Random (22 tests)
+
+File: `packages/core/src/crypto/secure-random.test.ts`
+
+| # | Test Suite | Test Name |
+|---|------------|-----------|
+| 1 | secureRandomBytes | should generate bytes of specified length |
+| 2 | secureRandomBytes | should generate different bytes on each call |
+| 3 | secureRandomBytes | should handle zero length |
+| 4 | secureRandomBytes | should handle large lengths |
+| 5 | secureRandomHex | should generate hex string of specified length |
+| 6 | secureRandomHex | should generate different hex strings on each call |
+| 7 | secureRandomHex | should handle odd lengths |
+| 8 | secureRandomHex | should produce valid hex characters only |
+| 9 | secureRandomUUID | should generate valid UUID v4 format |
+| 10 | secureRandomUUID | should generate different UUIDs on each call |
+| 11 | secureRandomUUID | should have version 4 indicator |
+| 12 | secureRandomUUID | should have correct variant bits |
+| 13 | secureRandomUUID | should generate valid UUIDs consistently |
+| 14 | secureId | should generate ID with correct prefix |
+| 15 | secureId | should include timestamp component |
+| 16 | secureId | should include random hex suffix |
+| 17 | secureId | should use default random length of 8 |
+| 18 | secureId | should generate different IDs even with same prefix |
+| 19 | secureId | should respect custom random length |
+| 20 | secureId | should handle various prefix formats |
+| 21 | entropy quality | should produce evenly distributed bytes |
+| 22 | entropy quality | should not produce repeating patterns |
+
+### Identity Storage (15 tests)
+
+File: `packages/core/src/identity/storage.test.ts`
+
+| # | Test Suite | Test Name |
+|---|------------|-----------|
+| 1 | MemoryStorage | should return null when no identity stored |
+| 2 | MemoryStorage | should save and load identity correctly |
+| 3 | MemoryStorage | should overwrite previous identity on save |
+| 4 | MemoryStorage | should preserve identity bytes exactly |
+| 5 | MemoryStorage | should handle empty keys |
+| 6 | LocalStorageAdapter | should return null when localStorage is empty |
+| 7 | LocalStorageAdapter | should save identity to localStorage |
+| 8 | LocalStorageAdapter | should load identity from localStorage |
+| 9 | LocalStorageAdapter | should round-trip identity correctly |
+| 10 | FileStorageAdapter | should construct with default path |
+| 11 | FileStorageAdapter | should construct with custom path |
+| 12 | FileStorageAdapter | should return null when file does not exist |
+| 13 | hex conversion | should handle all byte values |
+| 14 | hex conversion | should preserve leading zeros |
+| 15 | hex conversion | should handle maximum byte value |
+
+---
+
 ## Session 2026-02-07 (Retrospective Actions)
 
 **Before:** 577 tests
@@ -125,5 +184,7 @@ Files:
 | 2026-02-07 | Action 2: Robust Invitations | 14 | 577 |
 | 2026-02-07 | Action 3: Reactive UI & Hooks | 25 | 602 |
 | 2026-02-07 | Action 1: Hub Failover | 24 | 626 |
+| 2026-02-08 | Crypto Secure Random | 22 | 648 |
+| 2026-02-08 | Identity Storage | 15 | 663 |
 
-**Current Total:** 626 tests
+**Current Total:** 663 tests
