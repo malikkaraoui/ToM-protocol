@@ -8,8 +8,54 @@ Updated automatically when tests are added.
 ## Session 2026-02-08 (Foundation Hardening)
 
 **Before:** 626 tests
-**After:** 663 tests
-**Added:** 37 tests
+**After:** 688 tests
+**Added:** 62 tests
+
+### RoleManager Edge Cases (10 tests)
+
+File: `packages/core/src/roles/role-manager.test.ts`
+
+| # | Test Suite | Test Name |
+|---|------------|-----------|
+| 1 | edge cases | should handle single-peer network (self only) |
+| 2 | edge cases | should handle role transition cycles (relay → client → relay) |
+| 3 | edge cases | should handle metrics with 0 contribution score |
+| 4 | edge cases | should handle metrics with maximum values |
+| 5 | edge cases | should handle large network scale (50+ peers) |
+| 6 | edge cases | should handle reevaluation timer idempotency (start/stop cycles) |
+| 7 | edge cases | should handle empty topology |
+| 8 | edge cases | should handle nodes with no startTime recorded |
+| 9 | edge cases | should handle backup evaluation with no eligible nodes |
+| 10 | edge cases | should use lexicographic tiebreaker for backup score ties |
+
+### Router Cache Boundaries (7 tests)
+
+File: `packages/core/src/routing/router.test.ts`
+
+| # | Test Suite | Test Name |
+|---|------------|-----------|
+| 1 | Cache boundary conditions | handles cache at 50% capacity threshold (triggers cleanup) |
+| 2 | Cache boundary conditions | handles ACK with missing originalMessageId |
+| 3 | Cache boundary conditions | handles ACK with null payload |
+| 4 | Cache boundary conditions | handles read receipt with missing payload fields |
+| 5 | Cache boundary conditions | handles envelope with empty via array |
+| 6 | Cache boundary conditions | creates hopTimestamps array when forwarding if not present |
+| 7 | Cache boundary conditions | handles concurrent connections to same peer |
+
+### OfflineDetector Edge Cases (8 tests)
+
+File: `packages/core/src/routing/offline-detector.test.ts`
+
+| # | Test Suite | Test Name |
+|---|------------|-----------|
+| 1 | edge cases | should handle debounce = 0ms (immediate transitions) |
+| 2 | edge cases | should handle very large debounce values |
+| 3 | edge cases | should handle activity then immediate departure (same tick) |
+| 4 | edge cases | should handle multiple rapid cycles correctly |
+| 5 | edge cases | should return correct offline peers during debounce transition |
+| 6 | edge cases | should handle peer with no prior activity going offline |
+| 7 | edge cases | should not emit onPeerOnline for peer that was never offline |
+| 8 | edge cases | should handle destroy with many pending timers |
 
 ### Crypto Secure Random (22 tests)
 
@@ -186,5 +232,8 @@ Files:
 | 2026-02-07 | Action 1: Hub Failover | 24 | 626 |
 | 2026-02-08 | Crypto Secure Random | 22 | 648 |
 | 2026-02-08 | Identity Storage | 15 | 663 |
+| 2026-02-08 | RoleManager Edge Cases | 10 | 673 |
+| 2026-02-08 | Router Cache Boundaries | 7 | 680 |
+| 2026-02-08 | OfflineDetector Edge Cases | 8 | 688 |
 
-**Current Total:** 663 tests
+**Current Total:** 688 tests
