@@ -1,0 +1,15 @@
+Table des matières
+
+- Accueil (home.md)
+- Démarrer (getting-started.md)
+- Concepts (concepts.md)
+- MCP (docs publiées) (mcp-published-docs.md)
+- Signaling server (WebSocket) (signaling-server.md)
+- Architecture (architecture.md)
+- Décisions verrouillées (design-decisions.md)
+- API Reference (OpenAPI) (api-reference.md)
+- Contribuer (contributing.md)
+- Issues disponibles (issues-backlog.md)
+- Whitepaper v1 (whitepaper-v1.md)
+- Whitepaper v2 (plan) (whitepaper-v2.md)
+- Changelog (changelog.md)

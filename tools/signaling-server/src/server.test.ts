@@ -40,11 +40,13 @@ function send(ws: WebSocket, msg: SignalingMessage): void {
 
 describe('signaling server', () => {
   let close: () => void;
+  let listening: Promise<void>;
   const clients: WebSocket[] = [];
 
   beforeEach(() => {
     const server = createSignalingServer(PORT);
     close = server.close;
+    listening = server.listening;
   });
 
   afterEach(() => {
@@ -56,6 +58,7 @@ describe('signaling server', () => {
   });
 
   it('registers a node and broadcasts participant list', async () => {
+    await listening;
     const ws = await connectClient();
     clients.push(ws);
 
@@ -69,6 +72,7 @@ describe('signaling server', () => {
   });
 
   it('broadcasts updated list when second node joins', async () => {
+    await listening;
     const ws1 = await connectClient();
     const ws2 = await connectClient();
     clients.push(ws1, ws2);
@@ -86,6 +90,7 @@ describe('signaling server', () => {
   });
 
   it('broadcasts updated list when a node disconnects', async () => {
+    await listening;
     const ws1 = await connectClient();
     const ws2 = await connectClient();
     clients.push(ws1, ws2);
@@ -105,6 +110,7 @@ describe('signaling server', () => {
   });
 
   it('relays signal messages to target node', async () => {
+    await listening;
     const ws1 = await connectClient();
     const ws2 = await connectClient();
     clients.push(ws1, ws2);
@@ -125,6 +131,7 @@ describe('signaling server', () => {
   });
 
   it('returns error for signal to unknown peer', async () => {
+    await listening;
     const ws1 = await connectClient();
     clients.push(ws1);
 
@@ -140,6 +147,7 @@ describe('signaling server', () => {
   });
 
   it('returns error for invalid JSON', async () => {
+    await listening;
     const ws = await connectClient();
     clients.push(ws);
 
@@ -152,6 +160,7 @@ describe('signaling server', () => {
   });
 
   it('broadcasts presence join and leave events', async () => {
+    await listening;
     const ws1 = await connectClient();
     const ws2 = await connectClient();
     clients.push(ws1, ws2);
@@ -176,6 +185,7 @@ describe('signaling server', () => {
   });
 
   it('broadcasts heartbeat to other nodes', async () => {
+    await listening;
     const ws1 = await connectClient();
     const ws2 = await connectClient();
     clients.push(ws1, ws2);
@@ -194,6 +204,7 @@ describe('signaling server', () => {
   });
 
   it('broadcasts role-assign to all nodes', async () => {
+    await listening;
     const ws1 = await connectClient();
     const ws2 = await connectClient();
     clients.push(ws1, ws2);
