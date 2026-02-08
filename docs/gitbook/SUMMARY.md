@@ -1,29 +1,24 @@
-# Table of contents
+# Table des matières
 
-## Getting Started
+## Démarrer
 
-* [Home](README.md)
-* [Quick Start](getting-started.md)
-* [Core Concepts](concepts.md)
+* [Accueil](README.md)
+* [Démarrage rapide](getting-started.md)
+* [Concepts clés](concepts.md)
 
 ## Architecture
 
-* [Overview](architecture.md)
-* [Design Decisions](design-decisions.md)
-* [Signaling Server](signaling-server.md)
+* [Vue d’ensemble](architecture.md)
+* [Décisions verrouillées (7 locks)](design-decisions.md)
+* [Serveur de signaling (WebSocket)](signaling-server.md)
 
-## API Reference
+## Ressources
 
-* [OpenAPI](api-reference.md)
-* [MCP Server](mcp-published-docs.md)
-
-## Resources
-
-* [Contributing](contributing.md)
-* [Issues Backlog](issues-backlog.md)
+* [Contribuer](contributing.md)
+* [Backlog d’issues](issues-backlog.md)
 * [Changelog](changelog.md)
 
-## Whitepaper
+## Livre blanc
 
 * [Version 1](whitepaper-v1.md)
-* [Version 2 (Draft)](whitepaper-v2.md)
+* [Version 2 (brouillon)](whitepaper-v2.md)

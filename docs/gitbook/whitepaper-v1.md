@@ -1,11 +1,11 @@
-Whitepaper v1
+# Livre blanc v1
 
 Le whitepaper v1 pose la vision : ToM comme couche de transport universelle, sans serveur central, avec rôles dynamiques et purge agressive de l’historique.
 
-Source
+## Source
 
-- Fichier : ../../tom-whitepaper-v1.md
+- Fichier : https://github.com/malikkaraoui/ToM-protocol/blob/main/tom-whitepaper-v1.md
 
-Note
+## Note
 
 Le v1 est la base. Le v2 devrait être plus “preuve-driven” : ce que le code prouve déjà, ce qui reste ouvert, et ce qui est verrouillé (les 7 locks).

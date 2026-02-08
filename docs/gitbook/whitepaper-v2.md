@@ -1,11 +1,11 @@
-Whitepaper v2 (plan)
+# Livre blanc v2 (plan)
 
-Intention
+## Intention
 
 Le whitepaper v2 ne doit pas être une promesse marketing.
 Il doit être un document de cadrage : invariants, preuves, zones ouvertes, et roadmap de transition (bootstrap → autonomie).
 
-Structure proposée
+## Structure proposée
 
 1) Ce qui est vrai maintenant (preuves)
 - Ce que la démo et le code valident déjà : relay, multi-relay, ACK, rerouting, E2E, discovery, subnets, failover
@@ -22,8 +22,8 @@ Structure proposée
 4) Roadmap de suppression du bootstrap
 - Étapes concrètes et critères de validation
 
-Sources à intégrer
+## Sources à intégrer
 
-- Décisions verrouillées : ../../_bmad-output/planning-artifacts/design-decisions.md
-- Architecture (ADR-002) : ../../_bmad-output/planning-artifacts/architecture.md
-- Rétro consolidation : ../../_bmad-output/implementation-artifacts/epic-4-8-retro-2026-02-07.md
+- Décisions verrouillées : https://github.com/malikkaraoui/ToM-protocol/blob/main/_bmad-output/planning-artifacts/design-decisions.md
+- Architecture (ADR-002) : https://github.com/malikkaraoui/ToM-protocol/blob/main/_bmad-output/planning-artifacts/architecture.md
+- Rétro consolidation : https://github.com/malikkaraoui/ToM-protocol/blob/main/_bmad-output/implementation-artifacts/epic-4-8-retro-2026-02-07.md

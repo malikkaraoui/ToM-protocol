@@ -1,50 +1,43 @@
-# The Open Messaging (ToM)
+# ToM — The Open Messaging
 
-**ToM** is a decentralized P2P transport protocol where every device is both client and relay. Not a blockchain - a transport layer.
+ToM est un protocole de transport P2P (pas une blockchain) : chaque appareil est à la fois **client** et **relais**.
 
-## Core Promise
+{% hint style="info" %}
+Objectif : rendre la messagerie décentralisée aussi « banale » qu’un tuyau réseau — sans serveurs applicatifs à opérer.
+{% endhint %}
 
-- **No servers to operate** - Every device participates in the network
-- **No relay storage** - Pure pass-through, no data persistence
-- **End-to-end encryption** - Only sender and recipient can read messages
-- **Self-organizing** - Gossip discovery, ephemeral subnets, dynamic roles
+## Promesse
 
-## Current Status
+- **Zéro serveur applicatif** : pas de backend central qui stocke et route les messages.
+- **Relais sans stockage** : pass‑through uniquement.
+- **Chiffrement bout‑en‑bout (E2E)** : seuls l’émetteur et le destinataire lisent le contenu.
+- **Auto‑organisation** : découverte gossip, subnets éphémères, rôles dynamiques.
 
-| Metric | Value |
-|--------|-------|
-| Tests | 710+ passing |
-| Nodes | 10-15 validated |
-| Encryption | E2E with TweetNaCl.js |
-| Hub Failover | Automatic |
+## Ce que la démo prouve déjà
 
-## What You Can Do Now
+- un message traverse **réellement** un relais
+- groupes, invitations, visualisation de chemin
+- résilience multi‑participants (failover hub)
+- Snake multijoueur P2P
 
-1. **Run the demo** - Watch messages traverse actual relays
-2. **Multi-device testing** - Open multiple tabs/devices, see dynamic roles
-3. **Features**: 1-1 chat, groups, invitations, path visualization, multiplayer Snake
+## Démarrer
 
-## Quick Links
+- [Démarrage rapide](getting-started.md)
+- [Concepts clés](concepts.md)
 
-- [GitHub Repository](https://github.com/malikkaraoui/ToM-protocol)
-- [Quick Start Guide](getting-started.md)
-- [Core Concepts](concepts.md)
+## Repères projet
+
 - [Architecture](architecture.md)
+- [Décisions verrouillées (les « 7 locks »)](design-decisions.md)
+- [Serveur de signaling (bootstrap WebSocket)](signaling-server.md)
 
-## For LLMs/AI Assistants
+## Contribuer
 
-ToM includes an MCP server for AI-assisted development:
+- [Contribuer](contributing.md)
+- [Backlog d’issues](issues-backlog.md)
 
-```bash
-# In your MCP client config
-{
-  "mcpServers": {
-    "tom-docs": {
-      "command": "node",
-      "args": ["packages/mcp-server/dist/index.js"]
-    }
-  }
-}
-```
+## Liens
 
-See [MCP Server Documentation](mcp-published-docs.md) for details.
+- Dépôt GitHub : https://github.com/malikkaraoui/ToM-protocol
+- Référence rapide (LLM) : https://github.com/malikkaraoui/ToM-protocol/blob/main/llms.txt
+- Guide dev (LLM) : https://github.com/malikkaraoui/ToM-protocol/blob/main/CLAUDE.md
