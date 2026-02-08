@@ -15,7 +15,7 @@
 | 7 | Self-Sustaining Network | ✅ |
 | 8 | LLM & Community Ecosystem | ✅ |
 
-**688+ tests passing** | **10-15 nodes validated** | **E2E encrypted** | **Hub failover automatique**
+**710+ tests passing** | **10-15 nodes validated** | **E2E encrypted** | **Hub failover automatique**
 
 ## TL;DR
 

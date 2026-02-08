@@ -5,6 +5,43 @@ Updated automatically when tests are added.
 
 ---
 
+## Session 2026-02-08 (Chaos/Stress Testing)
+
+**Before:** 688 tests
+**After:** 710 tests
+**Added:** 22 tests
+
+### Chaos/Stress Tests (22 tests)
+
+File: `packages/core/src/chaos/chaos-stress.test.ts` (NEW)
+
+| # | Test Suite | Test Name |
+|---|------------|-----------|
+| 1 | GroupManager chaos | should handle rapid group creation and deletion cycles |
+| 2 | GroupManager chaos | should handle concurrent invitations from multiple sources |
+| 3 | GroupManager chaos | should handle message flood without memory explosion |
+| 4 | GroupManager chaos | should handle hub migration during active operations |
+| 5 | NetworkTopology chaos | should handle rapid peer churn (100 adds/removes) |
+| 6 | NetworkTopology chaos | should maintain correct role counts under random role changes |
+| 7 | NetworkTopology chaos | should handle timestamp manipulation attempts gracefully |
+| 8 | OfflineDetector chaos | should handle 50 peers with random online/offline cycles |
+| 9 | OfflineDetector chaos | should handle destroy during active transitions without memory leaks |
+| 10 | RelaySelector chaos | should always find a relay under random topology changes |
+| 11 | RelaySelector chaos | should handle failed relay tracking correctly |
+| 12 | RoleManager chaos | should maintain relay quota under random network changes |
+| 13 | HubElection chaos | should elect deterministic hub under random candidate orders |
+| 14 | EphemeralSubnet chaos | should handle random communication patterns without crashing |
+| 15 | Router stress | should handle 100 message envelope creations |
+| 16 | Router stress | should deduplicate messages under replay attacks |
+| 17 | MessageTracker stress | should track 1000 messages without memory explosion |
+| 18 | RelayStats stress | should maintain accurate stats under high-frequency updates |
+| 19 | Crypto stress | should generate 1000 unique random values |
+| 20 | Crypto stress | should handle rapid random byte generation |
+| 21 | Crypto stress | should generate valid hex strings of various lengths |
+| 22 | Combined system chaos | should survive full system chaos simulation |
+
+---
+
 ## Session 2026-02-08 (Foundation Hardening)
 
 **Before:** 626 tests
@@ -235,5 +272,6 @@ Files:
 | 2026-02-08 | RoleManager Edge Cases | 10 | 673 |
 | 2026-02-08 | Router Cache Boundaries | 7 | 680 |
 | 2026-02-08 | OfflineDetector Edge Cases | 8 | 688 |
+| 2026-02-08 | Chaos/Stress Tests | 22 | 710 |
 
-**Current Total:** 688 tests
+**Current Total:** 710 tests
