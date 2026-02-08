@@ -1,5 +1,38 @@
 # Changelog
 
+## [1.1.0](https://github.com/malikkaraoui/ToM-protocol/compare/v1.0.0...v1.1.0) (2026-02-08)
+
+
+### Features
+
+* add automatic rerouting on relay failure (Story 5.2) ([be815b8](https://github.com/malikkaraoui/ToM-protocol/commit/be815b8ca8c89f1b43447d19115e448b9c6d7f72))
+* add chaos/stress test suite (22 tests) ([a315452](https://github.com/malikkaraoui/ToM-protocol/commit/a315452aac717998d92c4d37f12f4357d35bf2b8))
+* add comprehensive input validation & boundary tests (61 tests) ([e7c62a6](https://github.com/malikkaraoui/ToM-protocol/commit/e7c62a61c7d8d1de71db3bce7adb77fa8166912f))
+* add deterministic HubElection for hub failover (Action 1) ([60b3808](https://github.com/malikkaraoui/ToM-protocol/commit/60b38088568c8d7b546621c68145ced8349985fd))
+* add end-to-end encryption with TweetNaCl.js (Story 6.1) ([211b15d](https://github.com/malikkaraoui/ToM-protocol/commit/211b15df3d943878dd1d08000e3a2d2b9324681d))
+* add hub failover and E2E metrics testing framework ([bcd6c6c](https://github.com/malikkaraoui/ToM-protocol/commit/bcd6c6cd2d7b5935cabbe0576cc31dbb89eedec4))
+* add LLM-first documentation and MCP server (Stories 8.1 & 8.2) ([41893a5](https://github.com/malikkaraoui/ToM-protocol/commit/41893a57bb167348d4143e3373a3eb7c423d150d))
+* add multi-relay message traversal (Story 5.1) ([21d833b](https://github.com/malikkaraoui/ToM-protocol/commit/21d833ba26fa397f8231e40d2faa7c16ae9d95de))
+* add reactive UIStateManager for centralized state updates (Action 3) ([fb29f5e](https://github.com/malikkaraoui/ToM-protocol/commit/fb29f5e70c60480ce3a478e1c7be34d8a82286dc))
+* add robust E2E test infrastructure for Phase 6 ([ba9dfc9](https://github.com/malikkaraoui/ToM-protocol/commit/ba9dfc930c3f81b4a7574a9c926ab5937f119cb5))
+* add VS Code extension and demo launcher (Story 8.3) ([5f1bef8](https://github.com/malikkaraoui/ToM-protocol/commit/5f1bef8243d63d8c869a71047b39b40b0dc8aa9c))
+* complete phase 1 - docs, issues, and td-001 countdown sync ([9024225](https://github.com/malikkaraoui/ToM-protocol/commit/9024225a51904558ff9bc153a117f0d5c18492cd))
+* display contribution/usage equilibrium score in demo UI (Story 5.4) ([fa74ddd](https://github.com/malikkaraoui/ToM-protocol/commit/fa74ddd6d61a0061174d6413e8d8b950fd7f7487))
+* implement micro-session contribution model (Story 8.4) ([6b1020f](https://github.com/malikkaraoui/ToM-protocol/commit/6b1020ff427e59d5f79614da2008cbc61cdfc157))
+* implement robust group invitations (Consolidation Action 2) ([49ad5bd](https://github.com/malikkaraoui/ToM-protocol/commit/49ad5bd69123464dda5abef0f0580e9b04bd3758))
+* implement self-sustaining alpha network (Epic 7) ([2ab543d](https://github.com/malikkaraoui/ToM-protocol/commit/2ab543d5f1c6d0f9c2d9360a8d7c718dea4ec25d))
+* **test:** add Playwright E2E testing framework (Action 4) ([a51a0fa](https://github.com/malikkaraoui/ToM-protocol/commit/a51a0fa0d45704ce132153e083af792ee9ccde41))
+
+
+### Bug Fixes
+
+* address code review findings from Copilot review ([46b822e](https://github.com/malikkaraoui/ToM-protocol/commit/46b822e852c1ac976bc2ac51843470b251209626))
+* e2e tests start full demo stack (demo + signaling) ([7bf15a5](https://github.com/malikkaraoui/ToM-protocol/commit/7bf15a520dd5d0668f922c89ceebb12d980c8bd0))
+* ensure direct connection before sending group invitations ([7994911](https://github.com/malikkaraoui/ToM-protocol/commit/79949114fbf0596e2771a1b82eaee64d36375666))
+* prevent relay nodes from processing group payloads not addressed to them ([c074fe3](https://github.com/malikkaraoui/ToM-protocol/commit/c074fe36bba6193c9fb05d2cbe354c709b54c2ca))
+* **security:** replace weak Math.random() with crypto APIs (CVSS 7.5) ([20a5c28](https://github.com/malikkaraoui/ToM-protocol/commit/20a5c28c1893d8d09fa451b176f55dc3df127294))
+* **snake:** gpt-5.2 security hardening and collision edge cases ([c4057c8](https://github.com/malikkaraoui/ToM-protocol/commit/c4057c8c43e9eec9f8baa311880f0790a10df76d))
+
 ## 1.0.0 (2026-02-05)
 
 
