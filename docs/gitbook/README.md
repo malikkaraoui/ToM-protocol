@@ -31,6 +31,12 @@ Objectif : rendre la messagerie décentralisée aussi « banale » qu’un tuyau
 - [Décisions verrouillées (les « 7 locks »)](design-decisions.md)
 - [Serveur de signaling (bootstrap WebSocket)](signaling-server.md)
 
+## Technique (pour aller plus loin)
+
+- [Spécification technique (v0.0.1)](spec-technique.md)
+- [SDK — TomClient](sdk-tomclient.md)
+- [Sécurité & modèle de menace](securite-modele-menace.md)
+
 ## Contribuer
 
 - [Contribuer](contributing.md)
