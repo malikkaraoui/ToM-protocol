@@ -5,6 +5,82 @@ Updated automatically when tests are added.
 
 ---
 
+## Session 2026-02-08 (Input Validation & Boundary Tests)
+
+**Before:** 710 tests
+**After:** 771 tests
+**Added:** 61 tests
+
+### Validation Tests (61 tests)
+
+File: `packages/core/src/validation/validation.test.ts` (NEW)
+
+| # | Test Suite | Test Name |
+|---|------------|-----------|
+| 1 | Encryption Validation > key validation | should reject encryption with empty public key |
+| 2 | Encryption Validation > key validation | should reject encryption with wrong-length public key |
+| 3 | Encryption Validation > key validation | should reject decryption with wrong secret key |
+| 4 | Encryption Validation > key validation | should reject decryption with tampered ciphertext |
+| 5 | Encryption Validation > key validation | should reject decryption with tampered nonce |
+| 6 | Encryption Validation > key validation | should reject decryption with invalid hex in ciphertext |
+| 7 | Encryption Validation > hex conversion | should round-trip hex conversion correctly |
+| 8 | Encryption Validation > hex conversion | should handle single-byte arrays |
+| 9 | Encryption Validation > hex conversion | should handle all byte values (0x00 to 0xFF) |
+| 10 | Encryption Validation > payload type guards | should identify encrypted payloads correctly |
+| 11 | Encryption Validation > payload type guards | should reject non-object payloads |
+| 12 | Encryption Validation > payload type guards | should reject payloads missing required fields |
+| 13 | Encryption Validation > payload type guards | should reject payloads with wrong field types |
+| 14 | Encryption Validation > payload serialization | should handle complex nested objects |
+| 15 | Encryption Validation > payload serialization | should handle null and undefined in payloads |
+| 16 | Encryption Validation > payload serialization | should handle empty payloads |
+| 17 | Encryption Validation > payload serialization | should handle very large payloads |
+| 18 | NetworkTopology Validation > peer ID | should handle empty nodeId |
+| 19 | NetworkTopology Validation > peer ID | should handle very long nodeId |
+| 20 | NetworkTopology Validation > peer ID | should handle special characters in nodeId |
+| 21 | NetworkTopology Validation > peer ID | should handle unicode in nodeId |
+| 22 | NetworkTopology Validation > peer lifecycle | should handle adding same peer twice |
+| 23 | NetworkTopology Validation > peer lifecycle | should handle removing non-existent peer |
+| 24 | NetworkTopology Validation > peer lifecycle | should handle many peers |
+| 25 | NetworkTopology Validation > lastSeen | should handle very old timestamps |
+| 26 | NetworkTopology Validation > lastSeen | should handle negative timestamps |
+| 27 | NetworkTopology Validation > stale threshold | should handle very small stale threshold |
+| 28 | NetworkTopology Validation > stale threshold | should handle very large stale threshold |
+| 29 | RelaySelector Validation > target ID | should handle self as target |
+| 30 | RelaySelector Validation > target ID | should handle empty target ID |
+| 31 | RelaySelector Validation > empty topology | should handle empty topology |
+| 32 | RelaySelector Validation > empty topology | should handle topology with only non-relay clients |
+| 33 | RelaySelector Validation > failed relays | should handle all relays in failed set |
+| 34 | RelaySelector Validation > failed relays | should handle empty failed set |
+| 35 | RelaySelector Validation > failed relays | should handle non-existent relays in failed set |
+| 36 | MessageTracker Validation > message ID | should handle empty message ID |
+| 37 | MessageTracker Validation > message ID | should handle very long message ID |
+| 38 | MessageTracker Validation > message ID | should handle special characters in message ID |
+| 39 | MessageTracker Validation > status transitions | should handle duplicate tracking attempts |
+| 40 | MessageTracker Validation > status transitions | should prevent status regression |
+| 41 | MessageTracker Validation > status transitions | should handle status update for unknown message |
+| 42 | MessageTracker Validation > cleanup | should cleanup old read messages |
+| 43 | RelayStats Validation > counter bounds | should handle recording with zero bytes |
+| 44 | RelayStats Validation > counter bounds | should handle recording with undefined bytes |
+| 45 | RelayStats Validation > counter bounds | should handle very large byte values |
+| 46 | RelayStats Validation > warning cooldown | should respect warning cooldown |
+| 47 | RelayStats Validation > ratio calculation | should handle zero own messages |
+| 48 | RelayStats Validation > ratio calculation | should handle equal relay and own messages |
+| 49 | RelayStats Validation > reset behavior | should reset all counters |
+| 50 | RoleManager Validation > metrics | should handle bandwidth score over 100 |
+| 51 | RoleManager Validation > metrics | should handle contribution increment on unknown node |
+| 52 | RoleManager Validation > metrics | should cap contribution score at 100 |
+| 53 | RoleManager Validation > topology binding | should handle rebinding topology |
+| 54 | RoleManager Validation > topology binding | should handle start/stop without topology |
+| 55 | GroupManager Validation > group name | should handle empty group name |
+| 56 | GroupManager Validation > group name | should handle very long group name |
+| 57 | GroupManager Validation > group name | should handle unicode in group name |
+| 58 | GroupManager Validation > member structure | should have creator as admin member |
+| 59 | GroupManager Validation > group limits | should enforce max groups limit |
+| 60 | GroupManager Validation > invite handling | should handle invite for already joined group |
+| 61 | GroupManager Validation > invite handling | should handle duplicate invites |
+
+---
+
 ## Session 2026-02-08 (Chaos/Stress Testing)
 
 **Before:** 688 tests
@@ -273,5 +349,6 @@ Files:
 | 2026-02-08 | Router Cache Boundaries | 7 | 680 |
 | 2026-02-08 | OfflineDetector Edge Cases | 8 | 688 |
 | 2026-02-08 | Chaos/Stress Tests | 22 | 710 |
+| 2026-02-08 | Input Validation & Boundary | 61 | 771 |
 
-**Current Total:** 710 tests
+**Current Total:** 771 tests
