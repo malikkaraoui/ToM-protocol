@@ -2,21 +2,21 @@ import type { DirectPathManager } from '../transport/direct-path-manager.js';
 import type { PeerConnection, TransportLayer } from '../transport/transport-layer.js';
 import type { MessageEnvelope } from '../types/envelope.js';
 import { MAX_RELAY_DEPTH } from './relay-selector.js';
+import {
+  VALID_ACK_TYPES,
+  ACK_REPLAY_CACHE_TTL_MS,
+  ACK_REPLAY_CACHE_MAX_SIZE,
+  MESSAGE_DEDUP_CACHE_TTL_MS,
+  MESSAGE_DEDUP_CACHE_MAX_SIZE,
+  checkMessageDuplicate,
+  checkAndRecordSeen,
+} from './message-validator.js';
 
 export const ACK_TYPE = 'ack';
 export const READ_RECEIPT_TYPE = 'read-receipt';
 
 /** ACK types for distinguishing relay vs recipient acknowledgments */
 export type AckType = 'relay-forwarded' | 'recipient-received' | 'recipient-read';
-
-/** Valid ACK types for runtime validation */
-const VALID_ACK_TYPES: AckType[] = ['relay-forwarded', 'recipient-received', 'recipient-read'];
-
-/** Max age for ACK anti-replay cache (5 minutes) */
-const ACK_REPLAY_CACHE_TTL_MS = 5 * 60 * 1000;
-
-/** Max entries in ACK anti-replay cache */
-const ACK_REPLAY_CACHE_MAX_SIZE = 5000;
 
 export interface AckPayload {
   originalMessageId: string;
@@ -50,12 +50,6 @@ export interface SignatureVerifier {
   verify(publicKey: Uint8Array, data: Uint8Array, signature: Uint8Array): boolean;
 }
 
-/** Max age for message deduplication cache (10 minutes) */
-const MESSAGE_DEDUP_CACHE_TTL_MS = 10 * 60 * 1000;
-
-/** Max entries in message deduplication cache */
-const MESSAGE_DEDUP_CACHE_MAX_SIZE = 10000;
-
 export class Router {
   private localNodeId: string;
   private transport: TransportLayer;
@@ -79,75 +73,7 @@ export class Router {
     this.verifier = verifier ?? null;
   }
 
-  /**
-   * Check if a message has already been received (deduplication).
-   * Returns true if duplicate, false if new message.
-   *
-   * Uses composite key (messageId:from) to prevent collision when
-   * different senders happen to generate the same messageId.
-   */
-  private checkMessageDuplicate(messageId: string, from: string): boolean {
-    const now = Date.now();
-    // Composite key prevents collision between different senders
-    const dedupKey = `${messageId}:${from}`;
 
-    // Clean up old entries periodically (trigger at 50% capacity)
-    if (this.receivedMessages.size > MESSAGE_DEDUP_CACHE_MAX_SIZE / 2) {
-      for (const [key, timestamp] of this.receivedMessages) {
-        if (now - timestamp > MESSAGE_DEDUP_CACHE_TTL_MS) {
-          this.receivedMessages.delete(key);
-        }
-      }
-    }
-
-    // Evict oldest if still over limit
-    if (this.receivedMessages.size >= MESSAGE_DEDUP_CACHE_MAX_SIZE) {
-      const firstKey = this.receivedMessages.keys().next().value;
-      if (firstKey) this.receivedMessages.delete(firstKey);
-    }
-
-    // Check if already received
-    if (this.receivedMessages.has(dedupKey)) {
-      this.events.onDuplicateMessage?.(messageId, from);
-      return true;
-    }
-
-    // Record as received
-    this.receivedMessages.set(dedupKey, now);
-    return false;
-  }
-
-  /**
-   * Check if an ACK/receipt has been seen before (anti-replay).
-   * Also cleans up old entries to prevent memory leaks.
-   */
-  private checkAndRecordSeen(cache: Map<string, number>, key: string): boolean {
-    const now = Date.now();
-
-    // Clean up old entries periodically
-    if (cache.size > ACK_REPLAY_CACHE_MAX_SIZE / 2) {
-      for (const [k, timestamp] of cache) {
-        if (now - timestamp > ACK_REPLAY_CACHE_TTL_MS) {
-          cache.delete(k);
-        }
-      }
-    }
-
-    // Evict oldest if still over limit
-    if (cache.size >= ACK_REPLAY_CACHE_MAX_SIZE) {
-      const firstKey = cache.keys().next().value;
-      if (firstKey) cache.delete(firstKey);
-    }
-
-    // Check if already seen
-    if (cache.has(key)) {
-      return true; // Replay detected
-    }
-
-    // Record as seen
-    cache.set(key, now);
-    return false;
-  }
 
   /**
    * Set the DirectPathManager for direct path routing support.
@@ -176,7 +102,7 @@ export class Router {
 
           // Anti-replay check: composite key of messageId + sender + ackType
           const replayKey = `${originalId}:${envelope.from}:${ackType}`;
-          if (this.checkAndRecordSeen(this.seenAcks, replayKey)) {
+          if (checkAndRecordSeen(this.seenAcks, replayKey, ACK_REPLAY_CACHE_TTL_MS, ACK_REPLAY_CACHE_MAX_SIZE)) {
             return; // Replay detected, ignore
           }
 
@@ -199,7 +125,7 @@ export class Router {
         if (payload?.originalMessageId) {
           // Anti-replay check for read receipts
           const replayKey = `${payload.originalMessageId}:${envelope.from}`;
-          if (this.checkAndRecordSeen(this.seenReadReceipts, replayKey)) {
+          if (checkAndRecordSeen(this.seenReadReceipts, replayKey, ACK_REPLAY_CACHE_TTL_MS, ACK_REPLAY_CACHE_MAX_SIZE)) {
             return; // Replay detected, ignore
           }
 
@@ -217,7 +143,7 @@ export class Router {
       }
 
       // Deduplication: check if we've already received this message
-      if (this.checkMessageDuplicate(envelope.id, envelope.from)) {
+      if (checkMessageDuplicate(envelope.id, envelope.from, this.receivedMessages, MESSAGE_DEDUP_CACHE_TTL_MS, MESSAGE_DEDUP_CACHE_MAX_SIZE, this.events.onDuplicateMessage?.bind(this.events))) {
         return; // Duplicate message, don't deliver again
       }
 
