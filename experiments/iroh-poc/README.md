@@ -14,7 +14,8 @@ Proof of Concept for NAT traversal & hole punching using [iroh](https://github.c
 |-------|-------------|--------|-------------|
 | PoC-1 | Two nodes, QUIC echo | DONE | Connect: 289ms, RTT: 125ms |
 | PoC-2 | Gossip peer discovery | DONE | Neighbor: 257ms, broadcast: instant |
-| PoC-3 | NAT traversal on real networks | Planned | - |
+| PoC-3 | Gossip discovery + direct QUIC chat | DONE | Discovery: 3s, msg delivery: 4.8s |
+| PoC-4 | NAT traversal on real networks | Planned | - |
 
 ## Binaries
 
@@ -39,6 +40,22 @@ cargo run --bin gossip-node -- --name Bob --peer <ALICE_ENDPOINT_ID>
 
 # Terminal 3: Charlie joins via anyone
 cargo run --bin gossip-node -- --name Charlie --peer <BOB_ENDPOINT_ID>
+```
+
+### chat-node (PoC-3)
+
+Gossip discovery + direct QUIC messaging. Closest to ToM's target architecture:
+gossip for peer discovery, direct QUIC streams for message delivery.
+
+```bash
+# Terminal 1: Alice starts
+cargo run --bin chat-node -- --name Alice
+
+# Terminal 2: Bob joins via Alice's EndpointId
+cargo run --bin chat-node -- --name Bob --peer <ALICE_ENDPOINT_ID>
+
+# Type messages in either terminal - sent via direct QUIC to all discovered peers
+# /peers to list discovered peers
 ```
 
 ## What iroh Gives Us
@@ -79,6 +96,22 @@ gossip-node (PoC-2)
         +- UDP hole punching
         +- Relay fallback (euc1-1.relay.n0.iroh-canary.iroh.link)
         +- QUIC E2E encryption
+
+chat-node (PoC-3) - ToM target architecture
+    |
+    +- Gossip layer (discovery only)
+    |   +- subscribe(topic) → ANNOUNCE messages
+    |   +- NeighborUp → re-announce for reliable discovery
+    |   +- PeerMap: EndpointId → name
+    |
+    +- Direct QUIC layer (payload)
+    |   +- connect(peer_addr, CHAT_ALPN)
+    |   +- open_bi() → write message → finish
+    |   +- Receiver: accept_bi() → read_to_end → display
+    |
+    +- Two ALPNs on same Router:
+        +- iroh_gossip::ALPN → gossip protocol
+        +- tom-protocol/poc/chat/0 → direct messages
 ```
 
 ## Dependencies
@@ -90,7 +123,7 @@ gossip-node (PoC-2)
 
 ## Next Steps
 
-1. **PoC-3**: Test hole punching across real NAT (4G, different WiFi networks)
+1. **PoC-4**: Test hole punching across real NAT (4G, different WiFi networks)
 2. **Fork**: Extract iroh connectivity + gossip modules
 3. **Adapt**: Custom wire format, dynamic roles, virus backup
 4. **Integrate**: Replace WebSocket signaling in TypeScript core

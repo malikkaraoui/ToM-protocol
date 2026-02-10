@@ -16,6 +16,10 @@ path = "src/echo_server.rs"
 name = "gossip-node"
 path = "src/gossip_node.rs"
 
+[[bin]]
+name = "chat-node"
+path = "src/chat_node.rs"
+
 [dependencies]
 iroh = "0.96"
 iroh-gossip = "0.96"
