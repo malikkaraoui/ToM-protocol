@@ -1,72 +1,96 @@
 # ToM Protocol - iroh PoC
 
-Proof of Concept for NAT traversal & hole punching using [iroh](https://github.com/n0-computer/iroh).
+Proof of Concept for NAT traversal & hole punching using [iroh](https://github.com/n0-computer/iroh) (Chemin C).
 
-## Goal
+## Strategy
 
-Validate iroh as a transport foundation for ToM Protocol before strategic fork (Chemin C).
+1. PoC with iroh as dependency - learn the internals
+2. Strategic fork - extract needed modules, adapt to ToM
+3. Full independence from n0-computer
 
-## PoC Phases
+## PoC Results
 
-| Phase | Description | Status |
-|-------|-------------|--------|
-| PoC-1 | Two nodes, direct connection + echo | In Progress |
-| PoC-2 | iroh-gossip peer discovery | Planned |
-| PoC-3 | NAT traversal on real networks (4G, residential WiFi) | Planned |
+| Phase | Description | Status | Key Metrics |
+|-------|-------------|--------|-------------|
+| PoC-1 | Two nodes, QUIC echo | DONE | Connect: 289ms, RTT: 125ms |
+| PoC-2 | Gossip peer discovery | DONE | Neighbor: 257ms, broadcast: instant |
+| PoC-3 | NAT traversal on real networks | Planned | - |
 
-## Quick Start
+## Binaries
 
-### Terminal 1: Start echo server
+### echo-server + node (PoC-1)
 
 ```bash
-cd experiments/iroh-poc
+# Terminal 1: Start echo server
 cargo run --bin echo-server
-```
 
-Copy the printed `Endpoint ID`.
-
-### Terminal 2: Connect and send message
-
-```bash
-cd experiments/iroh-poc
+# Terminal 2: Connect and send message
 cargo run --bin node -- <ENDPOINT_ID> "Hello from ToM!"
 ```
 
-## What We're Measuring
+### gossip-node (PoC-2)
 
-- Connection establishment time (direct vs relay)
-- Round-trip latency
-- Hole punching success rate
-- Relay fallback behavior
-- Gossip discovery time (PoC-2)
+```bash
+# Terminal 1: Alice starts the gossip network
+cargo run --bin gossip-node -- --name Alice
+
+# Terminal 2: Bob joins via Alice's EndpointId
+cargo run --bin gossip-node -- --name Bob --peer <ALICE_ENDPOINT_ID>
+
+# Terminal 3: Charlie joins via anyone
+cargo run --bin gossip-node -- --name Charlie --peer <BOB_ENDPOINT_ID>
+```
+
+## What iroh Gives Us
+
+| Feature | How It Works |
+|---------|--------------|
+| Identity | EndpointId = Ed25519 public key (same model as ToM) |
+| NAT traversal | UDP hole punching, ~90% direct in production |
+| Relay fallback | Stateless relays, E2E encrypted, auto-assigned |
+| Discovery | DNS + Pkarr signed packets (+ mDNS, DHT planned) |
+| Gossip | HyParView/PlumTree epidemic broadcast trees |
+| Transport | QUIC (multiplexed, encrypted, no head-of-line blocking) |
+| Protocols | Composable via ALPN identifiers |
+
+## What ToM Adds On Top
+
+| Feature | ToM-specific |
+|---------|--------------|
+| Dynamic roles | Relay = role assigned by network, not by choice |
+| Virus backup | Messages self-replicate to survive 24h TTL |
+| Contribution scoring | Usage affects role assignment |
+| Wire format | JSON envelopes with signatures |
+| Groups | Hub-and-spoke multi-party messaging |
 
 ## Architecture
 
 ```
-echo-server                        node
-    |                                |
-    +- Endpoint::bind()              +- Endpoint::bind()
-    +- Router (TOM_ALPN)             +- endpoint.connect(target)
-    +- accept_bi()                   +- open_bi()
-    +- read -> echo back             +- write -> read echo
-    |                                |
-    +-- iroh handles:                +-- iroh handles:
-        +- Discovery (DNS/Pkarr)         +- Discovery (DNS/Pkarr)
-        +- Hole punching (UDP)           +- Hole punching (UDP)
-        +- Relay fallback                +- Relay fallback
-        +- QUIC encryption               +- QUIC encryption
+gossip-node (PoC-2)
+    |
+    +- Endpoint::bind()          --> QUIC socket + key generation
+    +- Gossip::builder().spawn() --> HyParView/PlumTree protocol
+    +- Router (gossip ALPN)      --> Accept incoming gossip connections
+    +- subscribe(topic, peers)   --> Join gossip swarm
+    +- broadcast(msg)            --> Epidemic dissemination
+    |
+    +-- iroh handles automatically:
+        +- DNS/Pkarr discovery
+        +- UDP hole punching
+        +- Relay fallback (euc1-1.relay.n0.iroh-canary.iroh.link)
+        +- QUIC E2E encryption
 ```
 
 ## Dependencies
 
 - **iroh 0.96** - Core connectivity (QUIC, hole punch, relay)
-- **iroh-gossip 0.96** - Epidemic broadcast for peer discovery (PoC-2)
+- **iroh-gossip 0.96** - Epidemic broadcast (HyParView/PlumTree)
 - **tokio** - Async runtime
 - **clap** - CLI argument parsing
 
-## Next Steps (Post-PoC)
+## Next Steps
 
-1. Fork iroh modules we need
-2. Adapt to ToM Protocol wire format
-3. Integrate with existing TypeScript core via FFI
-4. Replace WebSocket signaling server
+1. **PoC-3**: Test hole punching across real NAT (4G, different WiFi networks)
+2. **Fork**: Extract iroh connectivity + gossip modules
+3. **Adapt**: Custom wire format, dynamic roles, virus backup
+4. **Integrate**: Replace WebSocket signaling in TypeScript core
