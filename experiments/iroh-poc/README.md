@@ -58,6 +58,29 @@ cargo run --bin chat-node -- --name Bob --peer <ALICE_ENDPOINT_ID>
 # /peers to list discovered peers
 ```
 
+### nat-test (PoC-4)
+
+Instrumented NAT traversal test. Outputs structured JSON events.
+Monitors relay-to-direct upgrade (hole punch success), RTT per path, connection metrics.
+
+```bash
+# Machine A (NAS/VPS - listener):
+./nat-test --listen --name NAS
+
+# Machine B (MacBook - connector):
+cargo run --release --bin nat-test -- --connect <NAS_ID> --name MacBook --pings 20
+
+# Cross-compile for ARM64 Linux (Freebox NAS):
+cargo zigbuild --release --bin nat-test --target aarch64-unknown-linux-musl
+scp target/aarch64-unknown-linux-musl/release/nat-test root@freebox:~/
+```
+
+**Localhost baseline results:**
+- Hole punch: **1.4s** relay→direct
+- RTT relay: **121ms** (via euc1-1.relay.n0.iroh-canary.iroh.link)
+- RTT direct: **2.6ms** (IPv6 local)
+- 80% direct (1st ping relay, 4 remaining direct)
+
 ## What iroh Gives Us
 
 | Feature | How It Works |
