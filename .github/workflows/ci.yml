@@ -7,7 +7,8 @@ on:
     branches: [main]
 
 jobs:
-  build-and-test:
+  typescript:
+    name: TypeScript (build + test + lint)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -26,3 +27,30 @@ jobs:
       - run: pnpm test
 
       - run: pnpm lint
+
+  rust-poc:
+    name: Rust PoC (build + clippy + localhost test)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: experiments/iroh-poc
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: experiments/iroh-poc -> target
+
+      - name: Build
+        run: cargo build --bin nat-test
+
+      - name: Clippy
+        run: cargo clippy --bin nat-test -- -D warnings
+
+      - name: Localhost NAT test
+        run: ./scripts/test-localhost.sh
+        timeout-minutes: 3
