@@ -58,22 +58,59 @@ cargo run --bin chat-node -- --name Bob --peer <ALICE_ENDPOINT_ID>
 # /peers to list discovered peers
 ```
 
-### nat-test (PoC-4)
+### nat-test v2 (PoC-4)
 
 Instrumented NAT traversal test. Outputs structured JSON events.
 Monitors relay-to-direct upgrade (hole punch success), RTT per path, connection metrics.
+
+**v2 features**: `--continuous` mode (infinite pings, rolling summaries) and
+automatic reconnection on connection loss — designed for in-motion testing
+(car, train, border crossing, network switching).
 
 ```bash
 # Machine A (NAS/VPS - listener):
 ./nat-test --listen --name NAS
 
-# Machine B (MacBook - connector):
+# Machine B (MacBook - fixed ping count):
 cargo run --release --bin nat-test -- --connect <NAS_ID> --name MacBook --pings 20
+
+# Machine B (MacBook - continuous for in-motion testing):
+cargo run --release --bin nat-test -- --connect <NAS_ID> --name MacBook --continuous
+
+# Continuous with custom settings:
+cargo run --release --bin nat-test -- --connect <NAS_ID> --name MacBook \
+    --continuous --delay 1000 --summary-interval 30 --max-reconnects 0
 
 # Cross-compile for ARM64 Linux (Freebox NAS):
 cargo zigbuild --release --bin nat-test --target aarch64-unknown-linux-musl
 scp target/aarch64-unknown-linux-musl/release/nat-test root@freebox:~/
 ```
+
+**nat-test v2 CLI options:**
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--listen` | - | Listener mode (wait for connections) |
+| `--connect <ID>` | - | Connect to peer by EndpointId |
+| `--name <NAME>` | Node | Display name |
+| `--pings <N>` | 20 | Number of pings (ignored in continuous) |
+| `--delay <MS>` | 2000 | Delay between pings |
+| `--continuous` | false | Infinite pings until Ctrl+C |
+| `--summary-interval <N>` | 50 | Rolling summary every N pings |
+| `--max-reconnects <N>` | 10 | Max reconnect attempts (0=unlimited) |
+
+**JSON events emitted:**
+
+| Event | When |
+|-------|------|
+| `started` | Binary launches |
+| `path_change` | Connection switches relay↔direct |
+| `ping` | Each successful ping/pong |
+| `hole_punch` | First direct path established |
+| `disconnected` | Connection lost |
+| `reconnecting` | Attempting reconnection |
+| `reconnected` | Connection restored |
+| `summary` | End of run (or rolling every N pings) |
 
 **PoC-4 Real-World NAT Traversal Results:**
 
@@ -163,8 +200,20 @@ chat-node (PoC-3) - ToM target architecture
 | Freebox Delta NAS | Listener | Debian VM, ARM64 (Cortex-A72), cross-compiled static binary |
 | iPhone 12 Pro | Network provider | USB tethering for 4G CGNAT tests |
 
+## V2 Test Campaign (planned)
+
+| Scenario | What It Tests |
+|----------|--------------|
+| School WiFi (CH) | Restrictive NAT, guest network |
+| 4G/5G Swiss operator | CGNAT, operator-level NAT |
+| Moving car | Relay handoff, cell tower changes |
+| Border crossing (CH↔FR) | Network switch mid-session |
+| Weak coverage / tunnel | Disconnection + reconnection |
+| Network switch (WiFi→4G) | Mid-session network change |
+
 ## Next Steps
 
-1. **Fork**: Extract iroh connectivity + gossip modules
+1. **Fork architecture**: Document which iroh modules to keep/adapt/rewrite
 2. **Adapt**: Custom wire format, dynamic roles, virus backup
 3. **Integrate**: Replace WebSocket signaling in TypeScript core
+4. **CI**: Rust build + clippy + automated localhost test
