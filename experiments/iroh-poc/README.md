@@ -15,7 +15,7 @@ Proof of Concept for NAT traversal & hole punching using [iroh](https://github.c
 | PoC-1 | Two nodes, QUIC echo | DONE | Connect: 289ms, RTT: 125ms |
 | PoC-2 | Gossip peer discovery | DONE | Neighbor: 257ms, broadcast: instant |
 | PoC-3 | Gossip discovery + direct QUIC chat | DONE | Discovery: 3s, msg delivery: 4.8s |
-| PoC-4 | NAT traversal on real networks | Planned | - |
+| PoC-4 | NAT traversal on real networks | DONE | Hole punch: 100% success, 4 scenarios |
 
 ## Binaries
 
@@ -75,11 +75,22 @@ cargo zigbuild --release --bin nat-test --target aarch64-unknown-linux-musl
 scp target/aarch64-unknown-linux-musl/release/nat-test root@freebox:~/
 ```
 
-**Localhost baseline results:**
-- Hole punch: **1.4s** relay→direct
-- RTT relay: **121ms** (via euc1-1.relay.n0.iroh-canary.iroh.link)
-- RTT direct: **2.6ms** (IPv6 local)
-- 80% direct (1st ping relay, 4 remaining direct)
+**PoC-4 Real-World NAT Traversal Results:**
+
+| Scenario | Network Topology | Hole Punch | Upgrade Time | RTT Direct | Direct % |
+|----------|-----------------|-----------|-------------|-----------|----------|
+| Localhost | Same machine | 1.4s | 1.4s | 2.6ms | 80% |
+| LAN WiFi | MacBook ↔ Freebox NAS (same network) | 0.37s | 0.37s | 49ms | 100% |
+| 4G CGNAT | MacBook (iPhone hotspot) ↔ NAS (home WiFi) | 2.9s | 2.9s | 107ms | 90% |
+| Cross-border | MacBook (school WiFi, Switzerland) ↔ NAS (France) | 0.33s | 1.4s | 32ms | 95% |
+
+**Key findings:**
+- **100% hole punch success** across all 4 scenarios (residential NAT, CGNAT, cross-border)
+- Relay used only for first 1-3 pings, then direct UDP path established
+- CGNAT (4G operator) is the hardest to punch through (~3s), but still succeeds
+- Cross-border Switzerland↔France achieves **32ms direct RTT** (school guest WiFi behind NAT)
+- Relay: `euc1-1.relay.n0.iroh-canary.iroh.link` (auto-assigned, EU region)
+- All connections E2E encrypted via QUIC TLS (automatic)
 
 ## What iroh Gives Us
 
@@ -144,9 +155,16 @@ chat-node (PoC-3) - ToM target architecture
 - **tokio** - Async runtime
 - **clap** - CLI argument parsing
 
+## Test Environment
+
+| Device | Role | Details |
+|--------|------|---------|
+| MacBook Pro | Connector | macOS, native Rust binary |
+| Freebox Delta NAS | Listener | Debian VM, ARM64 (Cortex-A72), cross-compiled static binary |
+| iPhone 12 Pro | Network provider | USB tethering for 4G CGNAT tests |
+
 ## Next Steps
 
-1. **PoC-4**: Test hole punching across real NAT (4G, different WiFi networks)
-2. **Fork**: Extract iroh connectivity + gossip modules
-3. **Adapt**: Custom wire format, dynamic roles, virus backup
-4. **Integrate**: Replace WebSocket signaling in TypeScript core
+1. **Fork**: Extract iroh connectivity + gossip modules
+2. **Adapt**: Custom wire format, dynamic roles, virus backup
+3. **Integrate**: Replace WebSocket signaling in TypeScript core
