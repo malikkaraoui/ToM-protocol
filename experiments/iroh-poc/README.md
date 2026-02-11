@@ -213,7 +213,9 @@ chat-node (PoC-3) - ToM target architecture
 
 ## Next Steps
 
-1. **Fork architecture**: Document which iroh modules to keep/adapt/rewrite
-2. **Adapt**: Custom wire format, dynamic roles, virus backup
-3. **Integrate**: Replace WebSocket signaling in TypeScript core
-4. **CI**: Rust build + clippy + automated localhost test
+1. ~~**Fork architecture**~~: Done — see [FORK-ARCHITECTURE.md](FORK-ARCHITECTURE.md)
+2. ~~**CI**~~: Done — Rust build + clippy + localhost test in GitHub Actions
+3. **V2 test campaign**: In-motion NAT tests — see [V2-TEST-CAMPAIGN.md](V2-TEST-CAMPAIGN.md)
+4. **Fork execution**: Extract `tom-connect` + `tom-relay` from iroh (after 0.97/1.0-rc)
+5. **Adapt**: Custom wire format, dynamic roles, virus backup
+6. **Integrate**: Replace WebSocket signaling in TypeScript core
