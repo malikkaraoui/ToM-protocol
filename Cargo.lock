@@ -3177,6 +3177,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "tom-stress"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tom-transport",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "tom-transport"
 version = "0.1.0"
 dependencies = [

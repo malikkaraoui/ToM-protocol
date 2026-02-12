@@ -49,6 +49,28 @@ jobs:
       - name: Clippy
         run: cargo clippy -p tom-transport -- -D warnings
 
+  rust-stress:
+    name: Rust stress (build + clippy + localhost test)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build
+        run: cargo build -p tom-stress
+
+      - name: Clippy
+        run: cargo clippy -p tom-stress -- -D warnings
+
+      - name: Localhost stress test
+        run: crates/tom-stress/scripts/test-localhost.sh
+        timeout-minutes: 5
+
   rust-poc:
     name: Rust PoC (build + clippy + localhost test)
     runs-on: ubuntu-latest
