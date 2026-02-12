@@ -200,22 +200,39 @@ chat-node (PoC-3) - ToM target architecture
 | Freebox Delta NAS | Listener | Debian VM, ARM64 (Cortex-A72), cross-compiled static binary |
 | iPhone 12 Pro | Network provider | USB tethering for 4G CGNAT tests |
 
-## V2 Test Campaign (planned)
+## V2 Test Campaign Results (2026-02-12)
 
-| Scenario | What It Tests |
-|----------|--------------|
-| School WiFi (CH) | Restrictive NAT, guest network |
-| 4G/5G Swiss operator | CGNAT, operator-level NAT |
-| Moving car | Relay handoff, cell tower changes |
-| Border crossing (CH↔FR) | Network switch mid-session |
-| Weak coverage / tunnel | Disconnection + reconnection |
-| Network switch (WiFi→4G) | Mid-session network change |
+Real-world in-motion NAT traversal test. MacBook Pro in car (passenger),
+iPhone WiFi tethering (4G), streaming YouTube + Bluetooth audio throughout.
+Listener: Freebox NAS at home (France).
+
+| Scenario | Operator | Duration | Pings | Direct % | RTT Direct | Punch | Disconnections |
+|----------|----------|----------|-------|----------|-----------|-------|---------------|
+| Baseline WiFi | LAN | 20s | 20 | 95% | 10.6ms | 1.35s | 0 |
+| **FR → Frontière (car)** | **Free Mobile 4G** | **45 min** | **2416** | **100%** | **101ms** | **2.05s** | **2 (recon 194ms)** |
+| **Frontière → École (car)** | **Salt 4G** | **14 min** | **754** | **100%** | **124ms** | **1.80s** | **0** |
+| **École WiFi** | **School guest WiFi** | **2.3 min** | **131** | **99%** | **34.5ms** | **1.89s** | **0** |
+
+**Key findings:**
+- **3321 pings, 0 lost** across 62 minutes of driving
+- **100% direct** on both 4G operators (Free Mobile FR + Salt CH)
+- **Reconnection in 194ms** after cell tower handoff (transparent to user)
+- **School guest WiFi works** — no UDP blocking, 34.5ms direct RTT
+- **Coexists with heavy traffic** — YouTube streaming + Bluetooth + phone call received
+- **Operator switch (FR→CH) requires relaunch** — new NAT binding, needs netwatcher integration
+- **22 RTT spikes >500ms** (max 3.8s) in weak coverage zones, median stays stable at 80ms
+
+**Conditions:** iPhone 12 Pro WiFi tethering (not USB), YouTube HD streaming,
+Bluetooth car audio, incoming phone call received during Salt segment.
+
+See detailed procedures: [V2-TEST-CAMPAIGN.md](V2-TEST-CAMPAIGN.md)
 
 ## Next Steps
 
 1. ~~**Fork architecture**~~: Done — see [FORK-ARCHITECTURE.md](FORK-ARCHITECTURE.md)
 2. ~~**CI**~~: Done — Rust build + clippy + localhost test in GitHub Actions
-3. **V2 test campaign**: In-motion NAT tests — see [V2-TEST-CAMPAIGN.md](V2-TEST-CAMPAIGN.md)
-4. **Fork execution**: Extract `tom-connect` + `tom-relay` from iroh (after 0.97/1.0-rc)
-5. **Adapt**: Custom wire format, dynamic roles, virus backup
-6. **Integrate**: Replace WebSocket signaling in TypeScript core
+3. ~~**V2 test campaign**~~: Done — 4 scenarios validated, see results above
+4. **netwatcher integration**: Auto-detect network change and reconnect (eliminate manual relaunch)
+5. **Fork execution**: Extract `tom-connect` + `tom-relay` from iroh
+6. **Adapt**: Custom wire format, dynamic roles, virus backup
+7. **Integrate**: Replace WebSocket signaling in TypeScript core
