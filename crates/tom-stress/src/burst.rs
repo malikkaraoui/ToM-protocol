@@ -78,8 +78,8 @@ async fn run_single_burst(
         send_elapsed.as_secs_f64() * 1000.0
     );
 
-    // Phase 2: Collect responses (5s idle timeout)
-    let collect_timeout = Duration::from_secs(5);
+    // Phase 2: Collect responses (30s idle timeout — 4G relay can be slow)
+    let collect_timeout = Duration::from_secs(30);
     let mut last_recv = Instant::now();
 
     loop {
@@ -150,6 +150,13 @@ async fn run_single_burst(
         "    burst round {round}: {messages_acked}/{messages_sent} acked, {lost} lost, {messages_per_sec:.0} msg/s, avg RTT {:.1}ms",
         if rtts.is_empty() { 0.0 } else { rtts.iter().sum::<f64>() / rtts.len() as f64 }
     );
+
+    // If we sent messages but got zero pongs, the connection is likely
+    // a zombie. Evict so the next round triggers fresh discovery.
+    if messages_sent > 0 && messages_acked == 0 {
+        node.disconnect(config.target).await;
+        eprintln!("    evicted zombie connection, will reconnect on next round");
+    }
 
     Ok(())
 }

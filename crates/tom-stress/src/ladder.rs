@@ -103,6 +103,13 @@ pub async fn run(
             config.reps
         );
 
+        // If every rep failed, the connection is likely a zombie.
+        // Evict so the next step triggers fresh discovery.
+        if rtts.is_empty() && config.reps > 0 {
+            node.disconnect(config.target).await;
+            eprintln!("    evicted zombie connection, will reconnect on next step");
+        }
+
         // Delay between steps
         if config.delay_ms > 0 && step_idx + 1 < config.sizes.len() {
             tokio::time::sleep(Duration::from_millis(config.delay_ms)).await;
