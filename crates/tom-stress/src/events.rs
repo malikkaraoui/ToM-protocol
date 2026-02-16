@@ -1,14 +1,18 @@
+use crate::output;
 use serde::Serialize;
 use std::io::Write;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Emit a JSONL event to stdout (flushed immediately for piped output).
+/// If --output-dir was provided, also writes to the JSONL file.
 pub fn emit<T: Serialize>(event: &T) {
     if let Ok(json) = serde_json::to_string(event) {
         let stdout = std::io::stdout();
         let mut lock = stdout.lock();
         let _ = writeln!(lock, "{json}");
         let _ = lock.flush();
+
+        output::write_jsonl_line(&json);
     }
 }
 
