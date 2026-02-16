@@ -4,12 +4,15 @@ mod events;
 mod fanout;
 mod ladder;
 mod listen;
+mod output;
 mod ping;
 
 use clap::{Parser, Subcommand};
 use common::parse_node_id;
+use std::sync::Mutex;
 use std::time::Instant;
 use tom_transport::{TomNode, TomNodeConfig};
+use tracing_subscriber::fmt::writer::MakeWriterExt;
 
 #[derive(Parser)]
 #[command(name = "tom-stress", about = "Stress test for ToM transport layer")]
@@ -21,6 +24,11 @@ struct Cli {
     /// Max message size in bytes.
     #[arg(long, default_value = "1048576")]
     max_message_size: usize,
+
+    /// Auto-archive output to this directory.
+    /// Creates timestamped .jsonl and .log files (never overwrites).
+    #[arg(long)]
+    output_dir: Option<String>,
 
     #[command(subcommand)]
     command: Command,
@@ -101,15 +109,56 @@ enum Command {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "warn".into()),
-        )
-        .with_writer(std::io::stderr)
-        .init();
-
     let cli = Cli::parse();
+
+    let mode_name = match &cli.command {
+        Command::Listen => "listen",
+        Command::Ping { .. } => "ping",
+        Command::Burst { .. } => "burst",
+        Command::Ladder { .. } => "ladder",
+        Command::Fanout { .. } => "fanout",
+    };
+
+    let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| "warn".into());
+
+    if let Some(ref dir) = cli.output_dir {
+        if mode_name != "listen" {
+            let paths = output::resolve_output_paths(
+                std::path::Path::new(dir),
+                &cli.name,
+                mode_name,
+            )?;
+
+            output::init_jsonl_writer(&paths.jsonl)?;
+
+            let log_file = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&paths.log)?;
+
+            tracing_subscriber::fmt()
+                .with_env_filter(env_filter)
+                .with_writer(std::io::stderr.and(Mutex::new(log_file)))
+                .init();
+
+            eprintln!("Output archiving:");
+            eprintln!("  JSONL → {}", paths.jsonl.display());
+            eprintln!("  Logs  → {}", paths.log.display());
+            eprintln!();
+        } else {
+            tracing_subscriber::fmt()
+                .with_env_filter(env_filter)
+                .with_writer(std::io::stderr)
+                .init();
+        }
+    } else {
+        tracing_subscriber::fmt()
+            .with_env_filter(env_filter)
+            .with_writer(std::io::stderr)
+            .init();
+    }
+
     let start = Instant::now();
 
     let config = TomNodeConfig::new().max_message_size(cli.max_message_size);
