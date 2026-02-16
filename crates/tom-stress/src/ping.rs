@@ -20,6 +20,7 @@ struct State {
     rtts: Vec<f64>,
     reconnections: u32,
     total_disconnected: Duration,
+    consecutive_timeouts: u32,
 }
 
 impl State {
@@ -31,6 +32,7 @@ impl State {
             rtts: Vec::new(),
             reconnections: 0,
             total_disconnected: Duration::ZERO,
+            consecutive_timeouts: 0,
         }
     }
 }
@@ -89,7 +91,7 @@ pub async fn run(
                 eprintln!("  ping #{seq} send failed: {reason}");
 
                 // Try to reconnect with backoff
-                if try_reconnect(&node, config.target, &mut state, start, &running).await {
+                if try_reconnect(&node, config.target, &mut state, start, &running, config.continuous).await {
                     continue; // retry this seq
                 } else {
                     break; // gave up
@@ -101,6 +103,7 @@ pub async fn run(
         match wait_for_pong(&mut node, &msg_id, ping_timeout).await {
             Ok(rtt) => {
                 state.successful += 1;
+                state.consecutive_timeouts = 0;
                 let rtt_ms = rtt.as_secs_f64() * 1000.0;
                 state.rtts.push(rtt_ms);
                 emit(&EventPing {
@@ -113,7 +116,17 @@ pub async fn run(
             }
             Err(e) => {
                 state.failed += 1;
+                state.consecutive_timeouts += 1;
                 eprintln!("  ping #{seq} recv failed: {e}");
+
+                // After 3 consecutive timeouts, the connection is likely
+                // a zombie (alive at QUIC level but network path is dead).
+                // Evict it so the next send() triggers fresh discovery.
+                if state.consecutive_timeouts >= 3 {
+                    node.disconnect(config.target).await;
+                    state.consecutive_timeouts = 0;
+                    eprintln!("  evicted zombie connection, will reconnect on next send");
+                }
             }
         }
 
@@ -175,17 +188,25 @@ async fn wait_for_pong(
 }
 
 /// Try reconnecting with exponential backoff.
+/// In continuous mode, retries indefinitely. Otherwise caps at 10 attempts.
 async fn try_reconnect(
     node: &TomNode,
     target: NodeId,
     state: &mut State,
     start: Instant,
     running: &std::sync::atomic::AtomicBool,
+    continuous: bool,
 ) -> bool {
-    let max_attempts = 10u32;
     let disconnect_start = Instant::now();
+    let mut attempt = 0u32;
 
-    for attempt in 1..=max_attempts {
+    loop {
+        attempt += 1;
+
+        if !continuous && attempt > 10 {
+            break;
+        }
+
         if !running.load(Ordering::Relaxed) {
             return false;
         }
@@ -197,9 +218,14 @@ async fn try_reconnect(
             timestamp: now_iso(),
         });
 
-        // Backoff: 1s, 2s, 4s, 8s... capped at 32s
+        // Backoff: 1s, 2s, 4s, 8s, 16s, 32s (capped at 32s)
         let backoff = Duration::from_millis(1000 * 2u64.pow(attempt.min(5) - 1));
         tokio::time::sleep(backoff).await;
+
+        // Force-evict every 5 failed attempts to trigger fresh discovery
+        if attempt % 5 == 0 {
+            node.disconnect(target).await;
+        }
 
         // Try a probe send
         let probe = MessageEnvelope::new(
@@ -228,7 +254,7 @@ async fn try_reconnect(
         }
     }
 
-    eprintln!("  gave up after {max_attempts} reconnect attempts");
+    eprintln!("  gave up after 10 reconnect attempts");
     false
 }
 

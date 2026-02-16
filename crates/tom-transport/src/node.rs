@@ -117,12 +117,18 @@ impl TomNode {
 
         let conn = self.pool.get_or_connect(to).await?;
 
-        let (mut send, mut recv) = conn.open_bi().await.map_err(|e| {
-            TomTransportError::Send {
-                node_id: to,
-                source: e.into(),
+        let (mut send, mut recv) = match conn.open_bi().await {
+            Ok(pair) => pair,
+            Err(e) => {
+                // Connection is dead (e.g. NAT rebinding) — evict from pool
+                // so next attempt triggers a fresh connect + discovery.
+                self.pool.remove(&to).await;
+                return Err(TomTransportError::Send {
+                    node_id: to,
+                    source: e.into(),
+                });
             }
-        })?;
+        };
 
         if let Err(e) = protocol::write_framed(&mut send, data).await {
             // Connection may be dead, remove from pool
@@ -164,6 +170,12 @@ impl TomNode {
     pub fn path_kind(&self, _peer: NodeId) -> Option<PathKind> {
         // TODO: Track per-peer path state from path watcher events
         None
+    }
+
+    /// Force-evict a peer connection from the pool.
+    /// Next send() will trigger fresh connect + discovery.
+    pub async fn disconnect(&self, peer: NodeId) {
+        self.pool.remove(&peer).await;
     }
 
     /// List all currently connected peers.
