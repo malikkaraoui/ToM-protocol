@@ -9,11 +9,13 @@
 pub mod crypto;
 pub mod envelope;
 pub mod error;
+pub mod relay;
 pub mod router;
 pub mod types;
 
 pub use crypto::EncryptedPayload;
 pub use envelope::{Envelope, EnvelopeBuilder};
 pub use error::TomProtocolError;
+pub use relay::{PeerInfo, PeerRole, PeerStatus, RelaySelector, Topology};
 pub use router::{AckPayload, AckType, ReadReceiptPayload, Router, RoutingAction};
 pub use types::{MessageStatus, MessageType, NodeId};
