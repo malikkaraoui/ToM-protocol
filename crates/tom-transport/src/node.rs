@@ -75,6 +75,14 @@ impl TomNode {
         self.id
     }
 
+    /// The 32-byte Ed25519 secret key seed.
+    ///
+    /// Needed by the protocol layer to sign envelopes and derive
+    /// X25519 keys for encryption.
+    pub fn secret_key_seed(&self) -> [u8; 32] {
+        self.endpoint.secret_key().to_bytes()
+    }
+
     /// This node's full address (identity + relay URL + direct addrs).
     ///
     /// Share this with other nodes so they can connect to you.

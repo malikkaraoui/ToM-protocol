@@ -3548,6 +3548,7 @@ dependencies = [
  "tokio",
  "tom-transport",
  "tracing",
+ "tracing-subscriber",
  "uuid",
  "x25519-dalek",
 ]
