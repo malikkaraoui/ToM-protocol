@@ -96,7 +96,6 @@ impl Envelope {
             msg_type: &self.msg_type,
             payload: &self.payload,
             timestamp: self.timestamp,
-            ttl: self.ttl,
             encrypted: self.encrypted,
         };
         // Use MessagePack for deterministic serialization
@@ -269,7 +268,9 @@ impl EnvelopeBuilder {
     }
 }
 
-/// Internal struct for deterministic signing — all fields except signature.
+/// Internal struct for deterministic signing — immutable fields only.
+///
+/// Excludes `signature` (circular) and `ttl` (mutated by relays during transit).
 #[derive(Serialize)]
 struct SignableEnvelope<'a> {
     id: &'a str,
@@ -279,7 +280,6 @@ struct SignableEnvelope<'a> {
     msg_type: &'a MessageType,
     payload: &'a [u8],
     timestamp: u64,
-    ttl: u32,
     encrypted: bool,
 }
 
