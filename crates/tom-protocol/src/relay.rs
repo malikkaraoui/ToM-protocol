@@ -2,6 +2,7 @@
 ///
 /// Chooses the best relay node based on network topology: role,
 /// online status, and last-seen timestamp.
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use crate::types::NodeId;
 
@@ -11,7 +12,7 @@ pub const MAX_RELAY_DEPTH: usize = 4;
 // ── Peer topology info ─────────────────────────────────────────────────
 
 /// Role a node plays in the network (assigned dynamically).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum PeerRole {
     /// Regular participant — sends/receives messages.
     Peer,
@@ -20,7 +21,7 @@ pub enum PeerRole {
 }
 
 /// Current status of a known peer.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum PeerStatus {
     Online,
     Offline,

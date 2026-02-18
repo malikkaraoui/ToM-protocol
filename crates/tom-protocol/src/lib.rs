@@ -7,6 +7,7 @@
 //! Crypto: Ed25519 signatures + XChaCha20-Poly1305 encryption.
 
 pub mod crypto;
+pub mod discovery;
 pub mod envelope;
 pub mod error;
 pub mod group;
@@ -16,6 +17,10 @@ pub mod tracker;
 pub mod types;
 
 pub use crypto::EncryptedPayload;
+pub use discovery::{
+    DiscoveryEvent, DiscoverySource, DissolveReason, EphemeralSubnetManager, HeartbeatTracker,
+    LivenessState, PeerAnnounce, SubnetEvent, SubnetInfo,
+};
 pub use envelope::{Envelope, EnvelopeBuilder};
 pub use error::TomProtocolError;
 pub use group::{
