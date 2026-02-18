@@ -6,6 +6,7 @@
 //! Wire format: MessagePack (compact binary).
 //! Crypto: Ed25519 signatures + XChaCha20-Poly1305 encryption.
 
+pub mod backup;
 pub mod crypto;
 pub mod discovery;
 pub mod envelope;
@@ -16,6 +17,10 @@ pub mod router;
 pub mod tracker;
 pub mod types;
 
+pub use backup::{
+    BackupAction, BackupCoordinator, BackupEntry, BackupEvent, BackupStore, HostFactors,
+    ReplicationPayload,
+};
 pub use crypto::EncryptedPayload;
 pub use discovery::{
     DiscoveryEvent, DiscoverySource, DissolveReason, EphemeralSubnetManager, HeartbeatTracker,
