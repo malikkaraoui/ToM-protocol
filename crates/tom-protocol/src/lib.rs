@@ -12,6 +12,6 @@ pub mod error;
 pub mod types;
 
 pub use crypto::EncryptedPayload;
-pub use envelope::Envelope;
+pub use envelope::{Envelope, EnvelopeBuilder};
 pub use error::TomProtocolError;
 pub use types::{MessageStatus, MessageType, NodeId};
