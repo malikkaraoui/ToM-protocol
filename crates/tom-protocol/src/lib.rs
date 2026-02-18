@@ -9,6 +9,7 @@
 pub mod crypto;
 pub mod envelope;
 pub mod error;
+pub mod group;
 pub mod relay;
 pub mod router;
 pub mod tracker;
@@ -17,6 +18,11 @@ pub mod types;
 pub use crypto::EncryptedPayload;
 pub use envelope::{Envelope, EnvelopeBuilder};
 pub use error::TomProtocolError;
+pub use group::{
+    elect_hub, ElectionReason, ElectionResult, GroupAction, GroupEvent, GroupHub, GroupId,
+    GroupInfo, GroupInvite, GroupMember, GroupManager, GroupMemberRole, GroupMessage, GroupPayload,
+    LeaveReason,
+};
 pub use relay::{PeerInfo, PeerRole, PeerStatus, RelaySelector, Topology};
 pub use router::{AckPayload, AckType, ReadReceiptPayload, Router, RoutingAction};
 pub use tracker::{MessageTracker, StatusChange};

@@ -1,0 +1,533 @@
+/// Group data structures for ToM protocol.
+///
+/// Hub-and-spoke topology: one relay acts as hub for each group,
+/// fanning out messages to all members.
+use serde::{Deserialize, Serialize};
+use std::fmt;
+
+use crate::types::NodeId;
+
+// ── Constants ────────────────────────────────────────────────────────────
+
+/// Maximum members per group.
+pub const MAX_GROUP_MEMBERS: usize = 50;
+
+/// Invite TTL (24 hours, matching ToM design decision #2).
+pub const INVITE_TTL_MS: u64 = 24 * 60 * 60 * 1000;
+
+/// Hub heartbeat interval (30 seconds).
+pub const HUB_HEARTBEAT_INTERVAL_MS: u64 = 30_000;
+
+/// Missed heartbeats before hub is considered failed.
+pub const HUB_FAILURE_THRESHOLD: u32 = 3;
+
+/// Max messages kept in hub history for sync to new members.
+pub const MAX_SYNC_MESSAGES: usize = 100;
+
+/// Rate limit: messages per second per sender in a group.
+pub const GROUP_RATE_LIMIT_PER_SECOND: u32 = 5;
+
+// ── GroupId ──────────────────────────────────────────────────────────────
+
+/// Unique group identifier (e.g., "grp-<uuid>").
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct GroupId(pub String);
+
+impl GroupId {
+    /// Create a new random group ID.
+    pub fn new() -> Self {
+        Self(format!("grp-{}", uuid::Uuid::new_v4()))
+    }
+}
+
+impl Default for GroupId {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl fmt::Display for GroupId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl From<String> for GroupId {
+    fn from(s: String) -> Self {
+        Self(s)
+    }
+}
+
+impl AsRef<str> for GroupId {
+    fn as_ref(&self) -> &str {
+        &self.0
+    }
+}
+
+// ── GroupMemberRole ──────────────────────────────────────────────────────
+
+/// Role within a group.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum GroupMemberRole {
+    /// Group creator — can invite, kick, dissolve.
+    Admin,
+    /// Regular member — can send messages, leave.
+    Member,
+}
+
+// ── GroupMember ──────────────────────────────────────────────────────────
+
+/// A member in a group.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GroupMember {
+    pub node_id: NodeId,
+    pub username: String,
+    pub joined_at: u64,
+    pub role: GroupMemberRole,
+}
+
+// ── GroupInfo ────────────────────────────────────────────────────────────
+
+/// Full group state — shared between manager and hub.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GroupInfo {
+    pub group_id: GroupId,
+    pub name: String,
+    pub hub_relay_id: NodeId,
+    pub backup_hub_id: Option<NodeId>,
+    pub members: Vec<GroupMember>,
+    pub created_by: NodeId,
+    pub created_at: u64,
+    pub last_activity_at: u64,
+    pub max_members: usize,
+}
+
+impl GroupInfo {
+    /// Check if a node is a member of this group.
+    pub fn is_member(&self, node_id: &NodeId) -> bool {
+        self.members.iter().any(|m| m.node_id == *node_id)
+    }
+
+    /// Check if a node is an admin of this group.
+    pub fn is_admin(&self, node_id: &NodeId) -> bool {
+        self.members
+            .iter()
+            .any(|m| m.node_id == *node_id && m.role == GroupMemberRole::Admin)
+    }
+
+    /// Get a member by node ID.
+    pub fn get_member(&self, node_id: &NodeId) -> Option<&GroupMember> {
+        self.members.iter().find(|m| m.node_id == *node_id)
+    }
+
+    /// Number of current members.
+    pub fn member_count(&self) -> usize {
+        self.members.len()
+    }
+
+    /// Whether the group is at capacity.
+    pub fn is_full(&self) -> bool {
+        self.members.len() >= self.max_members
+    }
+}
+
+// ── GroupInvite ──────────────────────────────────────────────────────────
+
+/// A pending invitation to join a group.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GroupInvite {
+    pub group_id: GroupId,
+    pub group_name: String,
+    pub inviter_id: NodeId,
+    pub inviter_username: String,
+    pub hub_relay_id: NodeId,
+    pub invited_at: u64,
+    pub expires_at: u64,
+}
+
+impl GroupInvite {
+    /// Whether this invite has expired.
+    pub fn is_expired(&self, now_ms: u64) -> bool {
+        now_ms >= self.expires_at
+    }
+}
+
+// ── GroupPayload ─────────────────────────────────────────────────────────
+
+/// Group-specific payload — serialized into `Envelope.payload`.
+///
+/// Each variant maps to a group protocol message type.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum GroupPayload {
+    /// Admin creates a new group (member → hub).
+    Create {
+        group_name: String,
+        creator_username: String,
+        initial_members: Vec<NodeId>,
+    },
+
+    /// Hub confirms group creation (hub → creator).
+    Created {
+        group: GroupInfo,
+    },
+
+    /// Hub sends invitation to a potential member (hub → invitee).
+    Invite {
+        group_id: GroupId,
+        group_name: String,
+        inviter_id: NodeId,
+        inviter_username: String,
+    },
+
+    /// Invitee accepts and requests to join (invitee → hub).
+    Join {
+        group_id: GroupId,
+        username: String,
+    },
+
+    /// Hub sends full group state to new member (hub → new member).
+    Sync {
+        group: GroupInfo,
+        recent_messages: Vec<GroupMessage>,
+    },
+
+    /// Chat message within the group (member → hub, hub → members).
+    Message(GroupMessage),
+
+    /// Member voluntarily leaves (member → hub).
+    Leave {
+        group_id: GroupId,
+    },
+
+    /// Hub broadcasts that a new member joined (hub → members).
+    MemberJoined {
+        group_id: GroupId,
+        member: GroupMember,
+    },
+
+    /// Hub broadcasts that a member left or was kicked (hub → members).
+    MemberLeft {
+        group_id: GroupId,
+        node_id: NodeId,
+        username: String,
+        reason: LeaveReason,
+    },
+
+    /// Member confirms receipt of a group message (member → hub).
+    DeliveryAck {
+        group_id: GroupId,
+        message_id: String,
+    },
+
+    /// Hub announces migration to a new hub (hub → members).
+    HubMigration {
+        group_id: GroupId,
+        new_hub_id: NodeId,
+        old_hub_id: NodeId,
+    },
+
+    /// Hub health check (hub → members).
+    HubHeartbeat {
+        group_id: GroupId,
+        member_count: usize,
+    },
+}
+
+// ── GroupMessage ──────────────────────────────────────────────────────────
+
+/// A single message in a group conversation.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct GroupMessage {
+    pub group_id: GroupId,
+    pub message_id: String,
+    pub sender_id: NodeId,
+    pub sender_username: String,
+    pub text: String,
+    pub sent_at: u64,
+}
+
+impl GroupMessage {
+    /// Create a new group message.
+    pub fn new(
+        group_id: GroupId,
+        sender_id: NodeId,
+        sender_username: String,
+        text: String,
+    ) -> Self {
+        Self {
+            group_id,
+            message_id: uuid::Uuid::new_v4().to_string(),
+            sender_id,
+            sender_username,
+            text,
+            sent_at: now_ms(),
+        }
+    }
+}
+
+// ── LeaveReason ──────────────────────────────────────────────────────────
+
+/// Why a member left the group.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum LeaveReason {
+    /// Member left voluntarily.
+    Voluntary,
+    /// Member was kicked by an admin.
+    Kicked,
+    /// Member went offline and was cleaned up.
+    Timeout,
+}
+
+// ── GroupAction ──────────────────────────────────────────────────────────
+
+/// Actions returned by GroupManager — the caller executes them via transport.
+///
+/// Pure decision engine pattern (same as Router → RoutingAction).
+#[derive(Debug)]
+pub enum GroupAction {
+    /// Send a payload to a specific node.
+    Send {
+        to: NodeId,
+        payload: GroupPayload,
+    },
+
+    /// Broadcast a payload to multiple nodes.
+    Broadcast {
+        to: Vec<NodeId>,
+        payload: GroupPayload,
+    },
+
+    /// A group event occurred (for application-layer callbacks).
+    Event(GroupEvent),
+
+    /// No action needed.
+    None,
+}
+
+// ── GroupEvent ────────────────────────────────────────────────────────────
+
+/// Application-visible group events.
+#[derive(Debug, Clone)]
+pub enum GroupEvent {
+    /// A group was created (we're the admin).
+    GroupCreated(GroupInfo),
+
+    /// We received an invitation.
+    InviteReceived(GroupInvite),
+
+    /// We successfully joined a group.
+    Joined {
+        group_id: GroupId,
+        group_name: String,
+    },
+
+    /// A new member joined one of our groups.
+    MemberJoined {
+        group_id: GroupId,
+        member: GroupMember,
+    },
+
+    /// A member left one of our groups.
+    MemberLeft {
+        group_id: GroupId,
+        node_id: NodeId,
+        username: String,
+        reason: LeaveReason,
+    },
+
+    /// We received a group message.
+    MessageReceived(GroupMessage),
+
+    /// Hub migrated to a new node.
+    HubMigrated {
+        group_id: GroupId,
+        new_hub_id: NodeId,
+    },
+}
+
+// ── Helpers ──────────────────────────────────────────────────────────────
+
+fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("system time before epoch")
+        .as_millis() as u64
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Generate a deterministic NodeId from a seed byte.
+    fn node_id(seed: u8) -> NodeId {
+        use rand::SeedableRng;
+        let mut rng = rand::rngs::StdRng::seed_from_u64(seed as u64);
+        let secret = iroh::SecretKey::generate(&mut rng);
+        secret.public().to_string().parse().unwrap()
+    }
+
+    #[test]
+    fn group_id_format() {
+        let id = GroupId::new();
+        assert!(id.0.starts_with("grp-"));
+        assert!(id.0.len() > 10);
+    }
+
+    #[test]
+    fn group_id_display() {
+        let id = GroupId::from("grp-test-123".to_string());
+        assert_eq!(format!("{}", id), "grp-test-123");
+    }
+
+    #[test]
+    fn group_id_roundtrip() {
+        let id = GroupId::new();
+        let bytes = rmp_serde::to_vec(&id).expect("serialize");
+        let decoded: GroupId = rmp_serde::from_slice(&bytes).expect("deserialize");
+        assert_eq!(id, decoded);
+    }
+
+    fn make_member(seed: u8, role: GroupMemberRole) -> GroupMember {
+        GroupMember {
+            node_id: node_id(seed),
+            username: format!("user-{}", seed),
+            joined_at: 1000,
+            role,
+        }
+    }
+
+    fn make_group() -> GroupInfo {
+        let admin = make_member(1, GroupMemberRole::Admin);
+        let member = make_member(2, GroupMemberRole::Member);
+        GroupInfo {
+            group_id: GroupId::from("grp-test".to_string()),
+            name: "Test Group".into(),
+            hub_relay_id: node_id(10),
+            backup_hub_id: None,
+            members: vec![admin.clone(), member],
+            created_by: admin.node_id,
+            created_at: 1000,
+            last_activity_at: 1000,
+            max_members: MAX_GROUP_MEMBERS,
+        }
+    }
+
+    #[test]
+    fn group_info_membership() {
+        let group = make_group();
+        let admin_id = node_id(1);
+        let member_id = node_id(2);
+        let stranger_id = node_id(99);
+
+        assert!(group.is_member(&admin_id));
+        assert!(group.is_member(&member_id));
+        assert!(!group.is_member(&stranger_id));
+
+        assert!(group.is_admin(&admin_id));
+        assert!(!group.is_admin(&member_id));
+        assert!(!group.is_admin(&stranger_id));
+    }
+
+    #[test]
+    fn group_info_capacity() {
+        let mut group = make_group();
+        assert_eq!(group.member_count(), 2);
+        assert!(!group.is_full());
+
+        group.max_members = 2;
+        assert!(group.is_full());
+    }
+
+    #[test]
+    fn group_invite_expiry() {
+        let invite = GroupInvite {
+            group_id: GroupId::from("grp-1".to_string()),
+            group_name: "Test".into(),
+            inviter_id: node_id(1),
+            inviter_username: "alice".into(),
+            hub_relay_id: node_id(10),
+            invited_at: 1000,
+            expires_at: 1000 + INVITE_TTL_MS,
+        };
+
+        assert!(!invite.is_expired(1000));
+        assert!(!invite.is_expired(1000 + INVITE_TTL_MS - 1));
+        assert!(invite.is_expired(1000 + INVITE_TTL_MS));
+        assert!(invite.is_expired(1000 + INVITE_TTL_MS + 1));
+    }
+
+    #[test]
+    fn group_message_new() {
+        let msg = GroupMessage::new(
+            GroupId::from("grp-1".to_string()),
+            node_id(1),
+            "alice".into(),
+            "Hello group!".into(),
+        );
+
+        assert_eq!(msg.group_id, GroupId::from("grp-1".to_string()));
+        assert_eq!(msg.text, "Hello group!");
+        assert!(!msg.message_id.is_empty());
+        assert!(msg.sent_at > 0);
+    }
+
+    #[test]
+    fn group_payload_roundtrip() {
+        let payloads = vec![
+            GroupPayload::Create {
+                group_name: "Test".into(),
+                creator_username: "alice".into(),
+                initial_members: vec![node_id(2)],
+            },
+            GroupPayload::Join {
+                group_id: GroupId::from("grp-1".to_string()),
+                username: "bob".into(),
+            },
+            GroupPayload::Leave {
+                group_id: GroupId::from("grp-1".to_string()),
+            },
+            GroupPayload::DeliveryAck {
+                group_id: GroupId::from("grp-1".to_string()),
+                message_id: "msg-1".into(),
+            },
+            GroupPayload::HubHeartbeat {
+                group_id: GroupId::from("grp-1".to_string()),
+                member_count: 5,
+            },
+        ];
+
+        for payload in &payloads {
+            let bytes = rmp_serde::to_vec(payload).expect("serialize");
+            let decoded: GroupPayload = rmp_serde::from_slice(&bytes).expect("deserialize");
+            assert_eq!(*payload, decoded, "roundtrip failed for {:?}", payload);
+        }
+    }
+
+    #[test]
+    fn group_member_role_roundtrip() {
+        for role in [GroupMemberRole::Admin, GroupMemberRole::Member] {
+            let bytes = rmp_serde::to_vec(&role).expect("serialize");
+            let decoded: GroupMemberRole = rmp_serde::from_slice(&bytes).expect("deserialize");
+            assert_eq!(role, decoded);
+        }
+    }
+
+    #[test]
+    fn leave_reason_roundtrip() {
+        for reason in [LeaveReason::Voluntary, LeaveReason::Kicked, LeaveReason::Timeout] {
+            let bytes = rmp_serde::to_vec(&reason).expect("serialize");
+            let decoded: LeaveReason = rmp_serde::from_slice(&bytes).expect("deserialize");
+            assert_eq!(reason, decoded);
+        }
+    }
+
+    #[test]
+    fn group_info_roundtrip() {
+        let group = make_group();
+        let bytes = rmp_serde::to_vec(&group).expect("serialize");
+        let decoded: GroupInfo = rmp_serde::from_slice(&bytes).expect("deserialize");
+        assert_eq!(decoded.group_id, group.group_id);
+        assert_eq!(decoded.name, group.name);
+        assert_eq!(decoded.members.len(), group.members.len());
+    }
+}
