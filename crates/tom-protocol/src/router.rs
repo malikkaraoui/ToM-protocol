@@ -344,6 +344,7 @@ fn now_ms() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::types::DEFAULT_TTL;
 
     /// Generate a deterministic NodeId from a seed byte.
     fn node_id(seed: u8) -> NodeId {
