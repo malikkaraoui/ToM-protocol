@@ -33,6 +33,10 @@ pub struct RuntimeConfig {
     pub group_hub_heartbeat_interval: Duration,
     /// Interval for backup maintenance ticks.
     pub backup_tick_interval: Duration,
+    /// Interval for gossip peer announcements.
+    pub gossip_announce_interval: Duration,
+    /// Bootstrap peers to join the gossip discovery network.
+    pub gossip_bootstrap_peers: Vec<crate::types::NodeId>,
 }
 
 impl Default for RuntimeConfig {
@@ -45,6 +49,8 @@ impl Default for RuntimeConfig {
             username: "anonymous".to_string(),
             group_hub_heartbeat_interval: Duration::from_secs(30),
             backup_tick_interval: Duration::from_secs(60),
+            gossip_announce_interval: Duration::from_secs(30),
+            gossip_bootstrap_peers: Vec::new(),
         }
     }
 }
@@ -157,6 +163,16 @@ pub enum ProtocolEvent {
         group_id: GroupId,
         new_hub_id: NodeId,
     },
+    // ── Discovery events ──────────────────────────
+    /// A peer announced itself via gossip.
+    PeerAnnounceReceived {
+        node_id: NodeId,
+        username: String,
+    },
+    /// A gossip neighbor connected.
+    GossipNeighborUp { node_id: NodeId },
+    /// A gossip neighbor disconnected.
+    GossipNeighborDown { node_id: NodeId },
     // ── Backup events ─────────────────────────────
     /// A message was stored as backup for an offline recipient.
     BackupStored {
@@ -386,6 +402,10 @@ impl ProtocolRuntime {
         // Subscribe to path events before moving node
         let path_rx = node.path_events();
 
+        // Clone gossip handle before moving node
+        let gossip = node.gossip().clone();
+        let gossip_bootstrap_peers = config.gossip_bootstrap_peers.clone();
+
         // Spawn the event loop
         tokio::spawn(r#loop::runtime_loop(
             node,
@@ -397,6 +417,8 @@ impl ProtocolRuntime {
             status_tx,
             event_tx,
             path_rx,
+            gossip,
+            gossip_bootstrap_peers,
         ));
 
         RuntimeChannels {

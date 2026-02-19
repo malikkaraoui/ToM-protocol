@@ -2,20 +2,15 @@
 
 **The Open Messaging** — a decentralized P2P transport protocol where every device is the network.
 
-## Status: Phase 1 Complete
+## Status: Phase 2 — Native Transport
 
-| Epic | Description | Status |
-|------|-------------|--------|
-| 1 | Project Foundation & Node Identity | ✅ |
-| 2 | First Message Through Relay | ✅ |
-| 3 | Dynamic Routing & Discovery | ✅ |
-| 4 | Bidirectional Conversation | ✅ |
-| 5 | Multi-Relay Transport | ✅ |
-| 6 | E2E Encryption | ✅ |
-| 7 | Self-Sustaining Network | ✅ |
-| 8 | LLM & Community Ecosystem | ✅ |
+| Phase | Description | Status |
+|-------|-------------|--------|
+| **Phase 1** | TypeScript protocol stack (WebRTC, signaling) | ✅ 8/8 epics |
+| **Phase 2** | Rust native transport (QUIC, hole punching, E2E crypto) | ✅ Validated |
+| **Phase 3** | Protocol convergence (TS + Rust unified) | In progress |
 
-**771+ tests passing** | **10-15 nodes validated** | **E2E encrypted** | **Hub failover automatique**
+**1000+ tests** (771 TypeScript + 236 Rust) | **E2E encrypted** | **NAT traversal validated** | **Cross-border Suisse↔France**
 
 ## TL;DR
 
@@ -23,122 +18,127 @@ ToM is a transport layer protocol (not a blockchain) that transforms every conne
 
 **The idea:** leverage the dormant power of billions of devices to create a global communication BUS that's resilient and virtually free.
 
+## What's proven (with data)
+
+| Test | Result | Details |
+|------|--------|---------|
+| NAT hole punching | **100% success** | LAN, 4G CGNAT, cross-border CH↔FR |
+| Stress test (4G highway) | **99.85%** | 2748/2752 pings, 54 min continuous |
+| E2E encrypted chat | **Working** | Signed + encrypted envelopes, Mac↔NAS cross-border |
+| Direct QUIC latency | **27-49ms** | After hole punch, no relay needed |
+
+## Project Structure
+
+```
+tom-protocol/
+├── crates/                          # Rust native stack
+│   ├── tom-transport/               # QUIC transport (iroh), connection pool
+│   ├── tom-protocol/                # Protocol logic (crypto, routing, groups, discovery, backup)
+│   ├── tom-tui/                     # TUI chat client + bot mode
+│   └── tom-stress/                  # Stress test binary
+│
+├── packages/                        # TypeScript stack (Phase 1)
+│   ├── core/                        # Protocol primitives (tom-protocol)
+│   └── sdk/                         # Developer SDK (tom-sdk)
+│
+├── apps/
+│   └── demo/                        # Browser demo with multiplayer Snake
+│
+├── experiments/
+│   └── iroh-poc/                    # NAT traversal PoC (4 scenarios validated)
+│
+├── tools/
+│   ├── signaling-server/            # Bootstrap server (being replaced by QUIC)
+│   ├── mcp-server/                  # MCP server for LLM interaction
+│   └── vscode-extension/            # VS Code extension
+│
+├── docs/                            # Documentation (GitBook)
+├── llms.txt                         # LLM quick reference
+├── CLAUDE.md                        # Detailed LLM guide
+└── CONTRIBUTING.md                  # Micro-session contribution model
+```
+
+## Architecture
+
+### Dual Stack
+
+| Layer | TypeScript (Phase 1) | Rust (Phase 2) |
+|-------|---------------------|----------------|
+| **Identity** | Ed25519 (TweetNaCl.js) | Ed25519 (ed25519-dalek) |
+| **Transport** | WebRTC DataChannel | QUIC (iroh) + hole punching |
+| **Encryption** | X25519 + XSalsa20-Poly1305 | X25519 + XChaCha20-Poly1305 + HKDF-SHA256 |
+| **Discovery** | Gossip + ephemeral subnets | Gossip (HyParView) + Pkarr |
+| **Wire format** | JSON envelopes | MessagePack (signed + encrypted) |
+| **Routing** | Dynamic relay selection | Router + RelaySelector + ProtocolRuntime |
+
+### Rust Protocol Stack
+
+```
+ProtocolRuntime (single tokio::select! loop)
+├── Router          — deliver / forward / reject / ack
+├── Topology        — peer state, heartbeat tracking
+├── EnvelopeBuilder — encrypt-then-sign, MessagePack wire format
+├── GroupManager    — member-side multi-party
+├── GroupHub        — hub-side fan-out, deterministic failover
+├── BackupStore     — TTL-based virus backup for offline peers
+├── RelaySelector   — optimal relay selection
+└── HeartbeatTracker — stale/offline detection
+```
+
 ## Quick Start
 
+### TypeScript Demo (browser)
+
 ```bash
-# Clone and setup
 git clone https://github.com/malikkaraoui/ToM-protocol.git
 cd tom-protocol
 pnpm install && pnpm build
 
 # Run demo (opens browser + signaling server)
 ./scripts/start-demo.sh
+# Open multiple tabs at http://localhost:5173
 ```
 
-Then open multiple browser tabs at `http://localhost:5173` to chat and play Snake!
-
-## Project Structure
-
-```
-tom-protocol/
-├── packages/
-│   ├── core/                 # Protocol primitives (tom-protocol)
-│   └── sdk/                  # Developer SDK (tom-sdk)
-├── apps/
-│   └── demo/                 # Browser demo with multiplayer Snake
-├── tools/
-│   ├── signaling-server/     # Bootstrap server (temporary)
-│   ├── mcp-server/           # MCP server for LLM interaction
-│   └── vscode-extension/     # VS Code extension (WIP)
-├── llms.txt                  # LLM quick reference
-├── CLAUDE.md                 # Detailed LLM guide
-└── CONTRIBUTING.md           # Micro-session contribution model
-```
-
-## For Developers
-
-### 2-Line Integration
-
-```typescript
-import { TomClient } from 'tom-sdk';
-
-const client = new TomClient({ signalingUrl: 'ws://localhost:3001', username: 'alice' });
-await client.connect();
-
-// Send E2E encrypted message
-await client.sendMessage(recipientNodeId, 'Hello!');
-
-// Receive messages
-client.onMessage((envelope) => {
-  console.log(`From ${envelope.from}: ${envelope.payload.text}`);
-});
-```
-
-### For LLMs
-
-- Read [llms.txt](llms.txt) for quick protocol overview
-- Read [CLAUDE.md](CLAUDE.md) for detailed implementation guide
-- Use the [MCP server](tools/mcp-server/) for programmatic interaction
-
-## Architecture Highlights
-
-| Feature | Implementation |
-|---------|----------------|
-| **Identity** | Ed25519 keypair (TweetNaCl.js) |
-| **Transport** | WebRTC DataChannel |
-| **Encryption** | X25519 + XSalsa20-Poly1305 (E2E) |
-| **Discovery** | Gossip protocol + ephemeral subnets |
-| **Routing** | Dynamic relay selection, multi-hop |
-
-## Tests E2E Automatisés
-
-Tests Playwright avec génération de rapport détaillé :
+### Rust Chat (native P2P)
 
 ```bash
-# Lancer les tests E2E (headless)
+# Build
+cargo build --release -p tom-tui
+
+# Run TUI chat (connect to a peer)
+./target/release/tom-chat <peer-node-id>
+
+# Run as headless bot (auto-responds)
+./target/release/tom-chat --bot
+
+# Cross-compile for ARM64 (NAS, Raspberry Pi)
+cargo zigbuild --target aarch64-unknown-linux-musl --release -p tom-tui
+```
+
+## NAT Traversal Results
+
+Tested with `tom-stress` binary, cross-compiled ARM64 static, deployed on Freebox Delta NAS (Debian, Cortex-A72).
+
+| Scenario | Topology | Hole punch time | RTT direct | Direct % |
+|----------|----------|-----------------|------------|----------|
+| LAN WiFi | Same network | 0.37s | 49ms | 100% |
+| 4G CGNAT | iPhone hotspot ↔ home WiFi | 2.9s | 107ms | 90% |
+| Cross-border | School WiFi (CH) ↔ Freebox (FR) | 1.4s | 32ms | 95% |
+
+Stress test on highway (A40, France↔Switzerland): **99.85%** reliability over 2752 pings, 54 minutes continuous, surviving tunnel outages and cell tower handoffs.
+
+## Testing
+
+```bash
+# TypeScript tests (771 tests)
+pnpm test
+
+# Rust tests (236 tests)
+cargo test --workspace
+
+# E2E browser tests (Playwright)
 pnpm test:e2e
-
-# Lancer avec navigateur visible
-pnpm test:e2e:headed
-
-# Interface graphique Playwright
-pnpm test:e2e:ui
-
-# Voir le rapport HTML
-pnpm test:e2e:report
 ```
-
-### Rapport généré
-
-```
-╔══════════════════════════════════════════════════════════════════╗
-║                  ToM Protocol E2E Test Report                     ║
-╠══════════════════════════════════════════════════════════════════╣
-│  Messages: 15 envoyés, 14 reçus (93.3%)                          │
-│  Invitations: 3/3 acceptées (100%)                               │
-│  Latence moyenne: 352ms                                          │
-│  Hub failover: automatique si hub offline                        │
-╚══════════════════════════════════════════════════════════════════╝
-```
-
-Tests progressifs : 2 users → 3 users → groupes → invitations → déconnexion hub.
-
-## Contributing
-
-ToM uses a **micro-session contribution model** — small, focused changes completable in 30-60 minutes.
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for:
-- Issue complexity levels (micro/small/medium)
-- How to find and claim work
-- Session workflow
-
-## Why ToM Exists
-
-| Current Problem | ToM's Answer |
-|-----------------|--------------|
-| Centralized infrastructure = censorship points | Pure P2P, no master server |
-| Blockchains = infinite history, sync marathon | Ultra-purged L1, sliding genesis |
-| Fees/entry barriers | Free = you pay with network contribution |
 
 ## Core Concepts
 
@@ -151,21 +151,31 @@ No energy-hungry PoW, no capitalist PoS. You validate because you're there and y
 Every node can be: **Client, Relay, Observer, Guardian, Validator.**
 Roles are assigned dynamically based on network needs and contribution.
 
-### Usage vs. Contribution Balance
+### 7 Locked Design Decisions
 
-```
-Score = Contribution - Usage
-```
+| # | Decision | Rule |
+|---|----------|------|
+| 1 | **Delivery** | Message delivered ⟺ recipient emits ACK |
+| 2 | **TTL** | 24h max lifespan, then global purge |
+| 3 | **L1 Role** | L1 anchors state, never arbitrates |
+| 4 | **Reputation** | Progressive fade, no permanent bans |
+| 5 | **Anti-spam** | Progressive load, not exclusion |
+| 6 | **Invisibility** | Protocol layer invisible to end users |
+| 7 | **Scope** | Universal foundation (like TCP/IP), not a product |
 
-Heavy consumers become relays. Spam is self-destructive.
+## Contributing
+
+ToM uses a **micro-session contribution model** — small, focused changes completable in 30-60 minutes.
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for details.
 
 ## Documentation
 
-- [CLAUDE.md](CLAUDE.md) - Implementation guide for AI assistants
-- [llms.txt](llms.txt) - Protocol quick reference
-- [Architecture](/_bmad-output/planning-artifacts/architecture.md) - ADRs and design decisions
-- [Epics & Stories](/_bmad-output/planning-artifacts/epics.md) - Full requirements breakdown
-- [Tests Added Log](scripts/tests-added-log.md) - Track of all tests added to the project
+- [CLAUDE.md](CLAUDE.md) — Implementation guide for AI assistants
+- [llms.txt](llms.txt) — Protocol quick reference
+- [docs/](docs/) — GitBook documentation
+- [Architecture](_bmad-output/planning-artifacts/architecture.md) — ADRs and design decisions
+- [Design Decisions](_bmad-output/planning-artifacts/design-decisions.md) — 7 locked invariants
 
 ## License
 

@@ -6,7 +6,7 @@ use tokio::sync::{broadcast, mpsc};
 use tom_transport::{PathEvent, TomNode};
 
 use crate::backup::{BackupAction, BackupCoordinator, BackupEvent};
-use crate::discovery::{DiscoveryEvent, HeartbeatTracker};
+use crate::discovery::{HeartbeatTracker, DiscoveryEvent, PeerAnnounce};
 use crate::envelope::{Envelope, EnvelopeBuilder};
 use crate::group::{
     GroupAction, GroupEvent, GroupHub, GroupManager, GroupMessage, GroupPayload,
@@ -16,7 +16,14 @@ use crate::router::{AckType, ReadReceiptPayload, Router, RoutingAction};
 use crate::tracker::{MessageTracker, StatusChange};
 use crate::types::{MessageType, NodeId};
 
+use iroh_gossip::Gossip;
+use iroh_gossip::api::Event as GossipEvent;
+use n0_future::StreamExt;
+
 use super::{DeliveredMessage, ProtocolEvent, RuntimeCommand, RuntimeConfig};
+
+/// Fixed gossip topic for ToM peer discovery (all nodes share this).
+const TOM_GOSSIP_TOPIC: [u8; 32] = *b"tom-protocol-gossip-discovery-v1";
 
 /// Main event loop — owns all protocol state.
 #[allow(clippy::too_many_arguments)]
@@ -30,6 +37,8 @@ pub(super) async fn runtime_loop(
     status_tx: mpsc::Sender<StatusChange>,
     event_tx: mpsc::Sender<ProtocolEvent>,
     mut path_rx: broadcast::Receiver<PathEvent>,
+    gossip: Gossip,
+    gossip_bootstrap_peers: Vec<NodeId>,
 ) {
     // ── Protocol state ──────────────────────────────────────────────
     let mut router = Router::new(local_id);
@@ -52,12 +61,34 @@ pub(super) async fn runtime_loop(
     let mut group_hub_heartbeat = tokio::time::interval(config.group_hub_heartbeat_interval);
     let mut backup_tick = tokio::time::interval(config.backup_tick_interval);
 
+    let mut gossip_announce = tokio::time::interval(config.gossip_announce_interval);
+
     // Skip the immediate first tick on all intervals
     cache_cleanup.tick().await;
     tracker_cleanup.tick().await;
     heartbeat_check.tick().await;
     group_hub_heartbeat.tick().await;
     backup_tick.tick().await;
+    gossip_announce.tick().await;
+
+    // ── Gossip subscription ──────────────────────────────────────────
+    let topic_id = iroh_gossip::TopicId::from_bytes(TOM_GOSSIP_TOPIC);
+    let bootstrap: Vec<iroh::EndpointId> = gossip_bootstrap_peers
+        .iter()
+        .map(|n| *n.as_endpoint_id())
+        .collect();
+
+    let (gossip_sender, mut gossip_receiver) = match gossip.subscribe(topic_id, bootstrap).await {
+        Ok(topic) => {
+            let (s, r) = topic.split();
+            tracing::info!("gossip: subscribed to discovery topic");
+            (Some(s), Some(r))
+        }
+        Err(e) => {
+            tracing::warn!("gossip: subscription failed: {e}");
+            (None, None)
+        }
+    };
 
     loop {
         tokio::select! {
@@ -156,7 +187,15 @@ pub(super) async fn runtime_loop(
                             }
 
                             MessageType::PeerAnnounce => {
-                                // Future: peer discovery announcements
+                                // Direct QUIC peer announce (heartbeat + topology already handled above)
+                                if let Ok(announce) = rmp_serde::from_slice::<PeerAnnounce>(&envelope.payload) {
+                                    if announce.is_timestamp_valid(now_ms()) {
+                                        let _ = event_tx.send(ProtocolEvent::PeerAnnounceReceived {
+                                            node_id: announce.node_id,
+                                            username: announce.username,
+                                        }).await;
+                                    }
+                                }
                             }
                         }
                     }
@@ -343,6 +382,88 @@ pub(super) async fn runtime_loop(
                     &actions, local_id, &secret_seed,
                     &relay_selector, &topology, &node, &event_tx,
                 ).await;
+            }
+
+            // ── 9. Gossip events ─────────────────────────────────
+            event = async {
+                match gossip_receiver.as_mut() {
+                    Some(rx) => rx.next().await,
+                    None => std::future::pending::<Option<_>>().await,
+                }
+            } => {
+                if let Some(Ok(event)) = event {
+                    match event {
+                        GossipEvent::Received(msg) => {
+                            if let Ok(announce) = rmp_serde::from_slice::<PeerAnnounce>(&msg.content) {
+                                if announce.is_timestamp_valid(now_ms()) {
+                                    let peer_id = announce.node_id;
+                                    heartbeat.record_heartbeat(peer_id);
+                                    topology.upsert(PeerInfo {
+                                        node_id: peer_id,
+                                        role: PeerRole::Peer,
+                                        status: PeerStatus::Online,
+                                        last_seen: now_ms(),
+                                    });
+                                    let _ = event_tx.send(ProtocolEvent::PeerAnnounceReceived {
+                                        node_id: peer_id,
+                                        username: announce.username,
+                                    }).await;
+                                }
+                            }
+                        }
+                        GossipEvent::NeighborUp(endpoint_id) => {
+                            let node_id = NodeId::from_endpoint_id(endpoint_id);
+                            heartbeat.record_heartbeat(node_id);
+                            topology.upsert(PeerInfo {
+                                node_id,
+                                role: PeerRole::Peer,
+                                status: PeerStatus::Online,
+                                last_seen: now_ms(),
+                            });
+                            let _ = event_tx.send(ProtocolEvent::GossipNeighborUp {
+                                node_id,
+                            }).await;
+
+                            // Re-broadcast our announce on NeighborUp
+                            // (key learning from PoC-3: initial broadcast has no neighbors)
+                            if let Some(ref sender) = gossip_sender {
+                                let announce = PeerAnnounce::new(
+                                    local_id,
+                                    config.username.clone(),
+                                    vec![PeerRole::Peer],
+                                );
+                                if let Ok(bytes) = rmp_serde::to_vec(&announce) {
+                                    let _ = sender.broadcast(bytes::Bytes::from(bytes)).await;
+                                }
+                            }
+                        }
+                        GossipEvent::NeighborDown(endpoint_id) => {
+                            let node_id = NodeId::from_endpoint_id(endpoint_id);
+                            let _ = event_tx.send(ProtocolEvent::GossipNeighborDown {
+                                node_id,
+                            }).await;
+                        }
+                        GossipEvent::Lagged => {
+                            tracing::warn!("gossip: receiver lagged, missed events");
+                        }
+                    }
+                }
+            }
+
+            // ── 10. Timer: gossip announce ────────────────────────
+            _ = gossip_announce.tick() => {
+                if let Some(ref sender) = gossip_sender {
+                    let announce = PeerAnnounce::new(
+                        local_id,
+                        config.username.clone(),
+                        vec![PeerRole::Peer],
+                    );
+                    if let Ok(bytes) = rmp_serde::to_vec(&announce) {
+                        if let Err(e) = sender.broadcast(bytes::Bytes::from(bytes)).await {
+                            tracing::debug!("gossip: announce broadcast failed: {e}");
+                        }
+                    }
+                }
             }
 
             else => break,
