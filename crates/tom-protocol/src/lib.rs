@@ -14,6 +14,7 @@ pub mod error;
 pub mod group;
 pub mod relay;
 pub mod router;
+pub mod runtime;
 pub mod tracker;
 pub mod types;
 
@@ -36,4 +37,8 @@ pub use group::{
 pub use relay::{PeerInfo, PeerRole, PeerStatus, RelaySelector, Topology};
 pub use router::{AckPayload, AckType, ReadReceiptPayload, Router, RoutingAction};
 pub use tracker::{MessageTracker, StatusChange};
+pub use runtime::{
+    DeliveredMessage, ProtocolEvent, ProtocolRuntime, RuntimeChannels, RuntimeConfig,
+    RuntimeHandle,
+};
 pub use types::{MessageStatus, MessageType, NodeId};

@@ -15,8 +15,10 @@ use crossterm::terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScree
 use crossterm::ExecutableCommand;
 use ratatui::prelude::*;
 use ratatui::widgets::*;
-use tokio::sync::mpsc;
-use tom_protocol::{Envelope, EnvelopeBuilder, MessageType, NodeId};
+use tom_protocol::{
+    DeliveredMessage, NodeId, ProtocolEvent, ProtocolRuntime, RuntimeChannels, RuntimeConfig,
+    RuntimeHandle,
+};
 use tom_transport::{TomNode, TomNodeConfig};
 
 // ── App State ────────────────────────────────────────────────────────────
@@ -24,8 +26,6 @@ use tom_transport::{TomNode, TomNodeConfig};
 struct App {
     /// Our node identity.
     local_id: NodeId,
-    /// Our secret key seed (for signing).
-    secret_seed: [u8; 32],
     /// Chat messages (timestamp, from_label, text).
     messages: Vec<ChatMessage>,
     /// Current input text.
@@ -40,11 +40,6 @@ struct App {
     scroll: u16,
     /// Our short ID for display.
     short_id: String,
-    /// Message counter for envelope IDs.
-    msg_counter: u64,
-    /// Connection latency (last measured).
-    #[allow(dead_code)]
-    last_latency: Option<Duration>,
     /// Total messages sent/received.
     stats: Stats,
 }
@@ -60,16 +55,13 @@ struct ChatMessage {
 struct Stats {
     sent: u64,
     received: u64,
-    bytes_sent: u64,
-    bytes_received: u64,
 }
 
 impl App {
-    fn new(local_id: NodeId, secret_seed: [u8; 32]) -> Self {
+    fn new(local_id: NodeId) -> Self {
         let short_id = short_node_id(&local_id);
         Self {
             local_id,
-            secret_seed,
             messages: vec![],
             input: String::new(),
             peer_id: None,
@@ -77,8 +69,6 @@ impl App {
             quit: false,
             scroll: 0,
             short_id,
-            msg_counter: 0,
-            last_latency: None,
             stats: Stats::default(),
         }
     }
@@ -122,8 +112,6 @@ async fn main() -> anyhow::Result<()> {
     // Init transport
     let node = TomNode::bind(TomNodeConfig::new()).await?;
     let local_id = node.id();
-    let secret_seed = node.secret_key_seed();
-    let _addr = node.addr();
 
     // Print node info to stderr (visible after TUI exits)
     eprintln!("╭─────────────────────────────────────────────╮");
@@ -133,11 +121,19 @@ async fn main() -> anyhow::Result<()> {
     eprintln!("│  Short:   {}                          │", short_node_id(&local_id));
     eprintln!("╰─────────────────────────────────────────────╯");
 
+    // Start protocol runtime (owns the node, handles routing/crypto/tracking)
+    let RuntimeChannels {
+        handle,
+        mut messages,
+        status_changes: _status_changes,
+        mut events,
+    } = ProtocolRuntime::spawn(node, RuntimeConfig::default());
+
     if bot_mode {
-        return run_bot(node, local_id, secret_seed).await;
+        return run_bot(handle, messages).await;
     }
 
-    let mut app = App::new(local_id, secret_seed);
+    let mut app = App::new(local_id);
     app.add_system_message(format!("Node started: {}", app.short_id));
     app.add_system_message(format!("Full ID: {}", local_id));
 
@@ -146,6 +142,7 @@ async fn main() -> anyhow::Result<()> {
         match peer_str.parse::<NodeId>() {
             Ok(peer_id) => {
                 app.peer_id = Some(peer_id);
+                handle.add_peer(peer_id).await;
                 app.status = format!("Connecting to {}...", short_node_id(&peer_id));
                 app.add_system_message(format!("Connecting to {}...", short_node_id(&peer_id)));
             }
@@ -157,38 +154,6 @@ async fn main() -> anyhow::Result<()> {
         app.add_system_message("No peer specified. Share your Node ID with a peer.".into());
         app.add_system_message("Or restart with: tom-chat <peer-node-id>".into());
     }
-
-    // Channels for async communication
-    let (tx_incoming, mut rx_incoming) = mpsc::channel::<(NodeId, Vec<u8>)>(64);
-    let (tx_outgoing, mut rx_outgoing) = mpsc::channel::<(NodeId, Vec<u8>)>(64);
-
-    // Single task owns the node — handles both send and recv via select!
-    // (Avoids Mutex deadlock: recv_raw needs &mut self and would hold lock forever)
-    let tx_inc = tx_incoming.clone();
-    tokio::spawn(async move {
-        let mut node = node;
-        loop {
-            tokio::select! {
-                result = node.recv_raw() => {
-                    match result {
-                        Ok((from, data)) => {
-                            if tx_inc.send((from, data)).await.is_err() {
-                                break;
-                            }
-                        }
-                        Err(e) => {
-                            tracing::warn!("recv error: {}", e);
-                        }
-                    }
-                }
-                Some((to, data)) = rx_outgoing.recv() => {
-                    if let Err(e) = node.send_raw(to, &data).await {
-                        tracing::warn!("send error: {}", e);
-                    }
-                }
-            }
-        }
-    });
 
     // Setup terminal
     enable_raw_mode()?;
@@ -219,7 +184,7 @@ async fn main() -> anyhow::Result<()> {
                     KeyCode::Enter => {
                         if !app.input.is_empty() {
                             let text = app.input.drain(..).collect::<String>();
-                            handle_input(&mut app, &text, &tx_outgoing).await;
+                            handle_input(&mut app, &text, &handle).await;
                         }
                     }
                     KeyCode::Backspace => {
@@ -239,9 +204,14 @@ async fn main() -> anyhow::Result<()> {
             }
         }
 
-        // Process incoming messages
-        while let Ok((from, data)) = rx_incoming.try_recv() {
-            handle_incoming(&mut app, from, &data);
+        // Process incoming messages (delivered by protocol runtime — already decrypted + verified)
+        while let Ok(msg) = messages.try_recv() {
+            handle_incoming(&mut app, &msg);
+        }
+
+        // Process protocol events
+        while let Ok(evt) = events.try_recv() {
+            handle_protocol_event(&mut app, &evt);
         }
 
         if last_tick.elapsed() >= tick_rate {
@@ -249,6 +219,7 @@ async fn main() -> anyhow::Result<()> {
         }
 
         if app.quit {
+            handle.shutdown().await;
             break;
         }
     }
@@ -263,7 +234,7 @@ async fn main() -> anyhow::Result<()> {
 
 // ── Input handling ───────────────────────────────────────────────────────
 
-async fn handle_input(app: &mut App, text: &str, tx: &mpsc::Sender<(NodeId, Vec<u8>)>) {
+async fn handle_input(app: &mut App, text: &str, handle: &RuntimeHandle) {
     // Commands
     if text.starts_with('/') {
         handle_command(app, text);
@@ -276,21 +247,15 @@ async fn handle_input(app: &mut App, text: &str, tx: &mpsc::Sender<(NodeId, Vec<
         return;
     };
 
-    // Build protocol envelope
-    app.msg_counter += 1;
-    let envelope = EnvelopeBuilder::new(app.local_id, peer_id, MessageType::Chat, text.as_bytes().to_vec())
-        .sign(&app.secret_seed);
-
-    match envelope.to_bytes() {
-        Ok(bytes) => {
-            app.stats.bytes_sent += bytes.len() as u64;
+    // Send via protocol runtime (handles envelope, signing, encryption, relay selection)
+    match handle.send_message(peer_id, text.as_bytes().to_vec()).await {
+        Ok(()) => {
             app.stats.sent += 1;
             app.add_chat_message(&app.short_id.clone(), text.to_string());
-            app.status = format!("Sent {} bytes", bytes.len());
-            let _ = tx.send((peer_id, bytes)).await;
+            app.status = format!("Sent to {}", short_node_id(&peer_id));
         }
         Err(e) => {
-            app.add_system_message(format!("Serialize error: {}", e));
+            app.add_system_message(format!("Send error: {}", e));
         }
     }
 }
@@ -319,8 +284,8 @@ fn handle_command(app: &mut App, cmd: &str) {
         }
         "/stats" => {
             app.add_system_message(format!(
-                "Sent: {} msgs ({} bytes) | Received: {} msgs ({} bytes)",
-                app.stats.sent, app.stats.bytes_sent, app.stats.received, app.stats.bytes_received
+                "Sent: {} msgs | Received: {} msgs",
+                app.stats.sent, app.stats.received
             ));
         }
         "/clear" => {
@@ -347,34 +312,44 @@ fn handle_command(app: &mut App, cmd: &str) {
 
 // ── Incoming message handling ────────────────────────────────────────────
 
-fn handle_incoming(app: &mut App, from: NodeId, data: &[u8]) {
-    app.stats.bytes_received += data.len() as u64;
+fn handle_incoming(app: &mut App, msg: &DeliveredMessage) {
+    let sig_label = if msg.signature_valid { "verified" } else { "unverified" };
+    let enc_label = if msg.was_encrypted { "encrypted" } else { "plain" };
 
-    match Envelope::from_bytes(data) {
-        Ok(envelope) => {
-            // Verify signature
-            let sig_ok = envelope.verify_signature().is_ok();
-            let sig_label = if sig_ok { "verified" } else { "unverified" };
+    let from_short = short_node_id(&msg.from);
+    let text = String::from_utf8_lossy(&msg.payload);
 
-            let from_short = short_node_id(&from);
-            let text = String::from_utf8_lossy(&envelope.payload);
+    app.stats.received += 1;
+    app.add_chat_message(
+        &from_short,
+        format!("{} [{}, {}]", text, sig_label, enc_label),
+    );
 
-            app.stats.received += 1;
-            app.add_chat_message(
-                &from_short,
-                format!("{} [{}]", text, sig_label),
-            );
+    // Auto-set peer if not set
+    if app.peer_id.is_none() {
+        app.peer_id = Some(msg.from);
+        app.status = format!("Connected: {}", from_short);
+        app.add_system_message(format!("Auto-connected to {}", from_short));
+    }
+}
 
-            // Auto-set peer if not set
-            if app.peer_id.is_none() {
-                app.peer_id = Some(from);
-                app.status = format!("Connected: {}", from_short);
-                app.add_system_message(format!("Auto-connected to {}", from_short));
-            }
+// ── Protocol event handling ──────────────────────────────────────────────
+
+fn handle_protocol_event(app: &mut App, event: &ProtocolEvent) {
+    match event {
+        ProtocolEvent::PeerDiscovered { node_id } => {
+            app.add_system_message(format!("Peer discovered: {}", short_node_id(node_id)));
         }
-        Err(e) => {
-            app.add_system_message(format!("Bad envelope from {}: {}", short_node_id(&from), e));
+        ProtocolEvent::PeerOffline { node_id } => {
+            app.add_system_message(format!("Peer offline: {}", short_node_id(node_id)));
         }
+        ProtocolEvent::PathChanged { event } => {
+            app.add_system_message(format!("Path changed: {:?}", event));
+        }
+        ProtocolEvent::Error { description } => {
+            app.add_system_message(format!("Error: {}", description));
+        }
+        _ => {}
     }
 }
 
@@ -467,59 +442,42 @@ fn draw_ui(f: &mut Frame, app: &App) {
 // ── Bot Mode ─────────────────────────────────────────────────────────
 
 async fn run_bot(
-    mut node: TomNode,
-    local_id: NodeId,
-    secret_seed: [u8; 32],
+    handle: RuntimeHandle,
+    mut messages: tokio::sync::mpsc::Receiver<DeliveredMessage>,
 ) -> anyhow::Result<()> {
-    println!("[bot] Running in bot mode — auto-responding to messages");
-    println!("[bot] Node ID: {}", local_id);
+    println!("[bot] Running in bot mode — auto-responding via ProtocolRuntime");
+    println!("[bot] Node ID: {}", handle.local_id());
     println!("[bot] Ctrl+C to stop\n");
 
     let mut count = 0u64;
 
     loop {
-        let (from, data) = node.recv_raw().await?;
+        let Some(msg) = messages.recv().await else {
+            println!("[bot] runtime channel closed, shutting down");
+            break;
+        };
 
-        match Envelope::from_bytes(&data) {
-            Ok(envelope) => {
-                let sig_ok = envelope.verify_signature().is_ok();
-                let text = String::from_utf8_lossy(&envelope.payload);
-                count += 1;
+        let sig_label = if msg.signature_valid { "ok" } else { "bad" };
+        let text = String::from_utf8_lossy(&msg.payload);
+        count += 1;
 
-                println!(
-                    "[bot] #{} from {} | sig={} | \"{}\"",
-                    count,
-                    short_node_id(&from),
-                    if sig_ok { "ok" } else { "bad" },
-                    text
-                );
+        println!(
+            "[bot] #{} from {} | sig={} | \"{}\"",
+            count,
+            short_node_id(&msg.from),
+            sig_label,
+            text
+        );
 
-                // Auto-reply
-                let reply = format!("recu 5/5 malik (msg #{})", count);
-                let reply_envelope = EnvelopeBuilder::new(
-                    local_id,
-                    from,
-                    MessageType::Chat,
-                    reply.as_bytes().to_vec(),
-                )
-                .sign(&secret_seed);
-
-                match reply_envelope.to_bytes() {
-                    Ok(bytes) => {
-                        if let Err(e) = node.send_raw(from, &bytes).await {
-                            println!("[bot] send error: {}", e);
-                        } else {
-                            println!("[bot] replied: \"{}\"", reply);
-                        }
-                    }
-                    Err(e) => println!("[bot] serialize error: {}", e),
-                }
-            }
-            Err(e) => {
-                println!("[bot] bad envelope from {}: {}", short_node_id(&from), e);
-            }
+        // Auto-reply via runtime (handles signing, encryption, relay selection)
+        let reply = format!("recu 5/5 malik (msg #{})", count);
+        match handle.send_message(msg.from, reply.as_bytes().to_vec()).await {
+            Ok(()) => println!("[bot] replied: \"{}\"", reply),
+            Err(e) => println!("[bot] send error: {}", e),
         }
     }
+
+    Ok(())
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────
@@ -534,8 +492,7 @@ fn short_node_id(id: &NodeId) -> String {
 }
 
 fn now_hms() -> String {
-    let now = chrono_lite_hms();
-    now
+    chrono_lite_hms()
 }
 
 /// Minimal HH:MM:SS without pulling in chrono.
