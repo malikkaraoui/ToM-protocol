@@ -62,7 +62,7 @@ async fn main() -> Result<()> {
 
     // Setup router with gossip protocol handler
     let router = Router::builder(endpoint.clone())
-        .accept(iroh_gossip::ALPN.to_vec(), gossip.clone())
+        .accept(iroh_gossip::ALPN, gossip.clone())
         .spawn();
 
     // Parse bootstrap peers

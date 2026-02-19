@@ -143,8 +143,8 @@ async fn main() -> Result<()> {
     };
 
     let _router = Router::builder(endpoint.clone())
-        .accept(iroh_gossip::ALPN.to_vec(), gossip.clone())
-        .accept(CHAT_ALPN.to_vec(), Arc::new(chat_handler))
+        .accept(iroh_gossip::ALPN, gossip.clone())
+        .accept(CHAT_ALPN, Arc::new(chat_handler))
         .spawn();
 
     // Bootstrap peers
@@ -186,13 +186,13 @@ async fn main() -> Result<()> {
                     if let Some(peer_name) = content.strip_prefix("ANNOUNCE|") {
                         let peer_id = msg.delivered_from;
                         let mut map = peers_clone.lock().await;
-                        if !map.contains_key(&peer_id) {
+                        if let std::collections::hash_map::Entry::Vacant(e) = map.entry(peer_id) {
                             println!(
                                 "\r[DISCOVERED] {} ({})",
                                 peer_name,
                                 &peer_id.to_string()[..10]
                             );
-                            map.insert(peer_id, peer_name.to_string());
+                            e.insert(peer_name.to_string());
                             print!("[{name_clone}] > ");
                             std::io::stdout().flush().ok();
 

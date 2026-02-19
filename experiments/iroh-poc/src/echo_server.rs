@@ -87,7 +87,7 @@ async fn main() -> Result<()> {
 
     // Build and start the protocol router
     let router = Router::builder(endpoint.clone())
-        .accept(TOM_ALPN.to_vec(), Arc::new(EchoProtocol))
+        .accept(TOM_ALPN, Arc::new(EchoProtocol))
         .spawn();
 
     println!("Echo server listening...");
