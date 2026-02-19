@@ -450,7 +450,7 @@ impl GroupHub {
     pub fn heartbeat_actions(&self) -> Vec<GroupAction> {
         let mut actions = vec![];
 
-        for (_, hub_group) in &self.groups {
+        for hub_group in self.groups.values() {
             let recipients: Vec<NodeId> = hub_group
                 .info
                 .members

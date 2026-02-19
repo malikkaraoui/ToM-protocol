@@ -223,7 +223,7 @@ async fn try_reconnect(
         tokio::time::sleep(backoff).await;
 
         // Force-evict every 5 failed attempts to trigger fresh discovery
-        if attempt % 5 == 0 {
+        if attempt.is_multiple_of(5) {
             node.disconnect(target).await;
         }
 

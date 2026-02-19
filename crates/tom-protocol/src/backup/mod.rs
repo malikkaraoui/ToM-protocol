@@ -7,7 +7,6 @@
 /// - **Store**: holds messages, tracks replicas, manages TTL
 /// - **Coordinator**: orchestrates queries, replication, delivery confirmation
 /// - **Types**: data structures, constants, events
-
 pub mod coordinator;
 pub mod store;
 pub mod types;

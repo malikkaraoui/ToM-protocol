@@ -2,7 +2,6 @@
 ///
 /// Hub-and-spoke topology: one relay node acts as hub per group,
 /// fanning out messages to all members. Pure state machines — no I/O.
-
 pub mod election;
 pub mod hub;
 pub mod manager;

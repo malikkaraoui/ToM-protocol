@@ -80,7 +80,7 @@ pub fn elect_hub(
     }
 
     // 3. Deterministic: sort by NodeId string representation, pick lowest
-    candidates.sort_by(|a, b| a.to_string().cmp(&b.to_string()));
+    candidates.sort_by_key(|a| a.to_string());
 
     ElectionResult {
         new_hub_id: Some(candidates[0]),

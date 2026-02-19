@@ -15,6 +15,7 @@ use crate::types::{MessageType, NodeId};
 use super::{DeliveredMessage, ProtocolEvent, RuntimeCommand, RuntimeConfig};
 
 /// Main event loop — owns all protocol state.
+#[allow(clippy::too_many_arguments)]
 pub(super) async fn runtime_loop(
     mut node: TomNode,
     local_id: NodeId,
@@ -179,6 +180,7 @@ pub(super) async fn runtime_loop(
 
 // ── Inbound handler ─────────────────────────────────────────────────
 
+#[allow(clippy::too_many_arguments)]
 async fn handle_incoming(
     data: &[u8],
     _local_id: NodeId,
@@ -318,6 +320,7 @@ async fn handle_incoming(
 
 // ── Outbound handlers ───────────────────────────────────────────────
 
+#[allow(clippy::too_many_arguments)]
 async fn handle_send_message(
     local_id: NodeId,
     secret_seed: &[u8; 32],
