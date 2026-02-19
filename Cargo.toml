@@ -1,0 +1,3 @@
+[workspace]
+members = ["crates/tom-transport", "crates/tom-protocol", "crates/tom-stress", "crates/tom-tui", "experiments/iroh-poc"]
+resolver = "2"
