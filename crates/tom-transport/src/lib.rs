@@ -41,6 +41,9 @@ pub use error::TomTransportError;
 pub use node::TomNode;
 pub use path::{PathEvent, PathKind};
 
+// Re-export gossip types for protocol layer
+pub use iroh_gossip;
+
 use std::fmt;
 use std::str::FromStr;
 
@@ -52,12 +55,12 @@ pub struct NodeId(iroh::EndpointId);
 
 impl NodeId {
     /// Create from an iroh EndpointId.
-    pub(crate) fn from_endpoint_id(id: iroh::EndpointId) -> Self {
+    pub fn from_endpoint_id(id: iroh::EndpointId) -> Self {
         Self(id)
     }
 
     /// Access the underlying iroh EndpointId.
-    pub(crate) fn as_endpoint_id(&self) -> &iroh::EndpointId {
+    pub fn as_endpoint_id(&self) -> &iroh::EndpointId {
         &self.0
     }
 

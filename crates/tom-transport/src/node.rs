@@ -7,6 +7,7 @@ use crate::{NodeId, TomTransportError};
 
 use iroh::protocol::Router;
 use iroh::Endpoint;
+use iroh_gossip::Gossip;
 use std::sync::Arc;
 use tokio::sync::{broadcast, mpsc};
 
@@ -22,6 +23,7 @@ pub struct TomNode {
     path_event_tx: broadcast::Sender<PathEvent>,
     _router: Router,
     endpoint: Endpoint,
+    gossip: Gossip,
     max_message_size: usize,
 }
 
@@ -52,8 +54,11 @@ impl TomNode {
             state: handler_state,
         };
 
+        let gossip = Gossip::builder().spawn(endpoint.clone());
+
         let router = Router::builder(endpoint.clone())
             .accept(config.alpn.clone(), Arc::new(handler))
+            .accept(iroh_gossip::ALPN, gossip.clone())
             .spawn();
 
         let pool = Arc::new(ConnectionPool::new(endpoint.clone(), config.alpn));
@@ -66,6 +71,7 @@ impl TomNode {
             path_event_tx,
             _router: router,
             endpoint,
+            gossip,
             max_message_size: config.max_message_size,
         })
     }
@@ -88,6 +94,13 @@ impl TomNode {
     /// Share this with other nodes so they can connect to you.
     pub fn addr(&self) -> iroh::EndpointAddr {
         self.endpoint.addr()
+    }
+
+    /// Access the iroh-gossip handle.
+    ///
+    /// Use this to subscribe to gossip topics for peer discovery.
+    pub fn gossip(&self) -> &Gossip {
+        &self.gossip
     }
 
     /// Add a known peer address (for bootstrap or manual discovery).

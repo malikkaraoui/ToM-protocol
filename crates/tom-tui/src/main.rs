@@ -121,13 +121,21 @@ async fn main() -> anyhow::Result<()> {
     eprintln!("│  Short:   {}                          │", short_node_id(&local_id));
     eprintln!("╰─────────────────────────────────────────────╯");
 
+    // Build runtime config — pass CLI peer as gossip bootstrap
+    let mut config = RuntimeConfig::default();
+    if let Some(ref peer_str) = peer_arg {
+        if let Ok(peer_id) = peer_str.parse::<NodeId>() {
+            config.gossip_bootstrap_peers = vec![peer_id];
+        }
+    }
+
     // Start protocol runtime (owns the node, handles routing/crypto/tracking)
     let RuntimeChannels {
         handle,
         mut messages,
         status_changes: _status_changes,
         mut events,
-    } = ProtocolRuntime::spawn(node, RuntimeConfig::default());
+    } = ProtocolRuntime::spawn(node, config);
 
     if bot_mode {
         return run_bot(handle, messages).await;
@@ -345,6 +353,25 @@ fn handle_protocol_event(app: &mut App, event: &ProtocolEvent) {
         }
         ProtocolEvent::PathChanged { event } => {
             app.add_system_message(format!("Path changed: {:?}", event));
+        }
+        ProtocolEvent::PeerAnnounceReceived { node_id, username } => {
+            app.add_system_message(format!(
+                "Gossip: {} announced as \"{}\"",
+                short_node_id(node_id),
+                username
+            ));
+            // Auto-set peer if not set (discovered via gossip)
+            if app.peer_id.is_none() {
+                app.peer_id = Some(*node_id);
+                app.status = format!("Connected: {} (via gossip)", short_node_id(node_id));
+                app.add_system_message(format!("Auto-connected to {} via gossip", short_node_id(node_id)));
+            }
+        }
+        ProtocolEvent::GossipNeighborUp { node_id } => {
+            app.add_system_message(format!("Gossip: neighbor up {}", short_node_id(node_id)));
+        }
+        ProtocolEvent::GossipNeighborDown { node_id } => {
+            app.add_system_message(format!("Gossip: neighbor down {}", short_node_id(node_id)));
         }
         ProtocolEvent::Error { description } => {
             app.add_system_message(format!("Error: {}", description));
