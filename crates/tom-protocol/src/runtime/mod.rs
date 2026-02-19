@@ -10,6 +10,7 @@ use std::time::Duration;
 use tokio::sync::{mpsc, oneshot};
 use tom_transport::{PathEvent, TomNode};
 
+use crate::group::{GroupId, GroupInfo, GroupInvite, GroupMember, GroupMessage, LeaveReason};
 use crate::relay::PeerInfo;
 use crate::tracker::StatusChange;
 use crate::types::NodeId;
@@ -26,6 +27,12 @@ pub struct RuntimeConfig {
     pub heartbeat_interval: Duration,
     /// Interval for message tracker eviction.
     pub tracker_cleanup_interval: Duration,
+    /// Local username for group membership.
+    pub username: String,
+    /// Interval for group hub heartbeats.
+    pub group_hub_heartbeat_interval: Duration,
+    /// Interval for backup maintenance ticks.
+    pub backup_tick_interval: Duration,
 }
 
 impl Default for RuntimeConfig {
@@ -35,6 +42,9 @@ impl Default for RuntimeConfig {
             cache_cleanup_interval: Duration::from_secs(300),
             heartbeat_interval: Duration::from_secs(5),
             tracker_cleanup_interval: Duration::from_secs(300),
+            username: "anonymous".to_string(),
+            group_hub_heartbeat_interval: Duration::from_secs(30),
+            backup_tick_interval: Duration::from_secs(60),
         }
     }
 }
@@ -59,6 +69,29 @@ pub enum RuntimeCommand {
     /// Request current connected peers.
     GetConnectedPeers {
         reply: oneshot::Sender<Vec<NodeId>>,
+    },
+    // ── Group commands ──────────────────────────────
+    /// Create a new group. This node becomes a member; hub_relay_id hosts the group.
+    CreateGroup {
+        name: String,
+        hub_relay_id: NodeId,
+        initial_members: Vec<NodeId>,
+    },
+    /// Accept a pending group invitation.
+    AcceptInvite { group_id: GroupId },
+    /// Decline a pending group invitation.
+    DeclineInvite { group_id: GroupId },
+    /// Leave a group.
+    LeaveGroup { group_id: GroupId },
+    /// Send a text message to a group.
+    SendGroupMessage { group_id: GroupId, text: String },
+    /// Query: list groups we belong to.
+    GetGroups {
+        reply: oneshot::Sender<Vec<GroupInfo>>,
+    },
+    /// Query: list pending invitations.
+    GetPendingInvites {
+        reply: oneshot::Sender<Vec<GroupInvite>>,
     },
     /// Graceful shutdown.
     Shutdown,
@@ -95,6 +128,51 @@ pub enum ProtocolEvent {
     PathChanged { event: PathEvent },
     /// Runtime encountered a non-fatal error.
     Error { description: String },
+    // ── Group events ──────────────────────────────
+    /// A group was created (we are a member).
+    GroupCreated { group: GroupInfo },
+    /// We received a group invitation.
+    GroupInviteReceived { invite: GroupInvite },
+    /// We joined a group (after accepting invite).
+    GroupJoined {
+        group_id: GroupId,
+        group_name: String,
+    },
+    /// A member joined a group we belong to.
+    GroupMemberJoined {
+        group_id: GroupId,
+        member: GroupMember,
+    },
+    /// A member left a group we belong to.
+    GroupMemberLeft {
+        group_id: GroupId,
+        node_id: NodeId,
+        username: String,
+        reason: LeaveReason,
+    },
+    /// A group message was received.
+    GroupMessageReceived { message: GroupMessage },
+    /// The hub for a group migrated to a new node.
+    GroupHubMigrated {
+        group_id: GroupId,
+        new_hub_id: NodeId,
+    },
+    // ── Backup events ─────────────────────────────
+    /// A message was stored as backup for an offline recipient.
+    BackupStored {
+        message_id: String,
+        recipient_id: NodeId,
+    },
+    /// A backed-up message was delivered to its recipient.
+    BackupDelivered {
+        message_id: String,
+        recipient_id: NodeId,
+    },
+    /// A backed-up message expired (TTL).
+    BackupExpired {
+        message_id: String,
+        recipient_id: NodeId,
+    },
 }
 
 // ── RuntimeHandle (app-facing API) ───────────────────────────────────
@@ -174,6 +252,91 @@ impl RuntimeHandle {
         let _ = self
             .cmd_tx
             .send(RuntimeCommand::GetConnectedPeers { reply: tx })
+            .await;
+        rx.await.unwrap_or_default()
+    }
+
+    // ── Group methods ──────────────────────────────
+
+    /// Create a new group. hub_relay_id will host the group state.
+    pub async fn create_group(
+        &self,
+        name: String,
+        hub_relay_id: NodeId,
+        initial_members: Vec<NodeId>,
+    ) -> Result<(), crate::TomProtocolError> {
+        self.cmd_tx
+            .send(RuntimeCommand::CreateGroup {
+                name,
+                hub_relay_id,
+                initial_members,
+            })
+            .await
+            .map_err(|_| crate::TomProtocolError::InvalidEnvelope {
+                reason: "runtime shut down".into(),
+            })
+    }
+
+    /// Accept a pending group invitation.
+    pub async fn accept_invite(&self, group_id: GroupId) -> Result<(), crate::TomProtocolError> {
+        self.cmd_tx
+            .send(RuntimeCommand::AcceptInvite { group_id })
+            .await
+            .map_err(|_| crate::TomProtocolError::InvalidEnvelope {
+                reason: "runtime shut down".into(),
+            })
+    }
+
+    /// Decline a pending group invitation.
+    pub async fn decline_invite(&self, group_id: GroupId) -> Result<(), crate::TomProtocolError> {
+        self.cmd_tx
+            .send(RuntimeCommand::DeclineInvite { group_id })
+            .await
+            .map_err(|_| crate::TomProtocolError::InvalidEnvelope {
+                reason: "runtime shut down".into(),
+            })
+    }
+
+    /// Leave a group.
+    pub async fn leave_group(&self, group_id: GroupId) -> Result<(), crate::TomProtocolError> {
+        self.cmd_tx
+            .send(RuntimeCommand::LeaveGroup { group_id })
+            .await
+            .map_err(|_| crate::TomProtocolError::InvalidEnvelope {
+                reason: "runtime shut down".into(),
+            })
+    }
+
+    /// Send a text message to a group.
+    pub async fn send_group_message(
+        &self,
+        group_id: GroupId,
+        text: String,
+    ) -> Result<(), crate::TomProtocolError> {
+        self.cmd_tx
+            .send(RuntimeCommand::SendGroupMessage { group_id, text })
+            .await
+            .map_err(|_| crate::TomProtocolError::InvalidEnvelope {
+                reason: "runtime shut down".into(),
+            })
+    }
+
+    /// Get all groups we belong to.
+    pub async fn groups(&self) -> Vec<GroupInfo> {
+        let (tx, rx) = oneshot::channel();
+        let _ = self
+            .cmd_tx
+            .send(RuntimeCommand::GetGroups { reply: tx })
+            .await;
+        rx.await.unwrap_or_default()
+    }
+
+    /// Get pending group invitations.
+    pub async fn pending_invites(&self) -> Vec<GroupInvite> {
+        let (tx, rx) = oneshot::channel();
+        let _ = self
+            .cmd_tx
+            .send(RuntimeCommand::GetPendingInvites { reply: tx })
             .await;
         rx.await.unwrap_or_default()
     }
