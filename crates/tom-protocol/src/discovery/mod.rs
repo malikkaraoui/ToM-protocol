@@ -3,7 +3,6 @@
 /// Application-level peer discovery on top of iroh's low-level
 /// address resolution. Handles: announcements, heartbeats,
 /// liveness tracking, and ephemeral subnet clustering.
-
 pub mod heartbeat;
 pub mod subnet;
 pub mod types;
