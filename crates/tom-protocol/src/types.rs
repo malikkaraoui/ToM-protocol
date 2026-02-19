@@ -11,6 +11,7 @@ pub enum MessageType {
     Heartbeat,
     // Group lifecycle
     GroupCreate,
+    GroupCreated,
     GroupInvite,
     GroupJoin,
     GroupSync,
@@ -22,10 +23,16 @@ pub enum MessageType {
     GroupHubMigration,
     GroupDeliveryAck,
     GroupHubHeartbeat,
-    // Network
-    PeerAnnounce,
+    // Backup
     BackupStore,
     BackupDeliver,
+    BackupReplicate,
+    BackupReplicateAck,
+    BackupQuery,
+    BackupQueryResponse,
+    BackupConfirmDelivery,
+    // Network
+    PeerAnnounce,
 }
 
 /// Delivery status pipeline for a message.
@@ -58,6 +65,7 @@ mod tests {
             MessageType::ReadReceipt,
             MessageType::Heartbeat,
             MessageType::GroupCreate,
+            MessageType::GroupCreated,
             MessageType::GroupInvite,
             MessageType::GroupJoin,
             MessageType::GroupSync,
@@ -68,9 +76,14 @@ mod tests {
             MessageType::GroupHubMigration,
             MessageType::GroupDeliveryAck,
             MessageType::GroupHubHeartbeat,
-            MessageType::PeerAnnounce,
             MessageType::BackupStore,
             MessageType::BackupDeliver,
+            MessageType::BackupReplicate,
+            MessageType::BackupReplicateAck,
+            MessageType::BackupQuery,
+            MessageType::BackupQueryResponse,
+            MessageType::BackupConfirmDelivery,
+            MessageType::PeerAnnounce,
         ];
 
         for msg_type in &types {
