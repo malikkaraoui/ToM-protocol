@@ -72,7 +72,13 @@ else
     exit 1
 fi
 
-NAT_TEST="$POC_DIR/target/debug/nat-test"
+# Workspace member: binary is in workspace root target/
+WORKSPACE_ROOT="$(cd "$POC_DIR/../.." && pwd)"
+if [[ -f "$WORKSPACE_ROOT/Cargo.toml" ]] && grep -q '\[workspace\]' "$WORKSPACE_ROOT/Cargo.toml" 2>/dev/null; then
+    NAT_TEST="$WORKSPACE_ROOT/target/debug/nat-test"
+else
+    NAT_TEST="$POC_DIR/target/debug/nat-test"
+fi
 
 # --- Step 2: Start listener ---
 echo "[2/4] Starting listener..."
