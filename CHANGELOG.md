@@ -1,5 +1,66 @@
 # Changelog
 
+## [1.1.0](https://github.com/malikkaraoui/ToM-protocol/compare/v1.0.0...v1.1.0) (2026-02-19)
+
+
+### Features
+
+* add --output-dir for automatic test log archiving ([6d4b6a6](https://github.com/malikkaraoui/ToM-protocol/commit/6d4b6a6dc95b000ee9981557f53ad0e403e591df))
+* add automatic rerouting on relay failure (Story 5.2) ([be815b8](https://github.com/malikkaraoui/ToM-protocol/commit/be815b8ca8c89f1b43447d19115e448b9c6d7f72))
+* add campaign script and analysis tool for stress tests ([075b8d6](https://github.com/malikkaraoui/ToM-protocol/commit/075b8d684ef72db6574255d7fe289a6ceaec76b8))
+* add chaos/stress test suite (22 tests) ([a315452](https://github.com/malikkaraoui/ToM-protocol/commit/a315452aac717998d92c4d37f12f4357d35bf2b8))
+* add comprehensive input validation & boundary tests (61 tests) ([e7c62a6](https://github.com/malikkaraoui/ToM-protocol/commit/e7c62a61c7d8d1de71db3bce7adb77fa8166912f))
+* add deterministic HubElection for hub failover (Action 1) ([60b3808](https://github.com/malikkaraoui/ToM-protocol/commit/60b38088568c8d7b546621c68145ced8349985fd))
+* add end-to-end encryption with TweetNaCl.js (Story 6.1) ([211b15d](https://github.com/malikkaraoui/ToM-protocol/commit/211b15df3d943878dd1d08000e3a2d2b9324681d))
+* add hub failover and E2E metrics testing framework ([bcd6c6c](https://github.com/malikkaraoui/ToM-protocol/commit/bcd6c6cd2d7b5935cabbe0576cc31dbb89eedec4))
+* add LLM-first documentation and MCP server (Stories 8.1 & 8.2) ([41893a5](https://github.com/malikkaraoui/ToM-protocol/commit/41893a57bb167348d4143e3373a3eb7c423d150d))
+* add multi-relay message traversal (Story 5.1) ([21d833b](https://github.com/malikkaraoui/ToM-protocol/commit/21d833ba26fa397f8231e40d2faa7c16ae9d95de))
+* add reactive UIStateManager for centralized state updates (Action 3) ([fb29f5e](https://github.com/malikkaraoui/ToM-protocol/commit/fb29f5e70c60480ce3a478e1c7be34d8a82286dc))
+* add robust E2E test infrastructure for Phase 6 ([ba9dfc9](https://github.com/malikkaraoui/ToM-protocol/commit/ba9dfc930c3f81b4a7574a9c926ab5937f119cb5))
+* add tom-protocol crate — types, envelope (MessagePack), errors ([aacf4f9](https://github.com/malikkaraoui/ToM-protocol/commit/aacf4f9cfb5cde14df01c922ca924de1d36814b8))
+* add tom-stress crate — stress test binary for tom-transport ([a87fd8c](https://github.com/malikkaraoui/ToM-protocol/commit/a87fd8cfd4898b51e4b12c91a723547592dc81d4))
+* add tom-transport crate — stable Rust API wrapping iroh ([c0a56f6](https://github.com/malikkaraoui/ToM-protocol/commit/c0a56f6e5953195010da99ec731ee3cb4cde28ab))
+* add VS Code extension and demo launcher (Story 8.3) ([5f1bef8](https://github.com/malikkaraoui/ToM-protocol/commit/5f1bef8243d63d8c869a71047b39b40b0dc8aa9c))
+* **backup:** add virus backup — store, replicate, TTL expiry ([d084993](https://github.com/malikkaraoui/ToM-protocol/commit/d084993d7fb1dedfba82c7bb4673d938eae890c6))
+* complete phase 1 - docs, issues, and td-001 countdown sync ([9024225](https://github.com/malikkaraoui/ToM-protocol/commit/9024225a51904558ff9bc153a117f0d5c18492cd))
+* **crypto:** add E2E encryption — XChaCha20-Poly1305 + X25519 DH ([b401ca8](https://github.com/malikkaraoui/ToM-protocol/commit/b401ca83bd971bfa0ced04cbe408964a7c76ba7a))
+* **discovery:** add peer discovery — heartbeat, subnets, announcements ([294ed8a](https://github.com/malikkaraoui/ToM-protocol/commit/294ed8aeb94a5c39d076e27597ee3e51c7a529a1))
+* display contribution/usage equilibrium score in demo UI (Story 5.4) ([fa74ddd](https://github.com/malikkaraoui/ToM-protocol/commit/fa74ddd6d61a0061174d6413e8d8b950fd7f7487))
+* **e2e:** integration test — 3 nodes, encrypted relay routing ([3fea617](https://github.com/malikkaraoui/ToM-protocol/commit/3fea617380b16347716ca7dab2fb1268980be252))
+* **envelope:** add Ed25519 signatures + EnvelopeBuilder ([3940ac8](https://github.com/malikkaraoui/ToM-protocol/commit/3940ac88527393304953f86374830fcb752afb9b))
+* **experiment:** add chat-node PoC-3 — gossip discovery + direct QUIC messaging ([e5d03cb](https://github.com/malikkaraoui/ToM-protocol/commit/e5d03cbfa4f08352f17116f5a99fb3650952fc7a))
+* **experiment:** add gossip-node PoC with iroh-gossip (HyParView/PlumTree) ([8e588d2](https://github.com/malikkaraoui/ToM-protocol/commit/8e588d2e5ab0fb1d29ca5951959a0cf686f59d0d))
+* **experiment:** add iroh PoC for NAT traversal & hole punching ([e009991](https://github.com/malikkaraoui/ToM-protocol/commit/e0099911dccf233fcdc4cbd53d2fd1f48f159757))
+* **experiment:** add nat-test PoC-4 — instrumented NAT traversal testing ([0abd795](https://github.com/malikkaraoui/ToM-protocol/commit/0abd7956d9ec3a11d55e56a2186e38284fdaa28b))
+* **experiment:** nat-test v2 — continuous mode, reconnection, CI pipeline ([9cb8dfe](https://github.com/malikkaraoui/ToM-protocol/commit/9cb8dfe77c8b9c0d30d2de6a6a34a3ecd6960320))
+* **gossip:** integrate iroh-gossip discovery into ProtocolRuntime (Phase 3) ([d69aa80](https://github.com/malikkaraoui/ToM-protocol/commit/d69aa801653796ea60290a81af32bb5893999c8c))
+* **group:** add group messaging — manager, hub, election, integration tests ([7569780](https://github.com/malikkaraoui/ToM-protocol/commit/7569780aba8b700627fbd0a87664374189612dd5))
+* implement micro-session contribution model (Story 8.4) ([6b1020f](https://github.com/malikkaraoui/ToM-protocol/commit/6b1020ff427e59d5f79614da2008cbc61cdfc157))
+* implement robust group invitations (Consolidation Action 2) ([49ad5bd](https://github.com/malikkaraoui/ToM-protocol/commit/49ad5bd69123464dda5abef0f0580e9b04bd3758))
+* implement self-sustaining alpha network (Epic 7) ([2ab543d](https://github.com/malikkaraoui/ToM-protocol/commit/2ab543d5f1c6d0f9c2d9360a8d7c718dea4ec25d))
+* merge tom-protocol — full Rust protocol stack + TUI demo ([fca5773](https://github.com/malikkaraoui/ToM-protocol/commit/fca577305c4b5b2b518d571c95bc2d026256b630))
+* **relay:** add RelaySelector + Topology — relay selection by role/status ([216f6f2](https://github.com/malikkaraoui/ToM-protocol/commit/216f6f2391ccc9c507a2657f66e3df0a58181825))
+* **router:** add pure routing engine — deliver/forward/reject decisions ([fc5a0c6](https://github.com/malikkaraoui/ToM-protocol/commit/fc5a0c6e092601d9beae74f698b67115148b8236))
+* **runtime:** add ProtocolRuntime — live event loop integrating all protocol modules ([c245365](https://github.com/malikkaraoui/ToM-protocol/commit/c245365f7db7474fa615c293cfe41ec7c614af00))
+* **runtime:** integrate groups + backup into ProtocolRuntime (Phase 3) ([6eee78e](https://github.com/malikkaraoui/ToM-protocol/commit/6eee78e87d6f2393a2b1752777d381b7b0f2de2a))
+* **test:** add Playwright E2E testing framework (Action 4) ([a51a0fa](https://github.com/malikkaraoui/ToM-protocol/commit/a51a0fa0d45704ce132153e083af792ee9ccde41))
+* **tracker:** add MessageTracker — monotonic status pipeline ([d367f45](https://github.com/malikkaraoui/ToM-protocol/commit/d367f4557f389ebe0b6de12f22144781ac62086c))
+* **tui:** add tom-chat — terminal chat demo with full protocol stack ([867f0cb](https://github.com/malikkaraoui/ToM-protocol/commit/867f0cb2b3be89396f6b8b7a5405ec368f1732b0))
+
+
+### Bug Fixes
+
+* address code review findings from Copilot review ([46b822e](https://github.com/malikkaraoui/ToM-protocol/commit/46b822e852c1ac976bc2ac51843470b251209626))
+* **ci:** resolve iroh-poc clippy warnings + test-localhost.sh workspace path ([d5a5fb6](https://github.com/malikkaraoui/ToM-protocol/commit/d5a5fb6aab5df57b9d2e6d37152421685093d3cf))
+* connection resilience — pool eviction, zombie detection, unlimited reconnect ([ebc68c1](https://github.com/malikkaraoui/ToM-protocol/commit/ebc68c137364587c08887fe1e5561a1a5297e0dd))
+* e2e tests start full demo stack (demo + signaling) ([7bf15a5](https://github.com/malikkaraoui/ToM-protocol/commit/7bf15a520dd5d0668f922c89ceebb12d980c8bd0))
+* ensure direct connection before sending group invitations ([7994911](https://github.com/malikkaraoui/ToM-protocol/commit/79949114fbf0596e2771a1b82eaee64d36375666))
+* prevent relay nodes from processing group payloads not addressed to them ([c074fe3](https://github.com/malikkaraoui/ToM-protocol/commit/c074fe36bba6193c9fb05d2cbe354c709b54c2ca))
+* resolve clippy warnings for CI — empty lines, sort_by_key, too_many_arguments ([2032b9f](https://github.com/malikkaraoui/ToM-protocol/commit/2032b9ff3789b8370042bcb6c15401b43e52c086))
+* **security:** replace weak Math.random() with crypto APIs (CVSS 7.5) ([20a5c28](https://github.com/malikkaraoui/ToM-protocol/commit/20a5c28c1893d8d09fa451b176f55dc3df127294))
+* **snake:** gpt-5.2 security hardening and collision edge cases ([c4057c8](https://github.com/malikkaraoui/ToM-protocol/commit/c4057c8c43e9eec9f8baa311880f0790a10df76d))
+* **tui:** deadlock in send/recv + add --bot headless mode ([423e1a5](https://github.com/malikkaraoui/ToM-protocol/commit/423e1a55ac5e317d5f9d844f4fd5f78985242084))
+
 ## 1.0.0 (2026-02-05)
 
 
