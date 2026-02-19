@@ -25,6 +25,15 @@
     }
   },
   "files": {
-    "ignore": ["node_modules", "dist", "*.tsbuildinfo", ".claude", "_bmad-output", "_bmad"]
+    "ignore": [
+      "node_modules",
+      "dist",
+      "*.tsbuildinfo",
+      ".claude",
+      "_bmad-output",
+      "_bmad",
+      "target",
+      "experiments/**/target"
+    ]
   }
 }
