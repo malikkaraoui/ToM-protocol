@@ -4,10 +4,10 @@
 /// crypto, routing) + ratatui terminal UI.
 ///
 /// Usage:
-///   tom-chat                     # Start fresh node
-///   tom-chat <peer-node-id>      # Start and connect to peer
+///   tom-chat                     # Start fresh node (TUI)
+///   tom-chat <peer-node-id>      # Start and connect to peer (TUI)
+///   tom-chat --bot               # Headless bot — auto-responds to messages
 use std::io;
-use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use crossterm::event::{self, Event, KeyCode, KeyModifiers};
@@ -114,8 +114,10 @@ impl App {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    // Parse CLI arg: optional peer node ID
-    let peer_arg = std::env::args().nth(1);
+    // Parse CLI args
+    let args: Vec<String> = std::env::args().collect();
+    let bot_mode = args.iter().any(|a| a == "--bot");
+    let peer_arg = args.get(1).filter(|a| !a.starts_with('-')).cloned();
 
     // Init transport
     let node = TomNode::bind(TomNodeConfig::new()).await?;
@@ -130,6 +132,10 @@ async fn main() -> anyhow::Result<()> {
     eprintln!("│  Node ID: {}..  │", &local_id.to_string()[..40]);
     eprintln!("│  Short:   {}                          │", short_node_id(&local_id));
     eprintln!("╰─────────────────────────────────────────────╯");
+
+    if bot_mode {
+        return run_bot(node, local_id, secret_seed).await;
+    }
 
     let mut app = App::new(local_id, secret_seed);
     app.add_system_message(format!("Node started: {}", app.short_id));
@@ -156,39 +162,30 @@ async fn main() -> anyhow::Result<()> {
     let (tx_incoming, mut rx_incoming) = mpsc::channel::<(NodeId, Vec<u8>)>(64);
     let (tx_outgoing, mut rx_outgoing) = mpsc::channel::<(NodeId, Vec<u8>)>(64);
 
-    // Split node for send/recv
-    let node = Arc::new(tokio::sync::Mutex::new(node));
-
-    // Receiver task
-    let node_recv = Arc::clone(&node);
+    // Single task owns the node — handles both send and recv via select!
+    // (Avoids Mutex deadlock: recv_raw needs &mut self and would hold lock forever)
     let tx_inc = tx_incoming.clone();
     tokio::spawn(async move {
+        let mut node = node;
         loop {
-            let result = {
-                let mut n = node_recv.lock().await;
-                n.recv_raw().await
-            };
-            match result {
-                Ok((from, data)) => {
-                    if tx_inc.send((from, data)).await.is_err() {
-                        break;
+            tokio::select! {
+                result = node.recv_raw() => {
+                    match result {
+                        Ok((from, data)) => {
+                            if tx_inc.send((from, data)).await.is_err() {
+                                break;
+                            }
+                        }
+                        Err(e) => {
+                            tracing::warn!("recv error: {}", e);
+                        }
                     }
                 }
-                Err(e) => {
-                    tracing::warn!("recv error: {}", e);
-                    tokio::time::sleep(Duration::from_millis(100)).await;
+                Some((to, data)) = rx_outgoing.recv() => {
+                    if let Err(e) = node.send_raw(to, &data).await {
+                        tracing::warn!("send error: {}", e);
+                    }
                 }
-            }
-        }
-    });
-
-    // Sender task
-    let node_send = Arc::clone(&node);
-    tokio::spawn(async move {
-        while let Some((to, data)) = rx_outgoing.recv().await {
-            let n = node_send.lock().await;
-            if let Err(e) = n.send_raw(to, &data).await {
-                tracing::warn!("send error: {}", e);
             }
         }
     });
@@ -259,13 +256,6 @@ async fn main() -> anyhow::Result<()> {
     // Cleanup
     disable_raw_mode()?;
     io::stdout().execute(LeaveAlternateScreen)?;
-
-    // Shutdown node
-    let node = Arc::try_unwrap(node).ok();
-    if let Some(node) = node {
-        let n = node.into_inner();
-        let _ = n.shutdown().await;
-    }
 
     eprintln!("\n  Stats: {} sent, {} received", app.stats.sent, app.stats.received);
     Ok(())
@@ -472,6 +462,64 @@ fn draw_ui(f: &mut Frame, app: &App) {
     let status = Paragraph::new(format!(" {} ", app.status))
         .style(Style::default().fg(Color::DarkGray));
     f.render_widget(status, chunks[3]);
+}
+
+// ── Bot Mode ─────────────────────────────────────────────────────────
+
+async fn run_bot(
+    mut node: TomNode,
+    local_id: NodeId,
+    secret_seed: [u8; 32],
+) -> anyhow::Result<()> {
+    println!("[bot] Running in bot mode — auto-responding to messages");
+    println!("[bot] Node ID: {}", local_id);
+    println!("[bot] Ctrl+C to stop\n");
+
+    let mut count = 0u64;
+
+    loop {
+        let (from, data) = node.recv_raw().await?;
+
+        match Envelope::from_bytes(&data) {
+            Ok(envelope) => {
+                let sig_ok = envelope.verify_signature().is_ok();
+                let text = String::from_utf8_lossy(&envelope.payload);
+                count += 1;
+
+                println!(
+                    "[bot] #{} from {} | sig={} | \"{}\"",
+                    count,
+                    short_node_id(&from),
+                    if sig_ok { "ok" } else { "bad" },
+                    text
+                );
+
+                // Auto-reply
+                let reply = format!("recu 5/5 malik (msg #{})", count);
+                let reply_envelope = EnvelopeBuilder::new(
+                    local_id,
+                    from,
+                    MessageType::Chat,
+                    reply.as_bytes().to_vec(),
+                )
+                .sign(&secret_seed);
+
+                match reply_envelope.to_bytes() {
+                    Ok(bytes) => {
+                        if let Err(e) = node.send_raw(from, &bytes).await {
+                            println!("[bot] send error: {}", e);
+                        } else {
+                            println!("[bot] replied: \"{}\"", reply);
+                        }
+                    }
+                    Err(e) => println!("[bot] serialize error: {}", e),
+                }
+            }
+            Err(e) => {
+                println!("[bot] bad envelope from {}: {}", short_node_id(&from), e);
+            }
+        }
+    }
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────
