@@ -43,4 +43,4 @@ pub use runtime::{
     DeliveredMessage, ProtocolEvent, ProtocolRuntime, RuntimeChannels, RuntimeConfig,
     RuntimeHandle,
 };
-pub use types::{MessageStatus, MessageType, NodeId};
+pub use types::{now_ms, MessageStatus, MessageType, NodeId};

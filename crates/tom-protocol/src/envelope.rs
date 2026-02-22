@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::crypto;
 use crate::error::TomProtocolError;
-use crate::types::{MessageType, NodeId, DEFAULT_TTL};
+use crate::types::{now_ms, MessageType, NodeId, DEFAULT_TTL};
 
 /// Protocol-level envelope — the unit of communication in ToM.
 ///
@@ -281,13 +281,6 @@ struct SignableEnvelope<'a> {
     payload: &'a [u8],
     timestamp: u64,
     encrypted: bool,
-}
-
-fn now_ms() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .expect("system time before epoch")
-        .as_millis() as u64
 }
 
 #[cfg(test)]

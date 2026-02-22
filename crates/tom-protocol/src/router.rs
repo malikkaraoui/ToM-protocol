@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::envelope::Envelope;
 use crate::error::TomProtocolError;
-use crate::types::{MessageType, NodeId};
+use crate::types::{now_ms, MessageType, NodeId};
 
 /// Maximum relay chain depth (ToM design decision #2).
 pub const MAX_RELAY_DEPTH: usize = 4;
@@ -332,13 +332,6 @@ impl Router {
 
         Envelope::new(self.local_id, original.from, MessageType::Ack, payload)
     }
-}
-
-fn now_ms() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .expect("system time before epoch")
-        .as_millis() as u64
 }
 
 #[cfg(test)]

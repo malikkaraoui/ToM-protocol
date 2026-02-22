@@ -5,7 +5,7 @@
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
-use crate::types::NodeId;
+use crate::types::{now_ms, NodeId};
 
 // ── Constants ────────────────────────────────────────────────────────────
 
@@ -398,15 +398,6 @@ pub enum GroupEvent {
         node_id: NodeId,
         reason: String,
     },
-}
-
-// ── Helpers ──────────────────────────────────────────────────────────────
-
-fn now_ms() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .expect("system time before epoch")
-        .as_millis() as u64
 }
 
 #[cfg(test)]

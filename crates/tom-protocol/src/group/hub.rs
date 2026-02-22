@@ -13,7 +13,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::time::Instant;
 
 use crate::group::types::*;
-use crate::types::NodeId;
+use crate::types::{now_ms, NodeId};
 
 /// Hub-side state for a single group.
 struct HubGroup {
@@ -534,13 +534,6 @@ impl GroupHub {
             },
         }]
     }
-}
-
-fn now_ms() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .expect("system time before epoch")
-        .as_millis() as u64
 }
 
 #[cfg(test)]
