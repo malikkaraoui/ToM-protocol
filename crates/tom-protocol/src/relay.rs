@@ -70,6 +70,11 @@ impl Topology {
         self.peers.get(node_id)
     }
 
+    /// Get mutable info for a specific peer (used by RoleManager to update roles).
+    pub fn get_mut(&mut self, node_id: &NodeId) -> Option<&mut PeerInfo> {
+        self.peers.get_mut(node_id)
+    }
+
     /// All known peers.
     pub fn peers(&self) -> impl Iterator<Item = &PeerInfo> {
         self.peers.values()

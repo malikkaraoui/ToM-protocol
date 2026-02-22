@@ -480,6 +480,7 @@ mod tests {
             sender_username: "bob".into(),
             text: "Welcome!".into(),
             sent_at: 1000,
+            sender_signature: Vec::new(),
         };
 
         let actions = mgr.handle_group_sync(group, vec![msg]);
@@ -603,6 +604,7 @@ mod tests {
                 sender_username: "bob".into(),
                 text: format!("Message {}", i),
                 sent_at: 1000 + i as u64,
+                sender_signature: Vec::new(),
             };
             mgr.handle_message(msg);
         }

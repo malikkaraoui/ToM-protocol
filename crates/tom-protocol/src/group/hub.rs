@@ -293,8 +293,21 @@ impl GroupHub {
                 return vec![];
             };
             if !hub_group.info.is_member(&from) {
-                return vec![];
+                return vec![GroupAction::Event(GroupEvent::SecurityViolation {
+                    group_id,
+                    node_id: from,
+                    reason: "non-member attempted to send message".into(),
+                })];
             }
+        }
+
+        // Verify sender signature if present
+        if msg.is_signed() && !msg.verify_signature() {
+            return vec![GroupAction::Event(GroupEvent::SecurityViolation {
+                group_id,
+                node_id: from,
+                reason: "invalid message signature".into(),
+            })];
         }
 
         // Rate limit check (mutable borrow scoped)
@@ -760,7 +773,9 @@ mod tests {
 
         let msg = GroupMessage::new(gid, stranger, "stranger".into(), "Sneak!".into());
         let actions = hub.handle_message(stranger, msg);
-        assert!(actions.is_empty());
+        // Non-member now returns SecurityViolation instead of silent drop
+        assert_eq!(actions.len(), 1);
+        assert!(matches!(&actions[0], GroupAction::Event(GroupEvent::SecurityViolation { .. })));
     }
 
     #[test]
@@ -822,6 +837,7 @@ mod tests {
             sender_username: "alice".into(),
             text: "Hello".into(),
             sent_at: 1000,
+            sender_signature: Vec::new(),
         };
 
         // First send succeeds

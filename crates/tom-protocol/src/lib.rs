@@ -13,6 +13,7 @@ pub mod envelope;
 pub mod error;
 pub mod group;
 pub mod relay;
+pub mod roles;
 pub mod router;
 pub mod runtime;
 pub mod tracker;
@@ -35,6 +36,7 @@ pub use group::{
     LeaveReason,
 };
 pub use relay::{PeerInfo, PeerRole, PeerStatus, RelaySelector, Topology};
+pub use roles::{ContributionMetrics, RoleAction, RoleManager};
 pub use router::{AckPayload, AckType, ReadReceiptPayload, Router, RoutingAction};
 pub use tracker::{MessageTracker, StatusChange};
 pub use runtime::{

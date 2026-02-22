@@ -3807,6 +3807,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
+ "tom-protocol",
  "tom-transport",
  "tracing",
  "tracing-subscriber",

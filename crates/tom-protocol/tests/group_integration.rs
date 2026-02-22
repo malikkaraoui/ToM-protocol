@@ -7,7 +7,7 @@
 /// Bob accepts, Charlie declines. Alice sends a message,
 /// Bob receives it. Bob leaves. Hub election on failure.
 use tom_protocol::{
-    elect_hub, ElectionReason, GroupAction, GroupHub, GroupId, GroupInfo, GroupManager,
+    elect_hub, ElectionReason, GroupAction, GroupEvent, GroupHub, GroupId, GroupInfo, GroupManager,
     GroupMessage, GroupPayload, LeaveReason, NodeId, PeerInfo, PeerRole, PeerStatus, Topology,
 };
 
@@ -324,4 +324,141 @@ fn hub_rate_limits_spam() {
 
     assert_eq!(delivered, 5, "should deliver exactly 5 messages");
     assert_eq!(blocked, 5, "should block 5 messages");
+}
+
+fn secret_seed(seed: u8) -> [u8; 32] {
+    use rand::SeedableRng;
+    let mut rng = rand::rngs::StdRng::seed_from_u64(seed as u64);
+    let secret = iroh::SecretKey::generate(&mut rng);
+    secret.to_bytes()
+}
+
+/// Non-member message is rejected with SecurityViolation.
+#[test]
+fn non_member_message_rejected() {
+    let alice_id = node_id(1);
+    let stranger_id = node_id(99);
+    let hub_id = node_id(10);
+
+    let mut hub = GroupHub::new(hub_id);
+
+    // Create group (Alice only)
+    let hub_actions = hub.handle_payload(
+        GroupPayload::Create {
+            group_name: "Secure Group".into(),
+            creator_username: "alice".into(),
+            initial_members: vec![],
+        },
+        alice_id,
+    );
+    let GroupAction::Send { payload: GroupPayload::Created { group }, .. } = &hub_actions[0]
+    else {
+        panic!("expected Created")
+    };
+    let gid = group.group_id.clone();
+
+    // Stranger tries to send a message
+    let msg = GroupMessage::new(gid.clone(), stranger_id, "stranger".into(), "I shouldn't be here".into());
+    let actions = hub.handle_payload(GroupPayload::Message(msg), stranger_id);
+
+    assert_eq!(actions.len(), 1);
+    let GroupAction::Event(GroupEvent::SecurityViolation { group_id, node_id, reason }) = &actions[0]
+    else {
+        panic!("expected SecurityViolation event, got: {actions:?}");
+    };
+    assert_eq!(*group_id, gid);
+    assert_eq!(*node_id, stranger_id);
+    assert!(reason.contains("non-member"), "reason: {reason}");
+}
+
+/// Signed message round-trips through hub with valid signature.
+#[test]
+fn signed_message_passes_hub() {
+    let alice_id = node_id(1);
+    let bob_id = node_id(2);
+    let hub_id = node_id(10);
+    let alice_seed = secret_seed(1);
+
+    let mut hub = GroupHub::new(hub_id);
+
+    // Create group with Alice
+    let hub_actions = hub.handle_payload(
+        GroupPayload::Create {
+            group_name: "Signed Group".into(),
+            creator_username: "alice".into(),
+            initial_members: vec![],
+        },
+        alice_id,
+    );
+    let GroupAction::Send { payload: GroupPayload::Created { group }, .. } = &hub_actions[0]
+    else {
+        panic!()
+    };
+    let gid = group.group_id.clone();
+
+    // Bob joins
+    hub.handle_payload(
+        GroupPayload::Join { group_id: gid.clone(), username: "bob".into() },
+        bob_id,
+    );
+
+    // Alice sends a signed message
+    let mut msg = GroupMessage::new(gid.clone(), alice_id, "alice".into(), "Signed hello!".into());
+    msg.sign(&alice_seed);
+    assert!(msg.verify_signature());
+
+    let actions = hub.handle_payload(GroupPayload::Message(msg), alice_id);
+    assert_eq!(actions.len(), 1, "signed message should pass hub");
+
+    let GroupAction::Broadcast { to, payload: GroupPayload::Message(fanned) } = &actions[0]
+    else {
+        panic!("expected Broadcast");
+    };
+    assert!(to.contains(&bob_id));
+    assert!(fanned.verify_signature(), "signature should survive fan-out");
+}
+
+/// Tampered signature is detected by hub.
+#[test]
+fn tampered_signature_detected() {
+    let alice_id = node_id(1);
+    let bob_id = node_id(2);
+    let hub_id = node_id(10);
+    let alice_seed = secret_seed(1);
+
+    let mut hub = GroupHub::new(hub_id);
+
+    // Create group and add bob
+    let hub_actions = hub.handle_payload(
+        GroupPayload::Create {
+            group_name: "Tamper Test".into(),
+            creator_username: "alice".into(),
+            initial_members: vec![],
+        },
+        alice_id,
+    );
+    let GroupAction::Send { payload: GroupPayload::Created { group }, .. } = &hub_actions[0]
+    else {
+        panic!()
+    };
+    let gid = group.group_id.clone();
+
+    hub.handle_payload(
+        GroupPayload::Join { group_id: gid.clone(), username: "bob".into() },
+        bob_id,
+    );
+
+    // Alice signs, then tamper with the text
+    let mut msg = GroupMessage::new(gid.clone(), alice_id, "alice".into(), "Original".into());
+    msg.sign(&alice_seed);
+    msg.text = "Tampered!".into(); // Tamper after signing
+
+    let actions = hub.handle_payload(GroupPayload::Message(msg), alice_id);
+    assert_eq!(actions.len(), 1);
+
+    let GroupAction::Event(GroupEvent::SecurityViolation { reason, .. }) = &actions[0]
+    else {
+        panic!("expected SecurityViolation, got: {actions:?}");
+    };
+    assert!(reason.contains("invalid"), "reason: {reason}");
 }

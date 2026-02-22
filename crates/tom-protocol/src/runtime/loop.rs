@@ -6,7 +6,8 @@ use tokio::sync::{broadcast, mpsc};
 use tom_transport::{PathEvent, TomNode};
 
 use crate::backup::{BackupAction, BackupCoordinator, BackupEvent};
-use crate::discovery::{HeartbeatTracker, DiscoveryEvent, PeerAnnounce};
+use crate::discovery::{EphemeralSubnetManager, HeartbeatTracker, DiscoveryEvent, PeerAnnounce, SubnetEvent};
+use crate::roles::RoleManager;
 use crate::envelope::{Envelope, EnvelopeBuilder};
 use crate::group::{
     GroupAction, GroupEvent, GroupHub, GroupManager, GroupMessage, GroupPayload,
@@ -54,6 +55,11 @@ pub(super) async fn runtime_loop(
     // ── Backup state ────────────────────────────────────────────────
     let mut backup = BackupCoordinator::new(local_id);
 
+    // ── Discovery state ───────────────────────────────────────────────
+    let mut subnets = EphemeralSubnetManager::new(local_id);
+    let mut role_manager = RoleManager::new(local_id);
+    let mut local_roles = vec![PeerRole::Peer];
+
     // ── Timers ──────────────────────────────────────────────────────
     let mut cache_cleanup = tokio::time::interval(config.cache_cleanup_interval);
     let mut tracker_cleanup = tokio::time::interval(config.tracker_cleanup_interval);
@@ -62,6 +68,8 @@ pub(super) async fn runtime_loop(
     let mut backup_tick = tokio::time::interval(config.backup_tick_interval);
 
     let mut gossip_announce = tokio::time::interval(config.gossip_announce_interval);
+    let mut subnet_eval = tokio::time::interval(std::time::Duration::from_secs(30));
+    let mut role_eval = tokio::time::interval(std::time::Duration::from_secs(60));
 
     // Skip the immediate first tick on all intervals
     cache_cleanup.tick().await;
@@ -70,6 +78,8 @@ pub(super) async fn runtime_loop(
     group_hub_heartbeat.tick().await;
     backup_tick.tick().await;
     gossip_announce.tick().await;
+    subnet_eval.tick().await;
+    role_eval.tick().await;
 
     // ── Gossip subscription ──────────────────────────────────────────
     let topic_id = iroh_gossip::TopicId::from_bytes(TOM_GOSSIP_TOPIC);
@@ -129,12 +139,17 @@ pub(super) async fn runtime_loop(
                             | MessageType::Ack
                             | MessageType::ReadReceipt
                             | MessageType::Heartbeat => {
+                                // Record communication for subnet formation
+                                if envelope.msg_type == MessageType::Chat {
+                                    subnets.record_communication(envelope.from, local_id, now_ms());
+                                }
                                 handle_incoming_chat(
                                     envelope,
                                     signature_valid,
                                     &secret_seed,
                                     &mut router,
                                     &mut tracker,
+                                    &mut role_manager,
                                     &node,
                                     &msg_tx,
                                     &status_tx,
@@ -211,6 +226,7 @@ pub(super) async fn runtime_loop(
             Some(cmd) = cmd_rx.recv() => {
                 match cmd {
                     RuntimeCommand::SendMessage { to, payload } => {
+                        subnets.record_communication(local_id, to, now_ms());
                         handle_send_message(
                             local_id,
                             &secret_seed,
@@ -336,6 +352,11 @@ pub(super) async fn runtime_loop(
                 for disc_event in events {
                     match disc_event {
                         DiscoveryEvent::PeerOffline { node_id } => {
+                            let subnet_events = subnets.remove_node(&node_id);
+                            for se in &subnet_events {
+                                surface_subnet_event(se, &event_tx).await;
+                            }
+                            role_manager.remove_node(&node_id);
                             let _ = event_tx.send(ProtocolEvent::PeerOffline {
                                 node_id,
                             }).await;
@@ -397,10 +418,15 @@ pub(super) async fn runtime_loop(
                             if let Ok(announce) = rmp_serde::from_slice::<PeerAnnounce>(&msg.content) {
                                 if announce.is_timestamp_valid(now_ms()) {
                                     let peer_id = announce.node_id;
+                                    let role = if announce.roles.contains(&PeerRole::Relay) {
+                                        PeerRole::Relay
+                                    } else {
+                                        PeerRole::Peer
+                                    };
                                     heartbeat.record_heartbeat(peer_id);
                                     topology.upsert(PeerInfo {
                                         node_id: peer_id,
-                                        role: PeerRole::Peer,
+                                        role,
                                         status: PeerStatus::Online,
                                         last_seen: now_ms(),
                                     });
@@ -430,7 +456,7 @@ pub(super) async fn runtime_loop(
                                 let announce = PeerAnnounce::new(
                                     local_id,
                                     config.username.clone(),
-                                    vec![PeerRole::Peer],
+                                    local_roles.clone(),
                                 );
                                 if let Ok(bytes) = rmp_serde::to_vec(&announce) {
                                     let _ = sender.broadcast(bytes::Bytes::from(bytes)).await;
@@ -450,13 +476,29 @@ pub(super) async fn runtime_loop(
                 }
             }
 
-            // ── 10. Timer: gossip announce ────────────────────────
+            // ── 10. Timer: subnet evaluation ──────────────────────
+            _ = subnet_eval.tick() => {
+                let events = subnets.evaluate(now_ms());
+                for event in &events {
+                    surface_subnet_event(event, &event_tx).await;
+                }
+            }
+
+            // ── 12. Timer: role evaluation ──────────────────────
+            _ = role_eval.tick() => {
+                let actions = role_manager.evaluate(&mut topology, now_ms());
+                for action in &actions {
+                    surface_role_action(action, &mut local_roles, &event_tx).await;
+                }
+            }
+
+            // ── 11. Timer: gossip announce ────────────────────────
             _ = gossip_announce.tick() => {
                 if let Some(ref sender) = gossip_sender {
                     let announce = PeerAnnounce::new(
                         local_id,
                         config.username.clone(),
-                        vec![PeerRole::Peer],
+                        local_roles.clone(),
                     );
                     if let Ok(bytes) = rmp_serde::to_vec(&announce) {
                         if let Err(e) = sender.broadcast(bytes::Bytes::from(bytes)).await {
@@ -485,6 +527,7 @@ async fn handle_incoming_chat(
     secret_seed: &[u8; 32],
     router: &mut Router,
     tracker: &mut MessageTracker,
+    role_manager: &mut RoleManager,
     node: &TomNode,
     msg_tx: &mpsc::Sender<DeliveredMessage>,
     status_tx: &mpsc::Sender<StatusChange>,
@@ -530,6 +573,10 @@ async fn handle_incoming_chat(
         } => {
             let envelope_id = envelope.id.clone();
             let sender = envelope.from;
+
+            // We are relaying this message — count toward our local score.
+            // Use envelope.from as key so each unique sender adds to relay count.
+            role_manager.record_relay(sender, now_ms());
 
             send_envelope_to(node, next_hop, &envelope, event_tx).await;
 
@@ -863,7 +910,8 @@ async fn handle_send_group_message(
     };
 
     let hub_id = group.hub_relay_id;
-    let msg = GroupMessage::new(group_id, local_id, config.username.clone(), text);
+    let mut msg = GroupMessage::new(group_id, local_id, config.username.clone(), text);
+    msg.sign(secret_seed);
     let payload = GroupPayload::Message(msg);
     let payload_bytes = rmp_serde::to_vec(&payload).expect("group msg serialization");
 
@@ -1142,6 +1190,15 @@ async fn surface_group_event(
             group_id: group_id.clone(),
             new_hub_id: *new_hub_id,
         },
+        GroupEvent::SecurityViolation {
+            group_id,
+            node_id,
+            reason,
+        } => ProtocolEvent::GroupSecurityViolation {
+            group_id: group_id.clone(),
+            node_id: *node_id,
+            reason: reason.clone(),
+        },
     };
     let _ = event_tx.send(proto_event).await;
 }
@@ -1181,6 +1238,56 @@ async fn surface_backup_event(
     if let Some(event) = proto_event {
         let _ = event_tx.send(event).await;
     }
+}
+
+async fn surface_subnet_event(
+    event: &SubnetEvent,
+    event_tx: &mpsc::Sender<ProtocolEvent>,
+) {
+    let proto_event = match event {
+        SubnetEvent::SubnetFormed { subnet } => Some(ProtocolEvent::SubnetFormed {
+            subnet_id: subnet.subnet_id.clone(),
+            members: subnet.members.iter().copied().collect(),
+        }),
+        SubnetEvent::SubnetDissolved { subnet_id, reason } => {
+            Some(ProtocolEvent::SubnetDissolved {
+                subnet_id: subnet_id.clone(),
+                reason: format!("{reason:?}"),
+            })
+        }
+        // NodeJoined/Left are internal bookkeeping
+        _ => None,
+    };
+
+    if let Some(event) = proto_event {
+        let _ = event_tx.send(event).await;
+    }
+}
+
+async fn surface_role_action(
+    action: &crate::roles::RoleAction,
+    local_roles: &mut Vec<PeerRole>,
+    event_tx: &mpsc::Sender<ProtocolEvent>,
+) {
+    use crate::roles::RoleAction;
+    let proto_event = match action {
+        RoleAction::Promoted { node_id, score } => ProtocolEvent::RolePromoted {
+            node_id: *node_id,
+            score: *score,
+        },
+        RoleAction::Demoted { node_id, score } => ProtocolEvent::RoleDemoted {
+            node_id: *node_id,
+            score: *score,
+        },
+        RoleAction::LocalRoleChanged { new_role } => {
+            // Update local_roles for gossip announces
+            *local_roles = vec![*new_role];
+            ProtocolEvent::LocalRoleChanged {
+                new_role: *new_role,
+            }
+        }
+    };
+    let _ = event_tx.send(proto_event).await;
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────
