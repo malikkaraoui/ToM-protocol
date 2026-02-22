@@ -656,15 +656,34 @@ async fn handle_incoming_group(
         }
     };
 
-    // Dispatch: hub-bound messages go to GroupHub, member-bound go to GroupManager
+    // Dispatch: hub-bound messages go to GroupHub, member-bound go to GroupManager.
+    // For Message and DeliveryAck, we check if we actually host the group —
+    // if not, route to GroupManager (we're a member receiving fan-out from the hub).
     let actions = match group_payload {
-        // Hub-bound (we are the hub for this group)
+        // Always hub-bound
         GroupPayload::Create { .. }
         | GroupPayload::Join { .. }
-        | GroupPayload::Leave { .. }
-        | GroupPayload::Message(_)
-        | GroupPayload::DeliveryAck { .. } => {
+        | GroupPayload::Leave { .. } => {
             group_hub.handle_payload(group_payload, envelope.from)
+        }
+
+        // Message: hub if we host the group, member otherwise
+        GroupPayload::Message(ref msg) => {
+            if group_hub.get_group(&msg.group_id).is_some() {
+                group_hub.handle_payload(group_payload, envelope.from)
+            } else {
+                let GroupPayload::Message(msg) = group_payload else { unreachable!() };
+                group_manager.handle_message(msg)
+            }
+        }
+
+        // DeliveryAck: hub if we host the group, ignore otherwise
+        GroupPayload::DeliveryAck { ref group_id, .. } => {
+            if group_hub.get_group(group_id).is_some() {
+                group_hub.handle_payload(group_payload, envelope.from)
+            } else {
+                vec![]
+            }
         }
 
         // Member-bound (we are a group member)
