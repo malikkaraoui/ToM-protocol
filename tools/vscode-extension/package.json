@@ -1,7 +1,7 @@
 {
   "name": "tom-vscode",
   "displayName": "ToM Protocol",
-  "description": "Distributed serverless messaging for VS Code with LLM integration",
+  "description": "[WIP/SKELETON] Distributed serverless messaging for VS Code — not yet functional",
   "version": "1.0.0",
   "publisher": "tom-protocol",
   "engines": {
