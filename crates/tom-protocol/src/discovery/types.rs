@@ -13,17 +13,17 @@ use crate::types::NodeId;
 /// Heartbeat interval (5 seconds).
 pub const HEARTBEAT_INTERVAL_MS: u64 = 5_000;
 
-/// Stale threshold — peer becomes stale after missing 2 heartbeats (10s).
-pub const STALE_THRESHOLD_MS: u64 = 10_000;
+/// Stale threshold — peer becomes stale after missing 2 gossip announces (20s).
+pub const STALE_THRESHOLD_MS: u64 = 20_000;
 
-/// Offline threshold — peer becomes offline after missing 4 heartbeats (20s).
-pub const OFFLINE_THRESHOLD_MS: u64 = 20_000;
+/// Offline threshold — peer becomes offline after missing ~4 gossip announces (45s).
+pub const OFFLINE_THRESHOLD_MS: u64 = 45_000;
 
 /// Maximum allowed clock drift for timestamps (5 minutes).
 pub const MAX_FUTURE_DRIFT_MS: u64 = 5 * 60 * 1000;
 
-/// Gossip round interval (30 seconds).
-pub const GOSSIP_INTERVAL_MS: u64 = 30_000;
+/// Gossip announce interval (10 seconds — acts as keepalive).
+pub const GOSSIP_INTERVAL_MS: u64 = 10_000;
 
 /// Max peers returned in a single gossip response.
 pub const MAX_PEERS_PER_GOSSIP: usize = 20;

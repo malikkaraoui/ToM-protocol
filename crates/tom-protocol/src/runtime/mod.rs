@@ -49,7 +49,7 @@ impl Default for RuntimeConfig {
             username: "anonymous".to_string(),
             group_hub_heartbeat_interval: Duration::from_secs(30),
             backup_tick_interval: Duration::from_secs(60),
-            gossip_announce_interval: Duration::from_secs(30),
+            gossip_announce_interval: Duration::from_secs(10),
             gossip_bootstrap_peers: Vec::new(),
         }
     }
@@ -163,6 +163,12 @@ pub enum ProtocolEvent {
         group_id: GroupId,
         new_hub_id: NodeId,
     },
+    /// A group security violation was detected (non-member or bad signature).
+    GroupSecurityViolation {
+        group_id: GroupId,
+        node_id: NodeId,
+        reason: String,
+    },
     // ── Discovery events ──────────────────────────
     /// A peer announced itself via gossip.
     PeerAnnounceReceived {
@@ -173,6 +179,21 @@ pub enum ProtocolEvent {
     GossipNeighborUp { node_id: NodeId },
     /// A gossip neighbor disconnected.
     GossipNeighborDown { node_id: NodeId },
+    // ── Subnet events ─────────────────────────────
+    /// An ephemeral subnet was formed from communication patterns.
+    SubnetFormed {
+        subnet_id: String,
+        members: Vec<NodeId>,
+    },
+    /// An ephemeral subnet was dissolved.
+    SubnetDissolved { subnet_id: String, reason: String },
+    // ── Role events ───────────────────────────────
+    /// A peer was promoted to Relay based on contribution score.
+    RolePromoted { node_id: NodeId, score: f64 },
+    /// A peer was demoted to Peer due to low contribution score.
+    RoleDemoted { node_id: NodeId, score: f64 },
+    /// Our local role changed (update gossip announces).
+    LocalRoleChanged { new_role: crate::relay::PeerRole },
     // ── Backup events ─────────────────────────────
     /// A message was stored as backup for an offline recipient.
     BackupStored {

@@ -6,6 +6,10 @@ mod ladder;
 mod listen;
 mod output;
 mod ping;
+mod scenario_backup;
+mod scenario_common;
+mod scenario_e2e;
+mod scenario_group;
 
 use clap::{Parser, Subcommand};
 use common::parse_node_id;
@@ -105,6 +109,15 @@ enum Command {
         #[arg(long, default_value = "1024")]
         payload_size: usize,
     },
+
+    /// Protocol scenario: E2E encryption validation.
+    E2e,
+
+    /// Protocol scenario: Group lifecycle (create → invite → join → send → leave).
+    Group,
+
+    /// Protocol scenario: Backup delivery for offline peers.
+    Backup,
 }
 
 #[tokio::main]
@@ -117,6 +130,9 @@ async fn main() -> anyhow::Result<()> {
         Command::Burst { .. } => "burst",
         Command::Ladder { .. } => "ladder",
         Command::Fanout { .. } => "fanout",
+        Command::E2e => "e2e",
+        Command::Group => "group",
+        Command::Backup => "backup",
     };
 
     let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
@@ -159,12 +175,33 @@ async fn main() -> anyhow::Result<()> {
             .init();
     }
 
+    eprintln!("tom-stress v{}", env!("CARGO_PKG_VERSION"));
+
+    // ── Protocol scenarios (spawn their own nodes) ───────────────
+    match &cli.command {
+        Command::E2e | Command::Group | Command::Backup => {
+            let result = match cli.command {
+                Command::E2e => scenario_e2e::run().await?,
+                Command::Group => scenario_group::run().await?,
+                Command::Backup => scenario_backup::run().await?,
+                _ => unreachable!(),
+            };
+            result.print_summary();
+            result.emit_jsonl();
+            if !result.success() {
+                std::process::exit(1);
+            }
+            return Ok(());
+        }
+        _ => {}
+    }
+
+    // ── Transport-level tests (shared node) ──────────────────────
     let start = Instant::now();
 
     let config = TomNodeConfig::new().max_message_size(cli.max_message_size);
     let node = TomNode::bind(config).await?;
 
-    eprintln!("tom-stress v{}", env!("CARGO_PKG_VERSION"));
     eprintln!("Node ID: {}", node.id());
     eprintln!();
 
@@ -273,6 +310,9 @@ async fn main() -> anyhow::Result<()> {
             )
             .await?;
         }
+
+        // Already handled above
+        Command::E2e | Command::Group | Command::Backup => unreachable!(),
     }
 
     Ok(())

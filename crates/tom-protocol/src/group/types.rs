@@ -244,10 +244,13 @@ pub struct GroupMessage {
     pub sender_username: String,
     pub text: String,
     pub sent_at: u64,
+    /// Ed25519 signature over `signing_bytes()`. Empty if unsigned.
+    #[serde(default)]
+    pub sender_signature: Vec<u8>,
 }
 
 impl GroupMessage {
-    /// Create a new group message.
+    /// Create a new group message (unsigned).
     pub fn new(
         group_id: GroupId,
         sender_id: NodeId,
@@ -261,7 +264,52 @@ impl GroupMessage {
             sender_username,
             text,
             sent_at: now_ms(),
+            sender_signature: Vec::new(),
         }
+    }
+
+    /// Deterministic bytes for signing (group_id + message_id + sender_id + text + sent_at).
+    pub fn signing_bytes(&self) -> Vec<u8> {
+        let mut buf = Vec::new();
+        buf.extend_from_slice(self.group_id.0.as_bytes());
+        buf.extend_from_slice(self.message_id.as_bytes());
+        buf.extend_from_slice(&self.sender_id.as_bytes());
+        buf.extend_from_slice(self.text.as_bytes());
+        buf.extend_from_slice(&self.sent_at.to_le_bytes());
+        buf
+    }
+
+    /// Sign this message with the sender's Ed25519 secret key seed.
+    pub fn sign(&mut self, secret_seed: &[u8; 32]) {
+        use ed25519_dalek::{Signer, SigningKey};
+        let signing_key = SigningKey::from_bytes(secret_seed);
+        let signature = signing_key.sign(&self.signing_bytes());
+        self.sender_signature = signature.to_bytes().to_vec();
+    }
+
+    /// Verify the sender's signature against `sender_id` public key.
+    ///
+    /// Returns `true` if the signature is valid, `false` if missing or invalid.
+    pub fn verify_signature(&self) -> bool {
+        if self.sender_signature.len() != 64 {
+            return false;
+        }
+        use ed25519_dalek::{Signature, Verifier, VerifyingKey};
+        let pk_bytes: [u8; 32] = self.sender_id.as_bytes();
+        let Ok(verifying_key) = VerifyingKey::from_bytes(&pk_bytes) else {
+            return false;
+        };
+        let Ok(sig_array): Result<&[u8; 64], _> = self.sender_signature.as_slice().try_into()
+        else {
+            return false;
+        };
+        let sig = Signature::from_bytes(sig_array);
+        verifying_key.verify(&self.signing_bytes(), &sig).is_ok()
+    }
+
+    /// Whether this message has been signed.
+    pub fn is_signed(&self) -> bool {
+        self.sender_signature.len() == 64
     }
 }
 
@@ -342,6 +390,13 @@ pub enum GroupEvent {
     HubMigrated {
         group_id: GroupId,
         new_hub_id: NodeId,
+    },
+
+    /// Security violation detected (non-member or invalid signature).
+    SecurityViolation {
+        group_id: GroupId,
+        node_id: NodeId,
+        reason: String,
     },
 }
 
@@ -529,5 +584,84 @@ mod tests {
         assert_eq!(decoded.group_id, group.group_id);
         assert_eq!(decoded.name, group.name);
         assert_eq!(decoded.members.len(), group.members.len());
+    }
+
+    fn secret_seed(seed: u8) -> [u8; 32] {
+        use rand::SeedableRng;
+        let mut rng = rand::rngs::StdRng::seed_from_u64(seed as u64);
+        let secret = iroh::SecretKey::generate(&mut rng);
+        secret.to_bytes()
+    }
+
+    #[test]
+    fn group_message_sign_verify() {
+        let seed = secret_seed(1);
+        let sender = node_id(1);
+        let mut msg = GroupMessage::new(
+            GroupId::from("grp-1".to_string()),
+            sender,
+            "alice".into(),
+            "Hello signed!".into(),
+        );
+
+        assert!(!msg.is_signed());
+        assert!(!msg.verify_signature());
+
+        msg.sign(&seed);
+        assert!(msg.is_signed());
+        assert!(msg.verify_signature(), "signature should be valid");
+    }
+
+    #[test]
+    fn group_message_tampered_text_fails() {
+        let seed = secret_seed(1);
+        let sender = node_id(1);
+        let mut msg = GroupMessage::new(
+            GroupId::from("grp-1".to_string()),
+            sender,
+            "alice".into(),
+            "Original text".into(),
+        );
+        msg.sign(&seed);
+        assert!(msg.verify_signature());
+
+        msg.text = "Tampered text".into();
+        assert!(!msg.verify_signature(), "tampered text should fail verification");
+    }
+
+    #[test]
+    fn group_message_wrong_key_fails() {
+        let seed1 = secret_seed(1);
+        let sender1 = node_id(1);
+        let sender2 = node_id(2);
+        let mut msg = GroupMessage::new(
+            GroupId::from("grp-1".to_string()),
+            sender1,
+            "alice".into(),
+            "Hello".into(),
+        );
+        msg.sign(&seed1);
+        assert!(msg.verify_signature());
+
+        // Swap sender_id to a different key
+        msg.sender_id = sender2;
+        assert!(!msg.verify_signature(), "wrong sender key should fail");
+    }
+
+    #[test]
+    fn group_message_signed_roundtrip() {
+        let seed = secret_seed(1);
+        let sender = node_id(1);
+        let mut msg = GroupMessage::new(
+            GroupId::from("grp-1".to_string()),
+            sender,
+            "alice".into(),
+            "Signed message".into(),
+        );
+        msg.sign(&seed);
+
+        let bytes = rmp_serde::to_vec(&msg).expect("serialize");
+        let decoded: GroupMessage = rmp_serde::from_slice(&bytes).expect("deserialize");
+        assert!(decoded.verify_signature(), "signature should survive msgpack roundtrip");
     }
 }
