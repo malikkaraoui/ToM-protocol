@@ -15,7 +15,7 @@ use crate::group::{
 use crate::relay::{PeerInfo, PeerRole, PeerStatus, RelaySelector, Topology};
 use crate::router::{AckType, ReadReceiptPayload, Router, RoutingAction};
 use crate::tracker::{MessageTracker, StatusChange};
-use crate::types::{MessageType, NodeId};
+use crate::types::{now_ms, MessageType, NodeId};
 
 use iroh_gossip::Gossip;
 use iroh_gossip::api::Event as GossipEvent;
@@ -1363,11 +1363,4 @@ async fn send_envelope_to(
                 .await;
         }
     }
-}
-
-fn now_ms() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis() as u64
 }

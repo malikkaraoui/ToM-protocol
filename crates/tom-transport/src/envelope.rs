@@ -104,7 +104,9 @@ impl MessageEnvelope {
     }
 }
 
-fn now_ms() -> u64 {
+/// Current time in milliseconds since UNIX epoch.
+#[inline]
+pub fn now_ms() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()

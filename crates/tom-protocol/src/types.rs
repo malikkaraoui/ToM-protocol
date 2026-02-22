@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-pub use tom_transport::NodeId;
+pub use tom_transport::{now_ms, NodeId};
 
 /// Message type — determines how the protocol handles the envelope.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]

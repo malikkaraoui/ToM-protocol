@@ -36,7 +36,7 @@ mod path;
 mod protocol;
 
 pub use config::TomNodeConfig;
-pub use envelope::MessageEnvelope;
+pub use envelope::{now_ms, MessageEnvelope};
 pub use error::TomTransportError;
 pub use node::TomNode;
 pub use path::{PathEvent, PathKind};

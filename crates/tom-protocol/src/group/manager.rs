@@ -7,7 +7,7 @@
 use std::collections::HashMap;
 
 use crate::group::types::*;
-use crate::types::NodeId;
+use crate::types::{now_ms, NodeId};
 
 /// Member-side group state manager.
 ///
@@ -314,13 +314,6 @@ impl GroupManager {
             new_hub_id,
         })]
     }
-}
-
-fn now_ms() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .expect("system time before epoch")
-        .as_millis() as u64
 }
 
 #[cfg(test)]
