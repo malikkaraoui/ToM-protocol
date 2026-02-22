@@ -1223,10 +1223,7 @@ export class TomClient {
     }
 
     // Generate unique invite ID for acknowledgment tracking
-    const inviteId =
-      typeof crypto.randomUUID === 'function'
-        ? crypto.randomUUID()
-        : Array.from({ length: 16 }, () => Math.floor(Math.random() * 16).toString(16)).join('');
+    const inviteId = crypto.randomUUID();
 
     const invitePayload: GroupPayload = {
       type: 'group-invite',
@@ -1369,10 +1366,7 @@ export class TomClient {
       }
     }
 
-    const messageId =
-      typeof crypto.randomUUID === 'function'
-        ? crypto.randomUUID()
-        : Array.from({ length: 32 }, () => Math.floor(Math.random() * 16).toString(16)).join('');
+    const messageId = crypto.randomUUID();
 
     const messagePayload: GroupMessagePayload = {
       type: 'group-message',

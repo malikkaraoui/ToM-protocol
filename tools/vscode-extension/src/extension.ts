@@ -1,9 +1,11 @@
 /**
- * ToM Protocol VS Code Extension
+ * ToM Protocol VS Code Extension — WIP / SKELETON
  *
- * Provides a chat interface and LLM integration for the ToM distributed network.
+ * STATUS: Non-functional scaffold. Connection is mocked (setTimeout),
+ * message sending is a showInformationMessage stub. This extension
+ * exists as a UI skeleton for future integration with tom-sdk.
  *
- * Features:
+ * Planned features:
  * - Chat webview panel for real-time messaging
  * - Network status monitoring
  * - Participant tree view
