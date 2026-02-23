@@ -1723,4 +1723,339 @@ mod tests {
             "peer should be registered in topology after gossip announce"
         );
     }
+
+    // ── Task 13: Integration tests ──────────────────────────────────────
+
+    #[test]
+    fn message_e2e_encrypt_decrypt_roundtrip() {
+        // Alice encrypts a chat message for Bob. Bob's RuntimeState handles
+        // it via handle_incoming(). Verify: plaintext recovered, was_encrypted,
+        // signature_valid.
+        let (alice_id, alice_secret) = keypair(10);
+        let (bob_id, bob_secret) = keypair(11);
+
+        let mut bob_state = RuntimeState::new(
+            bob_id,
+            bob_secret,
+            RuntimeConfig {
+                encryption: true,
+                ..Default::default()
+            },
+        );
+
+        let plaintext = b"Hello Bob, this is Alice!";
+        let bob_pk = bob_id.as_bytes();
+        let env = EnvelopeBuilder::new(
+            alice_id,
+            bob_id,
+            MessageType::Chat,
+            plaintext.to_vec(),
+        )
+        .encrypt_and_sign(&alice_secret, &bob_pk)
+        .expect("encrypt_and_sign should succeed");
+
+        // Sanity: envelope is encrypted and signed
+        assert!(env.encrypted);
+        assert!(env.is_signed());
+
+        let raw = env.to_bytes().expect("serialize");
+        let effects = bob_state.handle_incoming(&raw);
+
+        let delivered = effects.iter().find_map(|e| {
+            if let RuntimeEffect::DeliverMessage(msg) = e {
+                Some(msg)
+            } else {
+                None
+            }
+        });
+        assert!(delivered.is_some(), "expected DeliverMessage, got: {effects:?}");
+        let msg = delivered.unwrap();
+        assert_eq!(msg.payload, plaintext, "plaintext should match after decryption");
+        assert!(msg.was_encrypted, "message should report was_encrypted=true");
+        assert!(msg.signature_valid, "signature should be valid");
+        assert_eq!(msg.from, alice_id, "sender should be Alice");
+    }
+
+    #[test]
+    fn ack_updates_tracker_status() {
+        // Send a message, then simulate relay ACK and recipient ACK.
+        // Verify StatusChange effects progress through expected states.
+        let (alice_id, alice_secret) = keypair(20);
+        let (bob_id, bob_secret) = keypair(21);
+
+        let mut alice_state = RuntimeState::new(
+            alice_id,
+            alice_secret,
+            RuntimeConfig {
+                encryption: false,
+                ..Default::default()
+            },
+        );
+
+        // Send message from Alice to Bob
+        let send_effects = alice_state.handle_send_message(bob_id, b"hi bob".to_vec());
+        assert_eq!(send_effects.len(), 1);
+        let envelope = match &send_effects[0] {
+            RuntimeEffect::SendWithBackupFallback { envelope, on_success, .. } => {
+                // on_success should contain Pending and Sent status changes
+                let has_status = on_success.iter().any(|e| matches!(e, RuntimeEffect::StatusChange(_)));
+                assert!(has_status, "on_success should have StatusChange effects");
+                envelope.clone()
+            }
+            other => panic!("expected SendWithBackupFallback, got: {other:?}"),
+        };
+        let msg_id = envelope.id.clone();
+
+        // Simulate relay ACK (RelayForwarded)
+        use crate::router::{AckPayload, AckType};
+        let relay_id = node_id(22);
+        let relay_ack_payload = AckPayload {
+            original_message_id: msg_id.clone(),
+            ack_type: AckType::RelayForwarded,
+        };
+        let relay_ack_env = EnvelopeBuilder::new(
+            relay_id,
+            alice_id,
+            MessageType::Ack,
+            relay_ack_payload.to_bytes(),
+        )
+        .build();
+        // We use the relay_ack_env unsigned — that's fine, sig_valid=false
+        let relay_effects = alice_state.handle_incoming_chat(relay_ack_env, false);
+        let relay_status = relay_effects.iter().find_map(|e| {
+            if let RuntimeEffect::StatusChange(sc) = e { Some(sc) } else { None }
+        });
+        assert!(relay_status.is_some(), "relay ACK should produce StatusChange, got: {relay_effects:?}");
+        let sc = relay_status.unwrap();
+        assert_eq!(sc.current, crate::types::MessageStatus::Relayed);
+
+        // Simulate recipient ACK (RecipientReceived)
+        let recipient_ack_payload = AckPayload {
+            original_message_id: msg_id.clone(),
+            ack_type: AckType::RecipientReceived,
+        };
+        let recipient_ack_env = EnvelopeBuilder::new(
+            bob_id,
+            alice_id,
+            MessageType::Ack,
+            recipient_ack_payload.to_bytes(),
+        )
+        .sign(&bob_secret);
+        let sig_valid = recipient_ack_env.verify_signature().is_ok();
+        let recv_effects = alice_state.handle_incoming_chat(recipient_ack_env, sig_valid);
+        let recv_status = recv_effects.iter().find_map(|e| {
+            if let RuntimeEffect::StatusChange(sc) = e { Some(sc) } else { None }
+        });
+        assert!(recv_status.is_some(), "recipient ACK should produce StatusChange, got: {recv_effects:?}");
+        let sc = recv_status.unwrap();
+        assert_eq!(sc.current, crate::types::MessageStatus::Delivered);
+    }
+
+    #[test]
+    fn read_receipt_produces_status_read() {
+        // Track a message, then handle an incoming ReadReceipt envelope.
+        // Verify the StatusChange marks it as Read.
+        let (alice_id, alice_secret) = keypair(30);
+        let (bob_id, bob_secret) = keypair(31);
+
+        let mut alice_state = RuntimeState::new(
+            alice_id,
+            alice_secret,
+            RuntimeConfig {
+                encryption: false,
+                ..Default::default()
+            },
+        );
+
+        // Send a message to get an envelope_id and track it
+        let send_effects = alice_state.handle_send_message(bob_id, b"read me".to_vec());
+        let envelope = match &send_effects[0] {
+            RuntimeEffect::SendWithBackupFallback { envelope, .. } => envelope.clone(),
+            other => panic!("expected SendWithBackupFallback, got: {other:?}"),
+        };
+        let msg_id = envelope.id.clone();
+
+        // Advance to Delivered first (Read requires Delivered or earlier)
+        alice_state.tracker.mark_delivered(&msg_id);
+
+        // Build a ReadReceipt envelope from Bob
+        use crate::router::ReadReceiptPayload;
+        let rr_payload = ReadReceiptPayload {
+            original_message_id: msg_id.clone(),
+            read_at: crate::types::now_ms(),
+        };
+        let rr_env = EnvelopeBuilder::new(
+            bob_id,
+            alice_id,
+            MessageType::ReadReceipt,
+            rr_payload.to_bytes(),
+        )
+        .sign(&bob_secret);
+        let sig_valid = rr_env.verify_signature().is_ok();
+        let effects = alice_state.handle_incoming_chat(rr_env, sig_valid);
+
+        let read_status = effects.iter().find_map(|e| {
+            if let RuntimeEffect::StatusChange(sc) = e { Some(sc) } else { None }
+        });
+        assert!(read_status.is_some(), "ReadReceipt should produce StatusChange, got: {effects:?}");
+        let sc = read_status.unwrap();
+        assert_eq!(sc.current, crate::types::MessageStatus::Read);
+        assert_eq!(sc.message_id, msg_id);
+    }
+
+    #[test]
+    fn group_create_produces_send_effects() {
+        // Call handle_command with CreateGroup. Verify it produces
+        // SendEnvelope effects (the GroupCreate payload to the hub).
+        let mut state = default_state(40);
+        let hub_id = node_id(41);
+        let member1 = node_id(42);
+        let member2 = node_id(43);
+
+        let effects = state.handle_command(RuntimeCommand::CreateGroup {
+            name: "Test Group".to_string(),
+            hub_relay_id: hub_id,
+            initial_members: vec![member1, member2],
+        });
+
+        // Should produce at least one SendEnvelope (the GroupCreate to hub)
+        let send_envelopes: Vec<_> = effects.iter().filter(|e| {
+            matches!(e, RuntimeEffect::SendEnvelope(env) if env.to == hub_id && env.msg_type == MessageType::GroupCreate)
+        }).collect();
+        assert!(
+            !send_envelopes.is_empty(),
+            "CreateGroup should produce SendEnvelope to hub, got: {effects:?}"
+        );
+
+        // Verify the envelope is signed and directed to the hub
+        if let RuntimeEffect::SendEnvelope(env) = &send_envelopes[0] {
+            assert!(env.is_signed(), "group create envelope should be signed");
+            assert_eq!(env.to, hub_id);
+            assert_eq!(env.from, state.local_id);
+        }
+    }
+
+    #[test]
+    fn peer_add_then_remove_cleans_state() {
+        // Add a peer via AddPeer, verify topology and heartbeat.
+        // Remove via RemovePeer, verify both are cleaned.
+        let mut state = default_state(50);
+        let peer = node_id(51);
+
+        // Initially: not in topology or heartbeat
+        assert!(state.topology.get(&peer).is_none());
+        assert_eq!(state.heartbeat.liveness(&peer), crate::discovery::LivenessState::Departed);
+
+        // Add peer
+        state.handle_command(RuntimeCommand::AddPeer { node_id: peer });
+        assert!(state.topology.get(&peer).is_some(), "peer should be in topology after AddPeer");
+        assert_ne!(
+            state.heartbeat.liveness(&peer),
+            crate::discovery::LivenessState::Departed,
+            "peer should be tracked in heartbeat after AddPeer"
+        );
+
+        // Remove peer
+        state.handle_command(RuntimeCommand::RemovePeer { node_id: peer });
+        assert!(
+            state.topology.get(&peer).is_none(),
+            "peer should be removed from topology after RemovePeer"
+        );
+        assert_eq!(
+            state.heartbeat.liveness(&peer),
+            crate::discovery::LivenessState::Departed,
+            "peer should be untracked from heartbeat after RemovePeer"
+        );
+    }
+
+    #[test]
+    fn build_gossip_announce_roundtrip() {
+        // Build gossip announce bytes, deserialize them back,
+        // verify fields match (node_id, username, roles).
+        let (local_id, local_secret) = keypair(60);
+        let state = RuntimeState::new(
+            local_id,
+            local_secret,
+            RuntimeConfig {
+                username: "alice_test".to_string(),
+                ..Default::default()
+            },
+        );
+
+        let bytes = state.build_gossip_announce();
+        assert!(bytes.is_some(), "should produce announce bytes");
+        let bytes = bytes.unwrap();
+
+        let announce: PeerAnnounce =
+            rmp_serde::from_slice(&bytes).expect("should deserialize PeerAnnounce");
+        assert_eq!(announce.node_id, local_id);
+        assert_eq!(announce.username, "alice_test");
+        assert_eq!(announce.roles, vec![PeerRole::Peer]);
+        assert!(
+            announce.is_timestamp_valid(crate::types::now_ms()),
+            "announce timestamp should be valid at current time"
+        );
+    }
+
+    #[test]
+    fn handle_incoming_rejects_garbage_bytes() {
+        // Pass garbage bytes to handle_incoming(). Verify it returns
+        // empty effects (graceful handling, no panic).
+        let mut state = default_state(70);
+
+        let garbage = b"this is not valid msgpack at all!!! \x00\xff\xfe";
+        let effects = state.handle_incoming(garbage);
+        assert!(
+            effects.is_empty(),
+            "garbage input should produce no effects (graceful drop), got: {effects:?}"
+        );
+
+        // Also test empty bytes
+        let effects = state.handle_incoming(&[]);
+        assert!(
+            effects.is_empty(),
+            "empty input should produce no effects, got: {effects:?}"
+        );
+
+        // Also test partially valid but corrupted msgpack
+        let effects = state.handle_incoming(&[0x93, 0x01, 0x02]);
+        assert!(
+            effects.is_empty(),
+            "corrupted msgpack should produce no effects, got: {effects:?}"
+        );
+    }
+
+    #[test]
+    fn send_message_unencrypted_when_config_disabled() {
+        // Create state with config.encryption = false. Call handle_send_message.
+        // Verify the envelope is NOT encrypted.
+        let (local_id, local_secret) = keypair(80);
+        let mut state = RuntimeState::new(
+            local_id,
+            local_secret,
+            RuntimeConfig {
+                encryption: false,
+                ..Default::default()
+            },
+        );
+        let recipient = node_id(81);
+
+        let effects = state.handle_send_message(recipient, b"plaintext msg".to_vec());
+        assert_eq!(effects.len(), 1);
+
+        match &effects[0] {
+            RuntimeEffect::SendWithBackupFallback { envelope, .. } => {
+                assert!(
+                    !envelope.encrypted,
+                    "envelope should NOT be encrypted when config.encryption=false"
+                );
+                assert!(envelope.is_signed(), "envelope should still be signed");
+                assert_eq!(envelope.to, recipient);
+                assert_eq!(envelope.from, local_id);
+                // Payload should be the original plaintext (not ciphertext)
+                assert_eq!(envelope.payload, b"plaintext msg");
+            }
+            other => panic!("expected SendWithBackupFallback, got: {other:?}"),
+        }
+    }
 }
