@@ -462,3 +462,287 @@ fn tampered_signature_detected() {
     };
     assert!(reason.contains("invalid"), "reason: {reason}");
 }
+
+/// Test E2E encrypted group messaging with Sender Keys.
+#[test]
+fn encrypted_group_messaging_e2e() {
+    let alice_id = node_id(1);
+    let bob_id = node_id(2);
+    let hub_id = node_id(10);
+    let alice_seed = secret_seed(1);
+    let bob_seed = secret_seed(2);
+
+    let mut alice = GroupManager::new(alice_id, "alice".into());
+    let mut bob = GroupManager::new(bob_id, "bob".into());
+    let mut hub = GroupHub::new(hub_id);
+
+    // ── Step 1: Alice creates group ──────────────────────
+    let create_actions = alice.create_group("E2E Test".into(), hub_id, vec![bob_id]);
+    let GroupAction::Send { payload, .. } = &create_actions[0] else {
+        panic!()
+    };
+    let hub_actions = hub.handle_payload(payload.clone(), alice_id);
+
+    let GroupAction::Send {
+        payload: GroupPayload::Created { group },
+        ..
+    } = &hub_actions[0]
+    else {
+        panic!()
+    };
+    let gid = group.group_id.clone();
+    alice.handle_group_created(group.clone());
+    assert!(alice.local_sender_key(&gid).is_some());
+
+    // ── Step 2: Bob joins ────────────────────────────────
+    let GroupAction::Send {
+        payload:
+            GroupPayload::Invite {
+                group_id,
+                group_name,
+                inviter_id,
+                inviter_username,
+            },
+        ..
+    } = &hub_actions[1]
+    else {
+        panic!()
+    };
+    bob.handle_invite(
+        group_id.clone(),
+        group_name.clone(),
+        *inviter_id,
+        inviter_username.clone(),
+        hub_id,
+    );
+    let join_actions = bob.accept_invite(&gid);
+    let GroupAction::Send {
+        payload: join_payload,
+        ..
+    } = &join_actions[0]
+    else {
+        panic!()
+    };
+    let hub_join_actions = hub.handle_payload(join_payload.clone(), bob_id);
+
+    // Deliver Sync to Bob (generates Bob's sender key + distribution)
+    let GroupAction::Send {
+        payload:
+            GroupPayload::Sync {
+                group: sync_group,
+                recent_messages,
+            },
+        ..
+    } = &hub_join_actions[0]
+    else {
+        panic!()
+    };
+    bob.handle_group_sync(sync_group.clone(), recent_messages.clone());
+    assert!(bob.local_sender_key(&gid).is_some());
+
+    // Deliver MemberJoined to Alice (triggers Alice distributing her key to Bob)
+    let GroupAction::Broadcast {
+        payload: GroupPayload::MemberJoined { member, .. },
+        ..
+    } = &hub_join_actions[1]
+    else {
+        panic!()
+    };
+    alice.handle_member_joined(&gid, member.clone());
+
+    // ── Step 3: Key exchange ─────────────────────────────
+
+    // Alice -> Bob: Alice's sender key (via hub)
+    let alice_dist = alice.build_sender_key_distribution(&gid);
+    if !alice_dist.is_empty() {
+        let GroupAction::Send {
+            payload: dist_payload,
+            ..
+        } = &alice_dist[0]
+        else {
+            panic!()
+        };
+        let hub_dist = hub.handle_payload(dist_payload.clone(), alice_id);
+        for action in &hub_dist {
+            if let GroupAction::Send {
+                to,
+                payload:
+                    GroupPayload::SenderKeyDistribution {
+                        from,
+                        epoch,
+                        encrypted_keys,
+                        ..
+                    },
+            } = action
+            {
+                if *to == bob_id {
+                    bob.handle_sender_key_distribution(
+                        &gid,
+                        *from,
+                        *epoch,
+                        encrypted_keys,
+                        &bob_seed,
+                    );
+                }
+            }
+        }
+    }
+
+    // Bob -> Alice: Bob's sender key (via hub)
+    let bob_dist = bob.build_sender_key_distribution(&gid);
+    if !bob_dist.is_empty() {
+        let GroupAction::Send {
+            payload: dist_payload,
+            ..
+        } = &bob_dist[0]
+        else {
+            panic!()
+        };
+        let hub_dist2 = hub.handle_payload(dist_payload.clone(), bob_id);
+        for action in &hub_dist2 {
+            if let GroupAction::Send {
+                to,
+                payload:
+                    GroupPayload::SenderKeyDistribution {
+                        from,
+                        epoch,
+                        encrypted_keys,
+                        ..
+                    },
+            } = action
+            {
+                if *to == alice_id {
+                    alice.handle_sender_key_distribution(
+                        &gid,
+                        *from,
+                        *epoch,
+                        encrypted_keys,
+                        &alice_seed,
+                    );
+                }
+            }
+        }
+    }
+
+    // Verify key exchange
+    assert!(
+        bob.get_sender_key(&gid, &alice_id).is_some(),
+        "Bob should have Alice's key"
+    );
+    assert!(
+        alice.get_sender_key(&gid, &bob_id).is_some(),
+        "Alice should have Bob's key"
+    );
+
+    // ── Step 4: Alice sends encrypted message ────────────
+    let alice_key = alice.local_sender_key(&gid).unwrap();
+    let mut msg = GroupMessage::new_encrypted(
+        gid.clone(),
+        alice_id,
+        "alice".into(),
+        "Top secret message!".into(),
+        &alice_key.key,
+        alice_key.epoch,
+    );
+    msg.sign(&alice_seed);
+
+    // Hub processes — should NOT see plaintext
+    assert!(msg.text.is_empty());
+    assert!(msg.encrypted);
+
+    let fanout = hub.handle_payload(GroupPayload::Message(msg), alice_id);
+    let GroupAction::Broadcast {
+        to,
+        payload: GroupPayload::Message(fanned_msg),
+    } = &fanout[0]
+    else {
+        panic!()
+    };
+    assert!(to.contains(&bob_id));
+
+    // Bob decrypts
+    let bob_actions = bob.handle_message(fanned_msg.clone());
+    assert_eq!(bob_actions.len(), 1);
+    let GroupAction::Event(GroupEvent::MessageReceived(delivered)) = &bob_actions[0] else {
+        panic!()
+    };
+    assert_eq!(delivered.text, "Top secret message!");
+    assert_eq!(delivered.sender_username, "alice");
+}
+
+/// Test that an ex-member cannot decrypt messages after key rotation.
+#[test]
+fn key_rotation_forward_secrecy() {
+    let alice_id = node_id(1);
+    let eve_id = node_id(3);
+    let hub_id = node_id(10);
+
+    let mut alice = GroupManager::new(alice_id, "alice".into());
+    let mut hub = GroupHub::new(hub_id);
+
+    // Create group
+    let create_actions = alice.create_group("Rotation Test".into(), hub_id, vec![]);
+    let GroupAction::Send { payload, .. } = &create_actions[0] else {
+        panic!()
+    };
+    let hub_actions = hub.handle_payload(payload.clone(), alice_id);
+    let GroupAction::Send {
+        payload: GroupPayload::Created { group },
+        ..
+    } = &hub_actions[0]
+    else {
+        panic!()
+    };
+    let gid = group.group_id.clone();
+    alice.handle_group_created(group.clone());
+
+    // Eve joins via hub
+    hub.handle_payload(
+        GroupPayload::Join {
+            group_id: gid.clone(),
+            username: "eve".into(),
+        },
+        eve_id,
+    );
+    alice.handle_member_joined(
+        &gid,
+        tom_protocol::GroupMember {
+            node_id: eve_id,
+            username: "eve".into(),
+            joined_at: 1000,
+            role: tom_protocol::GroupMemberRole::Member,
+        },
+    );
+
+    let old_key = alice.local_sender_key(&gid).unwrap().key;
+
+    // Eve leaves via hub -> Alice rotates her key
+    hub.handle_payload(
+        GroupPayload::Leave {
+            group_id: gid.clone(),
+        },
+        eve_id,
+    );
+    alice.handle_member_left(&gid, &eve_id, "eve".into(), LeaveReason::Voluntary);
+
+    let new_sender_key = alice.local_sender_key(&gid).unwrap();
+    let new_key = new_sender_key.key;
+    let new_epoch = new_sender_key.epoch;
+    assert_ne!(old_key, new_key, "key should have rotated");
+
+    // New message with rotated key
+    let msg = GroupMessage::new_encrypted(
+        gid,
+        alice_id,
+        "alice".into(),
+        "Post-rotation secret".into(),
+        &new_key,
+        new_epoch,
+    );
+
+    // Eve's old key fails to decrypt the new message
+    assert!(
+        msg.decrypt(&old_key).is_err(),
+        "old key should not decrypt new message"
+    );
+}
