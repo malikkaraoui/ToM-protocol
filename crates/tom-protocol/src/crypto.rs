@@ -156,6 +156,41 @@ pub fn decrypt(
     Ok(plaintext)
 }
 
+/// Generate a random 32-byte Sender Key for group encryption.
+pub fn generate_sender_key() -> [u8; 32] {
+    use chacha20poly1305::aead::rand_core::{OsRng, RngCore};
+    let mut key = [0u8; 32];
+    OsRng.fill_bytes(&mut key);
+    key
+}
+
+/// Encrypt plaintext with a symmetric Sender Key (XChaCha20-Poly1305).
+/// Returns (ciphertext, nonce). Uses a random 24-byte nonce.
+pub fn encrypt_group_message(plaintext: &[u8], key: &[u8; 32]) -> (Vec<u8>, [u8; 24]) {
+    use chacha20poly1305::aead::rand_core::{OsRng, RngCore};
+    let cipher = XChaCha20Poly1305::new(key.into());
+    let mut nonce_bytes = [0u8; 24];
+    OsRng.fill_bytes(&mut nonce_bytes);
+    let nonce = XNonce::from(nonce_bytes);
+    let ciphertext = cipher
+        .encrypt(&nonce, plaintext)
+        .expect("XChaCha20-Poly1305 encryption with valid key never fails");
+    (ciphertext, nonce_bytes)
+}
+
+/// Decrypt ciphertext with a symmetric Sender Key (XChaCha20-Poly1305).
+pub fn decrypt_group_message(
+    ciphertext: &[u8],
+    nonce: &[u8; 24],
+    key: &[u8; 32],
+) -> Result<Vec<u8>, TomProtocolError> {
+    let cipher = XChaCha20Poly1305::new(key.into());
+    let xnonce = XNonce::from(*nonce);
+    cipher
+        .decrypt(&xnonce, ciphertext)
+        .map_err(|_| TomProtocolError::Crypto("group message decryption failed".into()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -326,5 +361,47 @@ mod tests {
         let shared_ba = x_sk_b.diffie_hellman(&x_pk_a);
 
         assert_eq!(shared_ab.as_bytes(), shared_ba.as_bytes());
+    }
+
+    #[test]
+    fn group_encrypt_decrypt_roundtrip() {
+        let key = generate_sender_key();
+        let plaintext = b"Hello group!";
+        let (ciphertext, nonce) = encrypt_group_message(plaintext, &key);
+        let decrypted = decrypt_group_message(&ciphertext, &nonce, &key).unwrap();
+        assert_eq!(decrypted, plaintext);
+    }
+
+    #[test]
+    fn group_encrypt_wrong_key_fails() {
+        let key1 = generate_sender_key();
+        let key2 = generate_sender_key();
+        let (ciphertext, nonce) = encrypt_group_message(b"secret", &key1);
+        let result = decrypt_group_message(&ciphertext, &nonce, &key2);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn group_encrypt_tampered_ciphertext_fails() {
+        let key = generate_sender_key();
+        let (mut ciphertext, nonce) = encrypt_group_message(b"secret", &key);
+        ciphertext[0] ^= 0xFF;
+        let result = decrypt_group_message(&ciphertext, &nonce, &key);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn generate_sender_key_is_random() {
+        let k1 = generate_sender_key();
+        let k2 = generate_sender_key();
+        assert_ne!(k1, k2);
+    }
+
+    #[test]
+    fn group_encrypt_empty_payload() {
+        let key = generate_sender_key();
+        let (ciphertext, nonce) = encrypt_group_message(b"", &key);
+        let decrypted = decrypt_group_message(&ciphertext, &nonce, &key).unwrap();
+        assert_eq!(decrypted, b"");
     }
 }
