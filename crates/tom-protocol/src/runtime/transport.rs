@@ -31,14 +31,17 @@ impl Transport for tom_transport::TomNode {
 // ── MockTransport (tests) ───────────────────────────────────────────
 
 #[cfg(test)]
+#[allow(dead_code)] // Used by handle_*/tick_* tests (Tasks 4-10)
 pub mod mock {
     use super::*;
     use std::sync::{Arc, Mutex};
 
+    type SentLog = Vec<(NodeId, Vec<u8>)>;
+
     /// Faux transport qui enregistre les envois pour verification.
     #[derive(Clone)]
     pub struct MockTransport {
-        sent: Arc<Mutex<Vec<(NodeId, Vec<u8>)>>>,
+        sent: Arc<Mutex<SentLog>>,
         peers: Arc<Mutex<Vec<NodeId>>>,
         fail_sends: Arc<Mutex<bool>>,
     }
@@ -52,7 +55,7 @@ pub mod mock {
             }
         }
 
-        pub fn sent(&self) -> Vec<(NodeId, Vec<u8>)> {
+        pub fn sent(&self) -> SentLog {
             self.sent.lock().unwrap().clone()
         }
 
