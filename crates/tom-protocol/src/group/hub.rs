@@ -93,6 +93,13 @@ impl GroupHub {
                 message_id,
             } => self.handle_delivery_ack(from, &group_id, &message_id),
 
+            GroupPayload::SenderKeyDistribution {
+                ref group_id,
+                from: _,
+                epoch: _,
+                ref encrypted_keys,
+            } => self.handle_sender_key_distribution(from, group_id, encrypted_keys),
+
             // Hub doesn't process these (they're outgoing from hub)
             GroupPayload::Created { .. }
             | GroupPayload::Invite { .. }
@@ -100,8 +107,7 @@ impl GroupHub {
             | GroupPayload::MemberJoined { .. }
             | GroupPayload::MemberLeft { .. }
             | GroupPayload::HubMigration { .. }
-            | GroupPayload::HubHeartbeat { .. }
-            | GroupPayload::SenderKeyDistribution { .. } => vec![],
+            | GroupPayload::HubHeartbeat { .. } => vec![],
         }
     }
 
@@ -372,6 +378,47 @@ impl GroupHub {
         // Track delivery confirmation (for future delivery tracking)
         // Currently a no-op — will be used for read receipts / delivery status
         vec![]
+    }
+
+    // ── Sender Key Distribution ─────────────────────────────────────────
+
+    /// Fan out sender key distribution to individual recipients.
+    ///
+    /// The hub cannot read the keys (they are encrypted per-recipient).
+    /// It simply delivers each encrypted key to the intended recipient.
+    fn handle_sender_key_distribution(
+        &self,
+        from: NodeId,
+        group_id: &GroupId,
+        encrypted_keys: &[EncryptedSenderKey],
+    ) -> Vec<GroupAction> {
+        let Some(hub_group) = self.groups.get(group_id) else {
+            return vec![];
+        };
+
+        if !hub_group.info.is_member(&from) {
+            return vec![GroupAction::Event(GroupEvent::SecurityViolation {
+                group_id: group_id.clone(),
+                node_id: from,
+                reason: "non-member sent sender key distribution".into(),
+            })];
+        }
+
+        let mut actions = Vec::new();
+        for ek in encrypted_keys {
+            if hub_group.info.is_member(&ek.recipient_id) {
+                actions.push(GroupAction::Send {
+                    to: ek.recipient_id,
+                    payload: GroupPayload::SenderKeyDistribution {
+                        group_id: group_id.clone(),
+                        from,
+                        epoch: 0,
+                        encrypted_keys: vec![ek.clone()],
+                    },
+                });
+            }
+        }
+        actions
     }
 
     // ── Rate Limiting ────────────────────────────────────────────────────
@@ -1000,5 +1047,95 @@ mod tests {
         hub2.import_group(exported, vec![]);
         assert_eq!(hub2.group_count(), 1);
         assert!(hub2.get_group(&gid).is_some());
+    }
+
+    // ── Sender Key Distribution Tests ─────────────────────────────────
+
+    #[test]
+    fn sender_key_distribution_fanout() {
+        let mut hub = make_hub();
+        let alice = node_id(1);
+        let bob = node_id(2);
+        let charlie = node_id(3);
+
+        hub.handle_payload(
+            GroupPayload::Create {
+                group_name: "E2E".into(),
+                creator_username: "alice".into(),
+                initial_members: vec![],
+            },
+            alice,
+        );
+        let gid = hub.groups.keys().next().unwrap().clone();
+        hub.handle_join(bob, &gid, "bob".into());
+        hub.handle_join(charlie, &gid, "charlie".into());
+
+        let actions = hub.handle_payload(
+            GroupPayload::SenderKeyDistribution {
+                group_id: gid.clone(),
+                from: alice,
+                epoch: 1,
+                encrypted_keys: vec![
+                    EncryptedSenderKey {
+                        recipient_id: bob,
+                        encrypted_key: crate::crypto::EncryptedPayload {
+                            ciphertext: vec![1, 2, 3],
+                            nonce: [0u8; 24],
+                            ephemeral_pk: [0u8; 32],
+                        },
+                    },
+                    EncryptedSenderKey {
+                        recipient_id: charlie,
+                        encrypted_key: crate::crypto::EncryptedPayload {
+                            ciphertext: vec![4, 5, 6],
+                            nonce: [0u8; 24],
+                            ephemeral_pk: [0u8; 32],
+                        },
+                    },
+                ],
+            },
+            alice,
+        );
+
+        assert_eq!(actions.len(), 2);
+        assert!(
+            matches!(&actions[0], GroupAction::Send { to, .. } if *to == bob)
+        );
+        assert!(
+            matches!(&actions[1], GroupAction::Send { to, .. } if *to == charlie)
+        );
+    }
+
+    #[test]
+    fn sender_key_from_nonmember_rejected() {
+        let mut hub = make_hub();
+        let alice = node_id(1);
+        let stranger = node_id(99);
+
+        hub.handle_payload(
+            GroupPayload::Create {
+                group_name: "Secure".into(),
+                creator_username: "alice".into(),
+                initial_members: vec![],
+            },
+            alice,
+        );
+        let gid = hub.groups.keys().next().unwrap().clone();
+
+        let actions = hub.handle_payload(
+            GroupPayload::SenderKeyDistribution {
+                group_id: gid,
+                from: stranger,
+                epoch: 1,
+                encrypted_keys: vec![],
+            },
+            stranger,
+        );
+
+        assert_eq!(actions.len(), 1);
+        assert!(matches!(
+            &actions[0],
+            GroupAction::Event(GroupEvent::SecurityViolation { .. })
+        ));
     }
 }
