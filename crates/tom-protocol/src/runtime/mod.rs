@@ -5,9 +5,11 @@
 /// application (TUI, bot, SDK) never touches raw bytes or protocol internals.
 mod effect;
 mod r#loop;
+mod state;
 mod transport;
 
 pub use effect::RuntimeEffect;
+pub use state::RuntimeState;
 pub use transport::Transport;
 
 use std::time::Duration;

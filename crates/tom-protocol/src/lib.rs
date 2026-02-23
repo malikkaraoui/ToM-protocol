@@ -41,6 +41,6 @@ pub use router::{AckPayload, AckType, ReadReceiptPayload, Router, RoutingAction}
 pub use tracker::{MessageTracker, StatusChange};
 pub use runtime::{
     DeliveredMessage, ProtocolEvent, ProtocolRuntime, RuntimeChannels, RuntimeConfig,
-    RuntimeEffect, RuntimeHandle,
+    RuntimeEffect, RuntimeHandle, RuntimeState,
 };
 pub use types::{now_ms, MessageStatus, MessageType, NodeId};
