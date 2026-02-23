@@ -421,8 +421,26 @@ impl RuntimeState {
                 .handle_hub_migration(&group_id, new_hub_id),
             GroupPayload::HubHeartbeat { .. } => vec![],
 
-            // Sender Key distribution — passthrough (no action at protocol level yet)
-            GroupPayload::SenderKeyDistribution { .. } => vec![],
+            GroupPayload::SenderKeyDistribution {
+                ref group_id,
+                from,
+                epoch,
+                ref encrypted_keys,
+            } => {
+                if self.group_hub.get_group(group_id).is_some() {
+                    // We're the hub — fan out to members
+                    self.group_hub.handle_payload(group_payload, envelope.from)
+                } else {
+                    // We're a member — store the sender key
+                    self.group_manager.handle_sender_key_distribution(
+                        group_id,
+                        from,
+                        epoch,
+                        encrypted_keys,
+                        &self.secret_seed,
+                    )
+                }
+            }
         };
 
         self.group_actions_to_effects(&actions)
@@ -704,12 +722,28 @@ impl RuntimeState {
         };
 
         let hub_id = group.hub_relay_id;
-        let mut msg = GroupMessage::new(
-            group_id,
-            self.local_id,
-            self.config.username.clone(),
-            text,
-        );
+
+        // Build message — encrypted if we have a sender key, plaintext otherwise
+        let mut msg = if let Some(sender_key) = self.group_manager.local_sender_key(&group_id) {
+            let key = sender_key.key;
+            let epoch = sender_key.epoch;
+            GroupMessage::new_encrypted(
+                group_id,
+                self.local_id,
+                self.config.username.clone(),
+                text,
+                &key,
+                epoch,
+            )
+        } else {
+            GroupMessage::new(
+                group_id,
+                self.local_id,
+                self.config.username.clone(),
+                text,
+            )
+        };
+
         msg.sign(&self.secret_seed);
         let payload = GroupPayload::Message(msg);
         let payload_bytes =
