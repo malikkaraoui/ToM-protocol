@@ -22,6 +22,7 @@ ed25519-dalek = "2"
 
 # Runtime (Phase 2)
 tokio = { version = "1", features = ["sync", "time", "rt"] }
+async-trait = "0.1"
 
 # Gossip discovery (Phase 3)
 iroh = "0.96"
