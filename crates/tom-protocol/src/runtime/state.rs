@@ -40,6 +40,7 @@ fn group_payload_to_message_type(payload: &GroupPayload) -> MessageType {
         GroupPayload::DeliveryAck { .. } => MessageType::GroupDeliveryAck,
         GroupPayload::HubMigration { .. } => MessageType::GroupHubMigration,
         GroupPayload::HubHeartbeat { .. } => MessageType::GroupHubHeartbeat,
+        GroupPayload::SenderKeyDistribution { .. } => MessageType::GroupSenderKeyDistribution,
     }
 }
 
@@ -419,6 +420,9 @@ impl RuntimeState {
                 .group_manager
                 .handle_hub_migration(&group_id, new_hub_id),
             GroupPayload::HubHeartbeat { .. } => vec![],
+
+            // Sender Key distribution — passthrough (no action at protocol level yet)
+            GroupPayload::SenderKeyDistribution { .. } => vec![],
         };
 
         self.group_actions_to_effects(&actions)
@@ -594,7 +598,8 @@ impl RuntimeState {
             | MessageType::GroupMemberLeft
             | MessageType::GroupHubMigration
             | MessageType::GroupDeliveryAck
-            | MessageType::GroupHubHeartbeat => {
+            | MessageType::GroupHubHeartbeat
+            | MessageType::GroupSenderKeyDistribution => {
                 self.handle_incoming_group(envelope)
             }
 

@@ -231,26 +231,46 @@ pub enum GroupPayload {
         group_id: GroupId,
         member_count: usize,
     },
+
+    /// Distribution of a member's Sender Key to other members.
+    SenderKeyDistribution {
+        group_id: GroupId,
+        from: NodeId,
+        epoch: u32,
+        encrypted_keys: Vec<EncryptedSenderKey>,
+    },
 }
 
 // ── GroupMessage ──────────────────────────────────────────────────────────
 
 /// A single message in a group conversation.
+///
+/// Supports both plaintext (backward-compatible) and encrypted (Sender Key) modes.
+/// When `encrypted` is true, content is in `ciphertext`/`nonce`; when false, in `text`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct GroupMessage {
     pub group_id: GroupId,
     pub message_id: String,
     pub sender_id: NodeId,
+    #[serde(default)]
     pub sender_username: String,
+    #[serde(default)]
     pub text: String,
+    #[serde(default)]
+    pub ciphertext: Vec<u8>,
+    #[serde(default)]
+    pub nonce: [u8; 24],
+    #[serde(default)]
+    pub key_epoch: u32,
+    #[serde(default)]
+    pub encrypted: bool,
     pub sent_at: u64,
-    /// Ed25519 signature over `signing_bytes()`. Empty if unsigned.
     #[serde(default)]
     pub sender_signature: Vec<u8>,
 }
 
 impl GroupMessage {
-    /// Create a new group message (unsigned).
+    /// Create a new plaintext group message (unsigned).
     pub fn new(
         group_id: GroupId,
         sender_id: NodeId,
@@ -263,18 +283,75 @@ impl GroupMessage {
             sender_id,
             sender_username,
             text,
+            ciphertext: Vec::new(),
+            nonce: [0u8; 24],
+            key_epoch: 0,
+            encrypted: false,
             sent_at: now_ms(),
             sender_signature: Vec::new(),
         }
     }
 
-    /// Deterministic bytes for signing (group_id + message_id + sender_id + text + sent_at).
+    /// Create a new encrypted group message.
+    pub fn new_encrypted(
+        group_id: GroupId,
+        sender_id: NodeId,
+        username: String,
+        text: String,
+        sender_key: &[u8; 32],
+        key_epoch: u32,
+    ) -> Self {
+        let content = GroupMessageContent { username, text };
+        let content_bytes = rmp_serde::to_vec(&content).expect("content serialization");
+        let (ciphertext, nonce) = crate::crypto::encrypt_group_message(&content_bytes, sender_key);
+        Self {
+            group_id,
+            message_id: uuid::Uuid::new_v4().to_string(),
+            sender_id,
+            sender_username: String::new(),
+            text: String::new(),
+            ciphertext,
+            nonce,
+            key_epoch,
+            encrypted: true,
+            sent_at: now_ms(),
+            sender_signature: Vec::new(),
+        }
+    }
+
+    /// Decrypt this message's ciphertext using the sender's key.
+    ///
+    /// For plaintext messages, returns the content directly without decryption.
+    pub fn decrypt(
+        &self,
+        sender_key: &[u8; 32],
+    ) -> Result<GroupMessageContent, crate::TomProtocolError> {
+        if !self.encrypted {
+            return Ok(GroupMessageContent {
+                username: self.sender_username.clone(),
+                text: self.text.clone(),
+            });
+        }
+        let plaintext_bytes =
+            crate::crypto::decrypt_group_message(&self.ciphertext, &self.nonce, sender_key)?;
+        rmp_serde::from_slice(&plaintext_bytes).map_err(|e| {
+            crate::TomProtocolError::Deserialization(format!("group message content: {e}"))
+        })
+    }
+
+    /// Deterministic bytes for signing — signs ciphertext when encrypted, text when plaintext.
     pub fn signing_bytes(&self) -> Vec<u8> {
         let mut buf = Vec::new();
         buf.extend_from_slice(self.group_id.0.as_bytes());
         buf.extend_from_slice(self.message_id.as_bytes());
         buf.extend_from_slice(&self.sender_id.as_bytes());
-        buf.extend_from_slice(self.text.as_bytes());
+        if self.encrypted {
+            buf.extend_from_slice(&self.ciphertext);
+            buf.extend_from_slice(&self.nonce);
+            buf.extend_from_slice(&self.key_epoch.to_le_bytes());
+        } else {
+            buf.extend_from_slice(self.text.as_bytes());
+        }
         buf.extend_from_slice(&self.sent_at.to_le_bytes());
         buf
     }
@@ -324,6 +401,31 @@ pub enum LeaveReason {
     Kicked,
     /// Member went offline and was cleaned up.
     Timeout,
+}
+
+// ── Sender Key Encryption ─────────────────────────────────────────────
+
+/// A member's Sender Key — used to encrypt their outgoing group messages.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SenderKeyEntry {
+    pub owner_id: NodeId,
+    pub key: [u8; 32],
+    pub epoch: u32,
+    pub created_at: u64,
+}
+
+/// A Sender Key encrypted for a specific recipient (1-to-1 encryption).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct EncryptedSenderKey {
+    pub recipient_id: NodeId,
+    pub encrypted_key: crate::crypto::EncryptedPayload,
+}
+
+/// Plaintext content inside an encrypted group message.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GroupMessageContent {
+    pub username: String,
+    pub text: String,
 }
 
 // ── GroupAction ──────────────────────────────────────────────────────────
@@ -654,5 +756,97 @@ mod tests {
         let bytes = rmp_serde::to_vec(&msg).expect("serialize");
         let decoded: GroupMessage = rmp_serde::from_slice(&bytes).expect("deserialize");
         assert!(decoded.verify_signature(), "signature should survive msgpack roundtrip");
+    }
+
+    #[test]
+    fn sender_key_entry_roundtrip() {
+        let entry = SenderKeyEntry {
+            owner_id: node_id(1),
+            key: [42u8; 32],
+            epoch: 1,
+            created_at: 1000,
+        };
+        let bytes = rmp_serde::to_vec(&entry).expect("serialize");
+        let decoded: SenderKeyEntry = rmp_serde::from_slice(&bytes).expect("deserialize");
+        assert_eq!(entry, decoded);
+    }
+
+    #[test]
+    fn group_message_content_roundtrip() {
+        let content = GroupMessageContent {
+            username: "alice".into(),
+            text: "Hello!".into(),
+        };
+        let bytes = rmp_serde::to_vec(&content).expect("serialize");
+        let decoded: GroupMessageContent = rmp_serde::from_slice(&bytes).expect("deserialize");
+        assert_eq!(content, decoded);
+    }
+
+    #[test]
+    fn encrypted_group_message_roundtrip() {
+        let seed = secret_seed(1);
+        let sender = node_id(1);
+        let key = [7u8; 32];
+        let mut msg = GroupMessage::new_encrypted(
+            GroupId::from("grp-enc".to_string()),
+            sender,
+            "alice".into(),
+            "Secret message".into(),
+            &key,
+            1,
+        );
+        assert!(msg.encrypted);
+        assert!(msg.text.is_empty());
+        assert!(!msg.ciphertext.is_empty());
+        msg.sign(&seed);
+        assert!(msg.verify_signature());
+        let bytes = rmp_serde::to_vec(&msg).expect("serialize");
+        let decoded: GroupMessage = rmp_serde::from_slice(&bytes).expect("deserialize");
+        assert!(decoded.verify_signature());
+        assert!(decoded.encrypted);
+        let content = decoded.decrypt(&key).unwrap();
+        assert_eq!(content.username, "alice");
+        assert_eq!(content.text, "Secret message");
+    }
+
+    #[test]
+    fn encrypted_group_message_wrong_key_fails() {
+        let key1 = [7u8; 32];
+        let key2 = [8u8; 32];
+        let msg = GroupMessage::new_encrypted(
+            GroupId::from("grp-enc".to_string()),
+            node_id(1),
+            "alice".into(),
+            "Secret".into(),
+            &key1,
+            1,
+        );
+        assert!(msg.decrypt(&key2).is_err());
+    }
+
+    #[test]
+    fn plaintext_message_decrypt_returns_content() {
+        let msg = GroupMessage::new(
+            GroupId::from("grp-1".to_string()),
+            node_id(1),
+            "alice".into(),
+            "Plain text".into(),
+        );
+        let content = msg.decrypt(&[0u8; 32]).unwrap();
+        assert_eq!(content.username, "alice");
+        assert_eq!(content.text, "Plain text");
+    }
+
+    #[test]
+    fn sender_key_distribution_roundtrip() {
+        let payload = GroupPayload::SenderKeyDistribution {
+            group_id: GroupId::from("grp-1".to_string()),
+            from: node_id(1),
+            epoch: 1,
+            encrypted_keys: vec![],
+        };
+        let bytes = rmp_serde::to_vec(&payload).expect("serialize");
+        let decoded: GroupPayload = rmp_serde::from_slice(&bytes).expect("deserialize");
+        assert_eq!(payload, decoded);
     }
 }

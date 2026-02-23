@@ -472,6 +472,10 @@ mod tests {
             sender_id: node_id(2),
             sender_username: "bob".into(),
             text: "Welcome!".into(),
+            ciphertext: Vec::new(),
+            nonce: [0u8; 24],
+            key_epoch: 0,
+            encrypted: false,
             sent_at: 1000,
             sender_signature: Vec::new(),
         };
@@ -596,6 +600,10 @@ mod tests {
                 sender_id: node_id(2),
                 sender_username: "bob".into(),
                 text: format!("Message {}", i),
+                ciphertext: Vec::new(),
+                nonce: [0u8; 24],
+                key_epoch: 0,
+                encrypted: false,
                 sent_at: 1000 + i as u64,
                 sender_signature: Vec::new(),
             };

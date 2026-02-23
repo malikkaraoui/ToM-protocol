@@ -31,9 +31,9 @@ pub use discovery::{
 pub use envelope::{Envelope, EnvelopeBuilder};
 pub use error::TomProtocolError;
 pub use group::{
-    elect_hub, ElectionReason, ElectionResult, GroupAction, GroupEvent, GroupHub, GroupId,
-    GroupInfo, GroupInvite, GroupMember, GroupManager, GroupMemberRole, GroupMessage, GroupPayload,
-    LeaveReason,
+    elect_hub, ElectionReason, ElectionResult, EncryptedSenderKey, GroupAction, GroupEvent,
+    GroupHub, GroupId, GroupInfo, GroupInvite, GroupMember, GroupManager, GroupMemberRole,
+    GroupMessage, GroupMessageContent, GroupPayload, LeaveReason, SenderKeyEntry,
 };
 pub use relay::{PeerInfo, PeerRole, PeerStatus, RelaySelector, Topology};
 pub use roles::{ContributionMetrics, RoleAction, RoleManager};

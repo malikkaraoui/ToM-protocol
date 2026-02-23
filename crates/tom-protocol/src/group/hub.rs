@@ -100,7 +100,8 @@ impl GroupHub {
             | GroupPayload::MemberJoined { .. }
             | GroupPayload::MemberLeft { .. }
             | GroupPayload::HubMigration { .. }
-            | GroupPayload::HubHeartbeat { .. } => vec![],
+            | GroupPayload::HubHeartbeat { .. }
+            | GroupPayload::SenderKeyDistribution { .. } => vec![],
         }
     }
 
@@ -829,6 +830,10 @@ mod tests {
             sender_id: alice,
             sender_username: "alice".into(),
             text: "Hello".into(),
+            ciphertext: Vec::new(),
+            nonce: [0u8; 24],
+            key_epoch: 0,
+            encrypted: false,
             sent_at: 1000,
             sender_signature: Vec::new(),
         };
