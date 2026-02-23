@@ -3,7 +3,10 @@
 /// The runtime owns a `TomNode` (transport) and all protocol state (router,
 /// topology, tracker, heartbeat). It exposes a channel-based API so the
 /// application (TUI, bot, SDK) never touches raw bytes or protocol internals.
+mod effect;
 mod r#loop;
+
+pub use effect::RuntimeEffect;
 
 use std::time::Duration;
 
