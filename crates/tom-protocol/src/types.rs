@@ -23,6 +23,7 @@ pub enum MessageType {
     GroupHubMigration,
     GroupDeliveryAck,
     GroupHubHeartbeat,
+    GroupSenderKeyDistribution,
     // Backup
     BackupStore,
     BackupDeliver,
@@ -76,6 +77,7 @@ mod tests {
             MessageType::GroupHubMigration,
             MessageType::GroupDeliveryAck,
             MessageType::GroupHubHeartbeat,
+            MessageType::GroupSenderKeyDistribution,
             MessageType::BackupStore,
             MessageType::BackupDeliver,
             MessageType::BackupReplicate,

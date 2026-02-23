@@ -11,6 +11,6 @@ pub use election::{elect_hub, ElectionReason, ElectionResult};
 pub use hub::GroupHub;
 pub use manager::GroupManager;
 pub use types::{
-    GroupAction, GroupEvent, GroupId, GroupInfo, GroupInvite, GroupMember, GroupMemberRole,
-    GroupMessage, GroupPayload, LeaveReason,
+    EncryptedSenderKey, GroupAction, GroupEvent, GroupId, GroupInfo, GroupInvite, GroupMember,
+    GroupMemberRole, GroupMessage, GroupMessageContent, GroupPayload, LeaveReason, SenderKeyEntry,
 };
