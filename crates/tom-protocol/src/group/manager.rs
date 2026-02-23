@@ -13,10 +13,9 @@ use crate::types::{now_ms, NodeId};
 ///
 /// Handles group lifecycle from the perspective of a regular member:
 /// creating groups, receiving/accepting invites, tracking members,
-/// storing message history.
+/// storing message history, and managing Sender Keys for E2E encryption.
 pub struct GroupManager {
     /// Our node identity.
-    #[allow(dead_code)] // Used by GroupHub and future admin checks
     local_id: NodeId,
     /// Our display name.
     local_username: String,
@@ -28,6 +27,12 @@ pub struct GroupManager {
     message_history: HashMap<GroupId, Vec<GroupMessage>>,
     /// Max messages to keep per group.
     max_history_per_group: usize,
+    /// Our own sender keys per group.
+    local_sender_keys: HashMap<GroupId, SenderKeyEntry>,
+    /// Other members' sender keys per group (group_id → (sender_id → entry)).
+    sender_keys: HashMap<GroupId, HashMap<NodeId, SenderKeyEntry>>,
+    /// Messages waiting for a sender key to decrypt.
+    pending_decrypt: HashMap<GroupId, Vec<GroupMessage>>,
 }
 
 impl GroupManager {
@@ -40,6 +45,9 @@ impl GroupManager {
             pending_invites: HashMap::new(),
             message_history: HashMap::new(),
             max_history_per_group: MAX_SYNC_MESSAGES,
+            local_sender_keys: HashMap::new(),
+            sender_keys: HashMap::new(),
+            pending_decrypt: HashMap::new(),
         }
     }
 
@@ -106,10 +114,11 @@ impl GroupManager {
     /// Handle group creation confirmation from hub.
     pub fn handle_group_created(&mut self, group: GroupInfo) -> Vec<GroupAction> {
         let group_id = group.group_id.clone();
-        self.groups.insert(group_id, group.clone());
+        self.groups.insert(group_id.clone(), group.clone());
         self.message_history
             .entry(group.group_id.clone())
             .or_default();
+        self.generate_local_sender_key(&group_id);
         vec![GroupAction::Event(GroupEvent::GroupCreated(group))]
     }
 
@@ -195,10 +204,13 @@ impl GroupManager {
             }
         }
 
-        vec![GroupAction::Event(GroupEvent::Joined {
-            group_id,
+        self.generate_local_sender_key(&group_id);
+        let mut actions = vec![GroupAction::Event(GroupEvent::Joined {
+            group_id: group_id.clone(),
             group_name,
-        })]
+        })];
+        actions.extend(self.build_sender_key_distribution(&group_id));
+        actions
     }
 
     /// Handle notification that a new member joined one of our groups.
@@ -219,10 +231,12 @@ impl GroupManager {
         group.members.push(member.clone());
         group.last_activity_at = now_ms();
 
-        vec![GroupAction::Event(GroupEvent::MemberJoined {
+        let mut actions = vec![GroupAction::Event(GroupEvent::MemberJoined {
             group_id: group_id.clone(),
             member,
-        })]
+        })];
+        actions.extend(self.build_sender_key_distribution(group_id));
+        actions
     }
 
     /// Handle notification that a member left one of our groups.
@@ -240,12 +254,19 @@ impl GroupManager {
         group.members.retain(|m| m.node_id != *node_id);
         group.last_activity_at = now_ms();
 
-        vec![GroupAction::Event(GroupEvent::MemberLeft {
+        // Remove departed member's sender key and rotate ours
+        if let Some(keys) = self.sender_keys.get_mut(group_id) {
+            keys.remove(node_id);
+        }
+
+        let mut actions = vec![GroupAction::Event(GroupEvent::MemberLeft {
             group_id: group_id.clone(),
             node_id: *node_id,
             username,
             reason,
-        })]
+        })];
+        actions.extend(self.rotate_sender_key(group_id));
+        actions
     }
 
     /// Leave a group voluntarily. Returns actions to notify the hub.
@@ -255,6 +276,7 @@ impl GroupManager {
         };
 
         self.message_history.remove(group_id);
+        self.cleanup_group_keys(group_id);
 
         vec![GroupAction::Send {
             to: group.hub_relay_id,
@@ -272,26 +294,7 @@ impl GroupManager {
         if !self.groups.contains_key(group_id) {
             return vec![];
         }
-
-        // Update last activity
-        if let Some(group) = self.groups.get_mut(group_id) {
-            group.last_activity_at = now_ms();
-        }
-
-        // Store in history
-        let history = self
-            .message_history
-            .entry(group_id.clone())
-            .or_default();
-        history.push(message.clone());
-
-        // Trim if over capacity
-        if history.len() > self.max_history_per_group {
-            let excess = history.len() - self.max_history_per_group;
-            history.drain(..excess);
-        }
-
-        vec![GroupAction::Event(GroupEvent::MessageReceived(message))]
+        self.try_decrypt_and_deliver(message)
     }
 
     // ── Hub Migration ────────────────────────────────────────────────────
@@ -313,6 +316,217 @@ impl GroupManager {
             group_id: group_id.clone(),
             new_hub_id,
         })]
+    }
+
+    // ── Sender Key Management ─────────────────────────────────────────
+
+    /// Get our current sender key for a group.
+    pub fn local_sender_key(&self, group_id: &GroupId) -> Option<&SenderKeyEntry> {
+        self.local_sender_keys.get(group_id)
+    }
+
+    /// Get a member's sender key for a group.
+    pub fn get_sender_key(&self, group_id: &GroupId, sender_id: &NodeId) -> Option<&SenderKeyEntry> {
+        self.sender_keys.get(group_id)?.get(sender_id)
+    }
+
+    /// Generate a new sender key for ourselves in this group.
+    fn generate_local_sender_key(&mut self, group_id: &GroupId) -> SenderKeyEntry {
+        let old_epoch = self
+            .local_sender_keys
+            .get(group_id)
+            .map(|e| e.epoch)
+            .unwrap_or(0);
+        let entry = SenderKeyEntry {
+            owner_id: self.local_id,
+            key: crate::crypto::generate_sender_key(),
+            epoch: old_epoch + 1,
+            created_at: now_ms(),
+        };
+        self.local_sender_keys
+            .insert(group_id.clone(), entry.clone());
+        entry
+    }
+
+    /// Build SenderKeyDistribution actions to send our key to all members.
+    pub fn build_sender_key_distribution(&self, group_id: &GroupId) -> Vec<GroupAction> {
+        let Some(group) = self.groups.get(group_id) else {
+            return vec![];
+        };
+        let Some(local_key) = self.local_sender_keys.get(group_id) else {
+            return vec![];
+        };
+
+        let mut encrypted_keys = Vec::new();
+        for member in &group.members {
+            if member.node_id == self.local_id {
+                continue;
+            }
+            let recipient_pk = member.node_id.as_bytes();
+            match crate::crypto::encrypt(&local_key.key, &recipient_pk) {
+                Ok(encrypted) => {
+                    encrypted_keys.push(EncryptedSenderKey {
+                        recipient_id: member.node_id,
+                        encrypted_key: encrypted,
+                    });
+                }
+                Err(e) => {
+                    tracing::warn!("sender key encrypt for {} failed: {e}", member.node_id);
+                }
+            }
+        }
+
+        if encrypted_keys.is_empty() {
+            return vec![];
+        }
+
+        vec![GroupAction::Send {
+            to: group.hub_relay_id,
+            payload: GroupPayload::SenderKeyDistribution {
+                group_id: group_id.clone(),
+                from: self.local_id,
+                epoch: local_key.epoch,
+                encrypted_keys,
+            },
+        }]
+    }
+
+    /// Handle an incoming SenderKeyDistribution -- decrypt and store the sender's key.
+    pub fn handle_sender_key_distribution(
+        &mut self,
+        group_id: &GroupId,
+        from: NodeId,
+        epoch: u32,
+        encrypted_keys: &[EncryptedSenderKey],
+        local_secret_seed: &[u8; 32],
+    ) -> Vec<GroupAction> {
+        let Some(our_key) = encrypted_keys
+            .iter()
+            .find(|ek| ek.recipient_id == self.local_id)
+        else {
+            return vec![];
+        };
+        let key_bytes = match crate::crypto::decrypt(&our_key.encrypted_key, local_secret_seed) {
+            Ok(bytes) => bytes,
+            Err(e) => {
+                tracing::warn!("sender key decrypt from {from} failed: {e}");
+                return vec![];
+            }
+        };
+        if key_bytes.len() != 32 {
+            tracing::warn!(
+                "sender key from {from} has wrong length: {}",
+                key_bytes.len()
+            );
+            return vec![];
+        }
+        let mut key = [0u8; 32];
+        key.copy_from_slice(&key_bytes);
+
+        let entry = SenderKeyEntry {
+            owner_id: from,
+            key,
+            epoch,
+            created_at: now_ms(),
+        };
+        self.sender_keys
+            .entry(group_id.clone())
+            .or_default()
+            .insert(from, entry);
+
+        // Try to decrypt any pending messages from this sender.
+        // Take the pending list out to avoid borrow conflict with deliver_decrypted_message.
+        let pending_msgs = self.pending_decrypt.remove(group_id).unwrap_or_default();
+        let mut still_pending = Vec::new();
+        let mut actions = Vec::new();
+        for msg in pending_msgs {
+            if msg.sender_id == from {
+                actions.extend(self.deliver_decrypted_message(msg, &key));
+            } else {
+                still_pending.push(msg);
+            }
+        }
+        if !still_pending.is_empty() {
+            self.pending_decrypt
+                .insert(group_id.clone(), still_pending);
+        }
+        actions
+    }
+
+    /// Try to decrypt and deliver a group message.
+    fn try_decrypt_and_deliver(&mut self, message: GroupMessage) -> Vec<GroupAction> {
+        if !message.encrypted {
+            return self.deliver_message(message);
+        }
+        let group_id = &message.group_id;
+        let sender_id = &message.sender_id;
+        if let Some(sender_key) = self
+            .sender_keys
+            .get(group_id)
+            .and_then(|keys| keys.get(sender_id))
+        {
+            let key = sender_key.key;
+            self.deliver_decrypted_message(message, &key)
+        } else {
+            self.pending_decrypt
+                .entry(group_id.clone())
+                .or_default()
+                .push(message);
+            vec![]
+        }
+    }
+
+    /// Decrypt and deliver (internal helper).
+    fn deliver_decrypted_message(
+        &mut self,
+        mut message: GroupMessage,
+        key: &[u8; 32],
+    ) -> Vec<GroupAction> {
+        match message.decrypt(key) {
+            Ok(content) => {
+                message.sender_username = content.username;
+                message.text = content.text;
+                self.deliver_message(message)
+            }
+            Err(e) => {
+                tracing::warn!("group message decrypt failed: {e}");
+                vec![]
+            }
+        }
+    }
+
+    /// Deliver a message (store in history + emit event).
+    fn deliver_message(&mut self, message: GroupMessage) -> Vec<GroupAction> {
+        let group_id = &message.group_id;
+        if !self.groups.contains_key(group_id) {
+            return vec![];
+        }
+        if let Some(group) = self.groups.get_mut(group_id) {
+            group.last_activity_at = now_ms();
+        }
+        let history = self.message_history.entry(group_id.clone()).or_default();
+        history.push(message.clone());
+        if history.len() > self.max_history_per_group {
+            let excess = history.len() - self.max_history_per_group;
+            history.drain(..excess);
+        }
+        vec![GroupAction::Event(GroupEvent::MessageReceived(message))]
+    }
+
+    /// Rotate our sender key (called when a member leaves).
+    pub fn rotate_sender_key(&mut self, group_id: &GroupId) -> Vec<GroupAction> {
+        if !self.groups.contains_key(group_id) {
+            return vec![];
+        }
+        self.generate_local_sender_key(group_id);
+        self.build_sender_key_distribution(group_id)
+    }
+
+    /// Clean up sender keys when leaving a group.
+    fn cleanup_group_keys(&mut self, group_id: &GroupId) {
+        self.local_sender_keys.remove(group_id);
+        self.sender_keys.remove(group_id);
+        self.pending_decrypt.remove(group_id);
     }
 }
 
@@ -502,7 +716,10 @@ mod tests {
         };
 
         let actions = mgr.handle_member_joined(&gid, new_member);
-        assert_eq!(actions.len(), 1);
+        // MemberJoined event + SenderKeyDistribution for the new member
+        assert_eq!(actions.len(), 2);
+        assert!(matches!(&actions[0], GroupAction::Event(GroupEvent::MemberJoined { .. })));
+        assert!(matches!(&actions[1], GroupAction::Send { payload: GroupPayload::SenderKeyDistribution { .. }, .. }));
         assert_eq!(mgr.get_group(&gid).unwrap().member_count(), 2);
     }
 
@@ -660,5 +877,189 @@ mod tests {
         mgr.handle_group_created(g2);
 
         assert_eq!(mgr.all_groups().len(), 2);
+    }
+
+    // ── Sender Key Tests ──────────────────────────────────────────────
+
+    fn secret_seed(seed: u8) -> [u8; 32] {
+        use rand::SeedableRng;
+        let mut rng = rand::rngs::StdRng::seed_from_u64(seed as u64);
+        let secret = iroh::SecretKey::generate(&mut rng);
+        secret.to_bytes()
+    }
+
+    #[test]
+    fn sender_key_generated_on_group_create() {
+        let mut mgr = make_manager();
+        let hub = node_id(10);
+        let group = make_test_group(node_id(1), hub);
+        let gid = group.group_id.clone();
+        mgr.handle_group_created(group);
+        assert!(mgr.local_sender_key(&gid).is_some());
+        assert_eq!(mgr.local_sender_key(&gid).unwrap().epoch, 1);
+    }
+
+    #[test]
+    fn sender_key_distribution_encrypts_for_members() {
+        let mut mgr = make_manager();
+        let hub = node_id(10);
+        let bob = node_id(2);
+        let mut group = make_test_group(node_id(1), hub);
+        group.members.push(GroupMember {
+            node_id: bob,
+            username: "bob".into(),
+            joined_at: 1000,
+            role: GroupMemberRole::Member,
+        });
+        let gid = group.group_id.clone();
+        mgr.handle_group_created(group);
+        let actions = mgr.build_sender_key_distribution(&gid);
+        assert_eq!(actions.len(), 1);
+        match &actions[0] {
+            GroupAction::Send { to, payload } => {
+                assert_eq!(*to, hub);
+                match payload {
+                    GroupPayload::SenderKeyDistribution {
+                        encrypted_keys, ..
+                    } => {
+                        assert_eq!(encrypted_keys.len(), 1);
+                        assert_eq!(encrypted_keys[0].recipient_id, bob);
+                    }
+                    _ => panic!("expected SenderKeyDistribution"),
+                }
+            }
+            _ => panic!("expected Send"),
+        }
+    }
+
+    #[test]
+    fn sender_key_decrypt_and_store() {
+        let alice_id = node_id(1);
+        let bob_id = node_id(2);
+        let bob_seed = secret_seed(2);
+        let hub = node_id(10);
+
+        let mut alice_mgr = GroupManager::new(alice_id, "alice".into());
+        let mut group = make_test_group(alice_id, hub);
+        group.members.push(GroupMember {
+            node_id: bob_id,
+            username: "bob".into(),
+            joined_at: 1000,
+            role: GroupMemberRole::Member,
+        });
+        let gid = group.group_id.clone();
+        alice_mgr.handle_group_created(group.clone());
+
+        let dist_actions = alice_mgr.build_sender_key_distribution(&gid);
+        let GroupAction::Send {
+            payload:
+                GroupPayload::SenderKeyDistribution {
+                    from,
+                    epoch,
+                    encrypted_keys,
+                    ..
+                },
+            ..
+        } = &dist_actions[0]
+        else {
+            panic!("expected SenderKeyDistribution")
+        };
+
+        let mut bob_mgr = GroupManager::new(bob_id, "bob".into());
+        bob_mgr.handle_group_created(group);
+        bob_mgr.handle_sender_key_distribution(&gid, *from, *epoch, encrypted_keys, &bob_seed);
+
+        let alice_key = bob_mgr.get_sender_key(&gid, &alice_id);
+        assert!(alice_key.is_some());
+        assert_eq!(
+            alice_key.unwrap().key,
+            alice_mgr.local_sender_key(&gid).unwrap().key
+        );
+    }
+
+    #[test]
+    fn encrypted_message_delivered_after_key_arrives() {
+        let alice_id = node_id(1);
+        let bob_id = node_id(2);
+        let bob_seed = secret_seed(2);
+        let hub = node_id(10);
+
+        let mut bob_mgr = GroupManager::new(bob_id, "bob".into());
+        let group = make_test_group(alice_id, hub);
+        let gid = group.group_id.clone();
+        bob_mgr.handle_group_created(group);
+
+        // Alice sends an encrypted message before Bob has her key
+        let alice_key = [42u8; 32];
+        let msg = GroupMessage::new_encrypted(
+            gid.clone(),
+            alice_id,
+            "alice".into(),
+            "Secret!".into(),
+            &alice_key,
+            1,
+        );
+
+        let actions = bob_mgr.handle_message(msg);
+        assert!(actions.is_empty(), "should buffer without key");
+        assert_eq!(bob_mgr.message_history(&gid).len(), 0);
+
+        // Now Alice's key distribution arrives
+        let encrypted_key =
+            crate::crypto::encrypt(&alice_key, &bob_id.as_bytes()).unwrap();
+        let actions = bob_mgr.handle_sender_key_distribution(
+            &gid,
+            alice_id,
+            1,
+            &[EncryptedSenderKey {
+                recipient_id: bob_id,
+                encrypted_key,
+            }],
+            &bob_seed,
+        );
+
+        assert_eq!(actions.len(), 1);
+        assert!(matches!(
+            &actions[0],
+            GroupAction::Event(GroupEvent::MessageReceived(_))
+        ));
+        assert_eq!(bob_mgr.message_history(&gid).len(), 1);
+        assert_eq!(bob_mgr.message_history(&gid)[0].text, "Secret!");
+    }
+
+    #[test]
+    fn key_rotation_on_member_leave() {
+        let mut mgr = make_manager();
+        let hub = node_id(10);
+        let bob = node_id(2);
+        let mut group = make_test_group(node_id(1), hub);
+        group.members.push(GroupMember {
+            node_id: bob,
+            username: "bob".into(),
+            joined_at: 1000,
+            role: GroupMemberRole::Member,
+        });
+        let gid = group.group_id.clone();
+        mgr.handle_group_created(group);
+        let old_key = mgr.local_sender_key(&gid).unwrap().key;
+
+        mgr.handle_member_left(&gid, &bob, "bob".into(), LeaveReason::Voluntary);
+
+        let new_key = mgr.local_sender_key(&gid).unwrap().key;
+        assert_ne!(old_key, new_key);
+        assert_eq!(mgr.local_sender_key(&gid).unwrap().epoch, 2);
+    }
+
+    #[test]
+    fn leave_group_cleans_up_keys() {
+        let mut mgr = make_manager();
+        let hub = node_id(10);
+        let group = make_test_group(node_id(1), hub);
+        let gid = group.group_id.clone();
+        mgr.handle_group_created(group);
+        assert!(mgr.local_sender_key(&gid).is_some());
+
+        mgr.leave_group(&gid);
+        assert!(mgr.local_sender_key(&gid).is_none());
     }
 }
