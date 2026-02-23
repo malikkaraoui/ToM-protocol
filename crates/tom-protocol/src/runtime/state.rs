@@ -2,16 +2,28 @@ use crate::backup::{BackupAction, BackupCoordinator, BackupEvent};
 use crate::discovery::{
     DiscoveryEvent, EphemeralSubnetManager, HeartbeatTracker, PeerAnnounce, SubnetEvent,
 };
-use crate::envelope::EnvelopeBuilder;
-use crate::group::{GroupAction, GroupEvent, GroupHub, GroupManager, GroupPayload};
-use crate::relay::{PeerRole, PeerStatus, RelaySelector, Topology};
+use crate::envelope::{Envelope, EnvelopeBuilder};
+use crate::group::{
+    GroupAction, GroupEvent, GroupHub, GroupManager, GroupMessage, GroupPayload,
+};
+use crate::relay::{PeerInfo, PeerRole, PeerStatus, RelaySelector, Topology};
 use crate::roles::{RoleAction, RoleManager};
-use crate::router::Router;
+use crate::router::{AckType, ReadReceiptPayload, Router, RoutingAction};
 use crate::tracker::MessageTracker;
 use crate::types::{now_ms, MessageType, NodeId};
 
 use super::effect::RuntimeEffect;
-use super::{ProtocolEvent, RuntimeConfig};
+use super::{DeliveredMessage, ProtocolEvent, RuntimeCommand, RuntimeConfig};
+
+/// Gossip event input for RuntimeState (avoids leaking iroh_gossip types).
+pub enum GossipInput {
+    /// A peer announced itself via gossip.
+    PeerAnnounce(Vec<u8>),
+    /// A gossip neighbor connected.
+    NeighborUp(NodeId),
+    /// A gossip neighbor disconnected.
+    NeighborDown(NodeId),
+}
 
 /// Map a GroupPayload variant to its corresponding MessageType.
 fn group_payload_to_message_type(payload: &GroupPayload) -> MessageType {
@@ -35,7 +47,6 @@ fn group_payload_to_message_type(payload: &GroupPayload) -> MessageType {
 ///
 /// Chaque methode handle_* / tick_* retourne Vec<RuntimeEffect>.
 /// Aucune methode ne touche au reseau ni aux channels.
-#[allow(dead_code)] // group_manager used by handle_* methods (Tasks 7-10)
 pub struct RuntimeState {
     pub(crate) local_id: NodeId,
     pub(crate) secret_seed: [u8; 32],
@@ -187,6 +198,727 @@ impl RuntimeState {
             self.local_roles.clone(),
         );
         rmp_serde::to_vec(&announce).ok()
+    }
+
+    // ── Task 7: handle_incoming_chat ───────────────────────────────────
+
+    /// Handle an incoming Chat / Ack / ReadReceipt / Heartbeat envelope.
+    ///
+    /// Routes through the Router, then converts the RoutingAction into effects:
+    /// - Deliver: decrypt if needed, produce DeliverMessage + ACK envelope
+    /// - Forward: record relay score, forward to next_hop, send relay ACK
+    /// - Ack: update tracker status
+    /// - ReadReceipt: update tracker status
+    /// - Reject: emit error event
+    /// - Drop: nothing (dedup)
+    pub fn handle_incoming_chat(
+        &mut self,
+        envelope: Envelope,
+        signature_valid: bool,
+    ) -> Vec<RuntimeEffect> {
+        let action = self.router.route(envelope);
+
+        match action {
+            RoutingAction::Deliver {
+                mut envelope,
+                response,
+            } => {
+                let was_encrypted = envelope.encrypted;
+                if envelope.encrypted {
+                    if let Err(e) = envelope.decrypt_payload(&self.secret_seed) {
+                        return vec![RuntimeEffect::Emit(ProtocolEvent::Error {
+                            description: format!(
+                                "decrypt failed from {}: {e}",
+                                envelope.from
+                            ),
+                        })];
+                    }
+                }
+
+                let mut effects = vec![RuntimeEffect::DeliverMessage(DeliveredMessage {
+                    from: envelope.from,
+                    payload: envelope.payload,
+                    envelope_id: envelope.id,
+                    timestamp: envelope.timestamp,
+                    signature_valid,
+                    was_encrypted,
+                })];
+
+                let mut ack = response;
+                ack.sign(&self.secret_seed);
+                effects.push(RuntimeEffect::SendEnvelope(ack));
+
+                effects
+            }
+
+            RoutingAction::Forward {
+                envelope,
+                next_hop,
+                relay_ack,
+            } => {
+                let envelope_id = envelope.id.clone();
+                let sender = envelope.from;
+
+                self.role_manager.record_relay(sender, now_ms());
+
+                let mut ack = relay_ack;
+                ack.sign(&self.secret_seed);
+
+                vec![
+                    RuntimeEffect::SendEnvelopeTo {
+                        target: next_hop,
+                        envelope,
+                    },
+                    RuntimeEffect::SendEnvelopeTo {
+                        target: sender,
+                        envelope: ack,
+                    },
+                    RuntimeEffect::Emit(ProtocolEvent::Forwarded {
+                        envelope_id,
+                        next_hop,
+                    }),
+                ]
+            }
+
+            RoutingAction::Ack {
+                original_message_id,
+                ack_type,
+                ..
+            } => {
+                let change = match ack_type {
+                    AckType::RelayForwarded => {
+                        self.tracker.mark_relayed(&original_message_id)
+                    }
+                    AckType::RecipientReceived => {
+                        self.tracker.mark_delivered(&original_message_id)
+                    }
+                };
+                change
+                    .into_iter()
+                    .map(RuntimeEffect::StatusChange)
+                    .collect()
+            }
+
+            RoutingAction::ReadReceipt {
+                original_message_id,
+                ..
+            } => self
+                .tracker
+                .mark_read(&original_message_id)
+                .into_iter()
+                .map(RuntimeEffect::StatusChange)
+                .collect(),
+
+            RoutingAction::Reject { reason } => {
+                vec![RuntimeEffect::Emit(ProtocolEvent::MessageRejected {
+                    reason,
+                })]
+            }
+
+            RoutingAction::Drop => Vec::new(),
+        }
+    }
+
+    // ── Task 8: handle_incoming_group ────────────────────────────────────
+
+    /// Handle an incoming group envelope (all Group* message types).
+    ///
+    /// Decrypts if needed, deserializes GroupPayload, dispatches to hub or
+    /// member handler, then converts GroupActions to effects.
+    pub fn handle_incoming_group(
+        &mut self,
+        mut envelope: Envelope,
+    ) -> Vec<RuntimeEffect> {
+        // Decrypt if needed
+        if envelope.encrypted {
+            if let Err(e) = envelope.decrypt_payload(&self.secret_seed) {
+                return vec![RuntimeEffect::Emit(ProtocolEvent::Error {
+                    description: format!("group decrypt failed: {e}"),
+                })];
+            }
+        }
+
+        // Deserialize GroupPayload
+        let group_payload: GroupPayload = match rmp_serde::from_slice(&envelope.payload) {
+            Ok(p) => p,
+            Err(_) => return Vec::new(),
+        };
+
+        // Dispatch: hub-bound messages go to GroupHub, member-bound go to GroupManager.
+        let actions = match group_payload {
+            // Always hub-bound
+            GroupPayload::Create { .. }
+            | GroupPayload::Join { .. }
+            | GroupPayload::Leave { .. } => {
+                self.group_hub
+                    .handle_payload(group_payload, envelope.from)
+            }
+
+            // Message: hub if we host the group, member otherwise
+            GroupPayload::Message(ref msg) => {
+                if self.group_hub.get_group(&msg.group_id).is_some() {
+                    self.group_hub
+                        .handle_payload(group_payload, envelope.from)
+                } else {
+                    let GroupPayload::Message(msg) = group_payload else {
+                        unreachable!()
+                    };
+                    self.group_manager.handle_message(msg)
+                }
+            }
+
+            // DeliveryAck: hub if we host the group, ignore otherwise
+            GroupPayload::DeliveryAck { ref group_id, .. } => {
+                if self.group_hub.get_group(group_id).is_some() {
+                    self.group_hub
+                        .handle_payload(group_payload, envelope.from)
+                } else {
+                    vec![]
+                }
+            }
+
+            // Member-bound
+            GroupPayload::Created { group } => {
+                self.group_manager.handle_group_created(group)
+            }
+            GroupPayload::Invite {
+                group_id,
+                group_name,
+                inviter_id,
+                inviter_username,
+            } => self.group_manager.handle_invite(
+                group_id,
+                group_name,
+                inviter_id,
+                inviter_username,
+                envelope.from,
+            ),
+            GroupPayload::Sync {
+                group,
+                recent_messages,
+            } => self
+                .group_manager
+                .handle_group_sync(group, recent_messages),
+            GroupPayload::MemberJoined { group_id, member } => {
+                self.group_manager
+                    .handle_member_joined(&group_id, member)
+            }
+            GroupPayload::MemberLeft {
+                group_id,
+                node_id,
+                username,
+                reason,
+            } => self.group_manager.handle_member_left(
+                &group_id, &node_id, username, reason,
+            ),
+            GroupPayload::HubMigration {
+                group_id,
+                new_hub_id,
+                ..
+            } => self
+                .group_manager
+                .handle_hub_migration(&group_id, new_hub_id),
+            GroupPayload::HubHeartbeat { .. } => vec![],
+        };
+
+        self.group_actions_to_effects(&actions)
+    }
+
+    // ── Task 8: handle_incoming_backup ───────────────────────────────────
+
+    /// Handle an incoming backup envelope (all Backup* message types).
+    pub fn handle_incoming_backup(
+        &mut self,
+        envelope: &Envelope,
+    ) -> Vec<RuntimeEffect> {
+        let now = now_ms();
+
+        match envelope.msg_type {
+            MessageType::BackupReplicate
+            | MessageType::BackupStore
+            | MessageType::BackupDeliver => {
+                let payload: crate::backup::ReplicationPayload =
+                    match rmp_serde::from_slice(&envelope.payload) {
+                        Ok(p) => p,
+                        Err(_) => return Vec::new(),
+                    };
+                let actions =
+                    self.backup
+                        .handle_replication(&payload, envelope.from, now);
+                self.backup_actions_to_effects(&actions)
+            }
+
+            MessageType::BackupReplicateAck => {
+                let message_id: String =
+                    match rmp_serde::from_slice(&envelope.payload) {
+                        Ok(p) => p,
+                        Err(_) => return Vec::new(),
+                    };
+                let actions = self
+                    .backup
+                    .handle_replication_ack(&message_id, envelope.from);
+                self.backup_actions_to_effects(&actions)
+            }
+
+            MessageType::BackupQuery => {
+                let recipient_id: NodeId =
+                    match rmp_serde::from_slice(&envelope.payload) {
+                        Ok(p) => p,
+                        Err(_) => return Vec::new(),
+                    };
+                let local_msgs =
+                    self.backup.store().get_for_recipient(&recipient_id);
+                if local_msgs.is_empty() {
+                    return Vec::new();
+                }
+                let ids: Vec<String> =
+                    local_msgs.iter().map(|m| m.message_id.clone()).collect();
+                let response_bytes = rmp_serde::to_vec(&ids)
+                    .expect("backup query response serialization");
+                let response = EnvelopeBuilder::new(
+                    self.local_id,
+                    envelope.from,
+                    MessageType::BackupQueryResponse,
+                    response_bytes,
+                )
+                .sign(&self.secret_seed);
+                vec![RuntimeEffect::SendEnvelope(response)]
+            }
+
+            MessageType::BackupQueryResponse => {
+                let message_ids: Vec<String> =
+                    match rmp_serde::from_slice(&envelope.payload) {
+                        Ok(p) => p,
+                        Err(_) => return Vec::new(),
+                    };
+                let _new_ids = self.backup.handle_query_response(
+                    &envelope.from,
+                    &message_ids,
+                    now,
+                );
+                Vec::new()
+            }
+
+            MessageType::BackupConfirmDelivery => {
+                let message_ids: Vec<String> =
+                    match rmp_serde::from_slice(&envelope.payload) {
+                        Ok(p) => p,
+                        Err(_) => return Vec::new(),
+                    };
+                let actions =
+                    self.backup.handle_delivery_confirmation(&message_ids);
+                self.backup_actions_to_effects(&actions)
+            }
+
+            _ => Vec::new(),
+        }
+    }
+
+    // ── Task 8: handle_peer_announce ─────────────────────────────────────
+
+    /// Handle a direct QUIC PeerAnnounce envelope.
+    pub fn handle_peer_announce(
+        &self,
+        envelope: &Envelope,
+    ) -> Vec<RuntimeEffect> {
+        if let Ok(announce) =
+            rmp_serde::from_slice::<PeerAnnounce>(&envelope.payload)
+        {
+            if announce.is_timestamp_valid(now_ms()) {
+                return vec![RuntimeEffect::Emit(
+                    ProtocolEvent::PeerAnnounceReceived {
+                        node_id: announce.node_id,
+                        username: announce.username,
+                    },
+                )];
+            }
+        }
+        Vec::new()
+    }
+
+    // ── Task 8: handle_incoming (unified dispatcher) ─────────────────────
+
+    /// Unified entry point for all incoming raw data.
+    ///
+    /// Parses the envelope, verifies signature, auto-registers the peer,
+    /// records heartbeat, then dispatches to the appropriate handler.
+    pub fn handle_incoming(&mut self, raw_data: &[u8]) -> Vec<RuntimeEffect> {
+        // Parse envelope
+        let envelope = match Envelope::from_bytes(raw_data) {
+            Ok(e) => e,
+            Err(_) => return Vec::new(),
+        };
+
+        // Verify signature
+        let signature_valid = if envelope.is_signed() {
+            envelope.verify_signature().is_ok()
+        } else {
+            false
+        };
+
+        // Record heartbeat + auto-register
+        self.heartbeat.record_heartbeat(envelope.from);
+        if self.topology.get(&envelope.from).is_none() {
+            self.topology.upsert(PeerInfo {
+                node_id: envelope.from,
+                role: PeerRole::Peer,
+                status: PeerStatus::Online,
+                last_seen: now_ms(),
+            });
+        }
+
+        // Dispatch by message type
+        match envelope.msg_type {
+            MessageType::Chat
+            | MessageType::Ack
+            | MessageType::ReadReceipt
+            | MessageType::Heartbeat => {
+                if envelope.msg_type == MessageType::Chat {
+                    self.subnets.record_communication(
+                        envelope.from,
+                        self.local_id,
+                        now_ms(),
+                    );
+                }
+                self.handle_incoming_chat(envelope, signature_valid)
+            }
+
+            MessageType::GroupCreate
+            | MessageType::GroupCreated
+            | MessageType::GroupInvite
+            | MessageType::GroupJoin
+            | MessageType::GroupSync
+            | MessageType::GroupMessage
+            | MessageType::GroupLeave
+            | MessageType::GroupMemberJoined
+            | MessageType::GroupMemberLeft
+            | MessageType::GroupHubMigration
+            | MessageType::GroupDeliveryAck
+            | MessageType::GroupHubHeartbeat => {
+                self.handle_incoming_group(envelope)
+            }
+
+            MessageType::BackupStore
+            | MessageType::BackupDeliver
+            | MessageType::BackupReplicate
+            | MessageType::BackupReplicateAck
+            | MessageType::BackupQuery
+            | MessageType::BackupQueryResponse
+            | MessageType::BackupConfirmDelivery => {
+                self.handle_incoming_backup(&envelope)
+            }
+
+            MessageType::PeerAnnounce => self.handle_peer_announce(&envelope),
+        }
+    }
+
+    // ── Task 9: handle_send_message ──────────────────────────────────────
+
+    /// Build and send a chat message to a peer.
+    ///
+    /// Returns a SendWithBackupFallback effect: on success the tracker
+    /// advances to Sent; on failure the message is stored as backup.
+    pub fn handle_send_message(
+        &mut self,
+        to: NodeId,
+        payload: Vec<u8>,
+    ) -> Vec<RuntimeEffect> {
+        let via = self.relay_selector.select_path(to, &self.topology);
+
+        let builder = EnvelopeBuilder::new(
+            self.local_id,
+            to,
+            MessageType::Chat,
+            payload.clone(),
+        )
+        .via(via);
+
+        let envelope = if self.config.encryption {
+            let recipient_pk = to.as_bytes();
+            match builder.encrypt_and_sign(&self.secret_seed, &recipient_pk) {
+                Ok(env) => env,
+                Err(e) => {
+                    return vec![RuntimeEffect::Emit(ProtocolEvent::Error {
+                        description: format!("encrypt failed for {to}: {e}"),
+                    })];
+                }
+            }
+        } else {
+            builder.sign(&self.secret_seed)
+        };
+
+        let envelope_id = envelope.id.clone();
+
+        // Track message in tracker
+        let mut on_success = Vec::new();
+        if let Some(change) = self.tracker.track(envelope_id.clone(), to) {
+            on_success.push(RuntimeEffect::StatusChange(change));
+        }
+
+        // On success: mark as sent
+        if let Some(change) = self.tracker.mark_sent(&envelope_id) {
+            on_success.push(RuntimeEffect::StatusChange(change));
+        }
+
+        // On failure: store backup + emit error
+        let backup_actions = self.backup.store_message(
+            envelope_id.clone(),
+            payload,
+            to,
+            self.local_id,
+            now_ms(),
+            None,
+        );
+        let mut on_failure = self.backup_actions_to_effects(&backup_actions);
+        on_failure.push(RuntimeEffect::Emit(ProtocolEvent::Error {
+            description: format!(
+                "send to {} failed (backed up)",
+                envelope.via.first().copied().unwrap_or(to)
+            ),
+        }));
+
+        vec![RuntimeEffect::SendWithBackupFallback {
+            envelope,
+            on_success,
+            on_failure,
+        }]
+    }
+
+    // ── Task 9: handle_send_group_message ────────────────────────────────
+
+    /// Build and send a text message to a group (via hub relay).
+    pub fn handle_send_group_message(
+        &mut self,
+        group_id: crate::group::GroupId,
+        text: String,
+    ) -> Vec<RuntimeEffect> {
+        let Some(group) = self.group_manager.get_group(&group_id) else {
+            return vec![RuntimeEffect::Emit(ProtocolEvent::Error {
+                description: format!("not a member of group {group_id}"),
+            })];
+        };
+
+        let hub_id = group.hub_relay_id;
+        let mut msg = GroupMessage::new(
+            group_id,
+            self.local_id,
+            self.config.username.clone(),
+            text,
+        );
+        msg.sign(&self.secret_seed);
+        let payload = GroupPayload::Message(msg);
+        let payload_bytes =
+            rmp_serde::to_vec(&payload).expect("group msg serialization");
+
+        let via = self.relay_selector.select_path(hub_id, &self.topology);
+        let envelope = EnvelopeBuilder::new(
+            self.local_id,
+            hub_id,
+            MessageType::GroupMessage,
+            payload_bytes,
+        )
+        .via(via)
+        .sign(&self.secret_seed);
+
+        vec![RuntimeEffect::SendEnvelope(envelope)]
+    }
+
+    // ── Task 9: handle_send_read_receipt ─────────────────────────────────
+
+    /// Build and send a read receipt for a previously received message.
+    pub fn handle_send_read_receipt(
+        &mut self,
+        to: NodeId,
+        original_message_id: String,
+    ) -> Vec<RuntimeEffect> {
+        let payload = ReadReceiptPayload {
+            original_message_id,
+            read_at: now_ms(),
+        }
+        .to_bytes();
+
+        let via = self.relay_selector.select_path(to, &self.topology);
+        let envelope = EnvelopeBuilder::new(
+            self.local_id,
+            to,
+            MessageType::ReadReceipt,
+            payload,
+        )
+        .via(via)
+        .sign(&self.secret_seed);
+
+        vec![RuntimeEffect::SendEnvelope(envelope)]
+    }
+
+    // ── Task 9: handle_command (unified dispatcher) ──────────────────────
+
+    /// Unified command dispatcher — processes a RuntimeCommand and returns effects.
+    ///
+    /// Some commands (GetConnectedPeers, Shutdown) are handled in the loop
+    /// because they need transport access; they return empty effects here.
+    pub fn handle_command(
+        &mut self,
+        cmd: RuntimeCommand,
+    ) -> Vec<RuntimeEffect> {
+        match cmd {
+            RuntimeCommand::SendMessage { to, payload } => {
+                self.subnets
+                    .record_communication(self.local_id, to, now_ms());
+                self.handle_send_message(to, payload)
+            }
+
+            RuntimeCommand::SendGroupMessage { group_id, text } => {
+                self.handle_send_group_message(group_id, text)
+            }
+
+            RuntimeCommand::SendReadReceipt {
+                to,
+                original_message_id,
+            } => self.handle_send_read_receipt(to, original_message_id),
+
+            RuntimeCommand::AddPeer { node_id } => {
+                self.heartbeat.record_heartbeat(node_id);
+                self.topology.upsert(PeerInfo {
+                    node_id,
+                    role: PeerRole::Peer,
+                    status: PeerStatus::Online,
+                    last_seen: now_ms(),
+                });
+                Vec::new()
+            }
+
+            RuntimeCommand::UpsertPeer { info } => {
+                self.heartbeat.record_heartbeat(info.node_id);
+                self.topology.upsert(info);
+                Vec::new()
+            }
+
+            RuntimeCommand::RemovePeer { node_id } => {
+                self.topology.remove(&node_id);
+                self.heartbeat.untrack_peer(&node_id);
+                Vec::new()
+            }
+
+            RuntimeCommand::CreateGroup {
+                name,
+                hub_relay_id,
+                initial_members,
+            } => {
+                let actions = self.group_manager.create_group(
+                    name,
+                    hub_relay_id,
+                    initial_members,
+                );
+                self.group_actions_to_effects(&actions)
+            }
+
+            RuntimeCommand::AcceptInvite { group_id } => {
+                let actions =
+                    self.group_manager.accept_invite(&group_id);
+                self.group_actions_to_effects(&actions)
+            }
+
+            RuntimeCommand::DeclineInvite { group_id } => {
+                self.group_manager.decline_invite(&group_id);
+                Vec::new()
+            }
+
+            RuntimeCommand::LeaveGroup { group_id } => {
+                let actions =
+                    self.group_manager.leave_group(&group_id);
+                self.group_actions_to_effects(&actions)
+            }
+
+            RuntimeCommand::GetGroups { reply } => {
+                let groups = self
+                    .group_manager
+                    .all_groups()
+                    .into_iter()
+                    .cloned()
+                    .collect();
+                let _ = reply.send(groups);
+                Vec::new()
+            }
+
+            RuntimeCommand::GetPendingInvites { reply } => {
+                let invites = self
+                    .group_manager
+                    .pending_invites()
+                    .into_iter()
+                    .cloned()
+                    .collect();
+                let _ = reply.send(invites);
+                Vec::new()
+            }
+
+            // Handled in the loop — needs transport access.
+            RuntimeCommand::GetConnectedPeers { .. } => Vec::new(),
+
+            // Handled in the loop — signals the loop to break.
+            RuntimeCommand::Shutdown => Vec::new(),
+        }
+    }
+
+    // ── Task 10: handle_gossip_event ─────────────────────────────────────
+
+    /// Handle a gossip event (peer announce, neighbor up/down).
+    ///
+    /// For NeighborUp, the state method returns effects but does NOT re-broadcast
+    /// the gossip announce — that I/O is left to the loop.
+    pub fn handle_gossip_event(
+        &mut self,
+        input: GossipInput,
+    ) -> Vec<RuntimeEffect> {
+        match input {
+            GossipInput::PeerAnnounce(bytes) => {
+                if let Ok(announce) =
+                    rmp_serde::from_slice::<PeerAnnounce>(&bytes)
+                {
+                    if announce.is_timestamp_valid(now_ms()) {
+                        let peer_id = announce.node_id;
+                        let role =
+                            if announce.roles.contains(&PeerRole::Relay) {
+                                PeerRole::Relay
+                            } else {
+                                PeerRole::Peer
+                            };
+                        self.heartbeat.record_heartbeat(peer_id);
+                        self.topology.upsert(PeerInfo {
+                            node_id: peer_id,
+                            role,
+                            status: PeerStatus::Online,
+                            last_seen: now_ms(),
+                        });
+                        return vec![RuntimeEffect::Emit(
+                            ProtocolEvent::PeerAnnounceReceived {
+                                node_id: peer_id,
+                                username: announce.username,
+                            },
+                        )];
+                    }
+                }
+                Vec::new()
+            }
+
+            GossipInput::NeighborUp(node_id) => {
+                self.heartbeat.record_heartbeat(node_id);
+                self.topology.upsert(PeerInfo {
+                    node_id,
+                    role: PeerRole::Peer,
+                    status: PeerStatus::Online,
+                    last_seen: now_ms(),
+                });
+                vec![RuntimeEffect::Emit(
+                    ProtocolEvent::GossipNeighborUp { node_id },
+                )]
+            }
+
+            GossipInput::NeighborDown(node_id) => {
+                vec![RuntimeEffect::Emit(
+                    ProtocolEvent::GossipNeighborDown { node_id },
+                )]
+            }
+        }
     }
 
     // ── Helper: surface subnet event ─────────────────────────────────────
@@ -642,5 +1374,353 @@ mod tests {
         assert_eq!(announce.node_id, state.local_id);
         assert_eq!(announce.username, "anonymous");
         assert_eq!(announce.roles, vec![PeerRole::Peer]);
+    }
+
+    // ── Task 7 tests ─────────────────────────────────────────────────────
+
+    /// Build a signed chat envelope from sender (with known secret) to recipient.
+    fn make_signed_chat(
+        sender_seed: u8,
+        recipient_id: NodeId,
+        payload: &[u8],
+    ) -> (crate::envelope::Envelope, bool) {
+        let (sender_id, sender_secret) = keypair(sender_seed);
+        let env = crate::envelope::EnvelopeBuilder::new(
+            sender_id,
+            recipient_id,
+            MessageType::Chat,
+            payload.to_vec(),
+        )
+        .sign(&sender_secret);
+        let sig_valid = env.verify_signature().is_ok();
+        (env, sig_valid)
+    }
+
+    #[test]
+    fn handle_incoming_chat_delivers_and_acks() {
+        let mut state = default_state(1);
+        let (sender_id, _) = keypair(2);
+
+        let (env, sig_valid) = make_signed_chat(2, state.local_id, b"hello");
+
+        let effects = state.handle_incoming_chat(env, sig_valid);
+
+        // Should have DeliverMessage + SendEnvelope(ACK)
+        let has_deliver = effects.iter().any(|e| {
+            matches!(e, RuntimeEffect::DeliverMessage(msg) if msg.from == sender_id && msg.payload == b"hello")
+        });
+        let has_ack = effects.iter().any(|e| {
+            matches!(e, RuntimeEffect::SendEnvelope(env) if env.msg_type == MessageType::Ack && env.to == sender_id)
+        });
+        assert!(has_deliver, "expected DeliverMessage, got: {effects:?}");
+        assert!(has_ack, "expected ACK SendEnvelope, got: {effects:?}");
+    }
+
+    #[test]
+    fn handle_incoming_chat_encrypted_decrypts() {
+        // Create state with encryption
+        let (local_id, local_secret) = keypair(1);
+        let mut state = RuntimeState::new(
+            local_id,
+            local_secret,
+            RuntimeConfig {
+                encryption: true,
+                ..Default::default()
+            },
+        );
+
+        let (sender_id, sender_secret) = keypair(2);
+        let plaintext = b"secret message";
+        let recipient_pk = local_id.as_bytes();
+
+        let env = crate::envelope::EnvelopeBuilder::new(
+            sender_id,
+            local_id,
+            MessageType::Chat,
+            plaintext.to_vec(),
+        )
+        .encrypt_and_sign(&sender_secret, &recipient_pk)
+        .expect("encrypt_and_sign");
+
+        let sig_valid = env.verify_signature().is_ok();
+        let effects = state.handle_incoming_chat(env, sig_valid);
+
+        // Find the delivered message
+        let delivered = effects.iter().find_map(|e| {
+            if let RuntimeEffect::DeliverMessage(msg) = e {
+                Some(msg)
+            } else {
+                None
+            }
+        });
+        assert!(delivered.is_some(), "expected DeliverMessage");
+        let msg = delivered.unwrap();
+        assert_eq!(msg.payload, plaintext);
+        assert!(msg.was_encrypted);
+        assert!(msg.signature_valid);
+    }
+
+    #[test]
+    fn handle_incoming_chat_forward_when_not_recipient() {
+        let mut state = default_state(1);
+        let (sender_id, sender_secret) = keypair(2);
+        let recipient_id = node_id(3);
+
+        // Build envelope from sender to recipient, routed via our node
+        let env = crate::envelope::EnvelopeBuilder::new(
+            sender_id,
+            recipient_id,
+            MessageType::Chat,
+            b"relayed".to_vec(),
+        )
+        .via(vec![state.local_id])
+        .sign(&sender_secret);
+
+        let sig_valid = env.verify_signature().is_ok();
+        let effects = state.handle_incoming_chat(env, sig_valid);
+
+        // Should have SendEnvelopeTo for next_hop + SendEnvelopeTo for ACK + Forwarded event
+        let has_forward = effects.iter().any(|e| {
+            matches!(e, RuntimeEffect::SendEnvelopeTo { target, .. } if *target == recipient_id)
+        });
+        let has_relay_ack = effects.iter().any(|e| {
+            matches!(e, RuntimeEffect::SendEnvelopeTo { target, envelope } if *target == sender_id && envelope.msg_type == MessageType::Ack)
+        });
+        let has_forwarded_event = effects.iter().any(|e| {
+            matches!(e, RuntimeEffect::Emit(ProtocolEvent::Forwarded { next_hop, .. }) if *next_hop == recipient_id)
+        });
+        assert!(has_forward, "expected forward to recipient, got: {effects:?}");
+        assert!(has_relay_ack, "expected relay ACK to sender, got: {effects:?}");
+        assert!(
+            has_forwarded_event,
+            "expected Forwarded event, got: {effects:?}"
+        );
+    }
+
+    #[test]
+    fn handle_incoming_chat_dedup_drops() {
+        let mut state = default_state(1);
+        let (env, sig_valid) = make_signed_chat(2, state.local_id, b"once");
+        let env2 = env.clone();
+
+        let effects1 = state.handle_incoming_chat(env, sig_valid);
+        assert!(
+            !effects1.is_empty(),
+            "first delivery should produce effects"
+        );
+
+        let effects2 = state.handle_incoming_chat(env2, sig_valid);
+        assert!(
+            effects2.is_empty(),
+            "duplicate should be dropped, got: {effects2:?}"
+        );
+    }
+
+    // ── Task 8 tests ─────────────────────────────────────────────────────
+
+    #[test]
+    fn handle_incoming_parses_and_dispatches_chat() {
+        let mut state = default_state(1);
+        let (sender_id, sender_secret) = keypair(2);
+
+        let env = crate::envelope::EnvelopeBuilder::new(
+            sender_id,
+            state.local_id,
+            MessageType::Chat,
+            b"raw bytes test".to_vec(),
+        )
+        .sign(&sender_secret);
+        let raw = env.to_bytes().expect("serialize");
+
+        let effects = state.handle_incoming(raw.as_slice());
+
+        let has_deliver = effects.iter().any(|e| {
+            matches!(e, RuntimeEffect::DeliverMessage(msg) if msg.from == sender_id)
+        });
+        assert!(
+            has_deliver,
+            "should dispatch chat and deliver, got: {effects:?}"
+        );
+    }
+
+    #[test]
+    fn handle_incoming_auto_registers_unknown_peer() {
+        let mut state = default_state(1);
+        let (sender_id, sender_secret) = keypair(2);
+
+        // Verify peer is not in topology yet
+        assert!(state.topology.get(&sender_id).is_none());
+
+        let env = crate::envelope::EnvelopeBuilder::new(
+            sender_id,
+            state.local_id,
+            MessageType::Chat,
+            b"auto-register".to_vec(),
+        )
+        .sign(&sender_secret);
+        let raw = env.to_bytes().expect("serialize");
+
+        state.handle_incoming(raw.as_slice());
+
+        // Peer should now be in topology
+        let peer = state.topology.get(&sender_id);
+        assert!(peer.is_some(), "peer should be auto-registered in topology");
+        assert_eq!(peer.unwrap().status, PeerStatus::Online);
+    }
+
+    // ── Task 9 tests ─────────────────────────────────────────────────────
+
+    #[test]
+    fn handle_send_message_produces_fallback_effect() {
+        let mut state = default_state(1);
+        let recipient = node_id(2);
+
+        let effects = state.handle_send_message(recipient, b"hello".to_vec());
+
+        assert_eq!(effects.len(), 1, "expected exactly one effect");
+        assert!(
+            matches!(&effects[0], RuntimeEffect::SendWithBackupFallback { .. }),
+            "expected SendWithBackupFallback, got: {:?}",
+            effects[0]
+        );
+
+        // Verify on_success has StatusChange effects
+        if let RuntimeEffect::SendWithBackupFallback {
+            on_success,
+            on_failure,
+            envelope,
+            ..
+        } = &effects[0]
+        {
+            assert!(
+                !on_success.is_empty(),
+                "on_success should have status changes"
+            );
+            assert!(
+                !on_failure.is_empty(),
+                "on_failure should have backup + error effects"
+            );
+            assert!(envelope.is_signed(), "envelope should be signed");
+        }
+    }
+
+    #[test]
+    fn handle_send_message_encrypted_when_config_enabled() {
+        let (local_id, local_secret) = keypair(1);
+        let mut state = RuntimeState::new(
+            local_id,
+            local_secret,
+            RuntimeConfig {
+                encryption: true,
+                ..Default::default()
+            },
+        );
+        let recipient = node_id(2);
+
+        let effects = state.handle_send_message(recipient, b"encrypted".to_vec());
+
+        if let RuntimeEffect::SendWithBackupFallback { envelope, .. } = &effects[0] {
+            assert!(
+                envelope.encrypted,
+                "envelope should be encrypted when config.encryption is true"
+            );
+        } else {
+            panic!("expected SendWithBackupFallback");
+        }
+    }
+
+    #[test]
+    fn handle_command_add_peer_updates_topology() {
+        let mut state = default_state(1);
+        let peer = node_id(2);
+
+        assert!(state.topology.get(&peer).is_none());
+
+        let effects =
+            state.handle_command(RuntimeCommand::AddPeer { node_id: peer });
+
+        assert!(effects.is_empty(), "AddPeer returns no effects");
+        assert!(
+            state.topology.get(&peer).is_some(),
+            "peer should be in topology after AddPeer"
+        );
+    }
+
+    #[test]
+    fn handle_command_remove_peer_cleans_topology() {
+        let mut state = default_state(1);
+        let peer = node_id(2);
+
+        // Add peer first
+        state.handle_command(RuntimeCommand::AddPeer { node_id: peer });
+        assert!(state.topology.get(&peer).is_some());
+
+        // Remove peer
+        let effects =
+            state.handle_command(RuntimeCommand::RemovePeer { node_id: peer });
+
+        assert!(effects.is_empty(), "RemovePeer returns no effects");
+        assert!(
+            state.topology.get(&peer).is_none(),
+            "peer should be removed from topology"
+        );
+    }
+
+    // ── Task 10 tests ────────────────────────────────────────────────────
+
+    #[test]
+    fn handle_gossip_neighbor_up_registers_peer() {
+        let mut state = default_state(1);
+        let peer = node_id(2);
+
+        assert!(state.topology.get(&peer).is_none());
+
+        let effects =
+            state.handle_gossip_event(super::GossipInput::NeighborUp(peer));
+
+        let has_event = effects.iter().any(|e| {
+            matches!(e, RuntimeEffect::Emit(ProtocolEvent::GossipNeighborUp { node_id }) if *node_id == peer)
+        });
+        assert!(has_event, "expected GossipNeighborUp event, got: {effects:?}");
+
+        let topo_peer = state.topology.get(&peer);
+        assert!(
+            topo_peer.is_some(),
+            "peer should be registered in topology after NeighborUp"
+        );
+        assert_eq!(topo_peer.unwrap().status, PeerStatus::Online);
+    }
+
+    #[test]
+    fn handle_gossip_announce_registers_peer() {
+        let mut state = default_state(1);
+        let peer = node_id(2);
+
+        // Build a PeerAnnounce
+        let announce = PeerAnnounce::new(peer, "bob".to_string(), vec![PeerRole::Peer]);
+        let bytes = rmp_serde::to_vec(&announce).expect("serialize announce");
+
+        assert!(state.topology.get(&peer).is_none());
+
+        let effects =
+            state.handle_gossip_event(super::GossipInput::PeerAnnounce(bytes));
+
+        let has_event = effects.iter().any(|e| {
+            matches!(
+                e,
+                RuntimeEffect::Emit(ProtocolEvent::PeerAnnounceReceived { node_id, username })
+                    if *node_id == peer && username == "bob"
+            )
+        });
+        assert!(
+            has_event,
+            "expected PeerAnnounceReceived event, got: {effects:?}"
+        );
+
+        let topo_peer = state.topology.get(&peer);
+        assert!(
+            topo_peer.is_some(),
+            "peer should be registered in topology after gossip announce"
+        );
     }
 }

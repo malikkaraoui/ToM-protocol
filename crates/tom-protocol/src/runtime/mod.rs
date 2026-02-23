@@ -4,12 +4,13 @@
 /// topology, tracker, heartbeat). It exposes a channel-based API so the
 /// application (TUI, bot, SDK) never touches raw bytes or protocol internals.
 mod effect;
+mod executor;
 mod r#loop;
 mod state;
 mod transport;
 
 pub use effect::RuntimeEffect;
-pub use state::RuntimeState;
+pub use state::{GossipInput, RuntimeState};
 pub use transport::Transport;
 
 use std::time::Duration;
@@ -419,10 +420,10 @@ impl ProtocolRuntime {
         let local_id = node.id();
         let secret_seed = node.secret_key_seed();
 
-        // Command channel (app → runtime)
+        // Command channel (app -> runtime)
         let (cmd_tx, cmd_rx) = mpsc::channel::<RuntimeCommand>(64);
 
-        // Event channels (runtime → app)
+        // Event channels (runtime -> app)
         let (msg_tx, msg_rx) = mpsc::channel::<DeliveredMessage>(64);
         let (status_tx, status_rx) = mpsc::channel::<StatusChange>(64);
         let (event_tx, event_rx) = mpsc::channel::<ProtocolEvent>(64);
@@ -434,19 +435,20 @@ impl ProtocolRuntime {
         let gossip = node.gossip().clone();
         let gossip_bootstrap_peers = config.gossip_bootstrap_peers.clone();
 
-        // Spawn the event loop
+        // Create pure protocol state
+        let state = RuntimeState::new(local_id, secret_seed, config);
+
+        // Spawn the event loop (thin orchestrator + executor)
         tokio::spawn(r#loop::runtime_loop(
             node,
-            local_id,
-            secret_seed,
-            config,
+            state,
+            gossip_bootstrap_peers,
             cmd_rx,
             msg_tx,
             status_tx,
             event_tx,
             path_rx,
             gossip,
-            gossip_bootstrap_peers,
         ));
 
         RuntimeChannels {
