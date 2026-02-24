@@ -192,6 +192,38 @@ impl RuntimeState {
         self.group_actions_to_effects(&actions)
     }
 
+    // ── Tick: shadow ping watchdog ──────────────────────────────────────
+
+    /// Shadow watchdog tick — send HubPing to primary for each group we shadow.
+    pub fn tick_shadow_ping(&mut self) -> Vec<RuntimeEffect> {
+        let shadow_groups: Vec<(crate::group::GroupId, NodeId)> = self
+            .group_manager
+            .shadow_groups()
+            .into_iter()
+            .map(|(gid, hub)| (gid.clone(), hub))
+            .collect();
+
+        let mut effects = Vec::new();
+        for (group_id, hub_id) in shadow_groups {
+            let payload = GroupPayload::HubPing {
+                group_id: group_id.clone(),
+            };
+            let payload_bytes =
+                rmp_serde::to_vec(&payload).expect("group payload serialization");
+            let via = self.relay_selector.select_path(hub_id, &self.topology);
+            let envelope = EnvelopeBuilder::new(
+                self.local_id,
+                hub_id,
+                MessageType::GroupHubPing,
+                payload_bytes,
+            )
+            .via(via)
+            .sign(&self.secret_seed);
+            effects.push(RuntimeEffect::SendEnvelope(envelope));
+        }
+        effects
+    }
+
     // ── Gossip announce builder ──────────────────────────────────────────
 
     /// Build a PeerAnnounce and serialize it to MessagePack bytes.
@@ -426,12 +458,47 @@ impl RuntimeState {
                 .handle_hub_migration(&group_id, new_hub_id),
             GroupPayload::HubHeartbeat { .. } => vec![],
 
-            // Failover payloads — handled by shadow/candidate modules (future tasks)
-            GroupPayload::HubPing { .. }
-            | GroupPayload::HubPong { .. }
-            | GroupPayload::HubShadowSync { .. }
-            | GroupPayload::CandidateAssigned { .. }
-            | GroupPayload::HubUnreachable { .. } => vec![],
+            // Shadow ping from shadow → primary responds with pong
+            GroupPayload::HubPing { ref group_id } => {
+                if self.group_hub.get_group(group_id).is_some() {
+                    let actions = self.group_hub.handle_hub_ping(group_id, envelope.from);
+                    return self.group_actions_to_effects(&actions);
+                }
+                vec![]
+            }
+
+            // Pong from primary → reset shadow ping failures
+            GroupPayload::HubPong { ref group_id } => {
+                self.group_manager.reset_ping_failures(group_id);
+                vec![]
+            }
+
+            // Shadow sync from primary → store replicated state
+            GroupPayload::HubShadowSync {
+                ref group_id,
+                ref members,
+                candidate_id,
+                config_version,
+            } => {
+                self.group_manager.handle_shadow_sync(
+                    group_id,
+                    members.clone(),
+                    candidate_id,
+                    config_version,
+                )
+            }
+
+            // Candidate assignment
+            GroupPayload::CandidateAssigned { ref group_id } => {
+                return vec![RuntimeEffect::Emit(ProtocolEvent::GroupCandidateAssigned {
+                    group_id: group_id.clone(),
+                })];
+            }
+
+            // Member reports hub unreachable to shadow
+            GroupPayload::HubUnreachable { ref group_id } => {
+                self.group_manager.handle_hub_unreachable(group_id, envelope.from)
+            }
 
             GroupPayload::SenderKeyDistribution {
                 ref group_id,
