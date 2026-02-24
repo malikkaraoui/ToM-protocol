@@ -1,0 +1,7 @@
+{"event":"started","name":"MacBook-4g","id":"8c293a01a6f9530a1b6cac7bd170b9e67bcb43730c911479e22cfee31df62bd6","mode":"ping","timestamp":"1771310242s"}
+{"event":"disconnected","reason":"connection to f267fb1a04c4a5b7cafff8c665ab5cb6d34d790bbb7c2feb2712feb64963495a failed: timed out","elapsed_s":30.059756084,"timestamp":"1771310272s"}
+{"event":"reconnecting","attempt":1,"elapsed_s":30.060948459,"timestamp":"1771310272s"}
+{"event":"reconnecting","attempt":2,"elapsed_s":61.066615375,"timestamp":"1771310303s"}
+{"event":"reconnecting","attempt":3,"elapsed_s":93.143828875,"timestamp":"1771310336s"}
+{"event":"reconnecting","attempt":4,"elapsed_s":127.149826125,"timestamp":"1771310370s"}
+{"event":"summary","name":"MacBook-4g","mode":"ping","total_pings":1,"successful":0,"failed":1,"direct_pings":0,"relay_pings":0,"direct_pct":0.0,"avg_rtt_ms":0.0,"reconnections":0,"elapsed_s":165.156492875}

@@ -1,0 +1,7 @@
+{
+  "chat.tools.terminal.autoApprove": {
+    "ipconfig": true,
+    "pnpm": true,
+    "cargo check": true
+  }
+}

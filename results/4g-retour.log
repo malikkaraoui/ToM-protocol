@@ -1,0 +1,43 @@
+tom-stress v0.1.0
+Node ID: 4e2340f0434691ced5cdec3de9bf5d16a86971475385ee7b97d9eb9483e0328d
+
+Ping mode → target: 3ccfbf9124abb4f9c42c12eb94857b18f8671f0511be22e3159d43b78be31295
+[2m2026-02-13T10:00:19.891795Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m remote server configuration might cause nat traversal issues [3mmax_local_addresses[0m[2m=[0m12 [3mremote_cid_limit[0m[2m=[0m5
+  ping #1 recv failed: pong timeout (10s)
+  ping #2 recv failed: pong timeout (10s)
+  ping #3 recv failed: pong timeout (10s)
+  evicted zombie connection, will reconnect on next send
+[2m2026-02-13T10:00:53.114527Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m remote server configuration might cause nat traversal issues [3mmax_local_addresses[0m[2m=[0m12 [3mremote_cid_limit[0m[2m=[0m5
+  ping #4 recv failed: pong timeout (10s)
+  ping #5 recv failed: pong timeout (10s)
+  ping #6 recv failed: pong timeout (10s)
+  evicted zombie connection, will reconnect on next send
+[2m2026-02-13T10:01:26.357487Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m remote server configuration might cause nat traversal issues [3mmax_local_addresses[0m[2m=[0m12 [3mremote_cid_limit[0m[2m=[0m5
+  ping #7 recv failed: pong timeout (10s)
+  ping #8 recv failed: pong timeout (10s)
+  ping #9 recv failed: pong timeout (10s)
+  evicted zombie connection, will reconnect on next send
+[2m2026-02-13T10:01:59.534943Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m remote server configuration might cause nat traversal issues [3mmax_local_addresses[0m[2m=[0m12 [3mremote_cid_limit[0m[2m=[0m5
+  ping #10 recv failed: pong timeout (10s)
+  ping #11 recv failed: pong timeout (10s)
+  ping #12 recv failed: pong timeout (10s)
+  evicted zombie connection, will reconnect on next send
+[2m2026-02-13T10:02:32.690476Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m remote server configuration might cause nat traversal issues [3mmax_local_addresses[0m[2m=[0m12 [3mremote_cid_limit[0m[2m=[0m5
+  ping #13 recv failed: pong timeout (10s)
+  ping #14 recv failed: pong timeout (10s)
+  ping #15 recv failed: pong timeout (10s)
+  evicted zombie connection, will reconnect on next send
+[2m2026-02-13T10:03:05.928396Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m remote server configuration might cause nat traversal issues [3mmax_local_addresses[0m[2m=[0m12 [3mremote_cid_limit[0m[2m=[0m5
+  ping #16 recv failed: pong timeout (10s)
+  ping #17 recv failed: pong timeout (10s)
+  ping #18 recv failed: pong timeout (10s)
+  evicted zombie connection, will reconnect on next send
+[2m2026-02-13T10:03:39.083463Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m remote server configuration might cause nat traversal issues [3mmax_local_addresses[0m[2m=[0m12 [3mremote_cid_limit[0m[2m=[0m5
+  ping #19 recv failed: pong timeout (10s)
+  ping #20 recv failed: pong timeout (10s)
+
+Ctrl+C received, shutting down...
+  ping #21 recv failed: pong timeout (10s)
+  evicted zombie connection, will reconnect on next send
+
+Done: 0/21 pings OK, avg RTT: 0.0ms

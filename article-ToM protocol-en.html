@@ -1,0 +1,1665 @@
+<!DOCTYPE html><html><head>
+      <title>article-ToM protocol-en</title>
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      
+      <link rel="stylesheet" href="file:////Users/malik/.vscode/extensions/shd101wyy.markdown-preview-enhanced-0.8.20/crossnote/dependencies/katex/katex.min.css">
+      
+      
+      
+      
+      
+      <style>
+      code[class*=language-],pre[class*=language-]{color:#333;background:0 0;font-family:Consolas,"Liberation Mono",Menlo,Courier,monospace;text-align:left;white-space:pre;word-spacing:normal;word-break:normal;word-wrap:normal;line-height:1.4;-moz-tab-size:8;-o-tab-size:8;tab-size:8;-webkit-hyphens:none;-moz-hyphens:none;-ms-hyphens:none;hyphens:none}pre[class*=language-]{padding:.8em;overflow:auto;border-radius:3px;background:#f5f5f5}:not(pre)>code[class*=language-]{padding:.1em;border-radius:.3em;white-space:normal;background:#f5f5f5}.token.blockquote,.token.comment{color:#969896}.token.cdata{color:#183691}.token.doctype,.token.macro.property,.token.punctuation,.token.variable{color:#333}.token.builtin,.token.important,.token.keyword,.token.operator,.token.rule{color:#a71d5d}.token.attr-value,.token.regex,.token.string,.token.url{color:#183691}.token.atrule,.token.boolean,.token.code,.token.command,.token.constant,.token.entity,.token.number,.token.property,.token.symbol{color:#0086b3}.token.prolog,.token.selector,.token.tag{color:#63a35c}.token.attr-name,.token.class,.token.class-name,.token.function,.token.id,.token.namespace,.token.pseudo-class,.token.pseudo-element,.token.url-reference .token.variable{color:#795da3}.token.entity{cursor:help}.token.title,.token.title .token.punctuation{font-weight:700;color:#1d3e81}.token.list{color:#ed6a43}.token.inserted{background-color:#eaffea;color:#55a532}.token.deleted{background-color:#ffecec;color:#bd2c00}.token.bold{font-weight:700}.token.italic{font-style:italic}.language-json .token.property{color:#183691}.language-markup .token.tag .token.punctuation{color:#333}.language-css .token.function,code.language-css{color:#0086b3}.language-yaml .token.atrule{color:#63a35c}code.language-yaml{color:#183691}.language-ruby .token.function{color:#333}.language-markdown .token.url{color:#795da3}.language-makefile .token.symbol{color:#795da3}.language-makefile .token.variable{color:#183691}.language-makefile .token.builtin{color:#0086b3}.language-bash .token.keyword{color:#0086b3}pre[data-line]{position:relative;padding:1em 0 1em 3em}pre[data-line] .line-highlight-wrapper{position:absolute;top:0;left:0;background-color:transparent;display:block;width:100%}pre[data-line] .line-highlight{position:absolute;left:0;right:0;padding:inherit 0;margin-top:1em;background:hsla(24,20%,50%,.08);background:linear-gradient(to right,hsla(24,20%,50%,.1) 70%,hsla(24,20%,50%,0));pointer-events:none;line-height:inherit;white-space:pre}pre[data-line] .line-highlight:before,pre[data-line] .line-highlight[data-end]:after{content:attr(data-start);position:absolute;top:.4em;left:.6em;min-width:1em;padding:0 .5em;background-color:hsla(24,20%,50%,.4);color:#f4f1ef;font:bold 65%/1.5 sans-serif;text-align:center;vertical-align:.3em;border-radius:999px;text-shadow:none;box-shadow:0 1px #fff}pre[data-line] .line-highlight[data-end]:after{content:attr(data-end);top:auto;bottom:.4em}html body{font-family:'Helvetica Neue',Helvetica,'Segoe UI',Arial,freesans,sans-serif;font-size:16px;line-height:1.6;color:#333;background-color:#fff;overflow:initial;box-sizing:border-box;word-wrap:break-word}html body>:first-child{margin-top:0}html body h1,html body h2,html body h3,html body h4,html body h5,html body h6{line-height:1.2;margin-top:1em;margin-bottom:16px;color:#000}html body h1{font-size:2.25em;font-weight:300;padding-bottom:.3em}html body h2{font-size:1.75em;font-weight:400;padding-bottom:.3em}html body h3{font-size:1.5em;font-weight:500}html body h4{font-size:1.25em;font-weight:600}html body h5{font-size:1.1em;font-weight:600}html body h6{font-size:1em;font-weight:600}html body h1,html body h2,html body h3,html body h4,html body h5{font-weight:600}html body h5{font-size:1em}html body h6{color:#5c5c5c}html body strong{color:#000}html body del{color:#5c5c5c}html body a:not([href]){color:inherit;text-decoration:none}html body a{color:#08c;text-decoration:none}html body a:hover{color:#00a3f5;text-decoration:none}html body img{max-width:100%}html body>p{margin-top:0;margin-bottom:16px;word-wrap:break-word}html body>ol,html body>ul{margin-bottom:16px}html body ol,html body ul{padding-left:2em}html body ol.no-list,html body ul.no-list{padding:0;list-style-type:none}html body ol ol,html body ol ul,html body ul ol,html body ul ul{margin-top:0;margin-bottom:0}html body li{margin-bottom:0}html body li.task-list-item{list-style:none}html body li>p{margin-top:0;margin-bottom:0}html body .task-list-item-checkbox{margin:0 .2em .25em -1.8em;vertical-align:middle}html body .task-list-item-checkbox:hover{cursor:pointer}html body blockquote{margin:16px 0;font-size:inherit;padding:0 15px;color:#5c5c5c;background-color:#f0f0f0;border-left:4px solid #d6d6d6}html body blockquote>:first-child{margin-top:0}html body blockquote>:last-child{margin-bottom:0}html body hr{height:4px;margin:32px 0;background-color:#d6d6d6;border:0 none}html body table{margin:10px 0 15px 0;border-collapse:collapse;border-spacing:0;display:block;width:100%;overflow:auto;word-break:normal;word-break:keep-all}html body table th{font-weight:700;color:#000}html body table td,html body table th{border:1px solid #d6d6d6;padding:6px 13px}html body dl{padding:0}html body dl dt{padding:0;margin-top:16px;font-size:1em;font-style:italic;font-weight:700}html body dl dd{padding:0 16px;margin-bottom:16px}html body code{font-family:Menlo,Monaco,Consolas,'Courier New',monospace;font-size:.85em;color:#000;background-color:#f0f0f0;border-radius:3px;padding:.2em 0}html body code::after,html body code::before{letter-spacing:-.2em;content:'\00a0'}html body pre>code{padding:0;margin:0;word-break:normal;white-space:pre;background:0 0;border:0}html body .highlight{margin-bottom:16px}html body .highlight pre,html body pre{padding:1em;overflow:auto;line-height:1.45;border:#d6d6d6;border-radius:3px}html body .highlight pre{margin-bottom:0;word-break:normal}html body pre code,html body pre tt{display:inline;max-width:initial;padding:0;margin:0;overflow:initial;line-height:inherit;word-wrap:normal;background-color:transparent;border:0}html body pre code:after,html body pre code:before,html body pre tt:after,html body pre tt:before{content:normal}html body blockquote,html body dl,html body ol,html body p,html body pre,html body ul{margin-top:0;margin-bottom:16px}html body kbd{color:#000;border:1px solid #d6d6d6;border-bottom:2px solid #c7c7c7;padding:2px 4px;background-color:#f0f0f0;border-radius:3px}@media print{html body{background-color:#fff}html body h1,html body h2,html body h3,html body h4,html body h5,html body h6{color:#000;page-break-after:avoid}html body blockquote{color:#5c5c5c}html body pre{page-break-inside:avoid}html body table{display:table}html body img{display:block;max-width:100%;max-height:100%}html body code,html body pre{word-wrap:break-word;white-space:pre}}.markdown-preview{width:100%;height:100%;box-sizing:border-box}.markdown-preview ul{list-style:disc}.markdown-preview ul ul{list-style:circle}.markdown-preview ul ul ul{list-style:square}.markdown-preview ol{list-style:decimal}.markdown-preview ol ol,.markdown-preview ul ol{list-style-type:lower-roman}.markdown-preview ol ol ol,.markdown-preview ol ul ol,.markdown-preview ul ol ol,.markdown-preview ul ul ol{list-style-type:lower-alpha}.markdown-preview .newpage,.markdown-preview .pagebreak{page-break-before:always}.markdown-preview pre.line-numbers{position:relative;padding-left:3.8em;counter-reset:linenumber}.markdown-preview pre.line-numbers>code{position:relative}.markdown-preview pre.line-numbers .line-numbers-rows{position:absolute;pointer-events:none;top:1em;font-size:100%;left:0;width:3em;letter-spacing:-1px;border-right:1px solid #999;-webkit-user-select:none;-moz-user-select:none;-ms-user-select:none;user-select:none}.markdown-preview pre.line-numbers .line-numbers-rows>span{pointer-events:none;display:block;counter-increment:linenumber}.markdown-preview pre.line-numbers .line-numbers-rows>span:before{content:counter(linenumber);color:#999;display:block;padding-right:.8em;text-align:right}.markdown-preview .mathjax-exps .MathJax_Display{text-align:center!important}.markdown-preview:not([data-for=preview]) .code-chunk .code-chunk-btn-group{display:none}.markdown-preview:not([data-for=preview]) .code-chunk .status{display:none}.markdown-preview:not([data-for=preview]) .code-chunk .output-div{margin-bottom:16px}.markdown-preview .md-toc{padding:0}.markdown-preview .md-toc .md-toc-link-wrapper .md-toc-link{display:inline;padding:.25rem 0}.markdown-preview .md-toc .md-toc-link-wrapper .md-toc-link div,.markdown-preview .md-toc .md-toc-link-wrapper .md-toc-link p{display:inline}.markdown-preview .md-toc .md-toc-link-wrapper.highlighted .md-toc-link{font-weight:800}.scrollbar-style::-webkit-scrollbar{width:8px}.scrollbar-style::-webkit-scrollbar-track{border-radius:10px;background-color:transparent}.scrollbar-style::-webkit-scrollbar-thumb{border-radius:5px;background-color:rgba(150,150,150,.66);border:4px solid rgba(150,150,150,.66);background-clip:content-box}html body[for=html-export]:not([data-presentation-mode]){position:relative;width:100%;height:100%;top:0;left:0;margin:0;padding:0;overflow:auto}html body[for=html-export]:not([data-presentation-mode]) .markdown-preview{position:relative;top:0;min-height:100vh}@media screen and (min-width:914px){html body[for=html-export]:not([data-presentation-mode]) .markdown-preview{padding:2em calc(50% - 457px + 2em)}}@media screen and (max-width:914px){html body[for=html-export]:not([data-presentation-mode]) .markdown-preview{padding:2em}}@media screen and (max-width:450px){html body[for=html-export]:not([data-presentation-mode]) .markdown-preview{font-size:14px!important;padding:1em}}@media print{html body[for=html-export]:not([data-presentation-mode]) #sidebar-toc-btn{display:none}}html body[for=html-export]:not([data-presentation-mode]) #sidebar-toc-btn{position:fixed;bottom:8px;left:8px;font-size:28px;cursor:pointer;color:inherit;z-index:99;width:32px;text-align:center;opacity:.4}html body[for=html-export]:not([data-presentation-mode])[html-show-sidebar-toc] #sidebar-toc-btn{opacity:1}html body[for=html-export]:not([data-presentation-mode])[html-show-sidebar-toc] .md-sidebar-toc{position:fixed;top:0;left:0;width:300px;height:100%;padding:32px 0 48px 0;font-size:14px;box-shadow:0 0 4px rgba(150,150,150,.33);box-sizing:border-box;overflow:auto;background-color:inherit}html body[for=html-export]:not([data-presentation-mode])[html-show-sidebar-toc] .md-sidebar-toc::-webkit-scrollbar{width:8px}html body[for=html-export]:not([data-presentation-mode])[html-show-sidebar-toc] .md-sidebar-toc::-webkit-scrollbar-track{border-radius:10px;background-color:transparent}html body[for=html-export]:not([data-presentation-mode])[html-show-sidebar-toc] .md-sidebar-toc::-webkit-scrollbar-thumb{border-radius:5px;background-color:rgba(150,150,150,.66);border:4px solid rgba(150,150,150,.66);background-clip:content-box}html body[for=html-export]:not([data-presentation-mode])[html-show-sidebar-toc] .md-sidebar-toc a{text-decoration:none}html body[for=html-export]:not([data-presentation-mode])[html-show-sidebar-toc] .md-sidebar-toc .md-toc{padding:0 16px}html body[for=html-export]:not([data-presentation-mode])[html-show-sidebar-toc] .md-sidebar-toc .md-toc .md-toc-link-wrapper .md-toc-link{display:inline;padding:.25rem 0}html body[for=html-export]:not([data-presentation-mode])[html-show-sidebar-toc] .md-sidebar-toc .md-toc .md-toc-link-wrapper .md-toc-link div,html body[for=html-export]:not([data-presentation-mode])[html-show-sidebar-toc] .md-sidebar-toc .md-toc .md-toc-link-wrapper .md-toc-link p{display:inline}html body[for=html-export]:not([data-presentation-mode])[html-show-sidebar-toc] .md-sidebar-toc .md-toc .md-toc-link-wrapper.highlighted .md-toc-link{font-weight:800}html body[for=html-export]:not([data-presentation-mode])[html-show-sidebar-toc] .markdown-preview{left:300px;width:calc(100% - 300px);padding:2em calc(50% - 457px - 300px / 2);margin:0;box-sizing:border-box}@media screen and (max-width:1274px){html body[for=html-export]:not([data-presentation-mode])[html-show-sidebar-toc] .markdown-preview{padding:2em}}@media screen and (max-width:450px){html body[for=html-export]:not([data-presentation-mode])[html-show-sidebar-toc] .markdown-preview{width:100%}}html body[for=html-export]:not([data-presentation-mode]):not([html-show-sidebar-toc]) .markdown-preview{left:50%;transform:translateX(-50%)}html body[for=html-export]:not([data-presentation-mode]):not([html-show-sidebar-toc]) .md-sidebar-toc{display:none}
+/* Please visit the URL below for more information: */
+/*   https://shd101wyy.github.io/markdown-preview-enhanced/#/customize-css */
+
+      </style>
+      <!-- The content below will be included at the end of the <head> element. --><script type="text/javascript">
+  document.addEventListener("DOMContentLoaded", function () {
+    // your code here
+  });
+</script></head><body for="html-export">
+    
+    
+      <div class="crossnote markdown-preview  ">
+      
+<h1 id="tom-design-and-empirical-validation-of-a-peer-to-peer-messaging-protocol-without-fixed-infrastructure">ToM: Design and Empirical Validation of a Peer-to-Peer Messaging Protocol Without Fixed Infrastructure </h1>
+<p><strong>Malik</strong> — February 2026</p>
+<hr>
+<h2 id="abstract">Abstract </h2>
+<p>This report presents ToM (The Open Messaging), a decentralized transport protocol inspired by biological mechanisms, where each device simultaneously acts as both client and relay. Unlike classical architectures (Signal, WhatsApp) relying on central servers, and existing decentralized protocols (libp2p, Hyperswarm, Nostr, Tor) still requiring some form of fixed infrastructure, ToM proposes a radically autonomous model: the network <em>is</em> the infrastructure, roles are imposed and rotating (unpredictable for an attacker), messages replicate like beneficial viruses to survive 24h, and the bootstrap itself is distributed — with no fixed entry point. We describe the cryptographic pipeline (ephemeral X25519 + XChaCha20-Poly1305 + HKDF-SHA256, encrypt-then-sign), analyze resistance to MITM, 51%, Sybil and Eclipse attacks, and show why the absence of consensus makes the 51% attack economically irrational. We present experimental results from 4 stress test campaigns (2,752 pings, 99.85% reliability during highway mobility, 0.98 ms on 5G) and cross-border tests Switzerland↔France (27 ms, verified E2E encryption). We compare ToM to BitTorrent, Tor, Nostr, libp2p and iroh, and show that no existing protocol combines mandatory contribution, unpredictable rotating roles, censorship-free anti-spam, self-replicating messages, and unconditional purge.</p>
+<hr>
+<h2 id="1-introduction">1. Introduction </h2>
+<h3 id="11-problem-statement">1.1 Problem Statement </h3>
+<p>Current messaging systems rest on an architectural paradox: they promise confidentiality while centralizing message transit. Signal, despite its end-to-end encryption, maintains central servers that see metadata (who talks to whom, when, how much). WhatsApp, Telegram, iMessage — same pattern. Encryption protects content, but infrastructure betrays the social graph.</p>
+<p>Existing decentralized protocols attempt to solve this problem:</p>
+<ul>
+<li><strong>libp2p</strong> (Protocol Labs): multi-language, mature ecosystem, but relay-first philosophy — relays are an optimization, not the architectural foundation. Initial complexity is high and dependence on bootstrap relays remains structural.</li>
+<li><strong>Hyperswarm</strong> (Holepunch/Mafintosh): DHT-first philosophy aligned with our vision, but limited to Node.js, no browser support, restricted community.</li>
+<li><strong>Matrix/Nostr</strong>: server federation (Matrix) or voluntary relays (Nostr) — in both cases, someone must pay for and maintain the infrastructure.</li>
+</ul>
+<p><strong>The fundamental problem remains unsolved</strong>: how to build a messaging network that works without any entity having to maintain a server?</p>
+<h3 id="12-economic-inversion">1.2 Economic Inversion </h3>
+<p>Centralized architectures suffer from a linear scaling problem: more users → more servers → more costs. Load and cost grow together.</p>
+<p>ToM proposes the inversion: more participants → more available relays → more alternative paths → reduced latency → zero cost. Each device that joins the network <em>increases</em> its capacity. This is an emergent property of the architecture, not an optimization. This inversion cannot be replicated by a centralized architecture.</p>
+<h3 id="13-contributions">1.3 Contributions </h3>
+<p>This work brings:</p>
+<ol>
+<li>A <strong>unified node model</strong> where each device runs identical code — the role (client, relay, backup) is dynamically imposed by the topology, never chosen</li>
+<li>A <strong>viral replication system</strong> for messages destined to offline nodes, with strict 24h TTL and auto-deletion</li>
+<li>An <strong>experimental validation</strong> with 4 stress test campaigns including highway mobility, carrier CGNAT, and Switzerland↔France border crossing</li>
+<li>A <strong>functional prototype</strong> in Rust (1,008+ tests) validating QUIC transport, E2E encryption, and gossip discovery</li>
+</ol>
+<h3 id="14-biological-inspiration-the-network-as-a-living-organism">1.4 Biological Inspiration: the Network as a Living Organism </h3>
+<p>ToM is not merely a network protocol. It is a <strong>digital organism</strong> whose architecture draws directly from biological mechanisms. This inspiration is not metaphorical — it is structural.</p>
+<p><strong>The message as a beneficial virus.</strong> In nature, a virus has a single objective: survive long enough to reach a receptive host. It mutates, it switches hosts when the current one weakens, it replicates to maximize its chances. In ToM, a message destined to an offline node behaves exactly this way: it replicates across 3 to 5 backup nodes, it monitors the "health" of each host (bandwidth, uptime, timezone compatible with the recipient), it <strong>proactively migrates</strong> to a better host before the current one fails — because waiting for the host to die is already too late. And like a virus, it dies after a defined time (24h) if its mission fails. The more hosts in the network, the more resilient the virus. <strong>A positive virus: the more hosts, the stronger the organism.</strong></p>
+<p><strong>The network as an immune system.</strong> The anti-spam mechanism "the sprinkler gets sprinkled" works like an adaptive immune system. It does not destroy the intruder (no banning) — it progressively identifies and increases the immune response (increased workload) until the intruder exhausts itself. No NK cells that kill on contact (no blacklist), but a T-cell response that forces adaptation or abandonment. The network hardens through the attacks it endures.</p>
+<p><strong>The sliding genesis: an organism without a fossil skeleton.</strong> Blockchains accumulate millions of blocks — a fossil skeleton that grows heavier over time. ToM's L1 architecture uses a "sliding genesis": rather than accumulating history, the anchoring layer stays close to a genesis block in perpetual motion. Old states are compacted into cryptographic snapshots then purged. The network does not carry the weight of its past — like an organism that renews its cells, it only retains the present state.</p>
+<p><strong>Ephemeral subnets: temporary organs.</strong> When a communication pattern emerges (a group of nodes exchanging frequently), a subnet forms spontaneously — like an organ that develops in response to a need. When the need disappears, the subnet dissolves. No permanent unnecessary structure, no architectural debt. The network <strong>breathes</strong>: it structures and destructures continuously.</p>
+<p><strong>Proof of Presence: the right to exist through presence.</strong> Neither proof-of-work (right through computation), nor proof-of-stake (right through capital). ToM introduces the concept of <strong>proof of presence</strong>: the right to participate in network decisions is given by active presence. Not by what you own, not by what you invest, but by the simple fact of being there and contributing. It is the most egalitarian model possible — a smartphone on a mobile network has as many rights as a data center, as long as it is present.</p>
+<h3 id="15-vision-a-protocol-for-a-free-internet">1.5 Vision: a Protocol for a Free Internet </h3>
+<blockquote>
+<p><em>"The objective: a universal, resilient communication layer, with no central point of control, that is self-sufficient. A new protocol for an internet that belongs to no one."</em><br>
+— ToM Whitepaper v1, January 2026</p>
+</blockquote>
+<p>ToM is not an application to install. It is intended to become a <strong>protocol building block integrated into everyday tools</strong> — browsers, messaging apps, email clients — so that the user participates in the network without knowing it. Just as TCP/IP transports packets without the user knowing, ToM will transport messages without being visible.</p>
+<p>The source code itself will eventually be <strong>self-hosted on the ToM network</strong>. If GitHub goes down, if a government orders the repository removed, if a company applies pressure — the code lives on the network it created. Documentation, issues, the development workflow: all distributed on ToM. The protocol hosts its own evolution. <strong>The umbilical cord is cut when the baby breathes on its own.</strong></p>
+<p>This is the most radical property: once launched with enough nodes, <strong>ToM can no longer be stopped</strong> — only evolved. Like the Bitcoin network cannot be "turned off" (it would require simultaneously turning off tens of thousands of machines in dozens of countries), but without the financial incentive that concentrates power. There are no tokens to steal, no mining pools to target, no foundation to sue. It belongs to no one because it belongs to everyone.</p>
+<hr>
+<h2 id="2-state-of-the-art">2. State of the Art </h2>
+<h3 id="21-taxonomy-of-existing-approaches">2.1 Taxonomy of Existing Approaches </h3>
+<table>
+<thead>
+<tr>
+<th>Criterion</th>
+<th>Signal</th>
+<th>libp2p</th>
+<th>Hyperswarm</th>
+<th>Nostr</th>
+<th><strong>ToM</strong></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Required infrastructure</td>
+<td>Central servers</td>
+<td>Bootstrap relays</td>
+<td>DHT bootstrap</td>
+<td>Voluntary relays</td>
+<td><strong>None (post-bootstrap)</strong></td>
+</tr>
+<tr>
+<td>Visible metadata</td>
+<td>Server sees social graph</td>
+<td>Relays see source/dest</td>
+<td>DHT sees lookups</td>
+<td>Relays see everything in cleartext</td>
+<td><strong>Relays only see encrypted from/to</strong></td>
+</tr>
+<tr>
+<td>NAT traversal</td>
+<td>N/A (client-server)</td>
+<td>relay + DCUtR</td>
+<td>UDX hole punch</td>
+<td>N/A (client-server)</td>
+<td><strong>QUIC hole punch + relay fallback</strong></td>
+</tr>
+<tr>
+<td>Node contribution</td>
+<td>Passive (consumption)</td>
+<td>Optional</td>
+<td>Optional (seeding)</td>
+<td>Voluntary (relays)</td>
+<td><strong>Mandatory and invisible</strong></td>
+</tr>
+<tr>
+<td>Message persistence</td>
+<td>Indefinite (server)</td>
+<td>Depends on app</td>
+<td>None</td>
+<td>Indefinite (relays)</td>
+<td><strong>24h strict TTL, then purge</strong></td>
+</tr>
+<tr>
+<td>E2E encryption</td>
+<td>Yes (Signal Protocol)</td>
+<td>App's choice</td>
+<td>SecretStream</td>
+<td>No (by default)</td>
+<td><strong>Yes (XChaCha20-Poly1305)</strong></td>
+</tr>
+</tbody>
+</table>
+<h3 id="22-identified-limitations">2.2 Identified Limitations </h3>
+<p><strong>libp2p</strong> solves multi-protocol transport but imposes disproportionate integration complexity for a messaging use case. The relay protocol (Circuit Relay v2) treats relays as a NAT workaround, not as the architectural core. Furthermore, the initial connection phase always depends on pre-known relays.</p>
+<p><strong>Hyperswarm</strong> has the right philosophy (DHT-first, native hole punch) but the Node.js-only implementation limits deployment. Its technical successor, the Holepunch stack (Pear Runtime), remains proprietary in its distribution.</p>
+<p><strong>Nostr</strong> democratizes access to relays but suffers from a free-riding problem: relay operators pay for infrastructure without guaranteed compensation. Messages are stored indefinitely, creating a storage scaling problem.</p>
+<h3 id="23-choice-of-iroh-as-transport-foundation">2.3 Choice of iroh as Transport Foundation </h3>
+<p>After comparative analysis, we chose <strong>iroh</strong> (n0-computer, 7,800+ GitHub stars, Rust, MIT) as the transport layer to study and eventually fork:</p>
+<table>
+<thead>
+<tr>
+<th>Criterion</th>
+<th>iroh</th>
+<th>Justification</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Transport</td>
+<td>Native QUIC</td>
+<td>Multiplexing, 0-RTT, connection migration</td>
+</tr>
+<tr>
+<td>Identity</td>
+<td>Ed25519 = network address</td>
+<td>Exact alignment with the ToM model</td>
+</tr>
+<tr>
+<td>NAT traversal</td>
+<td>Hole punch + relay fallback</td>
+<td>~90% direct connections in production</td>
+</tr>
+<tr>
+<td>Discovery</td>
+<td>Pkarr (DNS-like) + gossip</td>
+<td>Decentralized bootstrap</td>
+</tr>
+<tr>
+<td>Relays</td>
+<td>Stateless, pass-through</td>
+<td>Philosophy identical to ToM</td>
+</tr>
+<tr>
+<td>Encryption</td>
+<td>Automatic QUIC TLS</td>
+<td>E2E at transport level</td>
+</tr>
+<tr>
+<td>License</td>
+<td>MIT</td>
+<td>Fork possible without constraints</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Strategic decision</strong>: iroh is used as a dependency for the PoC, with the explicit objective of forking the necessary modules once the ToM protocol is stabilized. No permanent dependency on n0-computer.</p>
+<hr>
+<h2 id="3-architecture">3. Architecture </h2>
+<h3 id="31-unified-node-model">3.1 Unified Node Model </h3>
+<p>Each ToM node runs identical code. There is no "client" binary distinct from a "server" binary:</p>
+<pre data-role="codeBlock" data-info="" class="language-text"><code>┌─────────────────────────────────────────┐
+│              Application                 │
+├─────────────────────────────────────────┤
+│  Layer 5: ProtocolRuntime               │  ← tokio::select! event loop
+│           Router, Topology, Tracker     │
+├─────────────────────────────────────────┤
+│  Layer 4: Protocol                      │  ← Envelopes, Groups, Backup
+│           MessagePack, Ed25519,         │
+│           XChaCha20-Poly1305            │
+├─────────────────────────────────────────┤
+│  Layer 3: Discovery &amp; Roles             │  ← Gossip, Ephemeral subnets
+├─────────────────────────────────────────┤
+│  Layer 2: Transport (tom-transport)     │  ← QUIC pool, Hole punch, Reconnection
+├─────────────────────────────────────────┤
+│  Layer 1: Network (iroh v0.96.1)       │  ← QUIC, Relay fallback, Pkarr DNS
+└─────────────────────────────────────────┘
+</code></pre><p>A node's role (relay, backup, simple client) is dynamically determined by the network based on its availability, contribution score, and local topology. A node never <em>chooses</em> to be a relay — it becomes one when the network demands it. This is the fundamental difference with BitTorrent (optional seeding) or Nostr (voluntary relays).</p>
+<h3 id="32-envelope-format">3.2 Envelope Format </h3>
+<p>Messages are encapsulated in envelopes serialized in MessagePack (≈60% more compact than JSON):</p>
+<pre data-role="codeBlock" data-info="rust" class="language-rust rust"><code><span class="token keyword keyword-pub">pub</span> <span class="token keyword keyword-struct">struct</span> <span class="token type-definition class-name">Envelope</span> <span class="token punctuation">{</span>
+    id<span class="token punctuation">:</span> <span class="token class-name">String</span><span class="token punctuation">,</span>              <span class="token comment">// UUIDv4</span>
+    from<span class="token punctuation">:</span> <span class="token class-name">NodeId</span><span class="token punctuation">,</span>            <span class="token comment">// Sender's Ed25519 public key</span>
+    to<span class="token punctuation">:</span> <span class="token class-name">NodeId</span><span class="token punctuation">,</span>              <span class="token comment">// Recipient's Ed25519 public key</span>
+    via<span class="token punctuation">:</span> <span class="token class-name">Vec</span><span class="token operator">&lt;</span><span class="token class-name">NodeId</span><span class="token operator">&gt;</span><span class="token punctuation">,</span>        <span class="token comment">// Relay chain (ordered)</span>
+    msg_type<span class="token punctuation">:</span> <span class="token class-name">MessageType</span><span class="token punctuation">,</span>   <span class="token comment">// Chat, Ack, Heartbeat, Group*, Backup*...</span>
+    payload<span class="token punctuation">:</span> <span class="token class-name">Vec</span><span class="token operator">&lt;</span><span class="token keyword keyword-u8">u8</span><span class="token operator">&gt;</span><span class="token punctuation">,</span>        <span class="token comment">// Cleartext or encrypted</span>
+    timestamp<span class="token punctuation">:</span> <span class="token keyword keyword-u64">u64</span><span class="token punctuation">,</span>          <span class="token comment">// Unix milliseconds</span>
+    signature<span class="token punctuation">:</span> <span class="token class-name">Vec</span><span class="token operator">&lt;</span><span class="token keyword keyword-u8">u8</span><span class="token operator">&gt;</span><span class="token punctuation">,</span>      <span class="token comment">// Ed25519 signature (64 bytes)</span>
+    ttl<span class="token punctuation">:</span> <span class="token keyword keyword-u32">u32</span><span class="token punctuation">,</span>                <span class="token comment">// Hop counter (max 4)</span>
+    encrypted<span class="token punctuation">:</span> <span class="token keyword keyword-bool">bool</span><span class="token punctuation">,</span>         <span class="token comment">// Payload encryption indicator</span>
+<span class="token punctuation">}</span>
+</code></pre><p><strong>Critical point</strong>: the signature covers all fields <em>except</em> <code>ttl</code> and <code>signature</code> itself. TTL is excluded because relays decrement it in transit — including TTL would invalidate the signature after each hop. This allows relays to verify the envelope's authenticity without being able to otherwise modify it.</p>
+<h3 id="33-key-exchange-how-two-nodes-share-a-secret-without-the-relay-seeing-it">3.3 Key Exchange: How Two Nodes Share a Secret Without the Relay Seeing It </h3>
+<p>The central problem of any E2E system traversing relays is: <strong>how do Alice and Bob establish a common symmetric key without an intermediary relay being able to reconstruct it?</strong></p>
+<p>The classic answer is the Diffie-Hellman (DH) protocol. ToM uses a modern variant: <strong>ephemeral-static X25519</strong> (ECDH on Curve25519).</p>
+<h4 id="331-the-key-exchange-problem-in-the-presence-of-relays">3.3.1 The Key Exchange Problem in the Presence of Relays </h4>
+<p>In ToM, each message traverses at least one relay. The relay sees the entire envelope pass through. If Alice encrypted with a key she sends in the message, the relay could extract it. The solution: <strong>never transmit the key itself</strong>, but transmit only the information needed for Bob to <em>recompute</em> it — information useless to anyone who isn't Bob.</p>
+<h4 id="332-cryptographic-identity-of-nodes">3.3.2 Cryptographic Identity of Nodes </h4>
+<p>Each node possesses an Ed25519 key pair generated at first connection:</p>
+<ul>
+<li><strong>Private key</strong>: 32 bytes (seed), never transmitted</li>
+<li><strong>Public key</strong>: 32 bytes = <strong>network address</strong> of the node (no central registry, no DNS)</li>
+</ul>
+<p>The Ed25519 public key is known to the network — it is the node's identifier. When Alice wants to write to Bob, she already knows his Ed25519 public key (discovered via gossip or prior exchange).</p>
+<h4 id="333-ed25519--x25519-conversion">3.3.3 Ed25519 → X25519 Conversion </h4>
+<p>Ed25519 operates on the Edwards curve (signing). Diffie-Hellman requires X25519, which operates on the Montgomery curve. The two curves are <strong>birationally equivalent</strong> via:</p>
+<pre data-role="codeBlock" data-info="" class="language-text"><code>x_montgomery = (1 + y_edwards) / (1 - y_edwards)
+</code></pre><p>For the public key:</p>
+<pre data-role="codeBlock" data-info="rust" class="language-rust rust"><code><span class="token comment">// Decompress the Edwards point, convert to Montgomery</span>
+<span class="token keyword keyword-let">let</span> edwards <span class="token operator">=</span> <span class="token class-name">CompressedEdwardsY</span><span class="token punctuation">(</span>ed25519_pk_bytes<span class="token punctuation">)</span><span class="token punctuation">.</span><span class="token function">decompress</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token operator">?</span><span class="token punctuation">;</span>
+<span class="token keyword keyword-let">let</span> montgomery <span class="token operator">=</span> edwards<span class="token punctuation">.</span><span class="token function">to_montgomery</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>  <span class="token comment">// → X25519 public key</span>
+</code></pre><p>For the private key (seed):</p>
+<pre data-role="codeBlock" data-info="rust" class="language-rust rust"><code><span class="token comment">// SHA-512(seed), take the first 32 bytes, apply X25519 clamping</span>
+<span class="token keyword keyword-let">let</span> hash <span class="token operator">=</span> <span class="token class-name">Sha512</span><span class="token punctuation">::</span><span class="token function">digest</span><span class="token punctuation">(</span>ed25519_seed<span class="token punctuation">)</span><span class="token punctuation">;</span>
+<span class="token keyword keyword-let">let</span> <span class="token keyword keyword-mut">mut</span> secret <span class="token operator">=</span> <span class="token punctuation">[</span><span class="token number">0u8</span><span class="token punctuation">;</span> <span class="token number">32</span><span class="token punctuation">]</span><span class="token punctuation">;</span>
+secret<span class="token punctuation">.</span><span class="token function">copy_from_slice</span><span class="token punctuation">(</span><span class="token operator">&amp;</span>hash<span class="token punctuation">[</span><span class="token punctuation">..</span><span class="token number">32</span><span class="token punctuation">]</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+secret<span class="token punctuation">[</span><span class="token number">0</span><span class="token punctuation">]</span> <span class="token operator">&amp;=</span> <span class="token number">248</span><span class="token punctuation">;</span>      <span class="token comment">// Clear the 3 low bits</span>
+secret<span class="token punctuation">[</span><span class="token number">31</span><span class="token punctuation">]</span> <span class="token operator">&amp;=</span> <span class="token number">127</span><span class="token punctuation">;</span>     <span class="token comment">// Clear the high bit</span>
+secret<span class="token punctuation">[</span><span class="token number">31</span><span class="token punctuation">]</span> <span class="token operator">|=</span> <span class="token number">64</span><span class="token punctuation">;</span>      <span class="token comment">// Set bit 6</span>
+</code></pre><p>This clamping is standard (RFC 7748): it forces the key into the prime-order subgroup, eliminating small-subgroup attacks. This is exactly the operation performed by <code>libsodium crypto_sign_ed25519_sk_to_curve25519</code>.</p>
+<h4 id="334-exchange-protocol--ephemeral-static-diffie-hellman">3.3.4 Exchange Protocol — Ephemeral-Static Diffie-Hellman </h4>
+<p>For each message, Alice executes:</p>
+<pre data-role="codeBlock" data-info="" class="language-text"><code>Step 1: Alice generates a fresh ephemeral X25519 key pair
+        eph_secret ← X25519Secret::random(OsRng)     // System CSPRNG
+        eph_public ← X25519PublicKey::from(eph_secret) // 32 bytes
+
+Step 2: Alice converts Bob's public key (Ed25519 → X25519)
+        bob_x25519 ← ed25519_to_x25519_public(bob_ed25519_pk)
+
+Step 3: Diffie-Hellman
+        shared_secret ← eph_secret.diffie_hellman(bob_x25519)
+        // = eph_secret × bob_x25519 (scalar multiplication on Curve25519)
+        // 32 bytes of shared secret
+
+Step 4: Key Derivation (HKDF-SHA256)
+        encryption_key ← HKDF-Expand(shared_secret,
+                         info="tom-protocol-e2e-xchacha20poly1305-v1")
+        // 32 bytes = AE key for XChaCha20-Poly1305
+
+Step 5: AEAD Encryption
+        nonce ← 24 random bytes (OsRng)
+        ciphertext ∥ tag ← XChaCha20-Poly1305.encrypt(key, nonce, plaintext)
+        // tag = 16 bytes Poly1305 (authentication)
+
+Step 6: Encrypted payload construction
+        EncryptedPayload = {
+            ciphertext:    Vec&lt;u8&gt;,    // len(plaintext) + 16 bytes (tag)
+            nonce:         [u8; 24],   // 24 bytes
+            ephemeral_pk:  [u8; 32],   // Alice's ephemeral public key
+        }
+        // Total overhead: 32 + 24 + 16 = 72 bytes per message
+
+Step 7: Encrypt-then-Sign signature
+        envelope.payload ← MessagePack(EncryptedPayload)
+        envelope.signature ← Ed25519.sign(signing_bytes)
+        // The signature covers the ciphertext, not the plaintext
+</code></pre><p><strong>What the relay sees passing through</strong>:</p>
+<ul>
+<li><code>from</code>: Alice's public key (in cleartext, needed for routing)</li>
+<li><code>to</code>: Bob's public key (in cleartext, needed for routing)</li>
+<li><code>payload</code>: <code>EncryptedPayload</code> serialized in MessagePack — i.e. <code>{ciphertext, nonce, ephemeral_pk}</code></li>
+<li><code>signature</code>: verifiable by the relay (proof the envelope comes from Alice)</li>
+</ul>
+<p><strong>What the relay CANNOT do</strong>:</p>
+<ul>
+<li>Decrypt <code>ciphertext</code> — it would require Bob's private key to compute <code>eph_secret.diffie_hellman(bob_x25519)</code></li>
+<li>Reconstruct <code>shared_secret</code> — it sees <code>eph_public</code> and <code>bob_public</code>, but without <code>eph_secret</code> (never transmitted) nor <code>bob_secret</code>, the DH is irreversible (elliptic curve discrete logarithm problem)</li>
+<li>Forge a signature — it would require Alice's private key</li>
+</ul>
+<p><strong>Bob's side (decryption)</strong>:</p>
+<pre data-role="codeBlock" data-info="" class="language-text"><code>bob_x25519_secret ← ed25519_to_x25519_secret(bob_ed25519_seed)
+shared_secret     ← bob_x25519_secret.diffie_hellman(eph_public)
+// Fundamental DH property:
+//   eph_secret × bob_public  ==  bob_secret × eph_public
+//   Both sides compute the SAME secret without ever transmitting it
+encryption_key    ← HKDF-Expand(shared_secret, info=...)
+plaintext         ← XChaCha20-Poly1305.decrypt(key, nonce, ciphertext)
+</code></pre><h4 id="335-why-xchacha20-poly1305-and-not-aes-gcm">3.3.5 Why XChaCha20-Poly1305 and Not AES-GCM </h4>
+<table>
+<thead>
+<tr>
+<th>Criterion</th>
+<th>XChaCha20-Poly1305</th>
+<th>AES-256-GCM</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Nonce size</td>
+<td><strong>192 bits</strong></td>
+<td>96 bits</td>
+</tr>
+<tr>
+<td>Random nonce safety</td>
+<td>Yes (2^96 messages before collision)</td>
+<td>No (birthday bound at ~2^32)</td>
+</tr>
+<tr>
+<td>Need to coordinate nonces</td>
+<td><strong>No</strong></td>
+<td>Yes (counter or reuse risk)</td>
+</tr>
+<tr>
+<td>Hardware instructions</td>
+<td>None (pure software)</td>
+<td>AES-NI (absent on low-end ARM)</td>
+</tr>
+<tr>
+<td>ARM performance (Cortex-A72)</td>
+<td><strong>Constant</strong></td>
+<td>Variable (without AES-NI: 5-10x slower)</td>
+</tr>
+<tr>
+<td>Deployed in</td>
+<td>WireGuard, Signal, libsodium</td>
+<td>TLS 1.3, SSH</td>
+</tr>
+</tbody>
+</table>
+<p><strong>The 192-bit nonce choice is decisive in a P2P context</strong>: without a central server to manage a nonce counter, each node generates nonces randomly. With AES-GCM (96 bits), the birthday bound imposes a limit at ~2^32 messages per key pair — beyond that, likely nonce reuse → complete destruction of confidentiality (cf. Joux, 2006). With XChaCha20 (192 bits), this limit rises to ~2^96 — physically unreachable.</p>
+<h4 id="336-hkdf-and-domain-separation">3.3.6 HKDF and Domain Separation </h4>
+<pre data-role="codeBlock" data-info="rust" class="language-rust rust"><code><span class="token keyword keyword-const">const</span> <span class="token constant">HKDF_INFO</span><span class="token punctuation">:</span> <span class="token operator">&amp;</span><span class="token punctuation">[</span><span class="token keyword keyword-u8">u8</span><span class="token punctuation">]</span> <span class="token operator">=</span> <span class="token string">b"tom-protocol-e2e-xchacha20poly1305-v1"</span><span class="token punctuation">;</span>
+</code></pre><p>The <code>info</code> string acts as a <strong>cryptographic domain separator</strong> (Krawczyk, 2010). If the same <code>shared_secret</code> were accidentally used in another protocol with an identical HKDF, the derived key would be different thanks to this string. This is defense in depth: even in case of implementation error, keys do not leak to other contexts.</p>
+<h4 id="337-forward-secrecy">3.3.7 Forward Secrecy </h4>
+<p>Each message uses a <strong>fresh ephemeral X25519 key pair</strong> (<code>OsRng</code>, the system CSPRNG). Consequence:</p>
+<ul>
+<li>Compromising Alice's long-term key (her Ed25519 seed) allows <em>signing</em> future messages in her name, but <strong>does not allow decrypting her past messages</strong> — because the ephemeral keys no longer exist in memory</li>
+<li>Compromising an ephemeral key gives access to <strong>a single message</strong> — the others use independent ephemeral pairs</li>
+<li>This is per-message forward secrecy, stronger than the per-session forward secrecy of classic TLS</li>
+</ul>
+<h4 id="338-encrypt-then-sign-order-of-operations-and-its-implications">3.3.8 Encrypt-then-Sign: Order of Operations and Its Implications </h4>
+<p>ToM applies <strong>Encrypt-then-Sign</strong> (EtS) and not Sign-then-Encrypt (StE):</p>
+<pre data-role="codeBlock" data-info="rust" class="language-rust rust"><code><span class="token keyword keyword-pub">pub</span> <span class="token keyword keyword-fn">fn</span> <span class="token function-definition function">encrypt_and_sign</span><span class="token punctuation">(</span><span class="token keyword keyword-self">self</span><span class="token punctuation">,</span> secret_seed<span class="token punctuation">,</span> recipient_pk<span class="token punctuation">)</span> <span class="token punctuation">-&gt;</span> <span class="token class-name">Envelope</span> <span class="token punctuation">{</span>
+    <span class="token keyword keyword-let">let</span> <span class="token keyword keyword-mut">mut</span> env <span class="token operator">=</span> <span class="token keyword keyword-self">self</span><span class="token punctuation">.</span><span class="token function">build</span><span class="token punctuation">(</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+    env<span class="token punctuation">.</span><span class="token function">encrypt_payload</span><span class="token punctuation">(</span>recipient_pk<span class="token punctuation">)</span><span class="token operator">?</span><span class="token punctuation">;</span>   <span class="token comment">// ← Encrypt first</span>
+    env<span class="token punctuation">.</span><span class="token function">sign</span><span class="token punctuation">(</span>secret_seed<span class="token punctuation">)</span><span class="token punctuation">;</span>                 <span class="token comment">// ← Sign second</span>
+    <span class="token class-name">Ok</span><span class="token punctuation">(</span>env<span class="token punctuation">)</span>
+<span class="token punctuation">}</span>
+</code></pre><p><strong>Why this order?</strong></p>
+<ol>
+<li>
+<p><strong>Relays can verify authenticity without decrypting</strong>: The signature covers the ciphertext. A relay verifies <code>Ed25519.verify(signing_bytes, signature)</code> — if someone altered the ciphertext in transit, the signature fails. The relay rejects the corrupted envelope <em>without ever touching the content</em>.</p>
+</li>
+<li>
+<p><strong>Double protection for the recipient</strong>: Bob first verifies the signature (envelope intact?), then decrypts. The Poly1305 tag verifies plaintext integrity. Two independent authentication layers.</p>
+</li>
+<li>
+<p><strong>No "surreptitious forwarding" attack</strong>: In StE, an attacker could take a signed-then-encrypted message, decrypt it (if they are the recipient), re-encrypt it for someone else while keeping the original signature → the new recipient believes the original sender wrote to them. In EtS, the signature covers the ciphertext which includes <code>ephemeral_pk</code> (bound to the specific recipient) — redirection is detectable.</p>
+</li>
+</ol>
+<h3 id="34-routing">3.4 Routing </h3>
+<p>The <code>Router</code> is a pure decision engine — it receives an envelope and returns an action:</p>
+<pre data-role="codeBlock" data-info="rust" class="language-rust rust"><code><span class="token keyword keyword-pub">pub</span> <span class="token keyword keyword-enum">enum</span> <span class="token type-definition class-name">RoutingAction</span> <span class="token punctuation">{</span>
+    <span class="token class-name">Deliver</span><span class="token punctuation">(</span><span class="token class-name">Envelope</span><span class="token punctuation">)</span><span class="token punctuation">,</span>              <span class="token comment">// For this node → deliver to application</span>
+    <span class="token class-name">Forward</span><span class="token punctuation">(</span><span class="token class-name">Envelope</span><span class="token punctuation">,</span> <span class="token class-name">NodeId</span><span class="token punctuation">)</span><span class="token punctuation">,</span>      <span class="token comment">// Not for this node → relay</span>
+    <span class="token class-name">Reject</span><span class="token punctuation">(</span><span class="token class-name">Envelope</span><span class="token punctuation">,</span> <span class="token class-name">RejectReason</span><span class="token punctuation">)</span><span class="token punctuation">,</span> <span class="token comment">// Invalid → reject</span>
+    <span class="token class-name">Ack</span><span class="token punctuation">(</span><span class="token class-name">String</span><span class="token punctuation">,</span> <span class="token class-name">NodeId</span><span class="token punctuation">)</span><span class="token punctuation">,</span>            <span class="token comment">// Delivery confirmation</span>
+    <span class="token class-name">ReadReceipt</span><span class="token punctuation">(</span><span class="token class-name">String</span><span class="token punctuation">,</span> <span class="token class-name">NodeId</span><span class="token punctuation">)</span><span class="token punctuation">,</span>    <span class="token comment">// Read confirmation</span>
+    <span class="token class-name">Drop</span><span class="token punctuation">(</span><span class="token class-name">Envelope</span><span class="token punctuation">,</span> <span class="token class-name">DropReason</span><span class="token punctuation">)</span><span class="token punctuation">,</span>     <span class="token comment">// TTL exhausted, duplicate → discard</span>
+<span class="token punctuation">}</span>
+</code></pre><p>The router never touches the network directly — it returns an intent that the <code>ProtocolRuntime</code> executes. This command/execution separation facilitates unit testing (237 Rust tests pass in &lt;2s).</p>
+<h3 id="35-discovery-and-ephemeral-subnets">3.5 Discovery and Ephemeral Subnets </h3>
+<p><strong>Gossip (adapted HyParView)</strong>: Each node maintains 2-3 active gossip neighbors and periodically exchanges <code>PeerAnnounce</code> messages. Convergence measured at ~3 seconds for a new node in a 15-peer network.</p>
+<p><strong>Ephemeral subnets</strong>: When a communication pattern is detected (2+ nodes exchanging frequently), a subnet forms via BFS clustering. The subnet exists only as long as it serves — automatic dissolution after 5 minutes of inactivity. Implementation note: after dissolution, dissolved nodes are excluded from BFS in the same cycle to prevent reformation-dissolution oscillation.</p>
+<h3 id="36-viral-message-replication-adr-009">3.6 Viral Message Replication (ADR-009) </h3>
+<p>For offline recipients, messages behave like organisms seeking to survive:</p>
+<pre data-role="codeBlock" data-info="" class="language-text"><code>[Message created] → [Recipient unreachable?]
+       ↓                    ↓
+  [Direct delivery]    [Replication across 3-5 backup nodes]
+                              ↓
+                    [Continuous host quality monitoring]
+                    (timezone, bandwidth, uptime)
+                              ↓
+                    [Score &lt; threshold X%] → [Proactive replication
+                                              to better host]
+                              ↓
+                    [Self-deletion BEFORE the host dies]
+                              ↓
+                    [Recipient reconnected] → [Query + delivery]
+                              ↓
+                    [ACK propagated → global purge of all copies]
+                              ↓
+                    [24h elapsed] → [Unconditional purge]
+</code></pre><p><strong>Key insight</strong>: the message does not wait for its host to disconnect before migrating — that's already too late. It observes degradation and acts <em>before</em> the failure. The replication timestamp uses an absolute <code>expires_at</code> (not a relative TTL) to prevent time drift between nodes.</p>
+<h3 id="37-group-messaging-hub-and-spoke">3.7 Group Messaging (Hub-and-Spoke) </h3>
+<p>Groups use a star topology with a deterministically elected hub:</p>
+<ul>
+<li><strong>Election</strong>: sort members by <code>NodeId</code> (lexicographic order), the first online node becomes hub</li>
+<li><strong>Failover</strong>: zero coordination — the next in the sorted list takes over immediately</li>
+<li><strong>Fan-out</strong>: the hub receives a <code>GroupMessage</code> and distributes it to all members</li>
+<li><strong>No consensus</strong>: no Raft, no Paxos, no voting — deterministic ordering eliminates the need</li>
+</ul>
+<h3 id="38-unpredictability-as-a-fundamental-security-mechanism">3.8 Unpredictability as a Fundamental Security Mechanism </h3>
+<p>The preceding sections describe classical cryptographic primitives (DH, AEAD, signatures). But ToM's true security innovation is <strong>architectural</strong>: the protocol is designed to be unpredictable at every layer. An attacker cannot anticipate the network's behavior, because the network itself does not know it in advance.</p>
+<h4 id="381-rotating-and-random-roles-you-dont-know-what-youll-have-to-do">3.8.1 Rotating and Random Roles: You Don't Know What You'll Have to Do </h4>
+<p>In BitTorrent, a node chooses to seed or not. In Nostr, an operator chooses to maintain a relay. In ToM, <strong>no one chooses</strong>. The network dynamically imposes roles:</p>
+<pre data-role="codeBlock" data-info="" class="language-text"><code>Time T:   Alice = client,  Bob = relay,   Carol = backup
+Time T+1: Alice = relay,   Bob = backup,  Carol = client
+Time T+2: Alice = backup,  Bob = client,  Carol = relay
+</code></pre><p>Assignment depends on factors the attacker does not control:</p>
+<ul>
+<li><strong>Contribution score</strong>: historical consumption/service ratio (not falsifiable without actually contributing)</li>
+<li><strong>Local topology</strong>: which nodes are connected to which (constantly changes with mobility)</li>
+<li><strong>Non-deterministic selection</strong>: randomness in choosing the relay among eligible candidates</li>
+</ul>
+<p><strong>Security consequence</strong>: an attacker who wants to intercept Alice's messages as a relay cannot <em>position itself</em> as Alice's relay — it's the network that decides. And even if it obtains this role at time T, it will lose it at T+1. Compare with:</p>
+<ul>
+<li><strong>Tor</strong>: relays are permanent voluntary servers → an attacker controlling a Tor relay controls it 24/7</li>
+<li><strong>Nostr</strong>: relays are chosen by the user → an attacker compromising a Nostr relay intercepts all its traffic indefinitely</li>
+<li><strong>Signal</strong>: servers are fixed → an attacker (state, insider) compromising a Signal server sees all metadata</li>
+</ul>
+<p>In ToM, the relay role is <strong>ephemeral, imposed, and rotating</strong>. The attacker aims at a moving target.</p>
+<h4 id="382-the-sprinkler-gets-sprinkled-anti-spam-through-economic-exhaustion">3.8.2 The Sprinkler Gets Sprinkled: Anti-Spam Through Economic Exhaustion </h4>
+<p>Classical systems handle spam through exclusion: blacklists, CAPTCHAs, rate-limiting, banning. These mechanisms are binary (allowed/blocked) and create censorship power — whoever controls the blacklist controls access.</p>
+<p>ToM adopts a radically different approach, inspired by game theory:</p>
+<pre data-role="codeBlock" data-info="" class="language-text"><code>Normal user:
+  [send msg] → [network accepts] → [relay for others] → equilibrium
+
+Spammer (detected by abnormal sending pattern):
+  [send msg] → [network accepts] → [BUT: obligation to relay 10x more]
+       ↓
+  [continue spam] → [obligation to relay 100x more]
+       ↓
+  [continue further] → [obligation to relay 1000x more]
+       ↓
+  [the spammer consumes more bandwidth relaying
+   than they gain from spamming] → rational abandonment
+</code></pre><p><strong>Why this is superior to banning</strong>:</p>
+<ol>
+<li>
+<p><strong>No censorship</strong>: The spammer is never excluded. They can always send. But each message costs them increasingly more relay work. It's the equivalent of an adaptive proof-of-work — except the "work" is useful relay for the network.</p>
+</li>
+<li>
+<p><strong>No destructive false positives</strong>: A legitimate user who sends a lot (active group) will see a slight increase in their relay duties, not a ban. The gradient is continuous, not binary.</p>
+</li>
+<li>
+<p><strong>Self-funding</strong>: The relay work imposed on the spammer <em>benefits</em> the network. The attack is transformed into forced contribution. The network literally strengthens through the attacks it endures.</p>
+</li>
+<li>
+<p><strong>No judge</strong>: No entity decides who is a spammer. The mechanism is purely local and emergent — each node independently adjusts the obligations of its neighbors based on the observed consumption/contribution ratio.</p>
+</li>
+</ol>
+<h4 id="383-shattered-bootstrap-the-receptionist-who-changes-but-leaves-her-notes">3.8.3 Shattered Bootstrap: The Receptionist Who Changes but Leaves Her Notes </h4>
+<p>Bootstrap is the Achilles' heel of every decentralized network. Bitcoin has its DNS seeds. Tor has its directory authorities. IPFS has its hardcoded bootstrap nodes. <strong>Each of these fixed points is an attack vector</strong>: compromise the bootstrap, and you control network entry.</p>
+<p>ToM treats bootstrap as a living organism:</p>
+<pre data-role="codeBlock" data-info="" class="language-text"><code>Phase 1 (current PoC):
+  A fixed WebSocket server — the "umbilical cord"
+  Temporary, documented, marked for elimination
+
+Phase 2 (growth):
+  Multiple WebSocket seeds — redundancy
+  If a seed falls, the others take over
+
+Phase 3 (alpha — 10-15 nodes):
+  DHT begins operating between existing nodes
+  Seeds become ordinary nodes
+  Bootstrap is no longer a server — it's a question asked to the network
+
+Phase 4 (target):
+  Zero fixed infrastructure
+  The "phone number" (topic hash) stays the same
+  But the "receptionist" who answers changes dynamically
+  No one knows who will answer the next call
+  If she disappears, the network designates another
+  She leaves her "notes" (network state) to her replacement via gossip
+</code></pre><p><strong>The receptionist metaphor</strong> is central: in a classic office, the receptionist is a single point of failure. If she is absent, no one answers. If she is corrupted, she can redirect calls. In ToM, the "receptionist" is a rotating role occupied by a different node at each moment. Corrupting the current receptionist is useless — she will be replaced before the attacker can profit from it. And she has no power: she <em>introduces</em> peers to the newcomer, she does not <em>decide</em> access.</p>
+<p><strong>Comparison with other bootstraps</strong>:</p>
+<table>
+<thead>
+<tr>
+<th>Protocol</th>
+<th>Bootstrap</th>
+<th>Fixed point?</th>
+<th>Attackable?</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Bitcoin</strong></td>
+<td>Hardcoded DNS seeds</td>
+<td>Yes (6 domains)</td>
+<td>Yes (DNS hijack, BGP)</td>
+</tr>
+<tr>
+<td><strong>Tor</strong></td>
+<td>9 Directory Authorities</td>
+<td>Yes (9 known servers)</td>
+<td>Yes (authority compromise)</td>
+</tr>
+<tr>
+<td><strong>IPFS/libp2p</strong></td>
+<td>Hardcoded bootstrap nodes</td>
+<td>Yes (~4 PL servers)</td>
+<td>Yes (DoS, compromise)</td>
+</tr>
+<tr>
+<td><strong>BitTorrent</strong></td>
+<td>Trackers + DHT bootstrap</td>
+<td>Partially (trackers)</td>
+<td>Trackers yes, DHT resistant</td>
+</tr>
+<tr>
+<td><strong>Nostr</strong></td>
+<td>Relay list in client</td>
+<td>Yes (chosen relays)</td>
+<td>Yes (malicious relay)</td>
+</tr>
+<tr>
+<td><strong>iroh</strong></td>
+<td>n0-computer relays + Pkarr</td>
+<td>Partially (n0 relays)</td>
+<td>n0 relays = potential SPOF</td>
+</tr>
+<tr>
+<td><strong>ToM (target)</strong></td>
+<td>Distributed DHT, rotating role</td>
+<td><strong>No</strong></td>
+<td><strong>No fixed target</strong></td>
+</tr>
+</tbody>
+</table>
+<h4 id="384-compound-unpredictability-each-layer-reinforces-the-others">3.8.4 Compound Unpredictability: Each Layer Reinforces the Others </h4>
+<p>The mechanisms described above are not isolated features — they form a <strong>compound unpredictability system</strong>:</p>
+<pre data-role="codeBlock" data-info="" class="language-text"><code>┌──────────────────────────────────────────────────────────────┐
+│  Layer 1: Who will relay my message?                          │
+│  → Unpredictable (rotating role based on topology + score)   │
+├──────────────────────────────────────────────────────────────┤
+│  Layer 2: Who holds the backup of my message?                 │
+│  → Unpredictable (viral replication, proactive migration)    │
+├──────────────────────────────────────────────────────────────┤
+│  Layer 3: Who is the network entry point?                     │
+│  → Unpredictable (rotating bootstrap, changed "receptionist")│
+├──────────────────────────────────────────────────────────────┤
+│  Layer 4: Which subnet will form?                             │
+│  → Unpredictable (ephemeral, based on comm patterns)         │
+├──────────────────────────────────────────────────────────────┤
+│  Layer 5: Which hub will manage my group?                     │
+│  → Deterministic BUT changing (first alive in sort)          │
+├──────────────────────────────────────────────────────────────┤
+│  Layer 6: Who will handle anti-spam?                          │
+│  → No one — it's emergent (each node adjusts locally)        │
+└──────────────────────────────────────────────────────────────┘
+</code></pre><p><strong>An attacker would need to simultaneously</strong>:</p>
+<ol>
+<li>Position itself as Alice's relay (unpredictable)</li>
+<li>Control the message's backup nodes (unpredictable)</li>
+<li>Control bootstrap to prevent Bob from joining (unpredictable)</li>
+<li>Be in the same ephemeral subnet (impossible to force)</li>
+<li>Become the group hub (deterministic but changing)</li>
+<li>Not get "sprinkled" by anti-spam (impossible if active)</li>
+</ol>
+<p>Each layer is independently hard to predict. Combined, they create a <strong>moving attack surface</strong> where no static strategy works. The attacker is condemned to play a game whose rules change every turn.</p>
+<p>This is the distributed analog of Kerckhoffs's principle: security does not rely on the secrecy of the algorithm (which is open source), but on the unpredictability of the network state at each moment.</p>
+<hr>
+<h2 id="4-experimental-validation">4. Experimental Validation </h2>
+<h3 id="41-test-protocol">4.1 Test Protocol </h3>
+<p><strong>Infrastructure</strong>:</p>
+<ul>
+<li>Sender: MacBook Pro (macOS, x86_64)</li>
+<li>Receiver: Freebox Delta NAS (Debian ARM64, Cortex-A72 Armada 8040)</li>
+<li>Binary: <code>tom-stress</code> cross-compiled via <code>cargo-zigbuild</code> (target <code>aarch64-unknown-linux-musl</code>, static binary)</li>
+<li>Protocol: ping/pong MessagePack signed Ed25519 over QUIC via iroh</li>
+</ul>
+<h3 id="42-campaign-1--connection-eviction-february-12">4.2 Campaign 1 — Connection Eviction (February 12) </h3>
+<table>
+<thead>
+<tr>
+<th>Metric</th>
+<th>Value</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Pings sent</td>
+<td>20</td>
+</tr>
+<tr>
+<td>Pongs received</td>
+<td>0</td>
+</tr>
+<tr>
+<td>Reliability</td>
+<td><strong>0%</strong></td>
+</tr>
+</tbody>
+</table>
+<p><strong>Bug #1</strong>: The connection pool does not detect NAT reassignment. QUIC reports the connection as alive (<code>close_reason().is_none() == true</code>) while the NAT has changed the mapping address. The pong is sent on a dead path.</p>
+<p><strong>Fix</strong>: Connection eviction on <code>open_bi()</code> error — force rediscovery.</p>
+<h3 id="43-campaign-2--zombie-detection-february-13">4.3 Campaign 2 — Zombie Detection (February 13) </h3>
+<table>
+<thead>
+<tr>
+<th>Metric</th>
+<th>Value</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Campaigns</td>
+<td>7</td>
+</tr>
+<tr>
+<td>Overall reliability</td>
+<td><strong>97%</strong></td>
+</tr>
+</tbody>
+</table>
+<p><strong>Bug #2</strong>: Zombie connections — <code>send()</code> succeeds (the QUIC buffer accepts data) but the pong never returns. The passive side does not trigger reconnection on silent failure.</p>
+<p><strong>Fix</strong>: Consecutive timeout tracking. After 3 timeouts without response → forced eviction.</p>
+<h3 id="44-campaign-3--highway-mobility-february-16">4.4 Campaign 3 — Highway Mobility (February 16) </h3>
+<table>
+<thead>
+<tr>
+<th>Metric</th>
+<th>Session 1</th>
+<th>Session 2</th>
+<th>Total</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Duration</td>
+<td>32 min</td>
+<td>22 min</td>
+<td>54 min</td>
+</tr>
+<tr>
+<td>Pings</td>
+<td>1,640</td>
+<td>1,112</td>
+<td><strong>2,752</strong></td>
+</tr>
+<tr>
+<td>Pongs</td>
+<td>1,638</td>
+<td>1,110</td>
+<td><strong>2,748</strong></td>
+</tr>
+<tr>
+<td>Reliability</td>
+<td>99.88%</td>
+<td>99.82%</td>
+<td><strong>99.85%</strong></td>
+</tr>
+<tr>
+<td>Avg RTT</td>
+<td>1.26 ms</td>
+<td>9.7 ms</td>
+<td>—</td>
+</tr>
+<tr>
+<td>Max reconnection</td>
+<td>—</td>
+<td>52 s</td>
+<td>—</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Conditions</strong>: A40 highway France↔Switzerland, 4G mobile network, tunnel crossings, cell tower handoffs.</p>
+<p><strong>Observation</strong>: The longest reconnection (52 s) corresponds to a tunnel crossing. The system recovers automatically without intervention. The average RTT of 1.26 ms confirms that the majority of exchanges go through direct QUIC connection (not relayed).</p>
+<h3 id="45-campaign-4--keepalive-and-pkarr-february-17">4.5 Campaign 4 — Keepalive and Pkarr (February 17) </h3>
+<table>
+<thead>
+<tr>
+<th>Metric</th>
+<th>Session 7</th>
+<th>Session 9</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Pings</td>
+<td>1,203</td>
+<td>402</td>
+</tr>
+<tr>
+<td>Pongs</td>
+<td>1,198</td>
+<td>400</td>
+</tr>
+<tr>
+<td>Reliability</td>
+<td>99.58%</td>
+<td>99.50%</td>
+</tr>
+<tr>
+<td>Avg RTT</td>
+<td>1.57 ms</td>
+<td>0.98 ms</td>
+</tr>
+<tr>
+<td>Network</td>
+<td>WiFi → 4G (border crossing)</td>
+<td>Urban 5G</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Bug #4</strong>: The passive listener (the NAS) has no keepalive mechanism. After ~30 minutes, the Pkarr record expires and the iroh relay dereferences it. Incoming connections fail.</p>
+<p><strong>Analysis</strong>: This bug does not require a transport-level fix — the gossip discovery protocol (layer 3) will naturally send heartbeats that maintain the node's presence. This is a problem solved by architecture, not by a patch.</p>
+<p><strong>Notable result</strong>: RTT of 0.98 ms in session 9 (5G) — sub-millisecond latency for cross-NAT P2P messaging.</p>
+<h3 id="46-nat-traversal--hole-punching">4.6 NAT Traversal — Hole Punching </h3>
+<table>
+<thead>
+<tr>
+<th>Scenario</th>
+<th>NAT Topology</th>
+<th>Upgrade time</th>
+<th>Direct RTT</th>
+<th>Direct rate</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>LAN WiFi</td>
+<td>Same network</td>
+<td>0.37 s</td>
+<td>49 ms</td>
+<td>100%</td>
+</tr>
+<tr>
+<td>4G CGNAT</td>
+<td>iPhone hotspot ↔ Home WiFi</td>
+<td>2.9 s</td>
+<td>107 ms</td>
+<td>90%</td>
+</tr>
+<tr>
+<td>Cross-border</td>
+<td>School CH ↔ Freebox FR</td>
+<td>1.4 s</td>
+<td>32 ms</td>
+<td>95%</td>
+</tr>
+</tbody>
+</table>
+<p><strong>100% hole punching success</strong> across all 3 scenarios. The most constrained scenario (4G carrier CGNAT) achieves 90% direct connections with an upgrade time of 2.9 s. The iroh relay (<code>euc1-1.relay.n0.iroh-canary.iroh.link</code>) only serves for the initial discovery phase.</p>
+<h3 id="47-cross-border-validation-with-protocolruntime-february-19">4.7 Cross-Border Validation with ProtocolRuntime (February 19) </h3>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Value</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Sender</td>
+<td>MacBook, Nomades school (Switzerland), guest WiFi</td>
+</tr>
+<tr>
+<td>Receiver</td>
+<td>Freebox NAS (France, 82.67.95.8)</td>
+</tr>
+<tr>
+<td>Protocol</td>
+<td>Complete ProtocolRuntime (Router + Topology + Tracker)</td>
+</tr>
+<tr>
+<td>Encryption</td>
+<td>E2E XChaCha20-Poly1305 enabled</td>
+</tr>
+<tr>
+<td>Signature</td>
+<td>Ed25519 on each envelope</td>
+</tr>
+<tr>
+<td>Direct upgrade</td>
+<td><strong>27 ms</strong></td>
+</tr>
+<tr>
+<td>Simultaneous clients</td>
+<td>2 TUI → 1 NAS bot, both reached the bot</td>
+</tr>
+</tbody>
+</table>
+<p>This test validates the complete stack: QUIC transport + ToM protocol + E2E encryption + signature + routing, in real cross-border conditions.</p>
+<hr>
+<h2 id="5-discussion">5. Discussion </h2>
+<h3 id="51-comparison-with-blockchain-promises">5.1 Comparison with Blockchain Promises </h3>
+<p>ToM shares properties with blockchains (cryptographic identity, absence of trusted third party, censorship resistance) while avoiding their limitations:</p>
+<table>
+<thead>
+<tr>
+<th>Property</th>
+<th>Blockchain</th>
+<th>ToM</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Identity</td>
+<td>Public key = address</td>
+<td>Public key = address (<strong>identical</strong>)</td>
+</tr>
+<tr>
+<td>Consensus</td>
+<td>Raft/PBFT/PoW/PoS</td>
+<td><strong>None</strong> — deterministic ordering + TTL</td>
+</tr>
+<tr>
+<td>Persistence</td>
+<td>Immutable, infinite</td>
+<td><strong>24h max then purge</strong></td>
+</tr>
+<tr>
+<td>Scaling</td>
+<td>Limited by consensus</td>
+<td><strong>Inverted</strong> — more nodes = faster</td>
+</tr>
+<tr>
+<td>Cost</td>
+<td>Gas/fees</td>
+<td><strong>Zero</strong> — contribution in kind</td>
+</tr>
+<tr>
+<td>Finality</td>
+<td>Waiting for confirmation</td>
+<td><strong>Immediate ACK from recipient</strong></td>
+</tr>
+</tbody>
+</table>
+<p>The elimination of consensus is the most radical choice. In a messaging protocol, consensus is superfluous: a message is either delivered (ACK), or lost after 24h. There is no global state to synchronize, no double-spend to prevent. This simplification eliminates the most expensive complexity of distributed systems.</p>
+<h3 id="52-security-analysis-attacks-and-countermeasures">5.2 Security Analysis: Attacks and Countermeasures </h3>
+<h4 id="521-man-in-the-middle-mitm-attack-at-the-relay-level">5.2.1 Man-in-the-Middle (MITM) Attack at the Relay Level </h4>
+<p><strong>Attack scenario</strong>: A malicious relay Mallory positions itself between Alice and Bob. Mallory intercepts envelopes and attempts to:</p>
+<ul>
+<li>(a) read message content, or</li>
+<li>(b) modify messages in transit, or</li>
+<li>(c) impersonate Alice to Bob</li>
+</ul>
+<p><strong>Countermeasure (a) — Confidentiality</strong>: The relay sees <code>EncryptedPayload = {ciphertext, nonce, ephemeral_pk}</code>. To decrypt, it would need to compute:</p>
+<pre data-role="codeBlock" data-info="" class="language-text"><code>shared_secret = bob_x25519_secret × eph_public
+</code></pre><p>Mallory possesses <code>eph_public</code> (transmitted in cleartext) and <code>bob_ed25519_pk</code> (known to the network), but <strong>neither</strong> <code>eph_secret</code> (destroyed after DH on Alice's side) <strong>nor</strong> <code>bob_secret</code> (never transmitted). Reconstructing the shared secret amounts to solving the discrete logarithm problem on Curve25519 — complexity ~2^128 operations (128 bits of security). Infeasible.</p>
+<p><strong>Countermeasure (b) — Integrity</strong>: Two independent layers protect integrity.</p>
+<p><em>Layer 1 — Ed25519 Signature (verifiable by all)</em>: The signature covers <code>{id, from, to, via, msg_type, payload, timestamp, encrypted}</code>. If Mallory modifies a single byte of the ciphertext, the signature becomes invalid. The next node (or Bob) rejects the envelope with <code>TomProtocolError::InvalidSignature</code>. Mallory cannot re-sign because it would require Alice's private key.</p>
+<p><em>Layer 2 — Poly1305 Tag (verifiable only by Bob)</em>: Even if Mallory found a way to circumvent the signature (absurd hypothesis — this would imply breaking Ed25519), the Poly1305 authentication tag (16 bytes) embedded in the ciphertext would fail during decryption. XChaCha20-Poly1305 is an AEAD scheme (<em>Authenticated Encryption with Associated Data</em>): any modification of the ciphertext, even by one bit, produces an authentication error.</p>
+<p><strong>Countermeasure (c) — Identity impersonation</strong>: To send a message "on behalf of Alice", the attacker must produce a valid Ed25519 signature with Alice's private key. Without this key, it is impossible — Ed25519 offers 128 bits of security against existential forgery (EUF-CMA).</p>
+<h4 id="522-active-mitm-interception-with-key-substitution">5.2.2 Active MITM: Interception with Key Substitution </h4>
+<p>The most dangerous classic MITM attack against Diffie-Hellman is <strong>active interception</strong>: Mallory intercepts Alice's ephemeral key, replaces it with their own, does the same on Bob's side, and ends up with two separate DH sessions — decrypting and re-encrypting each message.</p>
+<p><strong>Why this attack fails in ToM</strong>:</p>
+<ol>
+<li>
+<p><strong>The ephemeral key is inside the signed payload</strong>: The <code>EncryptedPayload</code> (containing <code>ephemeral_pk</code>) is serialized in MessagePack and placed in <code>envelope.payload</code>. This payload is covered by Alice's Ed25519 signature. If Mallory replaces <code>ephemeral_pk</code> with their own key, the signature becomes invalid.</p>
+</li>
+<li>
+<p><strong>The recipient's public key is bound to the DH</strong>: Alice computes <code>DH(eph_secret, bob_x25519_pk)</code>. If Mallory substitutes <code>bob_pk</code> with <code>mallory_pk</code> in the <code>to</code> field, they would also need to re-sign → impossible without <code>alice_secret</code>.</p>
+</li>
+<li>
+<p><strong>Trust-on-First-Use (TOFU)</strong>: Ed25519 public keys are network identifiers. When Alice knows Bob's public key (via gossip, QR code, out-of-band exchange), she encrypts specifically for that key. Mallory cannot substitute Bob's public key without Alice noticing — because Bob's <code>NodeId</code> <em>is</em> his public key.</p>
+</li>
+</ol>
+<p><strong>Acknowledged limitation</strong>: If Alice has never communicated with Bob and obtains his public key via a network entirely controlled by Mallory from the start, Mallory could provide their own key while impersonating Bob. This is the fundamental problem of initial key distribution — no protocol solves it without an out-of-band channel (QR code, voice verification, centralized PKI). Signal solves this problem with "safety numbers" verifiable in person. ToM could implement a similar mechanism.</p>
+<h4 id="523-the-51-attack-is-it-relevant-for-tom">5.2.3 The 51% Attack: Is It Relevant for ToM? </h4>
+<p>In PoW blockchains, controlling &gt;50% of computing power allows rewriting history (double-spend). In PoS blockchains, controlling &gt;50% of stake allows validating fraudulent transactions. <strong>The question: can an attacker controlling &gt;50% of ToM nodes compromise the network?</strong></p>
+<p><strong>Short answer: the 51% attack makes no sense in ToM, because there is no consensus to corrupt.</strong></p>
+<p><strong>Detailed analysis</strong> — What could an attacker controlling 51% of nodes do?</p>
+<table>
+<thead>
+<tr>
+<th>Attacker's objective</th>
+<th>Feasibility</th>
+<th>Reason</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Read messages in transit</td>
+<td>No</td>
+<td>E2E XChaCha20 — malicious nodes are blind relays</td>
+</tr>
+<tr>
+<td>Modify messages</td>
+<td>No</td>
+<td>Ed25519 signature + Poly1305 tag — any alteration is detected</td>
+</tr>
+<tr>
+<td>Prevent delivery (censorship)</td>
+<td><strong>Partially</strong></td>
+<td>Can drop messages as relay, but ToM uses alternative paths and viral replication</td>
+</tr>
+<tr>
+<td>Impersonate an identity</td>
+<td>No</td>
+<td>Requires the victim's Ed25519 private key</td>
+</tr>
+<tr>
+<td>Rewrite history</td>
+<td>N/A</td>
+<td>There is no history — 24h TTL, unconditional purge</td>
+</tr>
+<tr>
+<td>Double-spend / double-deliver</td>
+<td>N/A</td>
+<td>ACKs are idempotent — receiving a message twice is harmless</td>
+</tr>
+<tr>
+<td>Corrupt consensus</td>
+<td>N/A</td>
+<td><strong>There is no consensus</strong> — no vote, no quorum</td>
+</tr>
+</tbody>
+</table>
+<p><strong>The only real vector: selective censorship (message dropping)</strong>. If 51% of relays are malicious, a message has ~50% chance of traversing an honest relay at each hop. With a TTL of 4 hops and viral replication across 3-5 backup nodes:</p>
+<pre data-role="codeBlock" data-info="" class="language-text"><code>P(delivery) = 1 - P(all paths blocked)
+            = 1 - (0.51)^(nb_independent_paths)
+
+With 3 backup replicas and 2 alternative paths per replica:
+P(delivery) ≈ 1 - (0.51)^6 ≈ 98.2%
+</code></pre><p>Even with 51% malicious nodes, viral replication and multiple paths maintain a high delivery probability. And unlike a blockchain, the attacker gains nothing — there are no tokens to steal, no history to rewrite, no consensus to corrupt. <strong>The attack cost is high (maintaining 51% of nodes) and the gain is near-zero (delaying a few messages by a few seconds).</strong></p>
+<p><strong>Comparison with blockchains</strong>:</p>
+<table>
+<thead>
+<tr>
+<th>Property</th>
+<th>Blockchain (51%)</th>
+<th>ToM (51%)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Motivation</td>
+<td>Financial theft (double-spend)</td>
+<td><strong>None</strong> — no value to extract</td>
+</tr>
+<tr>
+<td>Impact</td>
+<td>History rewriting</td>
+<td><strong>Partial and temporary censorship</strong></td>
+</tr>
+<tr>
+<td>Attack duration</td>
+<td>Permanent if maintained</td>
+<td><strong>Max 24h</strong> — TTL purges everything</td>
+</tr>
+<tr>
+<td>Defense</td>
+<td>Increase hashrate/stake</td>
+<td><strong>Viral replication + alternative paths</strong></td>
+</tr>
+<tr>
+<td>Post-attack state</td>
+<td>Loss of confidence, fork</td>
+<td><strong>No permanent damage</strong></td>
+</tr>
+</tbody>
+</table>
+<p>The absence of consensus, global state, and financial value makes the 51% attack economically irrational against ToM. This is a structural advantage of ephemeral messaging protocols over permanent ledgers.</p>
+<h4 id="524-other-security-properties">5.2.4 Other Security Properties </h4>
+<p><strong>Per-message forward secrecy</strong>: Each message uses a fresh ephemeral X25519 pair. Compromising one message key compromises neither past nor future messages. This is stronger than the per-session forward secrecy of classic TLS (where compromising a session key exposes the entire session).</p>
+<p><strong>Metadata resistance</strong>: Relays see <code>from</code> and <code>to</code> (needed for routing) but content is encrypted. Ephemeral subnets reduce the number of intermediary relays, decreasing the exposure surface. Limitation: a global network observer could correlate temporal patterns (traffic analysis). Onion routing is not implemented in the current PoC.</p>
+<p><strong>Censorship-free anti-spam</strong>: The "sprinkler gets sprinkled" mechanism progressively increases the workload of abusers without excluding them. No blocking, no ban, no binary threshold — abuse simply becomes economically irrational. This is the analog of Bitcoin's proof-of-work, but applied to spam instead of consensus.</p>
+<p><strong>Structural right to be forgotten</strong>: The 24h TTL and unconditional purge guarantee that no message persists beyond its delivery window. Unlike GDPR (right to be forgotten <em>on request</em>), ToM implements a <em>structural</em> right to be forgotten — erasure is a protocol mechanism, not an administrative policy.</p>
+<h3 id="53-current-limitations-and-open-attack-vectors">5.3 Current Limitations and Open Attack Vectors </h3>
+<ol>
+<li><strong>Scale not validated beyond 1:1</strong> — Stress tests cover a sender-receiver topology. Behavior at 15+ simultaneous nodes remains to be validated.</li>
+<li><strong>Temporary bootstrap</strong> — The PoC still uses iroh relays for initial discovery. Complete elimination of fixed bootstrap requires DHT implementation.</li>
+<li><strong>Traffic analysis</strong> — A passive observer on the network can correlate temporal patterns (message sizes, timing). Onion routing (Tor-style) is not implemented. This is the most realistic attack vector against privacy.</li>
+<li><strong>Sybil attack</strong> — An attacker massively creating identities (free: one Ed25519 key pair = one node) could inflate their presence in the network. Planned countermeasure: the contribution score makes freshly created nodes minimally influential (no relay/backup role assigned without history).</li>
+<li><strong>Eclipse attack</strong> — An attacker surrounding a target node with their own nodes could isolate it. Countermeasure: HyParView gossip maintains random neighbors in addition to active neighbors, making encirclement difficult.</li>
+<li><strong>Dalek version conflict</strong> — The coexistence of <code>ed25519-dalek 2.x</code> (ToM) and <code>3.0.0-pre.1</code> (iroh) works via byte-level conversion but is fragile. Resolved by the planned strategic fork.</li>
+</ol>
+<h3 id="54-positioning-against-existing-p2p-protocols">5.4 Positioning Against Existing P2P Protocols </h3>
+<p>Section 2 presented a synthetic state of the art. After experimental results and security analysis, we can now position ToM more precisely against each protocol family.</p>
+<h4 id="541-tom-vs-bittorrent-mandatory-vs-optional-contribution">5.4.1 ToM vs BitTorrent: Mandatory vs Optional Contribution </h4>
+<p>BitTorrent has proven that P2P works at scale (hundreds of millions of users). But its economic model relies on <strong>goodwill</strong>: seeding is voluntary. Result: seed/leech ratios are often catastrophic (&lt;10% seeders). Incentive mechanisms (tit-for-tat, ratio tracking) are circumventable.</p>
+<table>
+<thead>
+<tr>
+<th>Aspect</th>
+<th>BitTorrent</th>
+<th>ToM</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Contribution</td>
+<td>Voluntary (seeding)</td>
+<td><strong>Imposed</strong> (relay/backup assigned by the network)</td>
+</tr>
+<tr>
+<td>Free-riding</td>
+<td>Endemic (leechers)</td>
+<td><strong>Structurally impossible</strong> — no "pure consumer" role</td>
+</tr>
+<tr>
+<td>Incentive</td>
+<td>Ratio tracking (circumventable)</td>
+<td><strong>Contribution score</strong> (based on observed behavior, not declared)</td>
+</tr>
+<tr>
+<td>Node role</td>
+<td>Chosen (seed/leech)</td>
+<td><strong>Assigned</strong> (client/relay/backup — rotating)</td>
+</tr>
+<tr>
+<td>Shared data</td>
+<td>Files (persistent)</td>
+<td><strong>Messages (ephemeral, 24h TTL)</strong></td>
+</tr>
+<tr>
+<td>Censorship resistance</td>
+<td>Partial (central trackers)</td>
+<td><strong>Strong</strong> (no tracker, no fixed point)</td>
+</tr>
+</tbody>
+</table>
+<p><strong>ToM's insight</strong>: BitTorrent treats contribution as a social problem (incentivizing people to share). ToM treats it as an architectural problem (making non-sharing impossible).</p>
+<h4 id="542-tom-vs-tor-anonymity-vs-unpredictability">5.4.2 ToM vs Tor: Anonymity vs Unpredictability </h4>
+<p>Tor offers anonymity through onion routing: 3 successive relays, each knowing only the previous and next. It is the reference for privacy protection. But Tor has structural weaknesses that ToM avoids.</p>
+<table>
+<thead>
+<tr>
+<th>Aspect</th>
+<th>Tor</th>
+<th>ToM</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Primary objective</td>
+<td>Anonymity (hiding who talks to whom)</td>
+<td><strong>Decentralization</strong> (removing infrastructure)</td>
+</tr>
+<tr>
+<td>Relays</td>
+<td>Voluntary, permanent, publicly listed</td>
+<td><strong>Imposed, rotating, unpredictable</strong></td>
+</tr>
+<tr>
+<td>Directory Authorities</td>
+<td>9 fixed servers (critical SPOF)</td>
+<td><strong>None</strong> — rotating bootstrap</td>
+</tr>
+<tr>
+<td>Attack on relays</td>
+<td>Malicious operator = entry/exit correlation</td>
+<td><strong>Ephemeral role</strong> — no time to correlate</td>
+</tr>
+<tr>
+<td>Performance</td>
+<td>Slow (3 cryptographic hops)</td>
+<td><strong>Fast</strong> (1-2 hops, 27ms cross-border measured)</td>
+</tr>
+<tr>
+<td>Metadata</td>
+<td>Hidden (onion routing)</td>
+<td><strong>Partially visible</strong> (from/to in cleartext for routing)</td>
+</tr>
+<tr>
+<td>Censorship resistance</td>
+<td>DPI circumventable (pluggable transports)</td>
+<td><strong>Native NAT traversal</strong> (QUIC hole punch)</td>
+</tr>
+</tbody>
+</table>
+<p><strong>What Tor does better</strong>: pure anonymity. ToM does not hide who talks to whom — the <code>from</code> and <code>to</code> fields are in cleartext (needed for routing). Future onion routing is conceivable but is not the primary objective.</p>
+<p><strong>What ToM does better</strong>: resilience. Tor depends on 9 Directory Authorities — compromising 5 of them compromises the entire network. ToM has no equivalent to compromise. Tor relays are permanent servers operated by identifiable volunteers — ToM "relays" are ordinary devices whose role constantly changes.</p>
+<h4 id="543-tom-vs-nostr-imposed-vs-voluntary-relays">5.4.3 ToM vs Nostr: Imposed vs Voluntary Relays </h4>
+<p>Nostr is the most recent decentralized protocol to have gained traction (2023-2024). Its model is elegantly simple: clients publish signed events (NIP-01) to relays, which store and redistribute them. But this simplicity hides structural problems.</p>
+<table>
+<thead>
+<tr>
+<th>Aspect</th>
+<th>Nostr</th>
+<th>ToM</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Relays</td>
+<td>Voluntary, chosen by user</td>
+<td><strong>Imposed by the network, rotating</strong></td>
+</tr>
+<tr>
+<td>Relay funding</td>
+<td>Operator pays (donations, subscriptions)</td>
+<td><strong>No operator</strong> — each node contributes automatically</td>
+</tr>
+<tr>
+<td>Storage</td>
+<td>Indefinite (relay stores everything)</td>
+<td><strong>24h max</strong> then purge — no storage debt</td>
+</tr>
+<tr>
+<td>Encryption</td>
+<td>No (by default, NIP-04 optional and broken)</td>
+<td><strong>Yes</strong> — E2E XChaCha20 by default</td>
+</tr>
+<tr>
+<td>Censorship</td>
+<td>Relay can filter events</td>
+<td><strong>No entity can filter</strong> — rotating roles</td>
+</tr>
+<tr>
+<td>Identity</td>
+<td>nsec/npub (Schnorr/secp256k1)</td>
+<td>Ed25519 (same principle, different curve)</td>
+</tr>
+<tr>
+<td>Scalability</td>
+<td>Limited by relay cost</td>
+<td><strong>Inverted</strong> — more nodes = more capacity</td>
+</tr>
+<tr>
+<td>Resilience</td>
+<td>If your relay goes down, your data disappears</td>
+<td><strong>Viral replication</strong> — messages proactively migrate</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Nostr's fundamental problem</strong>: someone must pay for the relays. It's the same problem as central servers, distributed instead of centralized. A popular Nostr relay costs thousands of euros per month in bandwidth and storage. The protocol provides no compensation mechanism — it's goodwill, like BitTorrent seeding.</p>
+<p><strong>ToM eliminates the problem</strong>: there are no "relays to maintain". Each connected device is automatically a relay when the network demands it. The relay cost is each participant's residual bandwidth — invisible and distributed. This is the difference between an economic system based on volunteerism (fragile) and a system based on mandatory mutualization (antifragile).</p>
+<h4 id="544-tom-vs-libp2p--hyperswarm--iroh-transport-layer-vs-protocol-layer">5.4.4 ToM vs libp2p / Hyperswarm / iroh: Transport Layer vs Protocol Layer </h4>
+<p>libp2p, Hyperswarm and iroh are <strong>transport layers</strong> — they solve connectivity between nodes. ToM is a <strong>protocol layer</strong> — it defines what nodes do once connected. The relevant comparison is not "which is better" but "at what level each operates".</p>
+<pre data-role="codeBlock" data-info="" class="language-text"><code>┌─────────────────────────────────────────────────────────┐
+│  Application (Chat, Game, Collaboration...)               │
+├─────────────────────────────────────────────────────────┤
+│  ToM Protocol                                            │  ← What ToM adds
+│  (Roles, Groups, Viral backup, Anti-spam, Routing)       │
+├─────────────────────────────────────────────────────────┤
+│  Transport (iroh / libp2p / Hyperswarm)                 │  ← What they do
+│  (Connectivity, NAT traversal, Multiplexing)            │
+├─────────────────────────────────────────────────────────┤
+│  Network (QUIC / TCP / UDP / WebRTC)                     │
+└─────────────────────────────────────────────────────────┘
+</code></pre><table>
+<thead>
+<tr>
+<th>Aspect</th>
+<th>libp2p</th>
+<th>Hyperswarm</th>
+<th>iroh</th>
+<th><strong>ToM</strong></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Level</td>
+<td>Transport</td>
+<td>Transport</td>
+<td>Transport</td>
+<td><strong>Application protocol</strong></td>
+</tr>
+<tr>
+<td>Node roles</td>
+<td>Undifferentiated</td>
+<td>Undifferentiated</td>
+<td>Undifferentiated</td>
+<td><strong>Dynamic (client/relay/backup)</strong></td>
+</tr>
+<tr>
+<td>Anti-spam policy</td>
+<td>None</td>
+<td>None</td>
+<td>None</td>
+<td><strong>"Sprinkler gets sprinkled"</strong></td>
+</tr>
+<tr>
+<td>Group messaging</td>
+<td>To implement</td>
+<td>To implement</td>
+<td>To implement</td>
+<td><strong>Built-in hub-and-spoke</strong></td>
+</tr>
+<tr>
+<td>Offline backup</td>
+<td>To implement</td>
+<td>To implement</td>
+<td>To implement</td>
+<td><strong>Built-in viral replication</strong></td>
+</tr>
+<tr>
+<td>Contribution scoring</td>
+<td>None</td>
+<td>None</td>
+<td>None</td>
+<td><strong>Consumption/service score</strong></td>
+</tr>
+<tr>
+<td>Application E2E</td>
+<td>App's choice</td>
+<td>SecretStream</td>
+<td>QUIC TLS</td>
+<td><strong>XChaCha20-Poly1305 + signatures</strong></td>
+</tr>
+<tr>
+<td>Bootstrap</td>
+<td>Hardcoded nodes</td>
+<td>DHT bootstrap</td>
+<td>n0 relays + Pkarr</td>
+<td><strong>Rotating, no fixed point (target)</strong></td>
+</tr>
+</tbody>
+</table>
+<p><strong>Why ToM uses iroh and not libp2p</strong>:</p>
+<ul>
+<li>iroh treats relays as stateless pass-through — aligned with the ToM philosophy</li>
+<li>libp2p treats relays as a NAT workaround — opposite philosophy</li>
+<li>iroh has a ~90% direct connection rate in production (efficient hole punch)</li>
+<li>libp2p prioritizes multi-transport compatibility at the expense of NAT performance</li>
+</ul>
+<p><strong>Why ToM is not just "iroh + some code"</strong>:<br>
+iroh solves <em>how to connect</em> two nodes. ToM solves <em>what to do</em> once connected: who relays what, how messages survive the recipient's absence, how to prevent spam without censorship, how to form groups without a server. These are two complementary layers, not competing ones.</p>
+<h4 id="545-synthesis-what-tom-does-that-no-one-else-does">5.4.5 Synthesis: What ToM Does That No One Else Does </h4>
+<table>
+<thead>
+<tr>
+<th>Property</th>
+<th>BitTorrent</th>
+<th>Tor</th>
+<th>Nostr</th>
+<th>libp2p</th>
+<th>iroh</th>
+<th><strong>ToM</strong></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Mandatory contribution</td>
+<td>No</td>
+<td>No</td>
+<td>No</td>
+<td>No</td>
+<td>No</td>
+<td><strong>Yes</strong></td>
+</tr>
+<tr>
+<td>Unpredictable rotating roles</td>
+<td>No</td>
+<td>No</td>
+<td>No</td>
+<td>No</td>
+<td>No</td>
+<td><strong>Yes</strong></td>
+</tr>
+<tr>
+<td>Censorship-free anti-spam</td>
+<td>No</td>
+<td>No</td>
+<td>No</td>
+<td>No</td>
+<td>No</td>
+<td><strong>Yes</strong></td>
+</tr>
+<tr>
+<td>Bootstrap without fixed point</td>
+<td>No</td>
+<td>No</td>
+<td>No</td>
+<td>No</td>
+<td>No</td>
+<td><strong>Yes (target)</strong></td>
+</tr>
+<tr>
+<td>Self-replicating messages</td>
+<td>No</td>
+<td>No</td>
+<td>No</td>
+<td>No</td>
+<td>No</td>
+<td><strong>Yes</strong></td>
+</tr>
+<tr>
+<td>Unconditional purge (TTL)</td>
+<td>No</td>
+<td>No</td>
+<td>No</td>
+<td>No</td>
+<td>No</td>
+<td><strong>Yes</strong></td>
+</tr>
+<tr>
+<td>Economic scaling inversion</td>
+<td>Partial</td>
+<td>No</td>
+<td>No</td>
+<td>No</td>
+<td>No</td>
+<td><strong>Yes</strong></td>
+</tr>
+<tr>
+<td>E2E with per-message forward secrecy</td>
+<td>N/A</td>
+<td>Yes</td>
+<td>No</td>
+<td>App</td>
+<td>Transport</td>
+<td><strong>Yes</strong></td>
+</tr>
+</tbody>
+</table>
+<p>None of these protocols combine these properties. Some possess one or two, none integrate them all into a coherent system. ToM's innovation is not in the primitives (DH, signatures, gossip have existed for decades) but in their <strong>architectural composition</strong>: each mechanism reinforces the others, and the whole creates emergent properties (compound unpredictability, economic inversion, structural right to be forgotten) that no isolated component possesses.</p>
+<h3 id="55-toward-an-unstoppable-network">5.5 Toward an Unstoppable Network </h3>
+<h4 id="551-source-code-self-hosting">5.5.1 Source Code Self-Hosting </h4>
+<p>Most open source projects depend on a centralized platform (GitHub, GitLab) for their source code. Even Bitcoin, "the unstoppable network", has its source code on <a href="http://github.com/bitcoin/bitcoin">github.com/bitcoin/bitcoin</a> — a server controlled by Microsoft. A court order, a corporate decision, or a targeted attack could make the code temporarily inaccessible.</p>
+<p>ToM plans a mechanism for <strong>radical self-hosting</strong>:</p>
+<pre data-role="codeBlock" data-info="" class="language-text"><code>Current phase:
+  Source code → GitHub (centralized)
+  Documentation → GitHub (centralized)
+  Issues/PRs → GitHub (centralized)
+
+Target phase:
+  Source code → distributed on the ToM network itself
+  Documentation → distributed on ToM
+  Dev workflow → distributed on ToM
+  GitHub → optional mirror, no longer necessary
+</code></pre><p>The protocol hosts the code that makes it run. The network distributes the protocol updates that make the network run. This is an <strong>existential bootstrap</strong>: the system becomes its own development infrastructure.</p>
+<p><strong>Comparison</strong>: IPFS hosts files in a distributed manner, but IPFS itself does not self-host (its code is on GitHub). Tor distributes traffic, but the directory authorities and source code are centralized. ToM aims for the next step: <strong>the code IS the network, the network HOSTS the code</strong>.</p>
+<h4 id="552-progressive-elimination-of-the-umbilical-cord">5.5.2 Progressive Elimination of the Umbilical Cord </h4>
+<p>The original whitepaper uses the <strong>umbilical cord</strong> metaphor to describe bootstrap:</p>
+<pre data-role="codeBlock" data-info="" class="language-text"><code>Birth (PoC):
+  The network depends on a fixed WebSocket server for signaling
+  → It's the umbilical cord: vital, but temporary
+
+Growth:
+  Multiple WebSocket seeds — redundancy
+  DHT begins operating between existing nodes
+  Seeds become ordinary nodes
+
+Autonomy:
+  The network discovers its own peers via gossip + DHT
+  The "phone number" (topic hash) stays the same
+  But the "receptionist" who answers changes at each call
+  If she disappears, the network designates another
+  She leaves her "notes" to her replacement via gossip
+
+Maturity:
+  Zero fixed infrastructure
+  The cord is cut
+  The baby breathes on its own
+</code></pre><p>Each phase eliminates a dependency. The final phase depends on nothing — no server, no DNS domain, no company, no cloud infrastructure. The network IS the infrastructure. The only way to stop it would be to simultaneously turn off all devices of all participants in all countries — that is, in practice, impossible.</p>
+<h4 id="553-properties-of-a-network-that-cannot-be-killed">5.5.3 Properties of a Network That Cannot Be Killed </h4>
+<table>
+<thead>
+<tr>
+<th>Property</th>
+<th>How it makes the network unstoppable</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>No central server</strong></td>
+<td>Nothing to seize, nothing to unplug</td>
+</tr>
+<tr>
+<td><strong>No DNS domain</strong></td>
+<td>No DNS to block (discovery via Pkarr + gossip)</td>
+</tr>
+<tr>
+<td><strong>No company</strong></td>
+<td>No one to sue, no competent jurisdiction</td>
+</tr>
+<tr>
+<td><strong>No financial token</strong></td>
+<td>No speculation incentive, no exchange to regulate</td>
+</tr>
+<tr>
+<td><strong>Self-hosted code</strong></td>
+<td>If GitHub goes down, the network distributes its own code</td>
+</tr>
+<tr>
+<td><strong>Identity = crypto key</strong></td>
+<td>No identity registry to compromise</td>
+</tr>
+<tr>
+<td><strong>Rotating bootstrap</strong></td>
+<td>No fixed entry point to attack</td>
+</tr>
+<tr>
+<td><strong>E2E encryption</strong></td>
+<td>Even intercepting traffic, content is unreadable</td>
+</tr>
+<tr>
+<td><strong>24h TTL</strong></td>
+<td>No persistent data to seize or analyze</td>
+</tr>
+<tr>
+<td><strong>Mandatory contribution</strong></td>
+<td>Each participant strengthens the network (no freeloading)</td>
+</tr>
+</tbody>
+</table>
+<p><strong>What could still kill ToM</strong> (intellectual honesty):</p>
+<ul>
+<li><strong>Insufficient critical mass</strong>: if the network never reaches enough nodes, bootstrap remains necessary</li>
+<li><strong>Widespread DPI</strong>: a state blocking all unidentified QUIC traffic could hinder connections (circumventable by obfuscation, like Tor with pluggable transports)</li>
+<li><strong>Disinterest</strong>: if nobody uses the network, it dies. The 24h TTL guarantees that a dead network leaves no ghosts</li>
+</ul>
+<h3 id="56-methodology-from-whitepaper-to-working-code">5.6 Methodology: From Whitepaper to Working Code </h3>
+<h4 id="561-from-idea-to-poc-in-3-weeks">5.6.1 From Idea to PoC in 3 Weeks </h4>
+<p>The ToM project followed a structured methodology (BMAD) assisted by AI, in 4 phases:</p>
+<pre data-role="codeBlock" data-info="" class="language-text"><code>Phase 1 — Vision (January 2026)
+  Whitepaper v1 → Product Brief → PRD → Architecture → Design Decisions (7 locked)
+  Result: 45 functional requirements, 14 non-functional, 9 ADRs
+
+Phase 2 — TypeScript Prototype (January-February 2026)
+  8 Epics → 20 Stories → 771 passing tests
+  WebRTC DataChannel, WebSocket signaling, E2E TweetNaCl.js
+  Result: functional multi-node chat in the browser
+
+Phase 3 — Rust Port + iroh (February 2026)
+  NAT traversal evaluation → iroh choice → 4 PoCs → 4 stress test campaigns
+  tom-transport (QUIC pool) + tom-protocol (envelopes, groups, backup, discovery)
+  Result: 237 Rust tests, 99.85% reliability on highway, E2E cross-border validated
+
+Phase 4 — ProtocolRuntime + TUI (February 2026)
+  Complete integration → tokio::select! event loop
+  tom-chat (ratatui TUI + headless bot mode)
+  Result: 2 simultaneous clients Mac ↔ ARM64 NAS cross-border CH↔FR
+</code></pre><p><strong>The rigor of the approach is intentional</strong>: every architectural decision is documented <em>before</em> implementation. The 7 locked decisions were defined on day 1 and have never been modified — the code built around them, not the reverse. This is the opposite approach to "move fast and break things": here, foundations are laid slowly and don't move again.</p>
+<h4 id="562-two-implementations-one-protocol">5.6.2 Two Implementations, One Protocol </h4>
+<p>Having two complete implementations (TypeScript + Rust) of the same protocol is a validation in itself:</p>
+<table>
+<thead>
+<tr>
+<th>Property</th>
+<th>Phase 1 (TypeScript)</th>
+<th>Phase 2 (Rust)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Transport</td>
+<td>WebRTC DataChannel</td>
+<td>QUIC (iroh)</td>
+</tr>
+<tr>
+<td>Crypto</td>
+<td>TweetNaCl.js (NaCl)</td>
+<td>ed25519-dalek + XChaCha20</td>
+</tr>
+<tr>
+<td>Serialization</td>
+<td>JSON</td>
+<td>MessagePack</td>
+</tr>
+<tr>
+<td>Runtime</td>
+<td>Browser + Node.js</td>
+<td>Tokio (native)</td>
+</tr>
+<tr>
+<td>Tests</td>
+<td>771</td>
+<td>237</td>
+</tr>
+<tr>
+<td>Target</td>
+<td>Browser proof of concept</td>
+<td>Real network validation</td>
+</tr>
+</tbody>
+</table>
+<p>Both implementations respect the same 7 locked decisions, the same envelope format (adapted to the serializer), and the same routing principles. The protocol survives language change — proof that it is well-defined at the conceptual level, not at the code level.</p>
+<hr>
+<h2 id="6-implementation">6. Implementation </h2>
+<h3 id="61-technical-stack">6.1 Technical Stack </h3>
+<table>
+<thead>
+<tr>
+<th>Component</th>
+<th>Technology</th>
+<th>Justification</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Language</td>
+<td>Rust</td>
+<td>Memory safety, performance, ARM cross-compilation</td>
+</tr>
+<tr>
+<td>Transport</td>
+<td>QUIC (via iroh)</td>
+<td>Multiplexing, 0-RTT, connection migration</td>
+</tr>
+<tr>
+<td>Serialization</td>
+<td>MessagePack (rmp-serde)</td>
+<td>Compact, deterministic, schema-less</td>
+</tr>
+<tr>
+<td>Signing</td>
+<td>Ed25519 (ed25519-dalek 2.x)</td>
+<td>Standard, fast, short keys (32 bytes)</td>
+</tr>
+<tr>
+<td>Key exchange</td>
+<td>X25519 (x25519-dalek 2.x)</td>
+<td>DH on Curve25519, ephemeral per message</td>
+</tr>
+<tr>
+<td>AEAD</td>
+<td>XChaCha20-Poly1305</td>
+<td>192-bit nonce, no AES-NI needed</td>
+</tr>
+<tr>
+<td>KDF</td>
+<td>HKDF-SHA256</td>
+<td>Domain separation, extraction+expansion</td>
+</tr>
+<tr>
+<td>Runtime</td>
+<td>Tokio</td>
+<td>Async I/O, select! for concurrency without mutex</td>
+</tr>
+<tr>
+<td>Cross-compile</td>
+<td>cargo-zigbuild</td>
+<td>Static musl binaries for ARM64</td>
+</tr>
+</tbody>
+</table>
+<h3 id="62-code-metrics">6.2 Code Metrics </h3>
+<table>
+<thead>
+<tr>
+<th>Metric</th>
+<th>Value</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>TypeScript tests (Phase 1 — WebRTC)</td>
+<td>771</td>
+</tr>
+<tr>
+<td>Rust tests (Phase 2 — native QUIC)</td>
+<td>237</td>
+</tr>
+<tr>
+<td>Total</td>
+<td><strong>1,008</strong></td>
+</tr>
+<tr>
+<td>Group integration tests</td>
+<td>4</td>
+</tr>
+<tr>
+<td>Discovery integration tests</td>
+<td>6</td>
+</tr>
+<tr>
+<td>Backup integration tests</td>
+<td>7</td>
+</tr>
+<tr>
+<td>E2E transport tests</td>
+<td>2</td>
+</tr>
+<tr>
+<td>Supported message types</td>
+<td>24</td>
+</tr>
+</tbody>
+</table>
+<h3 id="63-implementation-lessons">6.3 Implementation Lessons </h3>
+<p><strong>Never wrap <code>TomNode</code> in <code>Arc&lt;Mutex&gt;</code></strong>: <code>recv_raw(&amp;mut self)</code> holds the lock across an <code>.await</code>, completely blocking the sender. Solution: a single Tokio task with <code>select!</code> for send/recv concurrency.</p>
+<p><strong>The signature must exclude TTL</strong>: Relays decrement TTL in transit. Including TTL in the signed bytes invalidates the signature after the first hop.</p>
+<p><strong>Pkarr rediscovery</strong>: On failed reconnection, force a Pkarr rediscovery every 5 attempts. Exponential backoff alone is not sufficient if the DNS record has expired.</p>
+<hr>
+<h2 id="7-conclusion">7. Conclusion </h2>
+<h3 id="71-results">7.1 Results </h3>
+<p>ToM demonstrates the feasibility of a peer-to-peer messaging protocol without fixed infrastructure. Experimental results validate each layer:</p>
+<ul>
+<li><strong>Transport</strong>: 99.85% reliability over 2,752 pings during highway mobility (A40, tunnels, 4G handoffs)</li>
+<li><strong>NAT traversal</strong>: 100% hole punch success across 3 topologies (LAN, 4G CGNAT, cross-border CH↔FR)</li>
+<li><strong>Latency</strong>: 27 ms cross-border Switzerland↔France after direct upgrade, 0.98 ms on urban 5G</li>
+<li><strong>Encryption</strong>: E2E XChaCha20-Poly1305 validated with per-message forward secrecy and Ed25519 signatures</li>
+<li><strong>Cross-compilation</strong>: single binary x86_64 + ARM64, verified Mac ↔ Freebox NAS</li>
+</ul>
+<h3 id="72-what-is-new">7.2 What Is New </h3>
+<p>ToM's innovation does not lie in its primitives — Diffie-Hellman, gossip, Ed25519 signatures have existed for decades. It lies in their <strong>composition</strong>:</p>
+<ul>
+<li><strong>Compound unpredictability</strong> (rotating roles + shattered bootstrap + ephemeral subnets) creates a moving attack surface that no static strategy can target</li>
+<li><strong>Economic inversion</strong> (more nodes = faster = cheaper) is an emergent property of the architecture, not an optimization</li>
+<li><strong>Structural right to be forgotten</strong> (24h TTL + unconditional purge) eliminates storage debt and makes mass surveillance impractical</li>
+<li><strong>Mandatory contribution</strong> (imposed roles, not voluntary) solves the free-riding problem that undermines BitTorrent and Nostr</li>
+<li><strong>Censorship-free anti-spam</strong> ("the sprinkler gets sprinkled") transforms attacks into forced network contribution</li>
+</ul>
+<p>No existing protocol — BitTorrent, Tor, Nostr, libp2p, iroh, Matrix — combines these properties. Some possess one or two. ToM integrates them all into a coherent system where each mechanism reinforces the others.</p>
+<h3 id="73-what-remains-to-be-done">7.3 What Remains to Be Done </h3>
+<ol>
+<li><strong>Scale validation</strong>: stress tests cover a 1:1 topology. Behavior at 15+ simultaneous nodes, with real rotating roles and active viral replication, remains to be measured</li>
+<li><strong>Bootstrap elimination</strong>: distributed DHT to replace WebSocket signaling — cut the umbilical cord</li>
+<li><strong>Onion routing</strong>: protection against traffic analysis (the <code>from</code>/<code>to</code> fields are in cleartext)</li>
+<li><strong>Self-hosting</strong>: distribute the source code, documentation, and development workflow on ToM itself</li>
+<li><strong>Cryptographic audit</strong>: formal validation of the XChaCha20-Poly1305 + HKDF pipeline by an independent third party</li>
+</ol>
+<h3 id="74-vision">7.4 Vision </h3>
+<p>ToM's success is not measured in metrics. It is measured in a <strong>state</strong>:</p>
+<ul>
+<li>A message travels from A to B without a server, without an intermediary, without fees, without a trace</li>
+<li>The code evolves without any entity controlling it</li>
+<li>The network maintains itself without anyone maintaining it</li>
+<li>No one knows they are using ToM — and that's exactly why it works</li>
+<li>Once launched, the only thing that can happen to it is evolution</li>
+</ul>
+<blockquote>
+<p><em>"A network that belongs to no one because it belongs to everyone. A network that depends on nothing because it is self-sufficient. A network that cannot be attacked because there is nothing to steal. A network where you don't know you're participating — and that's exactly why it works."</em><br>
+— ToM Whitepaper v1</p>
+</blockquote>
+<hr>
+<h2 id="references">References </h2>
+<ol>
+<li>Perrin, T., Marlinspike, M. "The Double Ratchet Algorithm." Signal Foundation, 2016.</li>
+<li>Leitão, J., Pereira, J., Rodrigues, L. "HyParView: a membership protocol for reliable gossip-based broadcast." IEEE/IFIP DSN, 2007.</li>
+<li>Bernstein, D.J. "Curve25519: new Diffie-Hellman speed records." PKC 2006.</li>
+<li>Bernstein, D.J. "ChaCha, a variant of Salsa20." 2008.</li>
+<li>Krawczyk, H. "Cryptographic Extraction and Key Derivation: The HKDF Scheme." CRYPTO 2010.</li>
+<li>Iyengar, J., Thomson, M. "QUIC: A UDP-Based Multiplexed and Secure Transport." RFC 9000, 2021.</li>
+<li>iroh documentation, n0-computer, 2025. <a href="https://iroh.computer/docs">https://iroh.computer/docs</a></li>
+<li>Arcieri, T. et al. "ed25519-dalek: Fast Ed25519 signing in Rust." GitHub, 2024.</li>
+<li>Ford, B., Srisuresh, P., Kegel, D. "Peer-to-Peer Communication Across Network Address Translators." USENIX ATC, 2005.</li>
+<li>Joux, A. "Authentication Failures in NIST version of GCM." Comments on NIST Proposal, 2006.</li>
+<li>Langley, A., Hamburg, M., Turner, S. "Elliptic Curves for Security." RFC 7748, 2016.</li>
+<li>Douceur, J.R. "The Sybil Attack." IPTPS, 2002.</li>
+<li>Heilman, E. et al. "Eclipse Attacks on Bitcoin's Peer-to-Peer Network." USENIX Security, 2015.</li>
+<li>Diffie, W., Hellman, M. "New Directions in Cryptography." IEEE Transactions on Information Theory, 1976.</li>
+</ol>
+<hr>
+<p><em>Source code: <a href="https://github.com/malikkaraoui/ToM-protocol/">https://github.com/malikkaraoui/ToM-protocol/</a> — Branches: <code>main</code> (TypeScript Phase 1), <code>feat/tom-protocol</code> (Rust Phase 2)</em></p>
+<p><em>1,008 passing tests. 4 stress test campaigns. 3 validated NAT scenarios. 0 servers required.</em></p>
+
+      </div>
+      
+      
+    
+    
+    
+    
+    
+    
+  
+    </body></html>

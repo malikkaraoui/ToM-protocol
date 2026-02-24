@@ -1,0 +1,12 @@
+{"event":"started","name":"MacBook-4g-car","id":"9f2cc5f99d82874d3f4379081e070bbcf57fd9a18f8fa9ca6053fe07e59764a0","mode":"ping","timestamp":"1770965105s"}
+{"event":"ping","seq":1,"rtt_ms":3441.154375,"path":"","elapsed_s":4.049150125}
+{"event":"ping","seq":2,"rtt_ms":0.199666,"path":"","elapsed_s":5.123451291}
+{"event":"ping","seq":3,"rtt_ms":0.08650000000000001,"path":"","elapsed_s":6.194546541}
+{"event":"ping","seq":4,"rtt_ms":6.101375,"path":"","elapsed_s":7.249163666}
+{"event":"ping","seq":5,"rtt_ms":3.4311670000000003,"path":"","elapsed_s":8.361145125}
+{"event":"ping","seq":6,"rtt_ms":0.577083,"path":"","elapsed_s":9.452163166}
+{"event":"ping","seq":7,"rtt_ms":0.086833,"path":"","elapsed_s":10.558296291}
+{"event":"ping","seq":8,"rtt_ms":2.5965,"path":"","elapsed_s":11.646496625}
+{"event":"ping","seq":9,"rtt_ms":4.266958000000001,"path":"","elapsed_s":12.759138416}
+{"event":"ping","seq":10,"rtt_ms":5.576958,"path":"","elapsed_s":13.843693}
+{"event":"summary","name":"MacBook-4g-car","mode":"ping","total_pings":10,"successful":10,"failed":0,"direct_pings":0,"relay_pings":0,"direct_pct":0.0,"avg_rtt_ms":346.40774150000004,"reconnections":0,"elapsed_s":14.845461125}

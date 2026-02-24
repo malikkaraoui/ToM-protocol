@@ -1,0 +1,5 @@
+{"event":"started","name":"MacBook-4g-cgnat","id":"4833f1a222ca9434e97ddb9885511aa55d7bfe30f6f352380989123684f8db3d","mode":"ladder","timestamp":"1770927278s"}
+{"event":"ladder_result","step":1,"size":1024,"reps":3,"successful":0,"failed":3,"rtt_min_ms":null,"rtt_max_ms":0.0,"rtt_avg_ms":0.0,"elapsed_s":61.519422208}
+{"event":"ladder_result","step":2,"size":4096,"reps":3,"successful":0,"failed":3,"rtt_min_ms":null,"rtt_max_ms":0.0,"rtt_avg_ms":0.0,"elapsed_s":152.154353833}
+{"event":"ladder_result","step":3,"size":16384,"reps":3,"successful":0,"failed":3,"rtt_min_ms":null,"rtt_max_ms":0.0,"rtt_avg_ms":0.0,"elapsed_s":242.691555333}
+{"event":"ladder_result","step":4,"size":65536,"reps":3,"successful":0,"failed":3,"rtt_min_ms":null,"rtt_max_ms":0.0,"rtt_avg_ms":0.0,"elapsed_s":333.283000667}

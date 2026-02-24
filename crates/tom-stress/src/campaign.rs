@@ -5,7 +5,7 @@ use std::time::{Duration, Instant};
 
 use serde::Serialize;
 use tom_protocol::{
-    DeliveredMessage, GroupId, ProtocolEvent, ProtocolRuntime, RuntimeConfig,
+    DeliveredMessage, GroupId, ProtocolEvent, ProtocolRuntime, RuntimeChannels, RuntimeConfig,
 };
 use tom_transport::{NodeId, TomNode, TomNodeConfig};
 use tokio::sync::mpsc;
@@ -241,6 +241,7 @@ pub async fn run(config: CampaignConfig) -> anyhow::Result<()> {
         total_sent += stats.sent;
         total_received += stats.received;
         summaries.push(stats.to_summary_line("ping"));
+        drain_between_phases(&mut channels).await;
     }
 
     // ── Phase 2: Burst ───────────────────────────────────────────
@@ -253,6 +254,7 @@ pub async fn run(config: CampaignConfig) -> anyhow::Result<()> {
         total_sent += stats.sent;
         total_received += stats.received;
         summaries.push(stats.to_summary_line("burst"));
+        drain_between_phases(&mut channels).await;
     }
 
     // ── Phase 3: Protocol E2E ────────────────────────────────────
@@ -265,6 +267,7 @@ pub async fn run(config: CampaignConfig) -> anyhow::Result<()> {
         total_sent += stats.sent;
         total_received += stats.received;
         summaries.push(stats.to_summary_line("e2e"));
+        drain_between_phases(&mut channels).await;
     }
 
     // ── Phase 4: Group Encrypted ─────────────────────────────────
@@ -285,6 +288,7 @@ pub async fn run(config: CampaignConfig) -> anyhow::Result<()> {
         total_sent += stats.sent;
         total_received += stats.received;
         summaries.push(stats.to_summary_line("group"));
+        drain_between_phases(&mut channels).await;
     }
 
     // ── Phase 5: Failover ────────────────────────────────────────
@@ -304,6 +308,7 @@ pub async fn run(config: CampaignConfig) -> anyhow::Result<()> {
         total_sent += stats.sent;
         total_received += stats.received;
         summaries.push(stats.to_summary_line("failover"));
+        drain_between_phases(&mut channels).await;
     }
 
     // ── Phase 6: Endurance ───────────────────────────────────────
@@ -428,20 +433,26 @@ async fn phase_burst(
     for round in 0..rounds {
         eprintln!("  Round {}/{rounds}...", round + 1);
         let round_start = Instant::now();
-        let mut send_times: Vec<Instant> = Vec::new();
 
-        // Send all messages
-        for seq in 0..count_per_round {
-            let global_seq = round * count_per_round + seq;
-            let payload = format!("BURST:{global_seq}");
-            send_times.push(Instant::now());
-            stats.sent += 1;
-            if let Err(e) = handle.send_message(target, payload.into_bytes()).await {
-                stats.errors.push(format!("burst send #{global_seq}: {e}"));
+        // Spawn sender in background to avoid deadlock:
+        // cmd_tx (cap 64) and msg_tx (cap 64) would block each other
+        // if we send all 100 before reading any responses.
+        let send_handle = handle.clone();
+        let send_count = count_per_round;
+        let send_task = tokio::spawn(async move {
+            let mut errors = Vec::new();
+            for seq in 0..send_count {
+                let global_seq = round * send_count + seq;
+                let payload = format!("BURST:{global_seq}");
+                if let Err(e) = send_handle.send_message(target, payload.into_bytes()).await {
+                    errors.push(format!("burst send #{global_seq}: {e}"));
+                }
             }
-        }
+            errors
+        });
+        stats.sent += count_per_round;
 
-        // Collect responses with timeout
+        // Collect responses concurrently with sends
         let mut round_received = 0u32;
         let deadline = Instant::now() + Duration::from_secs(30);
         while round_received < count_per_round && Instant::now() < deadline {
@@ -456,6 +467,13 @@ async fn phase_burst(
                     }
                 }
                 Err(_) => break,
+            }
+        }
+
+        // Collect any send errors
+        if let Ok(errors) = send_task.await {
+            for e in errors {
+                stats.errors.push(e);
             }
         }
 
@@ -853,6 +871,46 @@ async fn phase_endurance(
 }
 
 // ── Helpers ────────────────────────────────────────────────────────
+
+/// Drain all pending messages/events/status between phases to avoid cross-contamination.
+async fn drain_between_phases(channels: &mut RuntimeChannels) {
+    eprintln!("  Draining channels between phases...");
+    let mut drained = 0;
+    let drain_start = Instant::now();
+
+    // Drain for 500ms max
+    while drain_start.elapsed() < Duration::from_millis(500) {
+        tokio::select! {
+            msg = channels.messages.recv() => {
+                if msg.is_some() {
+                    drained += 1;
+                } else {
+                    break;
+                }
+            }
+            evt = channels.events.recv() => {
+                if evt.is_none() {
+                    break;
+                }
+            }
+            sc = channels.status_changes.recv() => {
+                if sc.is_none() {
+                    break;
+                }
+            }
+            _ = tokio::time::sleep(Duration::from_millis(100)) => {
+                break;
+            }
+        }
+    }
+
+    if drained > 0 {
+        eprintln!("    Drained {drained} stale messages");
+    }
+
+    // Short pause to let runtime settle
+    tokio::time::sleep(Duration::from_millis(500)).await;
+}
 
 async fn wait_for_peer(events: &mut mpsc::Receiver<ProtocolEvent>, target: NodeId, timeout: Duration) {
     let deadline = Instant::now() + timeout;

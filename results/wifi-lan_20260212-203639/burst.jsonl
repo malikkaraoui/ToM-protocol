@@ -1,0 +1,2 @@
+{"event":"started","name":"MacBook-wifi-lan","id":"0a951b22b8e892dccf72e29787e2c14d382debd1a73f367793a014f0ade0dbf1","mode":"burst","timestamp":"1770925046s"}
+{"event":"burst_result","round":1,"messages_sent":50,"messages_acked":50,"lost":0,"payload_size":1024,"total_bytes":51200,"elapsed_ms":8899.975292000001,"messages_per_sec":5.617993124648778,"bytes_per_sec":5752.824959640348,"rtt_min_ms":1232.8002920000001,"rtt_max_ms":7108.434542,"rtt_avg_ms":5500.52435672,"elapsed_s":8.911948625}

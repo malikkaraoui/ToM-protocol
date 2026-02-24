@@ -1,0 +1,13 @@
+tom-stress v0.1.0
+Node ID: 23eda6c73ac1ce3d136b1aba69393e2472f16048a6b52a9aed6485628c9d8974
+
+Ping mode → target: d017554ddd5986edd28ed724ee7dd9872801c934cf58b36c5ea3ac6b1f30c539
+[2m2026-02-12T20:27:21.977818Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m failed closing path [3merr[0m[2m=[0mClosedPath
+  ping #1 send failed: connection to d017554ddd5986edd28ed724ee7dd9872801c934cf58b36c5ea3ac6b1f30c539 failed: timed out
+[2m2026-02-12T20:27:52.986815Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m failed closing path [3merr[0m[2m=[0mClosedPath
+[2m2026-02-12T20:28:25.297492Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m failed closing path [3merr[0m[2m=[0mClosedPath
+[2m2026-02-12T20:28:59.305402Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m failed closing path [3merr[0m[2m=[0mClosedPath
+[2m2026-02-12T20:29:37.397898Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m failed closing path [3merr[0m[2m=[0mClosedPath
+[2m2026-02-12T20:30:23.404277Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m failed closing path [3merr[0m[2m=[0mClosedPath
+[2m2026-02-12T20:31:09.421668Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m failed closing path [3merr[0m[2m=[0mClosedPath
+[2m2026-02-12T20:31:55.429775Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m failed closing path [3merr[0m[2m=[0mClosedPath

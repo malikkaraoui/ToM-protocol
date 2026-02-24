@@ -1,0 +1,18 @@
+tom-stress v0.1.0
+Node ID: d025f90fd39dd810cacbd036e8ec478725b5b83b779ced755c80803224923fa1
+
+Ladder mode → target: 3ccfbf9124abb4f9c42c12eb94857b18f8671f0511be22e3159d43b78be31295, 4 sizes, 2 reps each
+
+  Step 1: 1024 bytes (2 reps)
+[2m2026-02-13T06:52:27.601186Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m remote server configuration might cause nat traversal issues [3mmax_local_addresses[0m[2m=[0m12 [3mremote_cid_limit[0m[2m=[0m5
+[2m2026-02-13T06:52:27.767011Z[0m [33m WARN[0m [2miroh_quinn_udp[0m[2m:[0m sendmsg error: Os { code: 65, kind: HostUnreachable, message: "No route to host" }, Transmit: { destination: [2a01:e0a:14f:5da0:248f:5dff:fea5:8ed1]:56006, src_ip: None, ecn: Some(Ect0), len: 1200, segment_size: None }
+    → 2/2 OK, avg RTT: 64.1ms
+
+  Step 2: 4096 bytes (2 reps)
+    → 2/2 OK, avg RTT: 0.1ms
+
+  Step 3: 16384 bytes (2 reps)
+    → 2/2 OK, avg RTT: 0.1ms
+
+  Step 4: 65536 bytes (2 reps)
+    → 2/2 OK, avg RTT: 0.1ms

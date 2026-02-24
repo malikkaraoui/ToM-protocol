@@ -1,0 +1,2 @@
+[    1774ms] [WARNING] Ignoring inability to install OPFS sqlite3_vfs: Cannot install OPFS: Missing SharedArrayBuffer and/or Atomics. The server must emit the COOP/COEP response headers to enable those. See https://sqlite.org/wasm/doc/trunk/persistence.md#coop-coep @ https://deadpan-opossum-d1d.notion.site/_assets/wasm-sqlite-worker-ce3e75522002c88c.js:0
+[    2297ms] [WARNING] Amplitude Logger [Warn]: Event not tracked, no destination plugins on the instance @ https://deadpan-opossum-d1d.notion.site/_assets/transport-support-79187dfcba564918.js:0

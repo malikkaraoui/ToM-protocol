@@ -1,0 +1,29 @@
+[2m2026-02-17T06:28:07.539220Z[0m [33m WARN[0m [1mreportgen-actor[0m[2m:[0m[1mcaptive-portal[0m[2m:[0m [2miroh::net_report::reportgen[0m[2m:[0m probe timed out
+[2m2026-02-17T06:28:08.202080Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m remote server configuration might cause nat traversal issues [3mmax_local_addresses[0m[2m=[0m12 [3mremote_cid_limit[0m[2m=[0m5
+[2m2026-02-17T06:28:08.903344Z[0m [33m WARN[0m [2miroh_quinn_udp[0m[2m:[0m sendmsg error: Os { code: 65, kind: HostUnreachable, message: "No route to host" }, Transmit: { destination: [2a01:e0a:14f:5da0:248f:5dff:fea5:8ed1]:34453, src_ip: None, ecn: Some(Ect0), len: 1200, segment_size: None }
+[2m2026-02-17T06:28:18.058275Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m failed closing path [3merr[0m[2m=[0mLastOpenPath
+[2m2026-02-17T06:28:18.066438Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m failed closing path [3merr[0m[2m=[0mLastOpenPath
+[2m2026-02-17T06:28:23.722409Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m sent PATH_ABANDON after path was already discarded
+[2m2026-02-17T06:28:38.729288Z[0m [33m WARN[0m [2miroh_quinn_udp[0m[2m:[0m sendmsg error: Os { code: 65, kind: HostUnreachable, message: "No route to host" }, Transmit: { destination: [2a01:e0a:14f:5da0:248f:5dff:fea5:8ed1]:34453, src_ip: None, ecn: Some(Ect0), len: 1200, segment_size: None }
+[2m2026-02-17T06:28:52.861234Z[0m [33m WARN[0m [2miroh::socket::remote_map::remote_state[0m[2m:[0m Address Lookup failed: Service 'dns' error: no calls succeeded: [Failed to resolve TXT recordFailed to resolve TXT recordFailed to resolve TXT record]
+[2m2026-02-17T06:28:55.592080Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Lost connection to relay server
+[2m2026-02-17T06:28:55.693935Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Lost connection to relay server
+[2m2026-02-17T06:28:55.815381Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Lost connection to relay server
+[2m2026-02-17T06:28:57.095310Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Failed to connect to relay server
+[2m2026-02-17T06:28:57.196504Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Failed to connect to relay server
+[2m2026-02-17T06:28:57.317705Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Failed to connect to relay server
+[2m2026-02-17T06:28:58.616522Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Failed to connect to relay server
+[2m2026-02-17T06:28:58.713187Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Failed to connect to relay server
+[2m2026-02-17T06:28:58.839941Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Failed to connect to relay server
+[2m2026-02-17T06:28:59.072984Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m failed closing path [3merr[0m[2m=[0mClosedPath
+[2m2026-02-17T06:29:00.155087Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Failed to connect to relay server
+[2m2026-02-17T06:29:00.240146Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Failed to connect to relay server
+[2m2026-02-17T06:29:00.376419Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Failed to connect to relay server
+[2m2026-02-17T06:29:01.705883Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Failed to connect to relay server
+[2m2026-02-17T06:29:01.802436Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Failed to connect to relay server
+[2m2026-02-17T06:29:01.939850Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Failed to connect to relay server
+[2m2026-02-17T06:29:03.345852Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Failed to connect to relay server
+[2m2026-02-17T06:29:03.456805Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Failed to connect to relay server
+[2m2026-02-17T06:29:03.591369Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Failed to connect to relay server
+[2m2026-02-17T06:29:30.076366Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m failed closing path [3merr[0m[2m=[0mClosedPath
+[2m2026-02-17T06:30:02.081810Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m failed closing path [3merr[0m[2m=[0mClosedPath

@@ -1,0 +1,16 @@
+tom-stress v0.1.0
+Node ID: 98c310a103b249dcda415912ed8e38b3e1a0f19eff6bbe89ae2930a65be9c282
+
+Ping mode → target: d017554ddd5986edd28ed724ee7dd9872801c934cf58b36c5ea3ac6b1f30c539
+[2m2026-02-12T19:36:39.671292Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m remote server configuration might cause nat traversal issues [3mmax_local_addresses[0m[2m=[0m12 [3mremote_cid_limit[0m[2m=[0m5
+[2m2026-02-12T19:36:39.887307Z[0m [33m WARN[0m [2miroh_quinn_udp[0m[2m:[0m sendmsg error: Os { code: 65, kind: HostUnreachable, message: "No route to host" }, Transmit: { destination: [2a01:e0a:14f:5da0:248f:5dff:fea5:8ed1]:60202, src_ip: None, ecn: Some(Ect0), len: 1200, segment_size: None }
+[2m2026-02-12T19:36:50.662994Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m sent PATH_ABANDON after path was already discarded
+[2m2026-02-12T19:36:50.663041Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m sent PATH_ABANDON after path was already discarded
+[2m2026-02-12T19:36:53.826398Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m sent PATH_ABANDON after path was already discarded
+[2m2026-02-12T19:36:53.826524Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m sent PATH_ABANDON after path was already discarded
+[2m2026-02-12T19:36:58.126528Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m sent PATH_ABANDON after path was already discarded
+[2m2026-02-12T19:36:58.126661Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m sent PATH_ABANDON after path was already discarded
+[2m2026-02-12T19:37:04.764169Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m sent PATH_ABANDON after path was already discarded
+[2m2026-02-12T19:37:04.765342Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m sent PATH_ABANDON after path was already discarded
+
+Done: 20/20 pings OK, avg RTT: 4.6ms

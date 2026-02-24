@@ -1,0 +1,18 @@
+[     466ms] [WARNING] Ignoring inability to install OPFS sqlite3_vfs: Cannot install OPFS: Missing SharedArrayBuffer and/or Atomics. The server must emit the COOP/COEP response headers to enable those. See https://sqlite.org/wasm/doc/trunk/persistence.md#coop-coep @ https://www.notion.so/_assets/wasm-sqlite-worker-ce3e75522002c88c.js:0
+[    1498ms] [WARNING] Amplitude Logger [Warn]: Event not tracked, no destination plugins on the instance @ https://www.notion.so/_assets/51706-5b63f2c0f63a454b.js:0
+[   47411ms] [ERROR] useAsync: promise rejected undefined TypeError: e.refresh is not a function
+    at https://www.notion.so/_assets/40945-a0d8b3f218374c50.js:1:118228
+    at https://www.notion.so/_assets/app-2b68a5afebab0ef8.js:1:35300
+    at e (https://www.notion.so/_assets/app-2b68a5afebab0ef8.js:1:35771)
+    at https://www.notion.so/_assets/app-2b68a5afebab0ef8.js:1:36122
+    at il (https://www.notion.so/_assets/39326-4f1f2766d5ed1213.js:1:235781)
+    at ku (https://www.notion.so/_assets/39326-4f1f2766d5ed1213.js:1:255911)
+    at uu (https://www.notion.so/_assets/39326-4f1f2766d5ed1213.js:1:248212)
+    at Bi (https://www.notion.so/_assets/39326-4f1f2766d5ed1213.js:1:189174)
+    at ru (https://www.notion.so/_assets/39326-4f1f2766d5ed1213.js:1:245368)
+    at ns (https://www.notion.so/_assets/39326-4f1f2766d5ed1213.js:1:210660)
+    at HTMLDivElement.e (https://www.notion.so/_assets/ClientFramework-78ec6cd4639ad1f1.js:1:131272)
+    at HTMLDivElement.r (https://www.notion.so/_assets/51706-5b63f2c0f63a454b.js:1:81332)
+    at https://www.notion.so/_assets/ClientFramework-78ec6cd4639ad1f1.js:1:175823
+    at MutationObserver.<anonymous> (https://www.notion.so/_assets/ClientFramework-78ec6cd4639ad1f1.js:1:175730) @ https://www.notion.so/_assets/51706-5b63f2c0f63a454b.js:0
+[   59803ms] [ERROR] Refused to set unsafe header "Content-Length" @ https://www.notion.so/_assets/51706-5b63f2c0f63a454b.js:0

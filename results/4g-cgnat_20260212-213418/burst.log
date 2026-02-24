@@ -1,0 +1,45 @@
+tom-stress v0.1.0
+Node ID: 54f970bd3c58beec4806194cdfaf9d42ed41be9a6597f2f63b7105b2adab5f47
+
+Burst mode → target: b7ec2e013be927f2614829d360d57018bdaf502ef3b85bb3ee40ef962ed08b43, 50 msgs x 1024 bytes, 1 rounds
+
+  Round 1/1 ...
+[2m2026-02-12T20:42:30.850871Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m failed closing path [3merr[0m[2m=[0mClosedPath
+    send #1 failed: connection to b7ec2e013be927f2614829d360d57018bdaf502ef3b85bb3ee40ef962ed08b43 failed: timed out
+[2m2026-02-12T20:43:00.857891Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m failed closing path [3merr[0m[2m=[0mClosedPath
+    send #2 failed: connection to b7ec2e013be927f2614829d360d57018bdaf502ef3b85bb3ee40ef962ed08b43 failed: timed out
+[2m2026-02-12T20:43:30.867260Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m failed closing path [3merr[0m[2m=[0mClosedPath
+    send #3 failed: connection to b7ec2e013be927f2614829d360d57018bdaf502ef3b85bb3ee40ef962ed08b43 failed: timed out
+[2m2026-02-12T20:44:00.876099Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m failed closing path [3merr[0m[2m=[0mClosedPath
+[2m2026-02-12T20:44:30.885474Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m failed closing path [3merr[0m[2m=[0mClosedPath
+[2m2026-02-12T20:45:00.893668Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m failed closing path [3merr[0m[2m=[0mClosedPath
+[2m2026-02-12T20:45:30.903199Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m failed closing path [3merr[0m[2m=[0mClosedPath
+[2m2026-02-12T20:46:00.909589Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m failed closing path [3merr[0m[2m=[0mClosedPath
+[2m2026-02-12T20:46:30.920615Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m failed closing path [3merr[0m[2m=[0mClosedPath
+[2m2026-02-12T20:47:00.927419Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m failed closing path [3merr[0m[2m=[0mClosedPath
+[2m2026-02-12T20:47:30.935634Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m failed closing path [3merr[0m[2m=[0mClosedPath
+[2m2026-02-12T20:48:00.942052Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m failed closing path [3merr[0m[2m=[0mClosedPath
+[2m2026-02-12T20:48:30.950127Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m failed closing path [3merr[0m[2m=[0mClosedPath
+[2m2026-02-12T20:49:00.958485Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m failed closing path [3merr[0m[2m=[0mClosedPath
+[2m2026-02-12T20:49:30.969968Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m failed closing path [3merr[0m[2m=[0mClosedPath
+[2m2026-02-12T20:50:00.975842Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m failed closing path [3merr[0m[2m=[0mClosedPath
+[2m2026-02-12T20:50:30.984721Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m failed closing path [3merr[0m[2m=[0mClosedPath
+[2m2026-02-12T20:51:00.992620Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m failed closing path [3merr[0m[2m=[0mClosedPath
+[2m2026-02-12T20:51:31.003419Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m failed closing path [3merr[0m[2m=[0mClosedPath
+[2m2026-02-12T20:52:01.011021Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m failed closing path [3merr[0m[2m=[0mClosedPath
+[2m2026-02-12T20:52:31.020391Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m failed closing path [3merr[0m[2m=[0mClosedPath
+[2m2026-02-12T20:53:01.026853Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m failed closing path [3merr[0m[2m=[0mClosedPath
+[2m2026-02-12T20:53:31.037801Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m failed closing path [3merr[0m[2m=[0mClosedPath
+[2m2026-02-12T20:54:01.044734Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m failed closing path [3merr[0m[2m=[0mClosedPath
+[2m2026-02-12T20:54:31.055663Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m failed closing path [3merr[0m[2m=[0mClosedPath
+[2m2026-02-12T20:55:01.062043Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m failed closing path [3merr[0m[2m=[0mClosedPath
+[2m2026-02-12T21:00:41.664900Z[0m [33m WARN[0m [1mQADv4[0m[1m{[0m[3mrelay_url[0m[2m=[0mhttps://euc1-1.relay.n0.iroh-canary.iroh.link./[1m}[0m[2m:[0m [2miroh_quinn_udp[0m[2m:[0m sendmsg error: Os { code: 51, kind: NetworkUnreachable, message: "Network is unreachable" }, Transmit: { destination: 162.55.211.167:7842, src_ip: Some(172.20.10.3), ecn: None, len: 45, segment_size: None }
+[2m2026-02-12T21:00:41.678385Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Lost connection to relay server
+[2m2026-02-12T21:00:41.686116Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Failed to connect to relay server
+[2m2026-02-12T21:00:41.709523Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Failed to connect to relay server
+[2m2026-02-12T21:00:41.750322Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Failed to connect to relay server
+[2m2026-02-12T21:00:41.849958Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Failed to connect to relay server
+[2m2026-02-12T21:00:41.972753Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Failed to connect to relay server
+[2m2026-02-12T21:00:43.577254Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m failed closing path [3merr[0m[2m=[0mClosedPath
+[2m2026-02-12T21:01:13.569166Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m failed closing path [3merr[0m[2m=[0mClosedPath
+[2m2026-02-12T21:01:43.577504Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m failed closing path [3merr[0m[2m=[0mClosedPath

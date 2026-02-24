@@ -1,0 +1,8 @@
+{"event":"started","name":"MacBook-wifi-lan","id":"7091249fead8174aa6c8646b216892b71f332f3471246002128f379f1e831c2f","mode":"ladder","timestamp":"1770925058s"}
+{"event":"ladder_result","step":1,"size":1024,"reps":3,"successful":3,"failed":0,"rtt_min_ms":0.013,"rtt_max_ms":0.074166,"rtt_avg_ms":0.033527666666666664,"elapsed_s":1.602940334}
+{"event":"ladder_result","step":2,"size":4096,"reps":3,"successful":3,"failed":0,"rtt_min_ms":0.014375,"rtt_max_ms":0.343583,"rtt_avg_ms":0.13595800000000002,"elapsed_s":2.729188667}
+{"event":"ladder_result","step":3,"size":16384,"reps":3,"successful":3,"failed":0,"rtt_min_ms":0.014957999999999999,"rtt_max_ms":0.0415,"rtt_avg_ms":0.02580566666666667,"elapsed_s":14.499168667}
+{"event":"ladder_result","step":4,"size":65536,"reps":3,"successful":3,"failed":0,"rtt_min_ms":0.2325,"rtt_max_ms":0.701209,"rtt_avg_ms":0.4053196666666667,"elapsed_s":20.297828417}
+{"event":"ladder_result","step":5,"size":131072,"reps":3,"successful":3,"failed":0,"rtt_min_ms":0.26875,"rtt_max_ms":0.5462079999999999,"rtt_avg_ms":0.3646943333333333,"elapsed_s":25.491018084}
+{"event":"ladder_result","step":6,"size":262144,"reps":3,"successful":3,"failed":0,"rtt_min_ms":0.009625,"rtt_max_ms":0.130458,"rtt_avg_ms":0.08033333333333333,"elapsed_s":32.629689959}
+{"event":"ladder_result","step":7,"size":524288,"reps":3,"successful":3,"failed":0,"rtt_min_ms":0.005958000000000001,"rtt_max_ms":0.015333999999999999,"rtt_avg_ms":0.009708333333333334,"elapsed_s":33.402324792}

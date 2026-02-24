@@ -1,0 +1,10 @@
+{"event":"started","name":"MacBook-4g-cgnat-v2","id":"23eda6c73ac1ce3d136b1aba69393e2472f16048a6b52a9aed6485628c9d8974","mode":"ping","timestamp":"1770928035s"}
+{"event":"disconnected","reason":"connection to d017554ddd5986edd28ed724ee7dd9872801c934cf58b36c5ea3ac6b1f30c539 failed: timed out","elapsed_s":30.118463666,"timestamp":"1770928065s"}
+{"event":"reconnecting","attempt":1,"elapsed_s":30.1200955,"timestamp":"1770928065s"}
+{"event":"reconnecting","attempt":2,"elapsed_s":61.127888041,"timestamp":"1770928096s"}
+{"event":"reconnecting","attempt":3,"elapsed_s":93.439183,"timestamp":"1770928128s"}
+{"event":"reconnecting","attempt":4,"elapsed_s":127.447485875,"timestamp":"1770928162s"}
+{"event":"reconnecting","attempt":5,"elapsed_s":165.541783875,"timestamp":"1770928200s"}
+{"event":"reconnecting","attempt":6,"elapsed_s":211.549827541,"timestamp":"1770928246s"}
+{"event":"reconnecting","attempt":7,"elapsed_s":257.567592833,"timestamp":"1770928292s"}
+{"event":"reconnecting","attempt":8,"elapsed_s":303.577198666,"timestamp":"1770928338s"}

@@ -1,0 +1,21 @@
+tom-stress v0.1.0
+Node ID: c930be272bd1fe73cc06ff5e5320e9b722663f8961c2c2677321d982ca65c6a6
+
+Burst mode → target: b7ec2e013be927f2614829d360d57018bdaf502ef3b85bb3ee40ef962ed08b43, 10 msgs x 1024 bytes, 1 rounds
+
+  Round 1/1 ...
+[2m2026-02-12T21:11:09.724379Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m failed closing path [3merr[0m[2m=[0mClosedPath
+    send #1 failed: connection to b7ec2e013be927f2614829d360d57018bdaf502ef3b85bb3ee40ef962ed08b43 failed: timed out
+[2m2026-02-12T21:11:39.729839Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m failed closing path [3merr[0m[2m=[0mClosedPath
+    send #2 failed: connection to b7ec2e013be927f2614829d360d57018bdaf502ef3b85bb3ee40ef962ed08b43 failed: timed out
+[2m2026-02-12T21:12:09.739954Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m failed closing path [3merr[0m[2m=[0mClosedPath
+    send #3 failed: connection to b7ec2e013be927f2614829d360d57018bdaf502ef3b85bb3ee40ef962ed08b43 failed: timed out
+[2m2026-02-12T21:12:39.747657Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m failed closing path [3merr[0m[2m=[0mClosedPath
+[2m2026-02-12T21:13:09.757300Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m failed closing path [3merr[0m[2m=[0mClosedPath
+[2m2026-02-12T21:13:39.764480Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m failed closing path [3merr[0m[2m=[0mClosedPath
+[2m2026-02-12T21:14:09.776166Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m failed closing path [3merr[0m[2m=[0mClosedPath
+[2m2026-02-12T21:14:39.778559Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m failed closing path [3merr[0m[2m=[0mClosedPath
+[2m2026-02-12T21:15:09.787504Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m failed closing path [3merr[0m[2m=[0mClosedPath
+[2m2026-02-12T21:15:39.790455Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m failed closing path [3merr[0m[2m=[0mClosedPath
+    sent 0/10 in 300084.8ms
+    burst round 1: 0/0 acked, 0 lost, 0 msg/s, avg RTT 0.0ms

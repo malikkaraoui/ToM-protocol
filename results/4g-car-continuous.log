@@ -1,0 +1,228 @@
+tom-stress v0.1.0
+Node ID: 6cb13e9e09c165465fefad24cbd1b5d4b51ed0426f34bee0430cf5478c79c24c
+
+Ping mode → target: 3ccfbf9124abb4f9c42c12eb94857b18f8671f0511be22e3159d43b78be31295
+[2m2026-02-13T07:02:26.820038Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m remote server configuration might cause nat traversal issues [3mmax_local_addresses[0m[2m=[0m12 [3mremote_cid_limit[0m[2m=[0m5
+[2m2026-02-13T07:02:27.007281Z[0m [33m WARN[0m [2miroh_quinn_udp[0m[2m:[0m sendmsg error: Os { code: 65, kind: HostUnreachable, message: "No route to host" }, Transmit: { destination: [2a01:e0a:14f:5da0:248f:5dff:fea5:8ed1]:56006, src_ip: None, ecn: Some(Ect0), len: 1200, segment_size: None }
+  ping #1 recv failed: pong timeout (10s)
+  ping #2 recv failed: pong timeout (10s)
+  ping #3 recv failed: pong timeout (10s)
+  ping #4 recv failed: pong timeout (10s)
+  ping #5 recv failed: pong timeout (10s)
+[2m2026-02-13T07:03:28.647766Z[0m [33m WARN[0m [2miroh_quinn_udp[0m[2m:[0m sendmsg error: Os { code: 65, kind: HostUnreachable, message: "No route to host" }, Transmit: { destination: [2a01:e0a:14f:5da0:248f:5dff:fea5:8ed1]:56006, src_ip: None, ecn: Some(Ect0), len: 1200, segment_size: None }
+  ping #6 recv failed: pong timeout (10s)
+  ping #7 recv failed: pong timeout (10s)
+  ping #8 recv failed: pong timeout (10s)
+  ping #9 recv failed: pong timeout (10s)
+  ping #10 recv failed: pong timeout (10s)
+  ping #11 recv failed: pong timeout (10s)
+[2m2026-02-13T07:04:29.330534Z[0m [33m WARN[0m [2miroh_quinn_udp[0m[2m:[0m sendmsg error: Os { code: 65, kind: HostUnreachable, message: "No route to host" }, Transmit: { destination: [2a01:e0a:14f:5da0:248f:5dff:fea5:8ed1]:56006, src_ip: None, ecn: Some(Ect0), len: 1200, segment_size: None }
+  ping #12 recv failed: pong timeout (10s)
+  ping #13 recv failed: pong timeout (10s)
+  ping #14 recv failed: pong timeout (10s)
+  ping #15 recv failed: pong timeout (10s)
+  ping #16 recv failed: pong timeout (10s)
+[2m2026-02-13T07:05:29.934031Z[0m [33m WARN[0m [2miroh_quinn_udp[0m[2m:[0m sendmsg error: Os { code: 65, kind: HostUnreachable, message: "No route to host" }, Transmit: { destination: [2a01:e0a:14f:5da0:248f:5dff:fea5:8ed1]:56006, src_ip: None, ecn: Some(Ect0), len: 1200, segment_size: None }
+  ping #17 recv failed: pong timeout (10s)
+  ping #18 recv failed: pong timeout (10s)
+  ping #19 recv failed: pong timeout (10s)
+  ping #20 recv failed: pong timeout (10s)
+  ping #21 recv failed: pong timeout (10s)
+  ping #22 recv failed: pong timeout (10s)
+  ping #23 recv failed: pong timeout (10s)
+  ping #24 recv failed: pong timeout (10s)
+  ping #25 recv failed: pong timeout (10s)
+  ping #26 recv failed: pong timeout (10s)
+  ping #27 recv failed: pong timeout (10s)
+  ping #28 recv failed: pong timeout (10s)
+  ping #29 recv failed: pong timeout (10s)
+  ping #30 recv failed: pong timeout (10s)
+  ping #31 recv failed: pong timeout (10s)
+  ping #32 recv failed: pong timeout (10s)
+  ping #33 recv failed: pong timeout (10s)
+  ping #34 recv failed: pong timeout (10s)
+  ping #35 recv failed: pong timeout (10s)
+  ping #36 recv failed: pong timeout (10s)
+[2m2026-02-13T07:09:08.074240Z[0m [33m WARN[0m [2miroh_quinn_udp[0m[2m:[0m sendmsg error: Os { code: 65, kind: HostUnreachable, message: "No route to host" }, Transmit: { destination: [2a01:e0a:14f:5da0:248f:5dff:fea5:8ed1]:56006, src_ip: None, ecn: Some(Ect0), len: 1200, segment_size: None }
+  ping #37 recv failed: pong timeout (10s)
+  ping #38 recv failed: pong timeout (10s)
+  ping #39 recv failed: pong timeout (10s)
+  ping #40 recv failed: pong timeout (10s)
+  ping #41 recv failed: pong timeout (10s)
+  ping #42 recv failed: pong timeout (10s)
+  ping #43 recv failed: pong timeout (10s)
+  ping #44 recv failed: pong timeout (10s)
+  ping #45 recv failed: pong timeout (10s)
+  ping #46 recv failed: pong timeout (10s)
+  ping #47 recv failed: pong timeout (10s)
+  ping #48 recv failed: pong timeout (10s)
+  ping #49 recv failed: pong timeout (10s)
+  ping #50 recv failed: pong timeout (10s)
+  ping #51 recv failed: pong timeout (10s)
+  ping #52 recv failed: pong timeout (10s)
+  ping #53 recv failed: pong timeout (10s)
+  ping #54 recv failed: pong timeout (10s)
+  ping #55 recv failed: pong timeout (10s)
+  ping #56 recv failed: pong timeout (10s)
+  ping #57 recv failed: pong timeout (10s)
+  ping #58 recv failed: pong timeout (10s)
+  ping #59 recv failed: pong timeout (10s)
+  ping #60 recv failed: pong timeout (10s)
+  ping #61 recv failed: pong timeout (10s)
+  ping #62 recv failed: pong timeout (10s)
+  ping #63 recv failed: pong timeout (10s)
+  ping #64 recv failed: pong timeout (10s)
+  ping #65 recv failed: pong timeout (10s)
+  ping #66 recv failed: pong timeout (10s)
+  ping #67 recv failed: pong timeout (10s)
+  ping #68 recv failed: pong timeout (10s)
+  ping #69 recv failed: pong timeout (10s)
+  ping #70 recv failed: pong timeout (10s)
+  ping #71 recv failed: pong timeout (10s)
+  ping #72 recv failed: pong timeout (10s)
+  ping #73 recv failed: pong timeout (10s)
+  ping #74 recv failed: pong timeout (10s)
+  ping #75 recv failed: pong timeout (10s)
+  ping #76 recv failed: pong timeout (10s)
+  ping #77 recv failed: pong timeout (10s)
+  ping #78 recv failed: pong timeout (10s)
+  ping #79 recv failed: pong timeout (10s)
+  ping #80 recv failed: pong timeout (10s)
+  ping #81 recv failed: pong timeout (10s)
+  ping #82 recv failed: pong timeout (10s)
+  ping #83 recv failed: pong timeout (10s)
+  ping #84 recv failed: pong timeout (10s)
+  ping #85 recv failed: pong timeout (10s)
+  ping #86 recv failed: pong timeout (10s)
+  ping #87 recv failed: pong timeout (10s)
+  ping #88 recv failed: pong timeout (10s)
+  ping #89 recv failed: pong timeout (10s)
+  ping #90 recv failed: pong timeout (10s)
+  ping #91 recv failed: pong timeout (10s)
+  ping #92 recv failed: pong timeout (10s)
+  ping #93 recv failed: pong timeout (10s)
+  ping #94 recv failed: pong timeout (10s)
+  ping #95 recv failed: pong timeout (10s)
+  ping #96 recv failed: pong timeout (10s)
+  ping #97 recv failed: pong timeout (10s)
+  ping #98 recv failed: pong timeout (10s)
+  ping #99 recv failed: pong timeout (10s)
+  ping #100 recv failed: pong timeout (10s)
+  ping #101 recv failed: pong timeout (10s)
+  ping #102 recv failed: pong timeout (10s)
+  ping #103 recv failed: pong timeout (10s)
+  ping #104 recv failed: pong timeout (10s)
+  ping #105 recv failed: pong timeout (10s)
+  ping #106 recv failed: pong timeout (10s)
+  ping #107 recv failed: pong timeout (10s)
+  ping #108 recv failed: pong timeout (10s)
+  ping #109 recv failed: pong timeout (10s)
+  ping #110 recv failed: pong timeout (10s)
+  ping #111 recv failed: pong timeout (10s)
+[2m2026-02-13T07:23:18.631205Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m failed closing path [3merr[0m[2m=[0mLastOpenPath
+  ping #112 recv failed: pong timeout (10s)
+[2m2026-02-13T07:23:23.980156Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Lost connection to relay server
+[2m2026-02-13T07:23:33.982451Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Failed to connect to relay server
+[2m2026-02-13T07:23:44.000333Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Failed to connect to relay server
+[2m2026-02-13T07:23:45.529682Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Failed to connect to relay server
+[2m2026-02-13T07:23:47.076420Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Failed to connect to relay server
+  ping #113 recv failed: pong timeout (10s)
+[2m2026-02-13T07:23:54.488609Z[0m [33m WARN[0m [2miroh::socket::remote_map::remote_state[0m[2m:[0m Address Lookup failed: Service 'dns' error: no calls succeeded: [Failed to resolve TXT recordFailed to resolve TXT recordFailed to resolve TXT record]
+[2m2026-02-13T07:23:57.222769Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Failed to connect to relay server
+[2m2026-02-13T07:23:59.638181Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m failed closing path [3merr[0m[2m=[0mClosedPath
+[2m2026-02-13T07:24:00.069950Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m remote server configuration might cause nat traversal issues [3mmax_local_addresses[0m[2m=[0m12 [3mremote_cid_limit[0m[2m=[0m5
+[2m2026-02-13T07:24:11.861194Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m failed closing path [3merr[0m[2m=[0mLastOpenPath
+[2m2026-02-13T07:24:29.791298Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Lost connection to relay server
+[2m2026-02-13T07:24:29.806382Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Failed to connect to relay server
+[2m2026-02-13T07:24:29.831081Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Failed to connect to relay server
+[2m2026-02-13T07:24:29.879662Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Failed to connect to relay server
+[2m2026-02-13T07:24:29.965316Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Failed to connect to relay server
+[2m2026-02-13T07:24:30.109557Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Failed to connect to relay server
+[2m2026-02-13T07:24:30.284363Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Failed to connect to relay server
+[2m2026-02-13T07:24:30.640535Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Failed to connect to relay server
+[2m2026-02-13T07:24:31.569253Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Failed to connect to relay server
+[2m2026-02-13T07:24:33.893514Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Failed to connect to relay server
+[2m2026-02-13T07:24:37.289552Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Failed to connect to relay server
+[2m2026-02-13T07:24:43.346374Z[0m [33m WARN[0m [1mreportgen-actor[0m[2m:[0m[1mrun-probe[0m[1m{[0m[3mproto[0m[2m=[0mHttps [3mdelay[0m[2m=[0m200ms [3mrelay[0m[2m=[0mRelayConfig { url: RelayUrl("https://usw1-1.relay.n0.iroh-canary.iroh.link./"), quic: Some(RelayQuicConfig { port: 7842 }) }[1m}[0m[2m:[0m [2miroh::net_report::reportgen[0m[2m:[0m probe failed: Failed to run HTTPS probe: HTTP request failed: error sending request for url (https://usw1-1.relay.n0.iroh-canary.iroh.link./ping): client error (Connect): tcp connect error: No route to host (os error 65)
+[2m2026-02-13T07:24:43.433406Z[0m [33m WARN[0m [1mreportgen-actor[0m[2m:[0m[1mrun-probe[0m[1m{[0m[3mproto[0m[2m=[0mHttps [3mdelay[0m[2m=[0m300ms [3mrelay[0m[2m=[0mRelayConfig { url: RelayUrl("https://usw1-1.relay.n0.iroh-canary.iroh.link./"), quic: Some(RelayQuicConfig { port: 7842 }) }[1m}[0m[2m:[0m [2miroh::net_report::reportgen[0m[2m:[0m probe failed: Failed to run HTTPS probe: HTTP request failed: error sending request for url (https://usw1-1.relay.n0.iroh-canary.iroh.link./ping): client error (Connect): tcp connect error: No route to host (os error 65)
+[2m2026-02-13T07:24:43.532424Z[0m [33m WARN[0m [1mreportgen-actor[0m[2m:[0m[1mrun-probe[0m[1m{[0m[3mproto[0m[2m=[0mHttps [3mdelay[0m[2m=[0m400ms [3mrelay[0m[2m=[0mRelayConfig { url: RelayUrl("https://usw1-1.relay.n0.iroh-canary.iroh.link./"), quic: Some(RelayQuicConfig { port: 7842 }) }[1m}[0m[2m:[0m [2miroh::net_report::reportgen[0m[2m:[0m probe failed: Failed to run HTTPS probe: HTTP request failed: error sending request for url (https://usw1-1.relay.n0.iroh-canary.iroh.link./ping): client error (Connect): tcp connect error: No route to host (os error 65)
+[2m2026-02-13T07:24:43.647556Z[0m [33m WARN[0m [1mreportgen-actor[0m[2m:[0m[1mrun-probe[0m[1m{[0m[3mproto[0m[2m=[0mHttps [3mdelay[0m[2m=[0m200ms [3mrelay[0m[2m=[0mRelayConfig { url: RelayUrl("https://use1-1.relay.n0.iroh-canary.iroh.link./"), quic: Some(RelayQuicConfig { port: 7842 }) }[1m}[0m[2m:[0m [2miroh::net_report::reportgen[0m[2m:[0m probe failed: Failed to run HTTPS probe: no calls succeeded: [Resolve failed ipv4: proto error: no records found for Query { name: Name("use1-1.relay.n0.iroh-canary.iroh.link."), query_type: A, query_class: IN }, ipv6 proto error: no records found for Query { name: Name("use1-1.relay.n0.iroh-canary.iroh.link."), query_type: AAAA, query_class: IN }Resolve failed ipv4: proto error: no records found for Query { name: Name("use1-1.relay.n0.iroh-canary.iroh.link."), query_type: A, query_class: IN }, ipv6 proto error: no records found for Query { name: Name("use1-1.relay.n0.iroh-canary.iroh.link."), query_type: AAAA, query_class: IN }Resolve failed ipv4: proto error: no records found for Query { name: Name("use1-1.relay.n0.iroh-canary.iroh.link."), query_type: A, query_class: IN }, ipv6 proto error: no records found for Query { name: Name("use1-1.relay.n0.iroh-canary.iroh.link."), query_type: AAAA, query_class: IN }]
+[2m2026-02-13T07:24:43.670996Z[0m [33m WARN[0m [1mreportgen-actor[0m[2m:[0m[1mrun-probe[0m[1m{[0m[3mproto[0m[2m=[0mHttps [3mdelay[0m[2m=[0m200ms [3mrelay[0m[2m=[0mRelayConfig { url: RelayUrl("https://euc1-1.relay.n0.iroh-canary.iroh.link./"), quic: Some(RelayQuicConfig { port: 7842 }) }[1m}[0m[2m:[0m [2miroh::net_report::reportgen[0m[2m:[0m probe failed: Failed to run HTTPS probe: no calls succeeded: [Resolve failed ipv4: proto error: no records found for Query { name: Name("euc1-1.relay.n0.iroh-canary.iroh.link."), query_type: A, query_class: IN }, ipv6 proto error: no records found for Query { name: Name("euc1-1.relay.n0.iroh-canary.iroh.link."), query_type: AAAA, query_class: IN }Resolve failed ipv4: proto error: no records found for Query { name: Name("euc1-1.relay.n0.iroh-canary.iroh.link."), query_type: A, query_class: IN }, ipv6 proto error: no records found for Query { name: Name("euc1-1.relay.n0.iroh-canary.iroh.link."), query_type: AAAA, query_class: IN }Resolve failed ipv4: proto error: no records found for Query { name: Name("euc1-1.relay.n0.iroh-canary.iroh.link."), query_type: A, query_class: IN }, ipv6 proto error: no records found for Query { name: Name("euc1-1.relay.n0.iroh-canary.iroh.link."), query_type: AAAA, query_class: IN }]
+[2m2026-02-13T07:24:43.738528Z[0m [33m WARN[0m [1mreportgen-actor[0m[2m:[0m[1mrun-probe[0m[1m{[0m[3mproto[0m[2m=[0mHttps [3mdelay[0m[2m=[0m300ms [3mrelay[0m[2m=[0mRelayConfig { url: RelayUrl("https://euc1-1.relay.n0.iroh-canary.iroh.link./"), quic: Some(RelayQuicConfig { port: 7842 }) }[1m}[0m[2m:[0m [2miroh::net_report::reportgen[0m[2m:[0m probe failed: Failed to run HTTPS probe: no calls succeeded: [Resolve failed ipv4: proto error: no records found for Query { name: Name("euc1-1.relay.n0.iroh-canary.iroh.link."), query_type: A, query_class: IN }, ipv6 proto error: no records found for Query { name: Name("euc1-1.relay.n0.iroh-canary.iroh.link."), query_type: AAAA, query_class: IN }Resolve failed ipv4: proto error: no records found for Query { name: Name("euc1-1.relay.n0.iroh-canary.iroh.link."), query_type: A, query_class: IN }, ipv6 proto error: no records found for Query { name: Name("euc1-1.relay.n0.iroh-canary.iroh.link."), query_type: AAAA, query_class: IN }Resolve failed ipv4: proto error: no records found for Query { name: Name("euc1-1.relay.n0.iroh-canary.iroh.link."), query_type: A, query_class: IN }, ipv6 proto error: no records found for Query { name: Name("euc1-1.relay.n0.iroh-canary.iroh.link."), query_type: AAAA, query_class: IN }]
+[2m2026-02-13T07:24:43.786801Z[0m [33m WARN[0m [1mreportgen-actor[0m[2m:[0m[1mrun-probe[0m[1m{[0m[3mproto[0m[2m=[0mHttps [3mdelay[0m[2m=[0m300ms [3mrelay[0m[2m=[0mRelayConfig { url: RelayUrl("https://use1-1.relay.n0.iroh-canary.iroh.link./"), quic: Some(RelayQuicConfig { port: 7842 }) }[1m}[0m[2m:[0m [2miroh::net_report::reportgen[0m[2m:[0m probe failed: Failed to run HTTPS probe: no calls succeeded: [Resolve failed ipv4: proto error: no records found for Query { name: Name("use1-1.relay.n0.iroh-canary.iroh.link."), query_type: A, query_class: IN }, ipv6 proto error: no records found for Query { name: Name("use1-1.relay.n0.iroh-canary.iroh.link."), query_type: AAAA, query_class: IN }Resolve failed ipv4: proto error: no records found for Query { name: Name("use1-1.relay.n0.iroh-canary.iroh.link."), query_type: A, query_class: IN }, ipv6 proto error: no records found for Query { name: Name("use1-1.relay.n0.iroh-canary.iroh.link."), query_type: AAAA, query_class: IN }Resolve failed ipv4: proto error: no records found for Query { name: Name("use1-1.relay.n0.iroh-canary.iroh.link."), query_type: A, query_class: IN }, ipv6 proto error: no records found for Query { name: Name("use1-1.relay.n0.iroh-canary.iroh.link."), query_type: AAAA, query_class: IN }]
+[2m2026-02-13T07:24:43.936780Z[0m [33m WARN[0m [1mreportgen-actor[0m[2m:[0m[1mrun-probe[0m[1m{[0m[3mproto[0m[2m=[0mHttps [3mdelay[0m[2m=[0m400ms [3mrelay[0m[2m=[0mRelayConfig { url: RelayUrl("https://euc1-1.relay.n0.iroh-canary.iroh.link./"), quic: Some(RelayQuicConfig { port: 7842 }) }[1m}[0m[2m:[0m [2miroh::net_report::reportgen[0m[2m:[0m probe failed: Failed to run HTTPS probe: no calls succeeded: [Resolve failed ipv4: proto error: no records found for Query { name: Name("euc1-1.relay.n0.iroh-canary.iroh.link."), query_type: A, query_class: IN }, ipv6 proto error: no records found for Query { name: Name("euc1-1.relay.n0.iroh-canary.iroh.link."), query_type: AAAA, query_class: IN }Resolve failed ipv4: proto error: no records found for Query { name: Name("euc1-1.relay.n0.iroh-canary.iroh.link."), query_type: A, query_class: IN }, ipv6 proto error: no records found for Query { name: Name("euc1-1.relay.n0.iroh-canary.iroh.link."), query_type: AAAA, query_class: IN }Resolve failed ipv4: proto error: no records found for Query { name: Name("euc1-1.relay.n0.iroh-canary.iroh.link."), query_type: A, query_class: IN }, ipv6 proto error: no records found for Query { name: Name("euc1-1.relay.n0.iroh-canary.iroh.link."), query_type: AAAA, query_class: IN }]
+[2m2026-02-13T07:24:43.936771Z[0m [33m WARN[0m [1mreportgen-actor[0m[2m:[0m[1mrun-probe[0m[1m{[0m[3mproto[0m[2m=[0mHttps [3mdelay[0m[2m=[0m400ms [3mrelay[0m[2m=[0mRelayConfig { url: RelayUrl("https://use1-1.relay.n0.iroh-canary.iroh.link./"), quic: Some(RelayQuicConfig { port: 7842 }) }[1m}[0m[2m:[0m [2miroh::net_report::reportgen[0m[2m:[0m probe failed: Failed to run HTTPS probe: no calls succeeded: [Resolve failed ipv4: proto error: no records found for Query { name: Name("use1-1.relay.n0.iroh-canary.iroh.link."), query_type: A, query_class: IN }, ipv6 proto error: no records found for Query { name: Name("use1-1.relay.n0.iroh-canary.iroh.link."), query_type: AAAA, query_class: IN }Resolve failed ipv4: proto error: no records found for Query { name: Name("use1-1.relay.n0.iroh-canary.iroh.link."), query_type: A, query_class: IN }, ipv6 proto error: no records found for Query { name: Name("use1-1.relay.n0.iroh-canary.iroh.link."), query_type: AAAA, query_class: IN }Resolve failed ipv4: proto error: no records found for Query { name: Name("use1-1.relay.n0.iroh-canary.iroh.link."), query_type: A, query_class: IN }, ipv6 proto error: no records found for Query { name: Name("use1-1.relay.n0.iroh-canary.iroh.link."), query_type: AAAA, query_class: IN }]
+  ping #114 recv failed: pong timeout (10s)
+[2m2026-02-13T07:24:46.033504Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Failed to connect to relay server
+[2m2026-02-13T07:24:46.658326Z[0m [33m WARN[0m [2miroh::socket::remote_map::remote_state[0m[2m:[0m Address Lookup failed: Service 'dns' error: no calls succeeded: [Failed to resolve TXT recordFailed to resolve TXT recordFailed to resolve TXT record]
+[2m2026-02-13T07:24:47.452716Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m remote server configuration might cause nat traversal issues [3mmax_local_addresses[0m[2m=[0m12 [3mremote_cid_limit[0m[2m=[0m5
+[2m2026-02-13T07:24:47.602113Z[0m [33m WARN[0m [2miroh_quinn_udp[0m[2m:[0m sendmsg error: Os { code: 65, kind: HostUnreachable, message: "No route to host" }, Transmit: { destination: [2a01:e0a:14f:5da0:248f:5dff:fea5:8ed1]:56006, src_ip: None, ecn: Some(Ect0), len: 1200, segment_size: None }
+  ping #115 recv failed: pong timeout (10s)
+  ping #116 recv failed: pong timeout (10s)
+  ping #117 recv failed: pong timeout (10s)
+  ping #118 recv failed: pong timeout (10s)
+  ping #119 recv failed: pong timeout (10s)
+  ping #120 recv failed: pong timeout (10s)
+  ping #121 recv failed: pong timeout (10s)
+  ping #122 recv failed: pong timeout (10s)
+  ping #123 recv failed: pong timeout (10s)
+  ping #124 recv failed: pong timeout (10s)
+  ping #125 recv failed: pong timeout (10s)
+  ping #126 recv failed: pong timeout (10s)
+  ping #127 recv failed: pong timeout (10s)
+  ping #128 recv failed: pong timeout (10s)
+  ping #129 recv failed: pong timeout (10s)
+  ping #130 recv failed: pong timeout (10s)
+  ping #131 recv failed: pong timeout (10s)
+  ping #132 recv failed: pong timeout (10s)
+  ping #133 recv failed: pong timeout (10s)
+  ping #134 recv failed: pong timeout (10s)
+  ping #135 recv failed: pong timeout (10s)
+  ping #136 recv failed: pong timeout (10s)
+  ping #137 recv failed: pong timeout (10s)
+  ping #138 recv failed: pong timeout (10s)
+  ping #139 recv failed: pong timeout (10s)
+  ping #140 recv failed: pong timeout (10s)
+  ping #141 recv failed: pong timeout (10s)
+  ping #142 recv failed: pong timeout (10s)
+  ping #143 recv failed: pong timeout (10s)
+  ping #144 recv failed: pong timeout (10s)
+  ping #145 recv failed: pong timeout (10s)
+  ping #146 recv failed: pong timeout (10s)
+  ping #147 recv failed: pong timeout (10s)
+  ping #148 recv failed: pong timeout (10s)
+  ping #149 recv failed: pong timeout (10s)
+  ping #150 recv failed: pong timeout (10s)
+  ping #151 recv failed: pong timeout (10s)
+  ping #152 recv failed: pong timeout (10s)
+  ping #153 recv failed: pong timeout (10s)
+  ping #154 recv failed: pong timeout (10s)
+  ping #155 recv failed: pong timeout (10s)
+  ping #156 recv failed: pong timeout (10s)
+  ping #157 recv failed: pong timeout (10s)
+  ping #158 recv failed: pong timeout (10s)
+  ping #159 recv failed: pong timeout (10s)
+  ping #160 recv failed: pong timeout (10s)
+  ping #161 recv failed: pong timeout (10s)
+  ping #162 recv failed: pong timeout (10s)
+  ping #163 recv failed: pong timeout (10s)
+  ping #164 recv failed: pong timeout (10s)
+  ping #165 recv failed: pong timeout (10s)
+  ping #166 recv failed: pong timeout (10s)
+  ping #167 recv failed: pong timeout (10s)
+  ping #168 recv failed: pong timeout (10s)
+  ping #169 recv failed: pong timeout (10s)
+  ping #170 recv failed: pong timeout (10s)
+  ping #171 recv failed: pong timeout (10s)
+  ping #172 recv failed: pong timeout (10s)
+  ping #173 recv failed: pong timeout (10s)
+  ping #174 recv failed: pong timeout (10s)
+  ping #175 recv failed: pong timeout (10s)
+  ping #176 recv failed: pong timeout (10s)
+  ping #177 recv failed: pong timeout (10s)
+  ping #178 recv failed: pong timeout (10s)
+
+Ctrl+C received, shutting down...
+  ping #179 recv failed: pong timeout (10s)
+
+Done: 0/179 pings OK, avg RTT: 0.0ms

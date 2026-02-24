@@ -1,0 +1,32 @@
+tom-stress v0.1.0
+Node ID: 40ea0b68ea2da3afffb4573ef9a37d5ad54e9011bc2a9225511cda35790bebfb
+
+Ladder mode → target: b7ec2e013be927f2614829d360d57018bdaf502ef3b85bb3ee40ef962ed08b43, 4 sizes, 2 reps each
+
+  Step 1: 1024 bytes (2 reps)
+[2m2026-02-12T21:16:10.247079Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m failed closing path [3merr[0m[2m=[0mClosedPath
+    rep 1: send failed: connection to b7ec2e013be927f2614829d360d57018bdaf502ef3b85bb3ee40ef962ed08b43 failed: timed out
+[2m2026-02-12T21:16:40.253399Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m failed closing path [3merr[0m[2m=[0mClosedPath
+    rep 2: send failed: connection to b7ec2e013be927f2614829d360d57018bdaf502ef3b85bb3ee40ef962ed08b43 failed: timed out
+    → 0/2 OK, avg RTT: 0.0ms
+
+  Step 2: 4096 bytes (2 reps)
+[2m2026-02-12T21:17:10.765638Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m failed closing path [3merr[0m[2m=[0mClosedPath
+    rep 1: send failed: connection to b7ec2e013be927f2614829d360d57018bdaf502ef3b85bb3ee40ef962ed08b43 failed: timed out
+[2m2026-02-12T21:17:40.772413Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m failed closing path [3merr[0m[2m=[0mClosedPath
+    rep 2: send failed: connection to b7ec2e013be927f2614829d360d57018bdaf502ef3b85bb3ee40ef962ed08b43 failed: timed out
+    → 0/2 OK, avg RTT: 0.0ms
+
+  Step 3: 16384 bytes (2 reps)
+[2m2026-02-12T21:18:11.259685Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m failed closing path [3merr[0m[2m=[0mClosedPath
+    rep 1: send failed: connection to b7ec2e013be927f2614829d360d57018bdaf502ef3b85bb3ee40ef962ed08b43 failed: timed out
+[2m2026-02-12T21:18:41.263575Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m failed closing path [3merr[0m[2m=[0mClosedPath
+    rep 2: send failed: connection to b7ec2e013be927f2614829d360d57018bdaf502ef3b85bb3ee40ef962ed08b43 failed: timed out
+    → 0/2 OK, avg RTT: 0.0ms
+
+  Step 4: 65536 bytes (2 reps)
+[2m2026-02-12T21:19:11.779288Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m failed closing path [3merr[0m[2m=[0mClosedPath
+    rep 1: send failed: connection to b7ec2e013be927f2614829d360d57018bdaf502ef3b85bb3ee40ef962ed08b43 failed: timed out
+[2m2026-02-12T21:19:41.797953Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m failed closing path [3merr[0m[2m=[0mClosedPath
+    rep 2: send failed: connection to b7ec2e013be927f2614829d360d57018bdaf502ef3b85bb3ee40ef962ed08b43 failed: timed out
+    → 0/2 OK, avg RTT: 0.0ms

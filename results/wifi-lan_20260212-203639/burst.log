@@ -1,0 +1,9 @@
+tom-stress v0.1.0
+Node ID: 0a951b22b8e892dccf72e29787e2c14d382debd1a73f367793a014f0ade0dbf1
+
+Burst mode → target: d017554ddd5986edd28ed724ee7dd9872801c934cf58b36c5ea3ac6b1f30c539, 50 msgs x 1024 bytes, 1 rounds
+
+  Round 1/1 ...
+[2m2026-02-12T19:37:26.835157Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m remote server configuration might cause nat traversal issues [3mmax_local_addresses[0m[2m=[0m12 [3mremote_cid_limit[0m[2m=[0m5
+    sent 50/50 in 1791.5ms
+    burst round 1: 50/50 acked, 0 lost, 6 msg/s, avg RTT 5500.5ms
