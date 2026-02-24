@@ -100,14 +100,19 @@ impl GroupHub {
                 ref encrypted_keys,
             } => self.handle_sender_key_distribution(from, group_id, encrypted_keys),
 
-            // Hub doesn't process these (they're outgoing from hub)
+            // Hub doesn't process these (they're outgoing from hub or failover-specific)
             GroupPayload::Created { .. }
             | GroupPayload::Invite { .. }
             | GroupPayload::Sync { .. }
             | GroupPayload::MemberJoined { .. }
             | GroupPayload::MemberLeft { .. }
             | GroupPayload::HubMigration { .. }
-            | GroupPayload::HubHeartbeat { .. } => vec![],
+            | GroupPayload::HubHeartbeat { .. }
+            | GroupPayload::HubPing { .. }
+            | GroupPayload::HubPong { .. }
+            | GroupPayload::HubShadowSync { .. }
+            | GroupPayload::CandidateAssigned { .. }
+            | GroupPayload::HubUnreachable { .. } => vec![],
         }
     }
 
