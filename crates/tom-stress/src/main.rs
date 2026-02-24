@@ -1,4 +1,5 @@
 mod burst;
+mod campaign;
 mod common;
 mod events;
 mod fanout;
@@ -6,6 +7,7 @@ mod ladder;
 mod listen;
 mod output;
 mod ping;
+mod responder;
 mod scenario_backup;
 mod scenario_common;
 mod scenario_e2e;
@@ -118,6 +120,22 @@ enum Command {
 
     /// Protocol scenario: Backup delivery for offline peers.
     Backup,
+
+    /// Full-protocol responder (auto-echo, auto-accept groups, auto-reply).
+    Responder,
+
+    /// Run a full stress campaign (6 phases) against a remote responder.
+    Campaign {
+        /// Target responder's NodeId (hex).
+        #[arg(long)]
+        connect: String,
+        /// Total duration for the endurance phase in seconds.
+        #[arg(long, default_value = "3600")]
+        duration: u64,
+        /// Run a single phase only (ping, burst, e2e, group, failover, endurance).
+        #[arg(long)]
+        phase: Option<String>,
+    },
 }
 
 #[tokio::main]
@@ -133,13 +151,15 @@ async fn main() -> anyhow::Result<()> {
         Command::E2e => "e2e",
         Command::Group => "group",
         Command::Backup => "backup",
+        Command::Responder => "responder",
+        Command::Campaign { .. } => "campaign",
     };
 
     let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| "warn".into());
 
     if let Some(ref dir) = cli.output_dir {
-        if mode_name != "listen" {
+        if mode_name != "listen" && mode_name != "responder" {
             let paths = output::resolve_output_paths(
                 std::path::Path::new(dir),
                 &cli.name,
@@ -191,6 +211,30 @@ async fn main() -> anyhow::Result<()> {
             if !result.success() {
                 std::process::exit(1);
             }
+            return Ok(());
+        }
+        Command::Responder => {
+            responder::run(responder::ResponderConfig {
+                name: cli.name.clone(),
+                max_message_size: cli.max_message_size,
+            })
+            .await?;
+            return Ok(());
+        }
+        Command::Campaign {
+            connect,
+            duration,
+            phase,
+        } => {
+            let target = parse_node_id(connect)?;
+            campaign::run(campaign::CampaignConfig {
+                target,
+                name: cli.name.clone(),
+                duration_s: *duration,
+                phase: phase.clone(),
+                max_message_size: cli.max_message_size,
+            })
+            .await?;
             return Ok(());
         }
         _ => {}
@@ -312,7 +356,9 @@ async fn main() -> anyhow::Result<()> {
         }
 
         // Already handled above
-        Command::E2e | Command::Group | Command::Backup => unreachable!(),
+        Command::E2e | Command::Group | Command::Backup | Command::Responder | Command::Campaign { .. } => {
+            unreachable!()
+        }
     }
 
     Ok(())
