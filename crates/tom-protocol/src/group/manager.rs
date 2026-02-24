@@ -9,6 +9,22 @@ use std::collections::HashMap;
 use crate::group::types::*;
 use crate::types::{now_ms, NodeId};
 
+/// State for a group where we are the shadow.
+#[derive(Debug)]
+#[allow(dead_code)] // candidate_id and config_version used by runtime layer (upcoming)
+struct ShadowState {
+    /// Synchronized member list from primary.
+    members: Vec<GroupMember>,
+    /// Candidate node id.
+    candidate_id: Option<NodeId>,
+    /// Config version from primary.
+    config_version: u64,
+    /// Consecutive ping failures.
+    ping_failures: u32,
+    /// Number of HubUnreachable reports received.
+    unreachable_reports: u32,
+}
+
 /// Member-side group state manager.
 ///
 /// Handles group lifecycle from the perspective of a regular member:
@@ -33,6 +49,8 @@ pub struct GroupManager {
     sender_keys: HashMap<GroupId, HashMap<NodeId, SenderKeyEntry>>,
     /// Messages waiting for a sender key to decrypt.
     pending_decrypt: HashMap<GroupId, Vec<GroupMessage>>,
+    /// Groups where we are the shadow (group_id -> ShadowState).
+    shadow_state: HashMap<GroupId, ShadowState>,
 }
 
 impl GroupManager {
@@ -48,6 +66,7 @@ impl GroupManager {
             local_sender_keys: HashMap::new(),
             sender_keys: HashMap::new(),
             pending_decrypt: HashMap::new(),
+            shadow_state: HashMap::new(),
         }
     }
 
@@ -277,6 +296,7 @@ impl GroupManager {
 
         self.message_history.remove(group_id);
         self.cleanup_group_keys(group_id);
+        self.shadow_state.remove(group_id);
 
         vec![GroupAction::Send {
             to: group.hub_relay_id,
@@ -527,6 +547,135 @@ impl GroupManager {
         self.local_sender_keys.remove(group_id);
         self.sender_keys.remove(group_id);
         self.pending_decrypt.remove(group_id);
+    }
+
+    // ── Shadow Role ──────────────────────────────────────────────────────
+
+    /// Are we the shadow for this group?
+    pub fn is_shadow_for(&self, group_id: &GroupId) -> bool {
+        self.shadow_state.contains_key(group_id)
+    }
+
+    /// Handle HubShadowSync from primary — store replicated state.
+    pub fn handle_shadow_sync(
+        &mut self,
+        group_id: &GroupId,
+        members: Vec<GroupMember>,
+        candidate_id: Option<NodeId>,
+        config_version: u64,
+    ) -> Vec<GroupAction> {
+        if !self.groups.contains_key(group_id) {
+            return vec![];
+        }
+
+        self.shadow_state.insert(
+            group_id.clone(),
+            ShadowState {
+                members,
+                candidate_id,
+                config_version,
+                ping_failures: 0,
+                unreachable_reports: 0,
+            },
+        );
+
+        vec![]
+    }
+
+    /// Record a ping failure (no pong received). Returns promotion actions if threshold hit.
+    pub fn record_ping_failure(&mut self, group_id: &GroupId) -> Vec<GroupAction> {
+        let Some(state) = self.shadow_state.get_mut(group_id) else {
+            return vec![];
+        };
+
+        state.ping_failures += 1;
+
+        if self.should_promote(group_id) {
+            self.promote_to_primary(group_id)
+        } else {
+            vec![]
+        }
+    }
+
+    /// Handle HubUnreachable report from a member. Combined with ping failures, may trigger promotion.
+    pub fn handle_hub_unreachable(
+        &mut self,
+        group_id: &GroupId,
+        _reporter: NodeId,
+    ) -> Vec<GroupAction> {
+        let Some(state) = self.shadow_state.get_mut(group_id) else {
+            return vec![];
+        };
+
+        state.unreachable_reports += 1;
+
+        if self.should_promote(group_id) {
+            self.promote_to_primary(group_id)
+        } else {
+            vec![]
+        }
+    }
+
+    /// Check if we should promote: 2 ping failures, OR 1 ping failure + 1 unreachable report.
+    fn should_promote(&self, group_id: &GroupId) -> bool {
+        let Some(state) = self.shadow_state.get(group_id) else {
+            return false;
+        };
+        let total_signals = state.ping_failures + state.unreachable_reports;
+        state.ping_failures >= SHADOW_PING_FAILURE_THRESHOLD
+            || (state.ping_failures >= 1 && total_signals >= 2)
+    }
+
+    /// Promote ourselves from shadow to primary hub.
+    fn promote_to_primary(&mut self, group_id: &GroupId) -> Vec<GroupAction> {
+        let Some(state) = self.shadow_state.remove(group_id) else {
+            return vec![];
+        };
+        let Some(group) = self.groups.get_mut(group_id) else {
+            return vec![];
+        };
+
+        let old_hub_id = group.hub_relay_id;
+        group.hub_relay_id = self.local_id;
+        group.members = state.members;
+        group.shadow_id = None;
+        group.candidate_id = None;
+
+        // Broadcast HubMigration to all members
+        let recipients: Vec<NodeId> = group
+            .members
+            .iter()
+            .map(|m| m.node_id)
+            .filter(|id| *id != self.local_id)
+            .collect();
+
+        vec![GroupAction::Broadcast {
+            to: recipients,
+            payload: GroupPayload::HubMigration {
+                group_id: group_id.clone(),
+                new_hub_id: self.local_id,
+                old_hub_id,
+            },
+        }]
+    }
+
+    /// Reset ping failure counter (called when pong is received).
+    pub fn reset_ping_failures(&mut self, group_id: &GroupId) {
+        if let Some(state) = self.shadow_state.get_mut(group_id) {
+            state.ping_failures = 0;
+            state.unreachable_reports = 0;
+        }
+    }
+
+    /// Get shadow state for building ping actions in the runtime tick.
+    pub fn shadow_groups(&self) -> Vec<(&GroupId, NodeId)> {
+        self.shadow_state
+            .keys()
+            .filter_map(|gid| {
+                let group = self.groups.get(gid)?;
+                Some((gid, group.hub_relay_id))
+            })
+            .collect()
     }
 }
 
@@ -1063,5 +1212,107 @@ mod tests {
 
         mgr.leave_group(&gid);
         assert!(mgr.local_sender_key(&gid).is_none());
+    }
+
+    // ── Shadow Role Tests ─────────────────────────────────────────────
+
+    #[test]
+    fn handle_shadow_sync_stores_state() {
+        let shadow_id = node_id(2);
+        let mut mgr = GroupManager::new(shadow_id, "shadow".into());
+        let hub = node_id(10);
+        let group = make_test_group(node_id(1), hub);
+        let gid = group.group_id.clone();
+        mgr.handle_group_created(group);
+
+        let actions = mgr.handle_shadow_sync(
+            &gid,
+            vec![
+                GroupMember {
+                    node_id: node_id(1),
+                    username: "alice".into(),
+                    joined_at: 1000,
+                    role: GroupMemberRole::Member,
+                },
+                GroupMember {
+                    node_id: shadow_id,
+                    username: "shadow".into(),
+                    joined_at: 1000,
+                    role: GroupMemberRole::Member,
+                },
+            ],
+            Some(node_id(3)),
+            1,
+        );
+
+        assert!(mgr.is_shadow_for(&gid));
+        assert!(actions.is_empty()); // sync is silent, no events
+    }
+
+    #[test]
+    fn shadow_promotes_on_ping_failures() {
+        let shadow_id = node_id(2);
+        let mut mgr = GroupManager::new(shadow_id, "shadow".into());
+        let hub = node_id(10);
+        let group = make_test_group(node_id(1), hub);
+        let gid = group.group_id.clone();
+        mgr.handle_group_created(group);
+        mgr.handle_shadow_sync(
+            &gid,
+            vec![GroupMember {
+                node_id: node_id(1),
+                username: "alice".into(),
+                joined_at: 1000,
+                role: GroupMemberRole::Member,
+            }],
+            Some(node_id(3)),
+            1,
+        );
+
+        // Simulate 2 ping failures
+        let actions1 = mgr.record_ping_failure(&gid);
+        assert!(actions1.is_empty(), "1 failure should not promote");
+
+        let actions2 = mgr.record_ping_failure(&gid);
+        assert!(!actions2.is_empty(), "2 failures should trigger promotion");
+
+        // Should contain HubMigration broadcast
+        let has_migration = actions2
+            .iter()
+            .any(|a| matches!(a, GroupAction::Broadcast { payload: GroupPayload::HubMigration { .. }, .. }));
+        assert!(has_migration, "promotion should broadcast HubMigration");
+
+        // Should no longer be shadow (now we're the hub)
+        assert!(!mgr.is_shadow_for(&gid));
+    }
+
+    #[test]
+    fn hub_unreachable_accelerates_promotion() {
+        let shadow_id = node_id(2);
+        let mut mgr = GroupManager::new(shadow_id, "shadow".into());
+        let hub = node_id(10);
+        let group = make_test_group(node_id(1), hub);
+        let gid = group.group_id.clone();
+        mgr.handle_group_created(group);
+        mgr.handle_shadow_sync(
+            &gid,
+            vec![GroupMember {
+                node_id: node_id(1),
+                username: "alice".into(),
+                joined_at: 1000,
+                role: GroupMemberRole::Member,
+            }],
+            Some(node_id(3)),
+            1,
+        );
+
+        // 1 ping failure + 1 HubUnreachable = promotion
+        mgr.record_ping_failure(&gid);
+        let actions = mgr.handle_hub_unreachable(&gid, node_id(1));
+
+        let has_migration = actions
+            .iter()
+            .any(|a| matches!(a, GroupAction::Broadcast { payload: GroupPayload::HubMigration { .. }, .. }));
+        assert!(has_migration, "unreachable + 1 ping failure should promote");
     }
 }
