@@ -433,13 +433,13 @@ impl ProtocolRuntime {
         let secret_seed = node.secret_key_seed();
 
         // Command channel (app -> runtime)
-        let (cmd_tx, cmd_rx) = mpsc::channel::<RuntimeCommand>(256);
+        let (cmd_tx, cmd_rx) = mpsc::channel::<RuntimeCommand>(512);
 
         // Event channels (runtime -> app)
-        // Large buffers: executor uses try_send (non-blocking), consumer can be slow
-        let (msg_tx, msg_rx) = mpsc::channel::<DeliveredMessage>(1024);
-        let (status_tx, status_rx) = mpsc::channel::<StatusChange>(256);
-        let (event_tx, event_rx) = mpsc::channel::<ProtocolEvent>(256);
+        // Very large buffers to prevent blocking even during burst phases
+        let (msg_tx, msg_rx) = mpsc::channel::<DeliveredMessage>(4096);
+        let (status_tx, status_rx) = mpsc::channel::<StatusChange>(1024);
+        let (event_tx, event_rx) = mpsc::channel::<ProtocolEvent>(1024);
 
         // Subscribe to path events before moving node
         let path_rx = node.path_events();

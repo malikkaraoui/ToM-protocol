@@ -958,12 +958,33 @@ impl RuntimeState {
                 hub_relay_id,
                 initial_members,
             } => {
-                let actions = self.group_manager.create_group(
-                    name,
-                    hub_relay_id,
-                    initial_members,
-                );
-                self.group_actions_to_effects(&actions)
+                // If we ARE the hub, handle creation locally without network round-trip
+                if hub_relay_id == self.local_id {
+                    let payload = GroupPayload::Create {
+                        group_name: name.clone(),
+                        creator_username: self.config.username.clone(),
+                        initial_members: initial_members.clone(),
+                    };
+                    let actions = self.group_hub.handle_payload(payload, self.local_id);
+                    let mut effects = self.group_actions_to_effects(&actions);
+
+                    // Also process the GroupCreated callback on the member side
+                    // (since we're both hub and member)
+                    if let Some((_, group_info)) = self.group_hub.groups().find(|(_, g)| g.name == name) {
+                        let member_actions = self.group_manager.handle_group_created(group_info.clone());
+                        effects.extend(self.group_actions_to_effects(&member_actions));
+                    }
+
+                    effects
+                } else {
+                    // Remote hub — send GroupPayload::Create over network
+                    let actions = self.group_manager.create_group(
+                        name,
+                        hub_relay_id,
+                        initial_members,
+                    );
+                    self.group_actions_to_effects(&actions)
+                }
             }
 
             RuntimeCommand::AcceptInvite { group_id } => {
