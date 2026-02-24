@@ -13,4 +13,6 @@ pub use manager::GroupManager;
 pub use types::{
     EncryptedSenderKey, GroupAction, GroupEvent, GroupId, GroupInfo, GroupInvite, GroupMember,
     GroupMemberRole, GroupMessage, GroupMessageContent, GroupPayload, LeaveReason, SenderKeyEntry,
+    CANDIDATE_ORPHAN_TIMEOUT_MS, HUB_ACK_TIMEOUT_MS, SHADOW_PING_FAILURE_THRESHOLD,
+    SHADOW_PING_INTERVAL_MS, SHADOW_PING_TIMEOUT_MS,
 };
