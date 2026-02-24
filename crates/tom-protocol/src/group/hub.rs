@@ -100,6 +100,8 @@ impl GroupHub {
                 ref encrypted_keys,
             } => self.handle_sender_key_distribution(from, group_id, encrypted_keys),
 
+            GroupPayload::HubPing { ref group_id } => self.handle_hub_ping(group_id, from),
+
             // Hub doesn't process these (they're outgoing from hub or failover-specific)
             GroupPayload::Created { .. }
             | GroupPayload::Invite { .. }
@@ -108,7 +110,6 @@ impl GroupHub {
             | GroupPayload::MemberLeft { .. }
             | GroupPayload::HubMigration { .. }
             | GroupPayload::HubHeartbeat { .. }
-            | GroupPayload::HubPing { .. }
             | GroupPayload::HubPong { .. }
             | GroupPayload::HubShadowSync { .. }
             | GroupPayload::CandidateAssigned { .. }
@@ -145,6 +146,8 @@ impl GroupHub {
             created_at: now,
             last_activity_at: now,
             max_members: MAX_GROUP_MEMBERS,
+            shadow_id: None,
+            candidate_id: None,
         };
 
         let hub_group = HubGroup {
@@ -249,6 +252,12 @@ impl GroupHub {
             });
         }
 
+        // After join: sync shadow if assigned
+        let group_id_for_sync = group_id.clone();
+        if let Some((target, payload)) = self.build_shadow_sync(&group_id_for_sync) {
+            actions.push(GroupAction::Send { to: target, payload });
+        }
+
         actions
     }
 
@@ -282,7 +291,7 @@ impl GroupHub {
             .map(|m| m.node_id)
             .collect();
 
-        vec![GroupAction::Broadcast {
+        let mut actions = vec![GroupAction::Broadcast {
             to: remaining,
             payload: GroupPayload::MemberLeft {
                 group_id: group_id.clone(),
@@ -290,7 +299,15 @@ impl GroupHub {
                 username,
                 reason: LeaveReason::Voluntary,
             },
-        }]
+        }];
+
+        // After leave: sync shadow if assigned
+        let group_id_for_sync = group_id.clone();
+        if let Some((target, payload)) = self.build_shadow_sync(&group_id_for_sync) {
+            actions.push(GroupAction::Send { to: target, payload });
+        }
+
+        actions
     }
 
     // ── Message Fanout ───────────────────────────────────────────────────
@@ -584,6 +601,91 @@ impl GroupHub {
                 node_id: *target,
                 username,
                 reason: LeaveReason::Kicked,
+            },
+        }]
+    }
+
+    // ── Hub Failover (Primary Side) ─────────────────────────────────────
+
+    /// Assign a shadow for a group. Uses deterministic election (lowest NodeId
+    /// among members, excluding the hub itself).
+    pub fn assign_shadow(&mut self, group_id: &GroupId) -> Vec<GroupAction> {
+        let Some(hub_group) = self.groups.get_mut(group_id) else {
+            return vec![];
+        };
+
+        // Pick shadow: lowest NodeId among members, excluding hub
+        let mut candidates: Vec<NodeId> = hub_group
+            .info
+            .members
+            .iter()
+            .map(|m| m.node_id)
+            .filter(|id| *id != self.hub_id)
+            .collect();
+        candidates.sort_by_key(|a| a.to_string());
+
+        let shadow_id = candidates.first().copied();
+        hub_group.info.shadow_id = shadow_id;
+
+        if let Some(shadow) = shadow_id {
+            // Also pick candidate: next member after shadow
+            let candidate_id = candidates.get(1).copied();
+            hub_group.info.candidate_id = candidate_id;
+
+            let mut actions = vec![GroupAction::Send {
+                to: shadow,
+                payload: GroupPayload::HubShadowSync {
+                    group_id: group_id.clone(),
+                    members: hub_group.info.members.clone(),
+                    candidate_id,
+                    config_version: hub_group.info.last_activity_at,
+                },
+            }];
+
+            if let Some(cand) = candidate_id {
+                actions.push(GroupAction::Send {
+                    to: cand,
+                    payload: GroupPayload::CandidateAssigned {
+                        group_id: group_id.clone(),
+                    },
+                });
+            }
+
+            actions
+        } else {
+            vec![]
+        }
+    }
+
+    /// Build a HubShadowSync payload for a group (used on member changes).
+    pub fn build_shadow_sync(&self, group_id: &GroupId) -> Option<(NodeId, GroupPayload)> {
+        let hub_group = self.groups.get(group_id)?;
+        let shadow = hub_group.info.shadow_id?;
+        Some((
+            shadow,
+            GroupPayload::HubShadowSync {
+                group_id: group_id.clone(),
+                members: hub_group.info.members.clone(),
+                candidate_id: hub_group.info.candidate_id,
+                config_version: hub_group.info.last_activity_at,
+            },
+        ))
+    }
+
+    /// Handle a HubPing from a member — respond with HubPong.
+    pub fn handle_hub_ping(&self, group_id: &GroupId, from: NodeId) -> Vec<GroupAction> {
+        // Verify group exists and sender is a member
+        let Some(hub_group) = self.groups.get(group_id) else {
+            return vec![];
+        };
+        // Respond to any member who pings (the shadow might not be assigned yet)
+        if !hub_group.info.members.iter().any(|m| m.node_id == from) {
+            return vec![];
+        }
+        vec![GroupAction::Send {
+            to: from,
+            payload: GroupPayload::HubPong {
+                group_id: group_id.clone(),
             },
         }]
     }
@@ -1109,6 +1211,92 @@ mod tests {
         assert!(
             matches!(&actions[1], GroupAction::Send { to, .. } if *to == charlie)
         );
+    }
+
+    // ── Hub Failover Tests ────────────────────────────────────────────
+
+    #[test]
+    fn assign_shadow_on_group_create() {
+        let mut hub = make_hub();
+        let alice = node_id(1);
+        let bob = node_id(2);
+        let charlie = node_id(3);
+
+        hub.handle_payload(
+            GroupPayload::Create {
+                group_name: "Failover".into(),
+                creator_username: "alice".into(),
+                initial_members: vec![bob, charlie],
+            },
+            alice,
+        );
+        let gid = hub.groups.keys().next().unwrap().clone();
+        hub.handle_join(bob, &gid, "bob".into());
+        hub.handle_join(charlie, &gid, "charlie".into());
+
+        let actions = hub.assign_shadow(&gid);
+        assert!(!actions.is_empty(), "should produce HubShadowSync action");
+
+        let shadow_sync_found = actions.iter().any(|a| {
+            matches!(a, GroupAction::Send { payload: GroupPayload::HubShadowSync { .. }, .. })
+        });
+        assert!(shadow_sync_found, "should send HubShadowSync to shadow");
+    }
+
+    #[test]
+    fn hub_responds_pong_to_ping() {
+        let mut hub = make_hub();
+        let alice = node_id(1);
+        let shadow = node_id(2);
+
+        hub.handle_payload(
+            GroupPayload::Create {
+                group_name: "Pong".into(),
+                creator_username: "alice".into(),
+                initial_members: vec![],
+            },
+            alice,
+        );
+        let gid = hub.groups.keys().next().unwrap().clone();
+        hub.handle_join(shadow, &gid, "shadow".into());
+
+        let actions = hub.handle_hub_ping(&gid, shadow);
+        assert_eq!(actions.len(), 1);
+        assert!(matches!(
+            &actions[0],
+            GroupAction::Send { to, payload: GroupPayload::HubPong { .. } } if *to == shadow
+        ));
+    }
+
+    #[test]
+    fn shadow_sync_contains_current_members() {
+        let mut hub = make_hub();
+        let alice = node_id(1);
+        let bob = node_id(2);
+
+        hub.handle_payload(
+            GroupPayload::Create {
+                group_name: "Sync".into(),
+                creator_username: "alice".into(),
+                initial_members: vec![],
+            },
+            alice,
+        );
+        let gid = hub.groups.keys().next().unwrap().clone();
+        hub.handle_join(bob, &gid, "bob".into());
+
+        // Assign shadow first so build_shadow_sync can find the target
+        hub.assign_shadow(&gid);
+
+        let sync = hub.build_shadow_sync(&gid);
+        assert!(sync.is_some());
+        let (_, payload) = sync.unwrap();
+        if let GroupPayload::HubShadowSync { members, .. } = &payload {
+            // Should contain creator + bob
+            assert!(members.len() >= 2);
+        } else {
+            panic!("expected HubShadowSync");
+        }
     }
 
     #[test]
