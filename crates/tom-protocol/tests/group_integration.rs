@@ -713,6 +713,113 @@ fn shadow_assigned_after_group_setup() {
     assert!(group.shadow_id.is_some());
 }
 
+/// Test complete hub failover: primary dies -> shadow promotes -> members re-route.
+#[test]
+fn hub_failover_shadow_promotes_on_primary_death() {
+    let hub_id = node_id(10);
+    let shadow_id = node_id(2);
+    let candidate_id = node_id(3);
+    let alice_id = node_id(1);
+
+    // ── Setup: create group with hub, shadow, candidate ──
+    let mut hub = GroupHub::new(hub_id);
+    let mut shadow_mgr = GroupManager::new(shadow_id, "shadow".into());
+    let mut alice_mgr = GroupManager::new(alice_id, "alice".into());
+
+    // Create group on hub
+    let hub_actions = hub.handle_payload(
+        GroupPayload::Create {
+            group_name: "Failover E2E".into(),
+            creator_username: "alice".into(),
+            initial_members: vec![],
+        },
+        alice_id,
+    );
+    let GroupAction::Send { payload: GroupPayload::Created { group }, .. } = &hub_actions[0]
+    else { panic!() };
+    let gid = group.group_id.clone();
+    alice_mgr.handle_group_created(group.clone());
+
+    // Join shadow and candidate via handle_payload (handle_join is private)
+    hub.handle_payload(
+        GroupPayload::Join {
+            group_id: gid.clone(),
+            username: "shadow".into(),
+        },
+        shadow_id,
+    );
+    hub.handle_payload(
+        GroupPayload::Join {
+            group_id: gid.clone(),
+            username: "candidate".into(),
+        },
+        candidate_id,
+    );
+
+    // Shadow needs the group in its local state to accept shadow sync
+    shadow_mgr.handle_group_created(GroupInfo {
+        hub_relay_id: hub_id,
+        ..group.clone()
+    });
+
+    // Hub assigns shadow
+    let assign_actions = hub.assign_shadow(&gid);
+    assert!(!assign_actions.is_empty());
+
+    // Deliver HubShadowSync to shadow
+    for action in &assign_actions {
+        if let GroupAction::Send {
+            to,
+            payload: GroupPayload::HubShadowSync {
+                group_id,
+                members,
+                candidate_id: cand,
+                config_version,
+            },
+        } = action
+        {
+            if *to == shadow_id {
+                shadow_mgr.handle_shadow_sync(group_id, members.clone(), *cand, *config_version);
+            }
+        }
+    }
+    assert!(shadow_mgr.is_shadow_for(&gid));
+
+    // ── Simulate primary death: 2 ping failures ──
+    let fail1 = shadow_mgr.record_ping_failure(&gid);
+    assert!(fail1.is_empty());
+
+    let fail2 = shadow_mgr.record_ping_failure(&gid);
+    assert!(!fail2.is_empty(), "should promote after 2 failures");
+
+    // Verify HubMigration is broadcast
+    let has_migration = fail2.iter().any(|a| {
+        matches!(
+            a,
+            GroupAction::Broadcast {
+                payload: GroupPayload::HubMigration { new_hub_id, .. },
+                ..
+            } if *new_hub_id == shadow_id
+        )
+    });
+    assert!(has_migration, "shadow should broadcast HubMigration with itself as new hub");
+
+    // Shadow is no longer shadow (it's now hub)
+    assert!(!shadow_mgr.is_shadow_for(&gid));
+
+    // ── Alice receives migration and re-routes ──
+    let alice_actions = alice_mgr.handle_hub_migration(&gid, shadow_id);
+    assert_eq!(alice_actions.len(), 1);
+    assert!(matches!(
+        &alice_actions[0],
+        GroupAction::Event(GroupEvent::HubMigrated { new_hub_id, .. }) if *new_hub_id == shadow_id
+    ));
+
+    // Verify Alice now routes to shadow as hub
+    let alice_group = alice_mgr.get_group(&gid).unwrap();
+    assert_eq!(alice_group.hub_relay_id, shadow_id);
+}
+
 /// Test that an ex-member cannot decrypt messages after key rotation.
 #[test]
 fn key_rotation_forward_secrecy() {
