@@ -41,6 +41,11 @@ fn group_payload_to_message_type(payload: &GroupPayload) -> MessageType {
         GroupPayload::HubMigration { .. } => MessageType::GroupHubMigration,
         GroupPayload::HubHeartbeat { .. } => MessageType::GroupHubHeartbeat,
         GroupPayload::SenderKeyDistribution { .. } => MessageType::GroupSenderKeyDistribution,
+        GroupPayload::HubPing { .. } => MessageType::GroupHubPing,
+        GroupPayload::HubPong { .. } => MessageType::GroupHubPong,
+        GroupPayload::HubShadowSync { .. } => MessageType::GroupHubShadowSync,
+        GroupPayload::CandidateAssigned { .. } => MessageType::GroupCandidateAssigned,
+        GroupPayload::HubUnreachable { .. } => MessageType::GroupHubUnreachable,
     }
 }
 
@@ -421,6 +426,13 @@ impl RuntimeState {
                 .handle_hub_migration(&group_id, new_hub_id),
             GroupPayload::HubHeartbeat { .. } => vec![],
 
+            // Failover payloads — handled by shadow/candidate modules (future tasks)
+            GroupPayload::HubPing { .. }
+            | GroupPayload::HubPong { .. }
+            | GroupPayload::HubShadowSync { .. }
+            | GroupPayload::CandidateAssigned { .. }
+            | GroupPayload::HubUnreachable { .. } => vec![],
+
             GroupPayload::SenderKeyDistribution {
                 ref group_id,
                 from,
@@ -617,7 +629,12 @@ impl RuntimeState {
             | MessageType::GroupHubMigration
             | MessageType::GroupDeliveryAck
             | MessageType::GroupHubHeartbeat
-            | MessageType::GroupSenderKeyDistribution => {
+            | MessageType::GroupSenderKeyDistribution
+            | MessageType::GroupHubPing
+            | MessageType::GroupHubPong
+            | MessageType::GroupHubShadowSync
+            | MessageType::GroupCandidateAssigned
+            | MessageType::GroupHubUnreachable => {
                 self.handle_incoming_group(envelope)
             }
 

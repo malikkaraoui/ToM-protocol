@@ -27,6 +27,21 @@ pub const MAX_SYNC_MESSAGES: usize = 100;
 /// Rate limit: messages per second per sender in a group.
 pub const GROUP_RATE_LIMIT_PER_SECOND: u32 = 5;
 
+/// Shadow pings primary every 3s.
+pub const SHADOW_PING_INTERVAL_MS: u64 = 3_000;
+
+/// Timeout per shadow ping (2s).
+pub const SHADOW_PING_TIMEOUT_MS: u64 = 2_000;
+
+/// Shadow promotes after 2 consecutive missed pings.
+pub const SHADOW_PING_FAILURE_THRESHOLD: u32 = 2;
+
+/// Member timeout before sending HubUnreachable to shadow (3s).
+pub const HUB_ACK_TIMEOUT_MS: u64 = 3_000;
+
+/// Candidate self-promotes after this timeout with no contact from primary or shadow.
+pub const CANDIDATE_ORPHAN_TIMEOUT_MS: u64 = 30_000;
+
 // ── GroupId ──────────────────────────────────────────────────────────────
 
 /// Unique group identifier (e.g., "grp-<uuid>").
@@ -239,6 +254,26 @@ pub enum GroupPayload {
         epoch: u32,
         encrypted_keys: Vec<EncryptedSenderKey>,
     },
+
+    /// Shadow watchdog ping (shadow -> primary).
+    HubPing { group_id: GroupId },
+
+    /// Primary response to shadow ping (primary -> shadow).
+    HubPong { group_id: GroupId },
+
+    /// State sync from primary to shadow (primary -> shadow).
+    HubShadowSync {
+        group_id: GroupId,
+        members: Vec<GroupMember>,
+        candidate_id: Option<NodeId>,
+        config_version: u64,
+    },
+
+    /// Candidate role assignment (shadow -> candidate).
+    CandidateAssigned { group_id: GroupId },
+
+    /// Member reports hub unreachable (member -> shadow).
+    HubUnreachable { group_id: GroupId },
 }
 
 // ── GroupMessage ──────────────────────────────────────────────────────────
@@ -844,6 +879,61 @@ mod tests {
             from: node_id(1),
             epoch: 1,
             encrypted_keys: vec![],
+        };
+        let bytes = rmp_serde::to_vec(&payload).expect("serialize");
+        let decoded: GroupPayload = rmp_serde::from_slice(&bytes).expect("deserialize");
+        assert_eq!(payload, decoded);
+    }
+
+    #[test]
+    fn hub_shadow_sync_roundtrip() {
+        let payload = GroupPayload::HubShadowSync {
+            group_id: GroupId::from("grp-1".to_string()),
+            members: vec![GroupMember {
+                node_id: node_id(1),
+                username: "alice".into(),
+                joined_at: 1000,
+                role: GroupMemberRole::Member,
+            }],
+            candidate_id: Some(node_id(3)),
+            config_version: 1,
+        };
+        let bytes = rmp_serde::to_vec(&payload).expect("serialize");
+        let decoded: GroupPayload = rmp_serde::from_slice(&bytes).expect("deserialize");
+        assert_eq!(payload, decoded);
+    }
+
+    #[test]
+    fn hub_ping_pong_roundtrip() {
+        let ping = GroupPayload::HubPing {
+            group_id: GroupId::from("grp-1".to_string()),
+        };
+        let bytes = rmp_serde::to_vec(&ping).expect("serialize");
+        let decoded: GroupPayload = rmp_serde::from_slice(&bytes).expect("deserialize");
+        assert_eq!(ping, decoded);
+
+        let pong = GroupPayload::HubPong {
+            group_id: GroupId::from("grp-1".to_string()),
+        };
+        let bytes = rmp_serde::to_vec(&pong).expect("serialize");
+        let decoded: GroupPayload = rmp_serde::from_slice(&bytes).expect("deserialize");
+        assert_eq!(pong, decoded);
+    }
+
+    #[test]
+    fn hub_unreachable_roundtrip() {
+        let payload = GroupPayload::HubUnreachable {
+            group_id: GroupId::from("grp-1".to_string()),
+        };
+        let bytes = rmp_serde::to_vec(&payload).expect("serialize");
+        let decoded: GroupPayload = rmp_serde::from_slice(&bytes).expect("deserialize");
+        assert_eq!(payload, decoded);
+    }
+
+    #[test]
+    fn candidate_assigned_roundtrip() {
+        let payload = GroupPayload::CandidateAssigned {
+            group_id: GroupId::from("grp-1".to_string()),
         };
         let bytes = rmp_serde::to_vec(&payload).expect("serialize");
         let decoded: GroupPayload = rmp_serde::from_slice(&bytes).expect("deserialize");
