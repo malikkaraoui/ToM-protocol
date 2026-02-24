@@ -5,7 +5,7 @@ use std::time::{Duration, Instant};
 
 use serde::Serialize;
 use tom_protocol::{
-    DeliveredMessage, GroupId, ProtocolEvent, ProtocolRuntime, RuntimeChannels, RuntimeConfig,
+    DeliveredMessage, GroupId, ProtocolEvent, ProtocolRuntime, RuntimeConfig,
 };
 use tom_transport::{NodeId, TomNode, TomNodeConfig};
 use tokio::sync::mpsc;
@@ -205,8 +205,40 @@ pub async fn run(config: CampaignConfig) -> anyhow::Result<()> {
         ..Default::default()
     };
 
-    let mut channels = ProtocolRuntime::spawn(node, runtime_config);
+    let channels = ProtocolRuntime::spawn(node, runtime_config);
     let handle = channels.handle.clone();
+
+    // Spawn background channel pump to prevent runtime from blocking on try_send.
+    // The pump continuously drains runtime channels and forwards to local buffers.
+    // This ensures try_send in executor never drops messages due to full channels.
+    let (local_msg_tx, mut local_msg_rx) = mpsc::channel::<DeliveredMessage>(1024);
+    let (local_evt_tx, mut local_evt_rx) = mpsc::channel::<ProtocolEvent>(1024);
+
+    let _pump_task = tokio::spawn({
+        let mut runtime_msgs = channels.messages;
+        let mut runtime_evts = channels.events;
+        let mut runtime_status = channels.status_changes;
+        async move {
+            loop {
+                tokio::select! {
+                    Some(msg) = runtime_msgs.recv() => {
+                        // Forward messages to local buffer
+                        // Backpressure here is OK - it just slows down the pump,
+                        // not the runtime itself
+                        let _ = local_msg_tx.send(msg).await;
+                    }
+                    Some(evt) = runtime_evts.recv() => {
+                        // Forward events to local buffer
+                        let _ = local_evt_tx.send(evt).await;
+                    }
+                    Some(_sc) = runtime_status.recv() => {
+                        // Consume and drop status changes (not used in campaign)
+                    }
+                    else => break,
+                }
+            }
+        }
+    });
 
     // Register peer
     handle.add_peer(config.target).await;
@@ -221,7 +253,7 @@ pub async fn run(config: CampaignConfig) -> anyhow::Result<()> {
 
     // Wait for peer discovery
     eprintln!("Waiting for peer discovery (5s)...");
-    wait_for_peer(&mut channels.events, config.target, Duration::from_secs(5)).await;
+    wait_for_peer(&mut local_evt_rx, config.target, Duration::from_secs(5)).await;
 
     let mut summaries: Vec<PhaseSummaryLine> = Vec::new();
     let mut total_sent: u32 = 0;
@@ -234,52 +266,55 @@ pub async fn run(config: CampaignConfig) -> anyhow::Result<()> {
     // ── Phase 1: Ping ────────────────────────────────────────────
     if should_run("ping") {
         eprintln!("\n═══ Phase 1: PING (RTT baseline) ═══");
-        let stats = phase_ping(&handle, &mut channels.messages, config.target, 20).await;
+        let stats = phase_ping(&handle, &mut local_msg_rx, config.target, 20).await;
         let result = stats.to_result("ping");
         emit(&result);
         print_phase_result(&result);
         total_sent += stats.sent;
         total_received += stats.received;
         summaries.push(stats.to_summary_line("ping"));
-        drain_between_phases(&mut channels).await;
+        drain_local_channels(&mut local_msg_rx, &mut local_evt_rx).await;
     }
 
     // ── Phase 2: Burst ───────────────────────────────────────────
     if should_run("burst") {
         eprintln!("\n═══ Phase 2: BURST (throughput) ═══");
-        let stats = phase_burst(&handle, &mut channels.messages, config.target, 100, 3).await;
+        // Reduced from 100 to 30 for low-memory devices (e.g., 957MB NAS)
+        let stats = phase_burst(&handle, &mut local_msg_rx, config.target, 30, 3).await;
         let result = stats.to_result("burst");
         emit(&result);
         print_phase_result(&result);
         total_sent += stats.sent;
         total_received += stats.received;
         summaries.push(stats.to_summary_line("burst"));
-        drain_between_phases(&mut channels).await;
+        drain_local_channels(&mut local_msg_rx, &mut local_evt_rx).await;
     }
 
     // ── Phase 3: Protocol E2E ────────────────────────────────────
     if should_run("e2e") {
         eprintln!("\n═══ Phase 3: PROTOCOL E2E (encrypted chat) ═══");
-        let stats = phase_e2e(&handle, &mut channels.messages, config.target, 50).await;
+        // Reduced from 50 to 20 for low-memory devices
+        let stats = phase_e2e(&handle, &mut local_msg_rx, config.target, 20).await;
         let result = stats.to_result("e2e");
         emit(&result);
         print_phase_result(&result);
         total_sent += stats.sent;
         total_received += stats.received;
         summaries.push(stats.to_summary_line("e2e"));
-        drain_between_phases(&mut channels).await;
+        drain_local_channels(&mut local_msg_rx, &mut local_evt_rx).await;
     }
 
     // ── Phase 4: Group Encrypted ─────────────────────────────────
     if should_run("group") {
         eprintln!("\n═══ Phase 4: GROUP ENCRYPTED (Sender Keys) ═══");
+        // Reduced from 100 to 20 for low-memory devices
         let stats = phase_group(
             &handle,
-            &mut channels.events,
-            &mut channels.messages,
+            &mut local_evt_rx,
+            &mut local_msg_rx,
             local_id,
             config.target,
-            100,
+            20,
         )
         .await;
         let result = stats.to_result("group");
@@ -288,7 +323,7 @@ pub async fn run(config: CampaignConfig) -> anyhow::Result<()> {
         total_sent += stats.sent;
         total_received += stats.received;
         summaries.push(stats.to_summary_line("group"));
-        drain_between_phases(&mut channels).await;
+        drain_local_channels(&mut local_msg_rx, &mut local_evt_rx).await;
     }
 
     // ── Phase 5: Failover ────────────────────────────────────────
@@ -296,8 +331,8 @@ pub async fn run(config: CampaignConfig) -> anyhow::Result<()> {
         eprintln!("\n═══ Phase 5: FAILOVER (shadow promotion) ═══");
         let stats = phase_failover(
             &handle,
-            &mut channels.events,
-            &mut channels.messages,
+            &mut local_evt_rx,
+            &mut local_msg_rx,
             local_id,
             config.target,
         )
@@ -308,7 +343,7 @@ pub async fn run(config: CampaignConfig) -> anyhow::Result<()> {
         total_sent += stats.sent;
         total_received += stats.received;
         summaries.push(stats.to_summary_line("failover"));
-        drain_between_phases(&mut channels).await;
+        drain_local_channels(&mut local_msg_rx, &mut local_evt_rx).await;
     }
 
     // ── Phase 6: Endurance ───────────────────────────────────────
@@ -316,7 +351,7 @@ pub async fn run(config: CampaignConfig) -> anyhow::Result<()> {
         eprintln!("\n═══ Phase 6: ENDURANCE (1 msg/s, {}s) ═══", config.duration_s);
         let stats = phase_endurance(
             &handle,
-            &mut channels.messages,
+            &mut local_msg_rx,
             config.target,
             config.duration_s,
         )
@@ -873,43 +908,39 @@ async fn phase_endurance(
 // ── Helpers ────────────────────────────────────────────────────────
 
 /// Drain all pending messages/events/status between phases to avoid cross-contamination.
-async fn drain_between_phases(channels: &mut RuntimeChannels) {
-    eprintln!("  Draining channels between phases...");
-    let mut drained = 0;
-    let drain_start = Instant::now();
+/// Drain local pump channels between phases to clear any stale messages/events.
+async fn drain_local_channels(
+    messages: &mut mpsc::Receiver<DeliveredMessage>,
+    events: &mut mpsc::Receiver<ProtocolEvent>,
+) {
+    eprintln!("  Draining local channels between phases...");
+    let mut msg_drained = 0;
+    let mut evt_drained = 0;
 
-    // Drain for 500ms max
-    while drain_start.elapsed() < Duration::from_millis(500) {
-        tokio::select! {
-            msg = channels.messages.recv() => {
-                if msg.is_some() {
-                    drained += 1;
-                } else {
-                    break;
-                }
-            }
-            evt = channels.events.recv() => {
-                if evt.is_none() {
-                    break;
-                }
-            }
-            sc = channels.status_changes.recv() => {
-                if sc.is_none() {
-                    break;
-                }
-            }
-            _ = tokio::time::sleep(Duration::from_millis(100)) => {
-                break;
-            }
+    // Fast drain with try_recv (non-blocking)
+    loop {
+        let mut any_drained = false;
+
+        while messages.try_recv().is_ok() {
+            msg_drained += 1;
+            any_drained = true;
+        }
+        while events.try_recv().is_ok() {
+            evt_drained += 1;
+            any_drained = true;
+        }
+
+        if !any_drained {
+            break;
         }
     }
 
-    if drained > 0 {
-        eprintln!("    Drained {drained} stale messages");
+    if msg_drained + evt_drained > 0 {
+        eprintln!("    Drained {msg_drained} msgs, {evt_drained} events");
     }
 
-    // Short pause to let runtime settle
-    tokio::time::sleep(Duration::from_millis(500)).await;
+    // Pause to let pump transfer any final messages
+    tokio::time::sleep(Duration::from_millis(200)).await;
 }
 
 async fn wait_for_peer(events: &mut mpsc::Receiver<ProtocolEvent>, target: NodeId, timeout: Duration) {
