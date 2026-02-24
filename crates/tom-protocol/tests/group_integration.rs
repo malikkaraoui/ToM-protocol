@@ -186,6 +186,8 @@ fn hub_election_on_failure() {
         created_at: 1000,
         last_activity_at: 1000,
         max_members: 50,
+        shadow_id: None,
+        candidate_id: None,
     };
 
     let mut topology = Topology::new();

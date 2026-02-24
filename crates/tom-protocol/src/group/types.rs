@@ -115,6 +115,12 @@ pub struct GroupInfo {
     pub created_at: u64,
     pub last_activity_at: u64,
     pub max_members: usize,
+    /// Current shadow node (virus replication).
+    #[serde(default)]
+    pub shadow_id: Option<NodeId>,
+    /// Current candidate node (next shadow).
+    #[serde(default)]
+    pub candidate_id: Option<NodeId>,
 }
 
 impl GroupInfo {
@@ -592,6 +598,8 @@ mod tests {
             created_at: 1000,
             last_activity_at: 1000,
             max_members: MAX_GROUP_MEMBERS,
+            shadow_id: None,
+            candidate_id: None,
         }
     }
 

@@ -561,6 +561,8 @@ mod tests {
             created_at: 1000,
             last_activity_at: 1000,
             max_members: MAX_GROUP_MEMBERS,
+            shadow_id: None,
+            candidate_id: None,
         }
     }
 
