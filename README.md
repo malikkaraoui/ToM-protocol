@@ -10,7 +10,7 @@
 | **Phase 2** | Rust native transport (QUIC, hole punching, E2E crypto) | ✅ Validated |
 | **Phase 3** | Protocol convergence (TS + Rust unified) | In progress |
 
-**1000+ tests** (771 TypeScript + 236 Rust) | **E2E encrypted** | **NAT traversal validated** | **Cross-border Suisse↔France**
+**1089+ tests** (771 TypeScript + 318 Rust) | **E2E encrypted** | **NAT traversal validated** | **Cross-border Suisse↔France** | **Hub failover validated**
 
 ## TL;DR
 
@@ -24,7 +24,9 @@ ToM is a transport layer protocol (not a blockchain) that transforms every conne
 |------|--------|---------|
 | NAT hole punching | **100% success** | LAN, 4G CGNAT, cross-border CH↔FR |
 | Stress test (4G highway) | **99.85%** | 2748/2752 pings, 54 min continuous |
+| Campaign V5 (channel pump) | **100% local, 250/250 Mac↔NAS** | Channel pump fix = definitive solution |
 | E2E encrypted chat | **Working** | Signed + encrypted envelopes, Mac↔NAS cross-border |
+| Group messaging + hub failover | **Working** | Virus-like replication, deterministic failover, ~3-6s detection |
 | Direct QUIC latency | **27-49ms** | After hole punch, no relay needed |
 
 ## Project Structure
@@ -74,15 +76,19 @@ tom-protocol/
 ### Rust Protocol Stack
 
 ```
-ProtocolRuntime (single tokio::select! loop)
+ProtocolRuntime (single tokio::select! loop + background channel pump)
 ├── Router          — deliver / forward / reject / ack
 ├── Topology        — peer state, heartbeat tracking
 ├── EnvelopeBuilder — encrypt-then-sign, MessagePack wire format
-├── GroupManager    — member-side multi-party
-├── GroupHub        — hub-side fan-out, deterministic failover
+├── GroupManager    — member-side multi-party + shadow watchdog
+├── GroupHub        — hub-side fan-out, Primary→Shadow→Candidate chain
 ├── BackupStore     — TTL-based virus backup for offline peers
 ├── RelaySelector   — optimal relay selection
-└── HeartbeatTracker — stale/offline detection
+└── HeartbeatTracker — stale/offline detection (gossip IS keepalive)
+
+Channel Architecture:
+├── RuntimeChannels  — async mpsc channels (messages, events, status)
+└── Background pump  — continuous drain prevents deadlocks
 ```
 
 ## Quick Start
@@ -126,6 +132,46 @@ Tested with `tom-stress` binary, cross-compiled ARM64 static, deployed on Freebo
 | Cross-border | School WiFi (CH) ↔ Freebox (FR) | 1.4s | 32ms | 95% |
 
 Stress test on highway (A40, France↔Switzerland): **99.85%** reliability over 2752 pings, 54 minutes continuous, surviving tunnel outages and cell tower handoffs.
+
+## Hub Failover & Resilience
+
+**Group messaging uses virus-like replication** for hub resilience:
+
+| Component | Mechanism | Recovery time |
+|-----------|-----------|---------------|
+| **Primary hub** | Hosts group, manages members | N/A |
+| **Shadow hub** | Active watchdog, pings primary every 3s | Auto-promotes on 2 missed pings (~6s) |
+| **Candidate** | Deterministic self-election (lowest NodeId) | Becomes shadow after promotion |
+| **Chain restore** | After promotion: Shadow→Primary, Candidate→Shadow | Automatic, no user intervention |
+
+**Detection modes:**
+
+- 2 missed pings → promote (~6s)
+- 1 missed ping + 1 HubUnreachable from member → fast promote (~3s)
+
+**Key properties:**
+
+- Hub is stateless (only member list + config replicated)
+- Deterministic election prevents split-brain
+- No consensus needed (virus-like cascade)
+
+## Campaign V5 Results
+
+**Channel pump architecture** solved the deadlock problem definitively:
+
+| Phase | Local (same machine) | Mac ↔ NAS (LAN) |
+| ----- | -------------------- | --------------- |
+| Ping | 20/20 (0% loss) | 20/20 (0% loss), 631ms avg |
+| Burst | 300/300 (0% loss) | 90/90 (0% loss), 572ms avg |
+| E2E | 20/20 (0% loss) | 20/20 (0% loss), 287ms avg |
+| Group | ✅ Local hub fix | ⚠️ Timing issue (created OK) |
+| Endurance | N/A | 120/120 (0% loss), 1.5ms avg |
+
+**Key fixes:**
+
+1. **Background channel pump** — continuous drain prevents `try_send()` drops
+2. **Local hub detection** — self-addressed group operations handled locally (no network round-trip)
+3. **Low-memory tuning** — volume adaptation for constrained devices (Freebox NAS: 957MB RAM)
 
 ## Testing
 
