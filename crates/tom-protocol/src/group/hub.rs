@@ -65,6 +65,11 @@ impl GroupHub {
         self.groups.get(group_id).map(|g| &g.info)
     }
 
+    /// Iterate over all hosted groups (group_id, group_info).
+    pub fn groups(&self) -> impl Iterator<Item = (&GroupId, &GroupInfo)> {
+        self.groups.iter().map(|(id, g)| (id, &g.info))
+    }
+
     /// Process an incoming group payload from a node.
     ///
     /// Returns actions the caller should execute (send/broadcast).

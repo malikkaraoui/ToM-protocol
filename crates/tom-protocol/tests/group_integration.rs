@@ -672,6 +672,47 @@ fn encrypted_group_messaging_e2e() {
     assert_eq!(delivered.sender_username, "alice");
 }
 
+/// Test that shadow is assigned when a group has enough members.
+#[test]
+fn shadow_assigned_after_group_setup() {
+    let hub_id = node_id(10);
+    let alice_id = node_id(1);
+    let bob_id = node_id(2);
+
+    let mut hub = GroupHub::new(hub_id);
+
+    hub.handle_payload(
+        GroupPayload::Create {
+            group_name: "Failover Test".into(),
+            creator_username: "alice".into(),
+            initial_members: vec![bob_id],
+        },
+        alice_id,
+    );
+    let gid = hub.groups().next().unwrap().0.clone();
+    hub.handle_payload(
+        GroupPayload::Join {
+            group_id: gid.clone(),
+            username: "alice".into(),
+        },
+        alice_id,
+    );
+    hub.handle_payload(
+        GroupPayload::Join {
+            group_id: gid.clone(),
+            username: "bob".into(),
+        },
+        bob_id,
+    );
+
+    let actions = hub.assign_shadow(&gid);
+    assert!(!actions.is_empty());
+
+    // Verify the group now has a shadow
+    let group = hub.get_group(&gid).unwrap();
+    assert!(group.shadow_id.is_some());
+}
+
 /// Test that an ex-member cannot decrypt messages after key rotation.
 #[test]
 fn key_rotation_forward_secrecy() {
