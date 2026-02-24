@@ -384,12 +384,43 @@ impl RuntimeState {
 
         // Dispatch: hub-bound messages go to GroupHub, member-bound go to GroupManager.
         let actions = match group_payload {
-            // Always hub-bound
+            // Always hub-bound — after handling, trigger shadow assignment
             GroupPayload::Create { .. }
             | GroupPayload::Join { .. }
             | GroupPayload::Leave { .. } => {
-                self.group_hub
-                    .handle_payload(group_payload, envelope.from)
+                // Extract group_id from Join/Leave before consuming; for Create we find it after.
+                let known_group_id = match &group_payload {
+                    GroupPayload::Join { group_id, .. }
+                    | GroupPayload::Leave { group_id, .. } => Some(group_id.clone()),
+                    _ => None,
+                };
+
+                let mut actions = self.group_hub.handle_payload(group_payload, envelope.from);
+
+                // Determine the affected group_id (for Create, extract from the Created response)
+                let group_id = known_group_id.or_else(|| {
+                    actions.iter().find_map(|a| {
+                        if let GroupAction::Send {
+                            payload: GroupPayload::Created { group },
+                            ..
+                        } = a
+                        {
+                            Some(group.group_id.clone())
+                        } else {
+                            None
+                        }
+                    })
+                });
+
+                // Assign/update shadow for the affected group
+                if let Some(gid) = group_id {
+                    if self.group_hub.get_group(&gid).is_some() {
+                        let shadow_actions = self.group_hub.assign_shadow(&gid);
+                        actions.extend(shadow_actions);
+                    }
+                }
+
+                actions
             }
 
             // Message: hub if we host the group, member otherwise
@@ -2180,5 +2211,86 @@ mod tests {
             }
             other => panic!("expected SendWithBackupFallback, got: {other:?}"),
         }
+    }
+
+    // ── Task 5 (failover): shadow auto-assignment ────────────────────
+
+    #[test]
+    fn handle_incoming_group_create_triggers_shadow_assignment() {
+        // When the hub processes a GroupCreate, it should automatically
+        // call assign_shadow after the group is created.
+        let (hub_id, hub_secret) = keypair(90);
+        let (alice_id, alice_secret) = keypair(91);
+        let (bob_id, bob_secret) = keypair(92);
+
+        let mut hub_state = RuntimeState::new(
+            hub_id,
+            hub_secret,
+            RuntimeConfig {
+                encryption: false,
+                ..Default::default()
+            },
+        );
+
+        // Build a GroupCreate envelope from Alice to the hub
+        let create_payload = crate::group::GroupPayload::Create {
+            group_name: "Shadow Auto Test".into(),
+            creator_username: "alice".into(),
+            initial_members: vec![bob_id],
+        };
+        let payload_bytes = rmp_serde::to_vec(&create_payload).unwrap();
+        let create_env = EnvelopeBuilder::new(
+            alice_id,
+            hub_id,
+            MessageType::GroupCreate,
+            payload_bytes,
+        )
+        .sign(&alice_secret);
+
+        let effects = hub_state.handle_incoming_group(create_env);
+
+        // After Create, the only member is Alice (the creator).
+        // assign_shadow should have been called — it picks the lowest non-hub member.
+        // Since Alice is the only member and she is not the hub, she becomes shadow.
+        let has_shadow_sync = effects.iter().any(|e| {
+            matches!(e, RuntimeEffect::SendEnvelope(env) if env.msg_type == MessageType::GroupHubShadowSync)
+        });
+        assert!(
+            has_shadow_sync,
+            "GroupCreate should trigger shadow assignment and send HubShadowSync, got: {effects:?}"
+        );
+
+        // Now Bob joins — shadow should be reassigned/updated
+        let gid = hub_state.group_hub.groups().next().unwrap().0.clone();
+        let join_payload = crate::group::GroupPayload::Join {
+            group_id: gid.clone(),
+            username: "bob".into(),
+        };
+        let join_bytes = rmp_serde::to_vec(&join_payload).unwrap();
+        let join_env = EnvelopeBuilder::new(
+            bob_id,
+            hub_id,
+            MessageType::GroupJoin,
+            join_bytes,
+        )
+        .sign(&bob_secret);
+
+        let join_effects = hub_state.handle_incoming_group(join_env);
+
+        // After join, assign_shadow should run again
+        let has_shadow_sync_after_join = join_effects.iter().any(|e| {
+            matches!(e, RuntimeEffect::SendEnvelope(env) if env.msg_type == MessageType::GroupHubShadowSync)
+        });
+        assert!(
+            has_shadow_sync_after_join,
+            "GroupJoin should trigger shadow reassignment, got: {join_effects:?}"
+        );
+
+        // Verify the group now has a shadow_id set
+        let group = hub_state.group_hub.get_group(&gid).unwrap();
+        assert!(
+            group.shadow_id.is_some(),
+            "group should have a shadow after join"
+        );
     }
 }
