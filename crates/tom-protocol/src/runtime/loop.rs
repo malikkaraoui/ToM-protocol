@@ -47,6 +47,7 @@ pub(super) async fn runtime_loop(
     let mut group_hub_heartbeat = tokio::time::interval(state.config.group_hub_heartbeat_interval);
     let mut backup_tick = tokio::time::interval(state.config.backup_tick_interval);
     let mut gossip_announce = tokio::time::interval(state.config.gossip_announce_interval);
+    let mut shadow_ping = tokio::time::interval(state.config.shadow_ping_interval);
     let mut subnet_eval = tokio::time::interval(std::time::Duration::from_secs(30));
     let mut role_eval = tokio::time::interval(std::time::Duration::from_secs(60));
 
@@ -57,6 +58,7 @@ pub(super) async fn runtime_loop(
     group_hub_heartbeat.tick().await;
     backup_tick.tick().await;
     gossip_announce.tick().await;
+    shadow_ping.tick().await;
     subnet_eval.tick().await;
     role_eval.tick().await;
 
@@ -121,6 +123,9 @@ pub(super) async fn runtime_loop(
 
             // ── 7. Timer: group hub heartbeat ───────────────────
             _ = group_hub_heartbeat.tick() => state.tick_group_hub_heartbeat(),
+
+            // ── 7b. Timer: shadow ping watchdog ──────────────────
+            _ = shadow_ping.tick() => state.tick_shadow_ping(),
 
             // ── 8. Timer: backup maintenance ────────────────────
             _ = backup_tick.tick() => state.tick_backup(),

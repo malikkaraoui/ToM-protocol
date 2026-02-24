@@ -45,6 +45,8 @@ pub struct RuntimeConfig {
     pub gossip_announce_interval: Duration,
     /// Bootstrap peers to join the gossip discovery network.
     pub gossip_bootstrap_peers: Vec<crate::types::NodeId>,
+    /// Interval for shadow ping (watchdog).
+    pub shadow_ping_interval: Duration,
 }
 
 impl Default for RuntimeConfig {
@@ -59,6 +61,7 @@ impl Default for RuntimeConfig {
             backup_tick_interval: Duration::from_secs(60),
             gossip_announce_interval: Duration::from_secs(10),
             gossip_bootstrap_peers: Vec::new(),
+            shadow_ping_interval: Duration::from_secs(3),
         }
     }
 }
@@ -177,6 +180,15 @@ pub enum ProtocolEvent {
         node_id: NodeId,
         reason: String,
     },
+    /// Shadow promoted to primary hub for a group.
+    GroupShadowPromoted {
+        group_id: GroupId,
+        new_hub_id: NodeId,
+    },
+    /// This node was assigned as candidate for a group.
+    GroupCandidateAssigned { group_id: GroupId },
+    /// Hub failover chain fully restored after a promotion.
+    GroupHubChainRestored { group_id: GroupId },
     // ── Discovery events ──────────────────────────
     /// A peer announced itself via gossip.
     PeerAnnounceReceived {
