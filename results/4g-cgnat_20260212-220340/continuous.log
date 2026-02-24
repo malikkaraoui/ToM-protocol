@@ -1,0 +1,7 @@
+tom-stress v0.1.0
+Node ID: e3e96ab6c2a48e065ac36a82c8716b4f46782634b2391cabc8e63a4a28be7fe5
+
+Ping mode → target: b7ec2e013be927f2614829d360d57018bdaf502ef3b85bb3ee40ef962ed08b43
+[2m2026-02-12T21:20:12.392022Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m failed closing path [3merr[0m[2m=[0mClosedPath
+  ping #1 send failed: connection to b7ec2e013be927f2614829d360d57018bdaf502ef3b85bb3ee40ef962ed08b43 failed: timed out
+[2m2026-02-12T21:20:43.401172Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m failed closing path [3merr[0m[2m=[0mClosedPath

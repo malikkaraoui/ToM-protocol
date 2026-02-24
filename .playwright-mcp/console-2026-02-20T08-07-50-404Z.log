@@ -1,0 +1,31 @@
+[    1089ms] [WARNING] Ignoring inability to install OPFS sqlite3_vfs: Cannot install OPFS: Missing SharedArrayBuffer and/or Atomics. The server must emit the COOP/COEP response headers to enable those. See https://sqlite.org/wasm/doc/trunk/persistence.md#coop-coep @ https://www.notion.so/_assets/wasm-sqlite-worker-ce3e75522002c88c.js:0
+[    2907ms] [ERROR] Failed to load resource: the server responded with a status of 400 () @ https://www.notion.so/api/v3/getCalendarEvents:0
+[    2917ms] [ERROR] HttpRequestError: Received HTTP 400
+    at https://www.notion.so/_assets/ClientFramework-78ec6cd4639ad1f1.js:1:36836
+    at async f (https://www.notion.so/_assets/ClientFramework-78ec6cd4639ad1f1.js:1:36425)
+    at async _ (https://www.notion.so/_assets/41403-0327eb6e39b3108e.js:5:1389106)
+    at async Y (https://www.notion.so/_assets/74398-5a74bed194db1e75.js:1:14009)
+    at async https://www.notion.so/_assets/NotionAppsCalendarItem-a2aeec7210b7c369.js:1:2809
+    at async https://www.notion.so/_assets/app-2b68a5afebab0ef8.js:1:35294 @ https://www.notion.so/_assets/handleHttpFailure-615ea2f28e151350.js:0
+[    3763ms] [WARNING] Amplitude Logger [Warn]: Event not tracked, no destination plugins on the instance @ https://www.notion.so/_assets/51706-5b63f2c0f63a454b.js:0
+[    3765ms] [WARNING] Amplitude Logger [Warn]: Event not tracked, no destination plugins on the instance @ https://www.notion.so/_assets/51706-5b63f2c0f63a454b.js:0
+[  205775ms] [ERROR] useAsync: promise rejected undefined TypeError: e.refresh is not a function
+    at https://www.notion.so/_assets/40945-a0d8b3f218374c50.js:1:118228
+    at https://www.notion.so/_assets/app-2b68a5afebab0ef8.js:1:35300
+    at e (https://www.notion.so/_assets/app-2b68a5afebab0ef8.js:1:35771)
+    at https://www.notion.so/_assets/app-2b68a5afebab0ef8.js:1:36122
+    at il (https://www.notion.so/_assets/39326-4f1f2766d5ed1213.js:1:235781)
+    at ku (https://www.notion.so/_assets/39326-4f1f2766d5ed1213.js:1:255911)
+    at uu (https://www.notion.so/_assets/39326-4f1f2766d5ed1213.js:1:248212)
+    at Bi (https://www.notion.so/_assets/39326-4f1f2766d5ed1213.js:1:189174)
+    at ru (https://www.notion.so/_assets/39326-4f1f2766d5ed1213.js:1:245368)
+    at ns (https://www.notion.so/_assets/39326-4f1f2766d5ed1213.js:1:210660)
+    at HTMLDivElement.e (https://www.notion.so/_assets/ClientFramework-78ec6cd4639ad1f1.js:1:131272)
+    at HTMLDivElement.r (https://www.notion.so/_assets/51706-5b63f2c0f63a454b.js:1:81332)
+    at https://www.notion.so/_assets/ClientFramework-78ec6cd4639ad1f1.js:1:175823
+    at MutationObserver.<anonymous> (https://www.notion.so/_assets/ClientFramework-78ec6cd4639ad1f1.js:1:175730) @ https://www.notion.so/_assets/51706-5b63f2c0f63a454b.js:0
+[  225683ms] [ERROR] Refused to set unsafe header "Content-Length" @ https://www.notion.so/_assets/51706-5b63f2c0f63a454b.js:0
+[  881537ms] [ERROR] Failed to load resource: net::ERR_FAILED @ https://www.notion.so/image/https%3A%2F%2Fimages.unsplash.com%2Fphoto-1482160549825-59d1b23cb208%3Fixlib%3Drb-4.1.0%26q%3D85%26fm%3Djpg%26crop%3Dentropy%26cs%3Dsrgb?id=30d5cdae-ec21-8042-9934-d74c7d268c59&table=block&spaceId=0535cdae-ec21-8103-b82b-00030df4d038&width=2000&userId=a12aca77-7b8f-427f-9b64-9c71578c473a&cache=v2:0
+[  881543ms] Event
+[  910081ms] [ERROR] Failed to load resource: net::ERR_FAILED @ https://www.notion.so/image/https%3A%2F%2Fimages.unsplash.com%2Fphoto-1482160549825-59d1b23cb208%3Fixlib%3Drb-4.1.0%26q%3D85%26fm%3Djpg%26crop%3Dentropy%26cs%3Dsrgb?id=30d5cdae-ec21-8042-9934-d74c7d268c59&table=block&spaceId=0535cdae-ec21-8103-b82b-00030df4d038&width=2000&userId=a12aca77-7b8f-427f-9b64-9c71578c473a&cache=v2:0
+[  910087ms] Event

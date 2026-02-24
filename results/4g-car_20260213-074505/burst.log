@@ -1,0 +1,10 @@
+tom-stress v0.1.0
+Node ID: f16f7f81f52eec8b272842a631d184d74db47274d7d73274dac3e83f55400f4b
+
+Burst mode → target: 3ccfbf9124abb4f9c42c12eb94857b18f8671f0511be22e3159d43b78be31295, 10 msgs x 1024 bytes, 1 rounds
+
+  Round 1/1 ...
+[2m2026-02-13T06:45:22.324573Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m remote server configuration might cause nat traversal issues [3mmax_local_addresses[0m[2m=[0m12 [3mremote_cid_limit[0m[2m=[0m5
+[2m2026-02-13T06:45:22.490418Z[0m [33m WARN[0m [2miroh_quinn_udp[0m[2m:[0m sendmsg error: Os { code: 65, kind: HostUnreachable, message: "No route to host" }, Transmit: { destination: [2a01:e0a:14f:5da0:248f:5dff:fea5:8ed1]:56006, src_ip: None, ecn: Some(Ect0), len: 1200, segment_size: None }
+    sent 10/10 in 1083.8ms
+    burst round 1: 10/10 acked, 0 lost, 6 msg/s, avg RTT 441.5ms

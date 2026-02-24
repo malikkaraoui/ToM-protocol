@@ -1,0 +1,48 @@
+tom-stress v0.1.0
+Node ID: ff57a8d83047c6f73a6087d65895d3330aa52b6a8571566d814283c5b5876869
+
+Ping mode → target: d0e38446bc6da31ebeaa094a6d29dcede4832e04d895a375a24cd27b1b151b61
+[2m2026-02-16T07:18:22.120936Z[0m [33m WARN[0m [2miroh::socket::remote_map::remote_state[0m[2m:[0m Address Lookup failed: Service 'dns' error: no calls succeeded: [Failed to resolve TXT recordFailed to resolve TXT recordFailed to resolve TXT record]
+  ping #1 send failed: connection to d0e38446bc6da31ebeaa094a6d29dcede4832e04d895a375a24cd27b1b151b61 failed: No addressing information available
+[2m2026-02-16T07:18:24.325799Z[0m [33m WARN[0m [1mreportgen-actor[0m[2m:[0m[1mcaptive-portal[0m[2m:[0m [2miroh::net_report::reportgen[0m[2m:[0m probe timed out
+[2m2026-02-16T07:18:24.379452Z[0m [33m WARN[0m [2miroh::socket::remote_map::remote_state[0m[2m:[0m Address Lookup failed: Service 'dns' error: no calls succeeded: [Failed to resolve TXT recordFailed to resolve TXT recordFailed to resolve TXT record]
+[2m2026-02-16T07:18:27.689795Z[0m [33m WARN[0m [2miroh::socket::remote_map::remote_state[0m[2m:[0m Address Lookup failed: Service 'dns' error: no calls succeeded: [Failed to resolve TXT recordFailed to resolve TXT recordFailed to resolve TXT record]
+[2m2026-02-16T07:18:32.954906Z[0m [33m WARN[0m [2miroh::socket::remote_map::remote_state[0m[2m:[0m Address Lookup failed: Service 'dns' error: no calls succeeded: [Failed to resolve TXT recordFailed to resolve TXT recordFailed to resolve TXT record]
+[2m2026-02-16T07:18:37.238367Z[0m [33m WARN[0m [1mreportgen-actor[0m[2m:[0m[1mcaptive-portal[0m[2m:[0m [2miroh::net_report::reportgen[0m[2m:[0m probe timed out
+[2m2026-02-16T07:18:41.265511Z[0m [33m WARN[0m [2miroh::socket::remote_map::remote_state[0m[2m:[0m Address Lookup failed: Service 'dns' error: no calls succeeded: [Failed to resolve TXT recordFailed to resolve TXT recordFailed to resolve TXT record]
+[2m2026-02-16T07:18:57.619124Z[0m [33m WARN[0m [2miroh::socket::remote_map::remote_state[0m[2m:[0m Address Lookup failed: Service 'dns' error: no calls succeeded: [Failed to resolve TXT recordFailed to resolve TXT recordFailed to resolve TXT record]
+[2m2026-02-16T07:19:14.347795Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m remote server configuration might cause nat traversal issues [3mmax_local_addresses[0m[2m=[0m12 [3mremote_cid_limit[0m[2m=[0m5
+[2m2026-02-16T07:19:14.578024Z[0m [33m WARN[0m [2miroh_quinn_udp[0m[2m:[0m sendmsg error: Os { code: 65, kind: HostUnreachable, message: "No route to host" }, Transmit: { destination: [2a01:e0a:14f:5da0:248f:5dff:fea5:8ed1]:38288, src_ip: None, ecn: Some(Ect0), len: 1200, segment_size: None }
+  reconnected after 6 attempts (52459ms)
+[2m2026-02-16T07:19:23.411406Z[0m [33m WARN[0m [1mpkarr_publish[0m[1m{[0m[3mme[0m[2m=[0mff57a8d830[1m}[0m[2m:[0m [2miroh::address_lookup::pkarr[0m[2m:[0m Failed to publish to pkarr [3merr[0m[2m=[0mError sending http request: error sending request for url (https://dns.iroh.link/pkarr/97m4tsboe9dxqquyo9mftfqugcfkkk5koiaic5cbekbhmpc8pbwo): client error (Connect): Connection reset by peer (os error 54) [3murl[0m[2m=[0mhttps://dns.iroh.link/pkarr [3mretry_after[0m[2m=[0m1s [3mfailed_attempts[0m[2m=[0m1
+[2m2026-02-16T07:20:15.216626Z[0m [33m WARN[0m [2miroh_quinn_udp[0m[2m:[0m sendmsg error: Os { code: 65, kind: HostUnreachable, message: "No route to host" }, Transmit: { destination: [2a01:e0a:14f:5da0:248f:5dff:fea5:8ed1]:38288, src_ip: None, ecn: None, len: 8, segment_size: None }
+[2m2026-02-16T07:22:06.269754Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m failed closing path [3merr[0m[2m=[0mLastOpenPath
+[2m2026-02-16T07:22:09.323334Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m failed closing path [3merr[0m[2m=[0mLastOpenPath
+[2m2026-02-16T07:22:13.268673Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Lost connection to relay server
+[2m2026-02-16T07:22:13.285672Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Failed to connect to relay server
+[2m2026-02-16T07:22:13.304625Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Failed to connect to relay server
+[2m2026-02-16T07:22:13.337760Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Failed to connect to relay server
+[2m2026-02-16T07:22:13.395380Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Failed to connect to relay server
+[2m2026-02-16T07:22:13.517797Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Failed to connect to relay server
+[2m2026-02-16T07:22:13.716104Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Failed to connect to relay server
+[2m2026-02-16T07:22:14.143492Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Failed to connect to relay server
+[2m2026-02-16T07:22:15.352220Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Failed to connect to relay server
+[2m2026-02-16T07:22:17.043289Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Failed to connect to relay server
+  ping #135 recv failed: pong timeout (10s)
+[2m2026-02-16T07:22:40.888873Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m remote server configuration might cause nat traversal issues [3mmax_local_addresses[0m[2m=[0m12 [3mremote_cid_limit[0m[2m=[0m5
+[2m2026-02-16T07:22:41.186314Z[0m [33m WARN[0m [2miroh_quinn_udp[0m[2m:[0m sendmsg error: Os { code: 65, kind: HostUnreachable, message: "No route to host" }, Transmit: { destination: [2a01:e0a:14f:5da0:248f:5dff:fea5:8ed1]:38288, src_ip: None, ecn: Some(Ect0), len: 1200, segment_size: None }
+[2m2026-02-16T07:24:14.462043Z[0m [33m WARN[0m [2miroh_quinn_udp[0m[2m:[0m sendmsg error: Os { code: 65, kind: HostUnreachable, message: "No route to host" }, Transmit: { destination: [2a01:e0a:14f:5da0:248f:5dff:fea5:8ed1]:38288, src_ip: None, ecn: None, len: 8, segment_size: None }
+[2m2026-02-16T07:25:15.042065Z[0m [33m WARN[0m [2miroh_quinn_udp[0m[2m:[0m sendmsg error: Os { code: 65, kind: HostUnreachable, message: "No route to host" }, Transmit: { destination: [2a01:e0a:14f:5da0:248f:5dff:fea5:8ed1]:38288, src_ip: None, ecn: None, len: 8, segment_size: None }
+[2m2026-02-16T07:26:15.335047Z[0m [33m WARN[0m [2miroh_quinn_udp[0m[2m:[0m sendmsg error: Os { code: 65, kind: HostUnreachable, message: "No route to host" }, Transmit: { destination: [2a01:e0a:14f:5da0:248f:5dff:fea5:8ed1]:38288, src_ip: None, ecn: None, len: 8, segment_size: None }
+[2m2026-02-16T07:28:15.173593Z[0m [33m WARN[0m [2miroh_quinn_udp[0m[2m:[0m sendmsg error: Os { code: 65, kind: HostUnreachable, message: "No route to host" }, Transmit: { destination: [2a01:e0a:14f:5da0:248f:5dff:fea5:8ed1]:38288, src_ip: None, ecn: None, len: 8, segment_size: None }
+[2m2026-02-16T07:30:14.555651Z[0m [33m WARN[0m [2miroh_quinn_udp[0m[2m:[0m sendmsg error: Os { code: 65, kind: HostUnreachable, message: "No route to host" }, Transmit: { destination: [2a01:e0a:14f:5da0:248f:5dff:fea5:8ed1]:38288, src_ip: None, ecn: None, len: 8, segment_size: None }
+[2m2026-02-16T07:31:15.368729Z[0m [33m WARN[0m [2miroh_quinn_udp[0m[2m:[0m sendmsg error: Os { code: 65, kind: HostUnreachable, message: "No route to host" }, Transmit: { destination: [2a01:e0a:14f:5da0:248f:5dff:fea5:8ed1]:38288, src_ip: None, ecn: None, len: 8, segment_size: None }
+[2m2026-02-16T07:33:14.867531Z[0m [33m WARN[0m [2miroh_quinn_udp[0m[2m:[0m sendmsg error: Os { code: 65, kind: HostUnreachable, message: "No route to host" }, Transmit: { destination: [2a01:e0a:14f:5da0:248f:5dff:fea5:8ed1]:38288, src_ip: None, ecn: None, len: 8, segment_size: None }
+[2m2026-02-16T07:35:14.620624Z[0m [33m WARN[0m [2miroh_quinn_udp[0m[2m:[0m sendmsg error: Os { code: 65, kind: HostUnreachable, message: "No route to host" }, Transmit: { destination: [2a01:e0a:14f:5da0:248f:5dff:fea5:8ed1]:38288, src_ip: None, ecn: None, len: 8, segment_size: None }
+[2m2026-02-16T07:36:14.950035Z[0m [33m WARN[0m [2miroh_quinn_udp[0m[2m:[0m sendmsg error: Os { code: 65, kind: HostUnreachable, message: "No route to host" }, Transmit: { destination: [2a01:e0a:14f:5da0:248f:5dff:fea5:8ed1]:38288, src_ip: None, ecn: None, len: 8, segment_size: None }
+[2m2026-02-16T07:38:14.708232Z[0m [33m WARN[0m [2miroh_quinn_udp[0m[2m:[0m sendmsg error: Os { code: 65, kind: HostUnreachable, message: "No route to host" }, Transmit: { destination: [2a01:e0a:14f:5da0:248f:5dff:fea5:8ed1]:38288, src_ip: None, ecn: None, len: 8, segment_size: None }
+[2m2026-02-16T07:39:15.203305Z[0m [33m WARN[0m [2miroh_quinn_udp[0m[2m:[0m sendmsg error: Os { code: 65, kind: HostUnreachable, message: "No route to host" }, Transmit: { destination: [2a01:e0a:14f:5da0:248f:5dff:fea5:8ed1]:38288, src_ip: None, ecn: None, len: 8, segment_size: None }
+
+Ctrl+C received, shutting down...
+
+Done: 1110/1112 pings OK, avg RTT: 9.7ms

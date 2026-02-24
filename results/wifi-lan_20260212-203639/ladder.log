@@ -1,0 +1,36 @@
+tom-stress v0.1.0
+Node ID: 7091249fead8174aa6c8646b216892b71f332f3471246002128f379f1e831c2f
+
+Ladder mode → target: d017554ddd5986edd28ed724ee7dd9872801c934cf58b36c5ea3ac6b1f30c539, 7 sizes, 3 reps each
+
+  Step 1: 1024 bytes (3 reps)
+[2m2026-02-12T19:37:38.706757Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m remote server configuration might cause nat traversal issues [3mmax_local_addresses[0m[2m=[0m12 [3mremote_cid_limit[0m[2m=[0m5
+    → 3/3 OK, avg RTT: 0.0ms
+
+  Step 2: 4096 bytes (3 reps)
+    → 3/3 OK, avg RTT: 0.1ms
+
+  Step 3: 16384 bytes (3 reps)
+[2m2026-02-12T19:37:42.333372Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m sent PATH_ABANDON after path was already discarded
+[2m2026-02-12T19:37:42.754658Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m sent PATH_ABANDON after path was already discarded
+[2m2026-02-12T19:37:44.435463Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m sent PATH_ABANDON after path was already discarded
+[2m2026-02-12T19:37:44.435708Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m sent PATH_ABANDON after path was already discarded
+[2m2026-02-12T19:37:47.418662Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m sent PATH_ABANDON after path was already discarded
+[2m2026-02-12T19:37:47.420414Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m sent PATH_ABANDON after path was already discarded
+[2m2026-02-12T19:37:48.153174Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m sent PATH_ABANDON after path was already discarded
+[2m2026-02-12T19:37:48.155522Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m sent PATH_ABANDON after path was already discarded
+[2m2026-02-12T19:37:49.620062Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m sent PATH_ABANDON after path was already discarded
+[2m2026-02-12T19:37:49.621565Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m sent PATH_ABANDON after path was already discarded
+    → 3/3 OK, avg RTT: 0.0ms
+
+  Step 4: 65536 bytes (3 reps)
+    → 3/3 OK, avg RTT: 0.4ms
+
+  Step 5: 131072 bytes (3 reps)
+    → 3/3 OK, avg RTT: 0.4ms
+
+  Step 6: 262144 bytes (3 reps)
+    → 3/3 OK, avg RTT: 0.1ms
+
+  Step 7: 524288 bytes (3 reps)
+    → 3/3 OK, avg RTT: 0.0ms

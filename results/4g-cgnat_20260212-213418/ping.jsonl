@@ -1,0 +1,14 @@
+{"event":"started","name":"MacBook-4g-cgnat","id":"bd467afe98aaad1377f376375523cc83da555cee8a514f919f795733c3006256","mode":"ping","timestamp":"1770928458s"}
+{"event":"ping","seq":1,"rtt_ms":256.40054200000003,"path":"","elapsed_s":1.0606005}
+{"event":"disconnected","reason":"connection to b7ec2e013be927f2614829d360d57018bdaf502ef3b85bb3ee40ef962ed08b43 failed: timed out","elapsed_s":73.078666417,"timestamp":"1770928531s"}
+{"event":"reconnecting","attempt":1,"elapsed_s":73.080295,"timestamp":"1770928531s"}
+{"event":"reconnecting","attempt":2,"elapsed_s":104.091257459,"timestamp":"1770928562s"}
+{"event":"reconnecting","attempt":3,"elapsed_s":136.843790125,"timestamp":"1770928595s"}
+{"event":"reconnecting","attempt":4,"elapsed_s":170.854493167,"timestamp":"1770928629s"}
+{"event":"reconnecting","attempt":5,"elapsed_s":208.939390459,"timestamp":"1770928667s"}
+{"event":"reconnecting","attempt":6,"elapsed_s":254.950487542,"timestamp":"1770928713s"}
+{"event":"reconnecting","attempt":7,"elapsed_s":301.03162525,"timestamp":"1770928759s"}
+{"event":"reconnecting","attempt":8,"elapsed_s":347.042537209,"timestamp":"1770928805s"}
+{"event":"reconnecting","attempt":9,"elapsed_s":393.1401195,"timestamp":"1770928851s"}
+{"event":"reconnecting","attempt":10,"elapsed_s":439.153815375,"timestamp":"1770928897s"}
+{"event":"summary","name":"MacBook-4g-cgnat","mode":"ping","total_pings":3,"successful":1,"failed":2,"direct_pings":0,"relay_pings":0,"direct_pct":0.0,"avg_rtt_ms":256.40054200000003,"reconnections":0,"elapsed_s":485.255256042}

@@ -1,0 +1,13 @@
+{"event":"started","name":"MacBook-wifi-lan","id":"e0d0db602067654c080c0d4d7e0599ddd421eb01a3121bd1e6fdb353565c52c4","mode":"ping","timestamp":"1771273916s"}
+{"event":"ping","seq":1,"rtt_ms":113.195583,"path":"","elapsed_s":0.500396875}
+{"event":"path_change","kind":"DIRECT","rtt_ms":4.530374999999999,"remote":"5293ce1c232c782395f56e00674032b16b8af53e97695f8d2457e30ae64d785b","elapsed_s":0.53744375}
+{"event":"ping","seq":2,"rtt_ms":61.128667,"path":"","elapsed_s":1.569847084}
+{"event":"ping","seq":3,"rtt_ms":50.421792,"path":"","elapsed_s":2.6343562499999997}
+{"event":"ping","seq":4,"rtt_ms":58.802208,"path":"","elapsed_s":3.705899792}
+{"event":"ping","seq":5,"rtt_ms":50.687666,"path":"","elapsed_s":4.77183675}
+{"event":"ping","seq":6,"rtt_ms":42.592084,"path":"","elapsed_s":5.82789925}
+{"event":"ping","seq":7,"rtt_ms":58.687709,"path":"","elapsed_s":6.900318375}
+{"event":"ping","seq":8,"rtt_ms":50.306792,"path":"","elapsed_s":7.973605959}
+{"event":"ping","seq":9,"rtt_ms":59.121708000000005,"path":"","elapsed_s":9.045627375}
+{"event":"ping","seq":10,"rtt_ms":50.396209,"path":"","elapsed_s":10.114971584}
+{"event":"summary","name":"MacBook-wifi-lan","mode":"ping","total_pings":10,"successful":10,"failed":0,"direct_pings":0,"relay_pings":0,"direct_pct":0.0,"avg_rtt_ms":59.5340418,"reconnections":0,"elapsed_s":11.117489959}

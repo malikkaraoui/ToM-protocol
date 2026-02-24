@@ -1,0 +1,2 @@
+{"event":"started","name":"MacBook-4g-retour","id":"4e2340f0434691ced5cdec3de9bf5d16a86971475385ee7b97d9eb9483e0328d","mode":"ping","timestamp":"1770976819s"}
+{"event":"summary","name":"MacBook-4g-retour","mode":"ping","total_pings":20,"successful":0,"failed":20,"direct_pings":0,"relay_pings":0,"direct_pct":0.0,"avg_rtt_ms":0.0,"reconnections":0,"elapsed_s":220.87427275}

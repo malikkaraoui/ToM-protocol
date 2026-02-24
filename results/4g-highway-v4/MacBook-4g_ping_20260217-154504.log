@@ -1,0 +1,5 @@
+[2m2026-02-17T14:45:10.755176Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m failed closing path [3merr[0m[2m=[0mClosedPath
+[2m2026-02-17T14:45:41.759756Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m failed closing path [3merr[0m[2m=[0mClosedPath
+[2m2026-02-17T14:46:13.765349Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m failed closing path [3merr[0m[2m=[0mClosedPath
+[2m2026-02-17T14:46:47.771174Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m failed closing path [3merr[0m[2m=[0mClosedPath
+[2m2026-02-17T14:47:25.757855Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m failed closing path [3merr[0m[2m=[0mClosedPath

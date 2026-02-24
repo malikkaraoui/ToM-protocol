@@ -1,0 +1,15 @@
+tom-stress v0.1.0
+Node ID: f0478d84ca8271e0eb5e8406cfe2583ce7a376cd0123700043474cfb3b852c67
+
+Ping mode → target: d017554ddd5986edd28ed724ee7dd9872801c934cf58b36c5ea3ac6b1f30c539
+[2m2026-02-12T19:38:12.726009Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m remote server configuration might cause nat traversal issues [3mmax_local_addresses[0m[2m=[0m12 [3mremote_cid_limit[0m[2m=[0m5
+[2m2026-02-12T19:38:23.143671Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m sent PATH_ABANDON after path was already discarded
+[2m2026-02-12T19:38:23.145570Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m sent PATH_ABANDON after path was already discarded
+[2m2026-02-12T19:38:24.113106Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m sent PATH_ABANDON after path was already discarded
+[2m2026-02-12T19:38:24.188050Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m sent PATH_ABANDON after path was already discarded
+[2m2026-02-12T19:38:24.333693Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m sent PATH_ABANDON after path was already discarded
+[2m2026-02-12T19:38:24.422129Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m sent PATH_ABANDON after path was already discarded
+[2m2026-02-12T19:38:24.622174Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m sent PATH_ABANDON after path was already discarded
+[2m2026-02-12T19:38:25.198629Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m sent PATH_ABANDON after path was already discarded
+[2m2026-02-12T19:38:25.839642Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m sent PATH_ABANDON after path was already discarded
+[2m2026-02-12T19:38:26.766968Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m sent PATH_ABANDON after path was already discarded

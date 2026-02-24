@@ -1,0 +1,40 @@
+tom-stress v0.1.0
+Node ID: d84f864c84714e9291300551afa359405c3af3b4290ee589b620d3541607c2e5
+
+Ping mode → target: d017554ddd5986edd28ed724ee7dd9872801c934cf58b36c5ea3ac6b1f30c539
+[2m2026-02-12T19:51:42.866527Z[0m [33m WARN[0m [1mreportgen-actor[0m[2m:[0m[1mcaptive-portal[0m[2m:[0m [2miroh::net_report::reportgen[0m[2m:[0m probe timed out
+[2m2026-02-12T19:51:47.906431Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m failed closing path [3merr[0m[2m=[0mClosedPath
+[2m2026-02-12T19:51:51.407562Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Failed to connect to relay server
+[2m2026-02-12T19:51:53.202807Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Failed to connect to relay server
+[2m2026-02-12T19:52:03.225934Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Failed to connect to relay server
+[2m2026-02-12T19:52:04.495879Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Failed to handshake with relay server
+  ping #1 send failed: connection to d017554ddd5986edd28ed724ee7dd9872801c934cf58b36c5ea3ac6b1f30c539 failed: timed out
+[2m2026-02-12T19:52:13.266053Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Failed to connect to relay server
+[2m2026-02-12T19:52:18.914771Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m failed closing path [3merr[0m[2m=[0mClosedPath
+[2m2026-02-12T19:52:36.559896Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Lost connection to relay server
+[2m2026-02-12T19:52:45.692962Z[0m [33m WARN[0m [2miroh::socket::remote_map::remote_state[0m[2m:[0m Address Lookup failed: Service 'dns' error: no calls succeeded: [Failed to resolve TXT recordFailed to resolve TXT recordFailed to resolve TXT record]
+[2m2026-02-12T19:52:56.209954Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m failed closing path [3merr[0m[2m=[0mClosedPath
+[2m2026-02-12T19:53:00.887711Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m remote server configuration might cause nat traversal issues [3mmax_local_addresses[0m[2m=[0m12 [3mremote_cid_limit[0m[2m=[0m5
+[2m2026-02-12T19:53:00.949019Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Lost connection to relay server
+[2m2026-02-12T19:53:01.843579Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Lost connection to relay server
+  reconnected after 3 attempts (82183ms)
+[2m2026-02-12T19:53:34.946996Z[0m [33m WARN[0m [2miroh::socket::remote_map::remote_state[0m[2m:[0m Address Lookup failed: Service 'dns' error: no calls succeeded: [Failed to resolve TXT recordFailed to resolve TXT recordFailed to resolve TXT record]
+[2m2026-02-12T19:53:35.455431Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m remote server configuration might cause nat traversal issues [3mmax_local_addresses[0m[2m=[0m12 [3mremote_cid_limit[0m[2m=[0m5
+[2m2026-02-12T19:53:39.566637Z[0m [33m WARN[0m [2miroh_quinn_udp[0m[2m:[0m sendmsg error: Os { code: 65, kind: HostUnreachable, message: "No route to host" }, Transmit: { destination: [2a01:e0a:14f:5da0:248f:5dff:fea5:8ed1]:60202, src_ip: None, ecn: Some(Ect0), len: 1200, segment_size: None }
+[2m2026-02-12T19:53:45.137203Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Lost connection to relay server
+  ping #2 recv failed: pong timeout (10s)
+[2m2026-02-12T19:53:53.358444Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Failed to connect to relay server
+[2m2026-02-12T19:53:53.647283Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m failed closing path [3merr[0m[2m=[0mClosedPath
+[2m2026-02-12T19:53:54.246537Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Failed to handshake with relay server
+  ping #3 recv failed: pong timeout (10s)
+  ping #4 recv failed: pong timeout (10s)
+[2m2026-02-12T19:54:14.993754Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Lost connection to relay server
+[2m2026-02-12T19:54:17.147537Z[0m [33m WARN[0m [2miroh::protocol[0m[2m:[0m Accepting incoming connection ended with error: timed out
+[2m2026-02-12T19:54:24.160440Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Failed to handshake with relay server
+[2m2026-02-12T19:54:28.588537Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m sent PATH_ABANDON after path was already discarded
+[2m2026-02-12T19:54:28.588896Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m sent PATH_ABANDON after path was already discarded
+[2m2026-02-12T19:54:28.588970Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m sent PATH_ABANDON after path was already discarded
+[2m2026-02-12T19:54:28.589129Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m sent PATH_ABANDON after path was already discarded
+[2m2026-02-12T19:54:50.446098Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Lost connection to relay server
+
+Done: 16/20 pings OK, avg RTT: 700.8ms

@@ -34,13 +34,14 @@ pub(super) async fn execute_effects<T: Transport>(
                 send_envelope_to(transport, target, &envelope, event_tx).await;
             }
             RuntimeEffect::DeliverMessage(msg) => {
-                let _ = msg_tx.send(msg).await;
+                // try_send: never block the runtime loop if consumer is slow
+                let _ = msg_tx.try_send(msg);
             }
             RuntimeEffect::StatusChange(change) => {
-                let _ = status_tx.send(change).await;
+                let _ = status_tx.try_send(change);
             }
             RuntimeEffect::Emit(event) => {
-                let _ = event_tx.send(event).await;
+                let _ = event_tx.try_send(event);
             }
             RuntimeEffect::SendWithBackupFallback {
                 envelope,
@@ -88,19 +89,15 @@ async fn send_envelope_to<T: Transport>(
     match envelope.to_bytes() {
         Ok(bytes) => {
             if let Err(e) = transport.send_raw(target, &bytes).await {
-                let _ = event_tx
-                    .send(ProtocolEvent::Error {
-                        description: format!("send to {target} failed: {e}"),
-                    })
-                    .await;
+                let _ = event_tx.try_send(ProtocolEvent::Error {
+                    description: format!("send to {target} failed: {e}"),
+                });
             }
         }
         Err(e) => {
-            let _ = event_tx
-                .send(ProtocolEvent::Error {
-                    description: format!("serialize envelope failed: {e}"),
-                })
-                .await;
+            let _ = event_tx.try_send(ProtocolEvent::Error {
+                description: format!("serialize envelope failed: {e}"),
+            });
         }
     }
 }

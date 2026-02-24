@@ -1,0 +1,5 @@
+{"event":"started","name":"MacBook-4g-car","id":"ec25c083764e129912a42f98d503b1ad958e2d616efcb862eb5e2471ff1ad733","mode":"ladder","timestamp":"1770965234s"}
+{"event":"ladder_result","step":1,"size":1024,"reps":2,"successful":2,"failed":0,"rtt_min_ms":58.041291,"rtt_max_ms":177.693041,"rtt_avg_ms":117.867166,"elapsed_s":0.86026675}
+{"event":"ladder_result","step":2,"size":4096,"reps":2,"successful":2,"failed":0,"rtt_min_ms":0.094083,"rtt_max_ms":0.12825,"rtt_avg_ms":0.1111665,"elapsed_s":1.7810639579999998}
+{"event":"ladder_result","step":3,"size":16384,"reps":2,"successful":2,"failed":0,"rtt_min_ms":0.00725,"rtt_max_ms":0.126292,"rtt_avg_ms":0.066771,"elapsed_s":2.58998275}
+{"event":"ladder_result","step":4,"size":65536,"reps":2,"successful":2,"failed":0,"rtt_min_ms":0.006917,"rtt_max_ms":0.10195800000000001,"rtt_avg_ms":0.05443750000000001,"elapsed_s":3.649413167}

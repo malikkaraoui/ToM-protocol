@@ -1,0 +1,47 @@
+[    1170ms] [WARNING] <link rel=preload> uses an unsupported `as` value @ https://www.notion.com/:55
+[    1170ms] [WARNING] <link rel=preload> uses an unsupported `as` value @ https://www.notion.com/:55
+[    1170ms] [WARNING] <link rel=preload> uses an unsupported `as` value @ https://www.notion.com/:55
+[    1170ms] [WARNING] <link rel=preload> uses an unsupported `as` value @ https://www.notion.com/:55
+[    1170ms] [WARNING] <link rel=preload> uses an unsupported `as` value @ https://www.notion.com/:55
+[    1170ms] [WARNING] <link rel=preload> uses an unsupported `as` value @ https://www.notion.com/:55
+[    1170ms] [WARNING] <link rel=preload> uses an unsupported `as` value @ https://www.notion.com/:55
+[    1597ms] [WARNING] Amplitude Logger [Warn]: Event not tracked, no destination plugins on the instance @ https://www.notion.com/_next/static/chunks/sentry.next.9ad4b3b9ba776411.js:18
+[    2193ms] [WARNING] [GSI_LOGGER]: Your client application uses one of the Google One Tap prompt UI status methods that may stop functioning when FedCM becomes mandatory. Refer to the migration guide to update your code accordingly and opt-in to FedCM to test your changes. Learn more: https://developers.google.com/identity/gsi/web/guides/fedcm-migration?s=dc#display_moment and https://developers.google.com/identity/gsi/web/guides/fedcm-migration?s=dc#skipped_moment @ https://www.notion.com/_next/static/chunks/sentry.next.9ad4b3b9ba776411.js:18
+[    2211ms] [ERROR] Not signed in with the identity provider. @ https://www.notion.com/:0
+[    3877ms] [ERROR] [GSI_LOGGER]: FedCM get() rejects with NetworkError: Error retrieving a token. @ https://www.notion.com/_next/static/chunks/sentry.next.9ad4b3b9ba776411.js:18
+[    7860ms] Error: Canceled Next.js router navigation
+    at e (https://www.notion.com/_next/static/chunks/pages/_app-b8a035ef4a3e3d21.js:3:13551)
+    at https://www.notion.com/_next/static/chunks/main-73173281c8ea530b.js:1:58058
+    at Array.map (<anonymous>)
+    at Object.emit (https://www.notion.com/_next/static/chunks/main-73173281c8ea530b.js:1:58050)
+    at Y.change (https://www.notion.com/_next/static/chunks/main-73173281c8ea530b.js:1:72235)
+[    8903ms] [WARNING] Ignoring inability to install OPFS sqlite3_vfs: Cannot install OPFS: Missing SharedArrayBuffer and/or Atomics. The server must emit the COOP/COEP response headers to enable those. See https://sqlite.org/wasm/doc/trunk/persistence.md#coop-coep @ https://www.notion.so/_assets/wasm-sqlite-worker-ce3e75522002c88c.js:0
+[    8951ms] [WARNING] [GSI_LOGGER]: Your client application uses one of the Google One Tap prompt UI status methods that may stop functioning when FedCM becomes mandatory. Refer to the migration guide to update your code accordingly and opt-in to FedCM to test your changes. Learn more: https://developers.google.com/identity/gsi/web/guides/fedcm-migration?s=dc#display_moment and https://developers.google.com/identity/gsi/web/guides/fedcm-migration?s=dc#skipped_moment @ https://www.notion.so/_assets/51706-5b63f2c0f63a454b.js:0
+[    8951ms] [ERROR] Not signed in with the identity provider. @ https://www.notion.so/login?from=marketing&pathname=%2F:0
+[    9013ms] [WARNING] Amplitude Logger [Warn]: Event not tracked, no destination plugins on the instance @ https://www.notion.so/_assets/51706-5b63f2c0f63a454b.js:0
+[   10854ms] [ERROR] [GSI_LOGGER]: FedCM get() rejects with NetworkError: Error retrieving a token. @ https://www.notion.so/_assets/51706-5b63f2c0f63a454b.js:0
+[   13175ms] [ERROR] Cross-Origin-Opener-Policy policy would block the window.closed call. @ https://www.notion.so/_assets/29439-7bb3595f5d917683.js:0
+[   13175ms] [ERROR] Cross-Origin-Opener-Policy policy would block the window.closed call. @ https://www.notion.so/_assets/29439-7bb3595f5d917683.js:0
+[   33573ms] [ERROR] Cross-Origin-Opener-Policy policy would block the window.closed call. @ https://www.notion.so/_assets/29439-7bb3595f5d917683.js:0
+[   33573ms] [ERROR] Cross-Origin-Opener-Policy policy would block the window.closed call. @ https://www.notion.so/_assets/29439-7bb3595f5d917683.js:0
+[   34043ms] [ERROR] Cross-Origin-Opener-Policy policy would block the window.close call. @ https://www.notion.so/_assets/29439-7bb3595f5d917683.js:0
+[   34043ms] [ERROR] Cross-Origin-Opener-Policy policy would block the window.close call. @ https://www.notion.so/_assets/29439-7bb3595f5d917683.js:0
+[   35834ms] Error: Failed to load a required record: user_root, a12aca77-7b8f-427f-9b64-9c71578c473a, undefined.
+    at Object.loadRecordModel [as loadFn] (https://www.notion.so/_assets/79914-e7ab4a6d170c05be.js:1:52836)
+    at async https://www.notion.so/_assets/79914-e7ab4a6d170c05be.js:28:231505
+    at async Promise.all (index 0)
+    at async l (https://www.notion.so/_assets/79914-e7ab4a6d170c05be.js:28:231443)
+    at async n (https://www.notion.so/_assets/79914-e7ab4a6d170c05be.js:28:231044)
+    at async Object.p (https://www.notion.so/_assets/79914-e7ab4a6d170c05be.js:28:232736)
+    at async Object.d (https://www.notion.so/_assets/79914-e7ab4a6d170c05be.js:1:52422)
+    at async f.N.measure.environment (https://www.notion.so/_assets/66664-99863f2c20dad2ab.js:1:3099)
+    at async a.measureErrors (https://www.notion.so/_assets/66664-99863f2c20dad2ab.js:1:50509)
+    at async environment (https://www.notion.so/_assets/66664-99863f2c20dad2ab.js:1:2872)
+[   37650ms] [ERROR] Failed to load resource: the server responded with a status of 400 () @ https://www.notion.so/api/v3/getCalendarEvents:0
+[   37680ms] [ERROR] HttpRequestError: Received HTTP 400
+    at https://www.notion.so/_assets/ClientFramework-78ec6cd4639ad1f1.js:1:36836
+    at async f (https://www.notion.so/_assets/ClientFramework-78ec6cd4639ad1f1.js:1:36425)
+    at async _ (https://www.notion.so/_assets/41403-0327eb6e39b3108e.js:5:1389106)
+    at async Y (https://www.notion.so/_assets/74398-5a74bed194db1e75.js:1:14009)
+    at async https://www.notion.so/_assets/NotionAppsCalendarItem-a2aeec7210b7c369.js:1:2809
+    at async https://www.notion.so/_assets/app-2b68a5afebab0ef8.js:1:35294 @ https://www.notion.so/_assets/51706-5b63f2c0f63a454b.js:0

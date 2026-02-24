@@ -1,0 +1,5 @@
+{"event":"started","name":"MacBook-4g-car","id":"b5b4363c5ef73634d90e673d3f5f755f35484f6409173dd195ebfd924a1521ac","mode":"ping","timestamp":"1770965810s"}
+{"event":"path_change","kind":"RELAY","rtt_ms":76.646458,"remote":"3ccfbf9124abb4f9c42c12eb94857b18f8671f0511be22e3159d43b78be31295","elapsed_s":2.454883292}
+{"event":"ping","seq":1,"rtt_ms":115.52,"path":"","elapsed_s":2.512098375}
+{"event":"path_change","kind":"UNKNOWN","rtt_ms":0.0,"remote":"3ccfbf9124abb4f9c42c12eb94857b18f8671f0511be22e3159d43b78be31295","elapsed_s":2.556449417}
+{"event":"summary","name":"MacBook-4g-car","mode":"ping","total_pings":10,"successful":1,"failed":9,"direct_pings":0,"relay_pings":0,"direct_pct":0.0,"avg_rtt_ms":115.52,"reconnections":0,"elapsed_s":103.2645965}

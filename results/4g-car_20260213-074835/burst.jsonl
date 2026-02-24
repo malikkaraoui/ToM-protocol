@@ -1,0 +1,2 @@
+{"event":"started","name":"MacBook-4g-car","id":"534c9e40fefc63fb621d3cd3a70caa128c6e7f7066801d0f06712cc0ab66e91c","mode":"burst","timestamp":"1770965328s"}
+{"event":"burst_result","round":1,"messages_sent":10,"messages_acked":10,"lost":0,"payload_size":1024,"total_bytes":10240,"elapsed_ms":1523.3477500000001,"messages_per_sec":6.5644892966822574,"bytes_per_sec":6722.037039802632,"rtt_min_ms":300.664917,"rtt_max_ms":594.295292,"rtt_avg_ms":409.64523750000006,"elapsed_s":1.527686458}

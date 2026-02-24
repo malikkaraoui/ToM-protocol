@@ -1,0 +1,24 @@
+{"event":"started","name":"MacBook-4g-cgnat","id":"d84f864c84714e9291300551afa359405c3af3b4290ee589b620d3541607c2e5","mode":"ping","timestamp":"1770925900s"}
+{"event":"disconnected","reason":"connection to d017554ddd5986edd28ed724ee7dd9872801c934cf58b36c5ea3ac6b1f30c539 failed: timed out","elapsed_s":30.785096583,"timestamp":"1770925931s"}
+{"event":"reconnecting","attempt":1,"elapsed_s":30.7856815,"timestamp":"1770925931s"}
+{"event":"reconnecting","attempt":2,"elapsed_s":61.795487875,"timestamp":"1770925962s"}
+{"event":"reconnecting","attempt":3,"elapsed_s":65.074419542,"timestamp":"1770925965s"}
+{"event":"reconnected","attempt":3,"reconnect_time_ms":82182.6485,"elapsed_s":112.968328917,"timestamp":"1770926013s"}
+{"event":"path_change","kind":"DIRECT","rtt_ms":1352.9806660000002,"remote":"d017554ddd5986edd28ed724ee7dd9872801c934cf58b36c5ea3ac6b1f30c539","elapsed_s":149.78108525}
+{"event":"ping","seq":5,"rtt_ms":3959.1579580000002,"path":"","elapsed_s":159.609998792}
+{"event":"ping","seq":6,"rtt_ms":1.72,"path":"","elapsed_s":164.372483917}
+{"event":"ping","seq":7,"rtt_ms":11.735292,"path":"","elapsed_s":177.4232155}
+{"event":"ping","seq":8,"rtt_ms":7193.440791999999,"path":"","elapsed_s":200.531776417}
+{"event":"ping","seq":9,"rtt_ms":2.222375,"path":"","elapsed_s":202.5859055}
+{"event":"ping","seq":10,"rtt_ms":3.044041,"path":"","elapsed_s":204.583660917}
+{"event":"ping","seq":11,"rtt_ms":15.911458,"path":"","elapsed_s":206.352531958}
+{"event":"ping","seq":12,"rtt_ms":1.0122499999999999,"path":"","elapsed_s":207.979641708}
+{"event":"ping","seq":13,"rtt_ms":3.500667,"path":"","elapsed_s":210.119493042}
+{"event":"ping","seq":14,"rtt_ms":0.6825829999999999,"path":"","elapsed_s":211.398395292}
+{"event":"ping","seq":15,"rtt_ms":3.528625,"path":"","elapsed_s":213.495562167}
+{"event":"ping","seq":16,"rtt_ms":6.7015,"path":"","elapsed_s":214.617598333}
+{"event":"ping","seq":17,"rtt_ms":3.252542,"path":"","elapsed_s":215.750027125}
+{"event":"ping","seq":18,"rtt_ms":3.777958,"path":"","elapsed_s":216.865853167}
+{"event":"ping","seq":19,"rtt_ms":1.528,"path":"","elapsed_s":218.1920705}
+{"event":"ping","seq":20,"rtt_ms":1.4200409999999999,"path":"","elapsed_s":220.372123417}
+{"event":"summary","name":"MacBook-4g-cgnat","mode":"ping","total_pings":20,"successful":16,"failed":4,"direct_pings":0,"relay_pings":0,"direct_pct":0.0,"avg_rtt_ms":700.7897551249999,"reconnections":1,"elapsed_s":221.374279875}

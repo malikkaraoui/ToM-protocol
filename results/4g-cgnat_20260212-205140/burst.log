@@ -1,0 +1,173 @@
+tom-stress v0.1.0
+Node ID: 5db28e902bec0574856929e584f401fabdb5ec8bb1b3c3fb2dc6b435aa699557
+
+Burst mode → target: d017554ddd5986edd28ed724ee7dd9872801c934cf58b36c5ea3ac6b1f30c539, 50 msgs x 1024 bytes, 1 rounds
+
+  Round 1/1 ...
+[2m2026-02-12T19:56:26.973423Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m remote server configuration might cause nat traversal issues [3mmax_local_addresses[0m[2m=[0m12 [3mremote_cid_limit[0m[2m=[0m5
+[2m2026-02-12T19:56:29.750667Z[0m [33m WARN[0m [2miroh_quinn_udp[0m[2m:[0m sendmsg error: Os { code: 65, kind: HostUnreachable, message: "No route to host" }, Transmit: { destination: [2a01:e0a:14f:5da0:248f:5dff:fea5:8ed1]:60202, src_ip: None, ecn: Some(Ect0), len: 1200, segment_size: None }
+[2m2026-02-12T19:56:42.950082Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m failed closing path [3merr[0m[2m=[0mClosedPath
+[2m2026-02-12T19:56:46.176820Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m failed closing path [3merr[0m[2m=[0mLastOpenPath
+[2m2026-02-12T19:56:47.073864Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m failed closing path [3merr[0m[2m=[0mLastOpenPath
+[2m2026-02-12T19:57:09.332539Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m failed closing path [3merr[0m[2m=[0mClosedPath
+    send #3 failed: connection to d017554ddd5986edd28ed724ee7dd9872801c934cf58b36c5ea3ac6b1f30c539 failed: timed out
+[2m2026-02-12T19:57:34.124744Z[0m [33m WARN[0m [2miroh::socket::remote_map::remote_state[0m[2m:[0m Address Lookup failed: Service 'dns' error: no calls succeeded: [Failed to resolve TXT recordFailed to resolve TXT recordFailed to resolve TXT record]
+[2m2026-02-12T19:57:39.337822Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m failed closing path [3merr[0m[2m=[0mClosedPath
+[2m2026-02-12T19:57:43.835873Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Lost connection to relay server
+    send #4 failed: connection to d017554ddd5986edd28ed724ee7dd9872801c934cf58b36c5ea3ac6b1f30c539 failed: timed out
+[2m2026-02-12T19:58:09.343940Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m failed closing path [3merr[0m[2m=[0mClosedPath
+[2m2026-02-12T19:58:28.081720Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Lost connection to relay server
+[2m2026-02-12T19:58:29.085868Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Failed to connect to relay server
+    send #5 failed: connection to d017554ddd5986edd28ed724ee7dd9872801c934cf58b36c5ea3ac6b1f30c539 failed: timed out
+[2m2026-02-12T19:58:34.151535Z[0m [33m WARN[0m [2miroh::socket::remote_map::remote_state[0m[2m:[0m Address Lookup failed: Service 'dns' error: no calls succeeded: [Failed to resolve TXT recordFailed to resolve TXT recordFailed to resolve TXT record]
+[2m2026-02-12T19:58:35.455725Z[0m [33m WARN[0m [2miroh::socket::remote_map::remote_state[0m[2m:[0m Address Lookup failed: Service 'dns' error: no calls succeeded: [Failed to resolve TXT recordFailed to resolve TXT recordFailed to resolve TXT record]
+[2m2026-02-12T19:58:36.750672Z[0m [33m WARN[0m [2miroh::socket::remote_map::remote_state[0m[2m:[0m Address Lookup failed: Service 'dns' error: no calls succeeded: [Failed to resolve TXT recordFailed to resolve TXT recordFailed to resolve TXT record]
+[2m2026-02-12T19:58:38.003831Z[0m [33m WARN[0m [2miroh::socket::remote_map::remote_state[0m[2m:[0m Address Lookup failed: Service 'dns' error: no calls succeeded: [Failed to resolve TXT recordFailed to resolve TXT recordFailed to resolve TXT record]
+[2m2026-02-12T19:58:39.109089Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Failed to connect to relay server
+[2m2026-02-12T19:58:39.261796Z[0m [33m WARN[0m [2miroh::socket::remote_map::remote_state[0m[2m:[0m Address Lookup failed: Service 'dns' error: no calls succeeded: [Failed to resolve TXT recordFailed to resolve TXT recordFailed to resolve TXT record]
+[2m2026-02-12T19:58:46.077859Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m failed closing path [3merr[0m[2m=[0mClosedPath
+[2m2026-02-12T19:59:05.411591Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Lost connection to relay server
+[2m2026-02-12T19:59:16.084942Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m failed closing path [3merr[0m[2m=[0mClosedPath
+[2m2026-02-12T19:59:46.620152Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m failed closing path [3merr[0m[2m=[0mClosedPath
+[2m2026-02-12T20:00:07.196554Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Lost connection to relay server
+[2m2026-02-12T20:00:16.624578Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m failed closing path [3merr[0m[2m=[0mClosedPath
+[2m2026-02-12T20:00:17.200485Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Failed to connect to relay server
+[2m2026-02-12T20:00:27.224050Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Failed to connect to relay server
+[2m2026-02-12T20:00:41.447085Z[0m [33m WARN[0m [2miroh::socket::remote_map::remote_state[0m[2m:[0m Address Lookup failed: Service 'dns' error: no calls succeeded: [Failed to resolve TXT recordFailed to resolve TXT recordFailed to resolve TXT record]
+[2m2026-02-12T20:00:48.131584Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m failed closing path [3merr[0m[2m=[0mClosedPath
+[2m2026-02-12T20:00:50.535435Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Lost connection to relay server
+[2m2026-02-12T20:01:18.134784Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m failed closing path [3merr[0m[2m=[0mClosedPath
+[2m2026-02-12T20:01:21.553071Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Lost connection to relay server
+[2m2026-02-12T20:01:31.877567Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Failed to handshake with relay server
+[2m2026-02-12T20:01:33.658424Z[0m [33m WARN[0m [1mreportgen-actor[0m[2m:[0m[1mcaptive-portal[0m[2m:[0m [2miroh::net_report::reportgen[0m[2m:[0m probe timed out
+[2m2026-02-12T20:01:41.897795Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Failed to connect to relay server
+[2m2026-02-12T20:01:42.884865Z[0m [33m WARN[0m [2miroh::socket::remote_map::remote_state[0m[2m:[0m Address Lookup failed: Service 'dns' error: no calls succeeded: [Failed to resolve TXT recordFailed to resolve TXT recordFailed to resolve TXT record]
+[2m2026-02-12T20:01:49.698398Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m failed closing path [3merr[0m[2m=[0mClosedPath
+[2m2026-02-12T20:01:53.465744Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Failed to handshake with relay server
+[2m2026-02-12T20:02:18.675571Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Lost connection to relay server
+[2m2026-02-12T20:02:19.703424Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m failed closing path [3merr[0m[2m=[0mClosedPath
+[2m2026-02-12T20:02:50.465458Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m failed closing path [3merr[0m[2m=[0mClosedPath
+[2m2026-02-12T20:02:54.624553Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Failed to connect to relay server
+[2m2026-02-12T20:03:17.584371Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Lost connection to relay server
+[2m2026-02-12T20:03:20.470337Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m failed closing path [3merr[0m[2m=[0mClosedPath
+[2m2026-02-12T20:03:45.268803Z[0m [33m WARN[0m [2miroh::socket::remote_map::remote_state[0m[2m:[0m Address Lookup failed: Service 'dns' error: no calls succeeded: [Failed to resolve TXT recordFailed to resolve TXT recordFailed to resolve TXT record]
+[2m2026-02-12T20:03:46.615668Z[0m [33m WARN[0m [2miroh::socket::remote_map::remote_state[0m[2m:[0m Address Lookup failed: Service 'dns' error: no calls succeeded: [Failed to resolve TXT recordFailed to resolve TXT recordFailed to resolve TXT record]
+[2m2026-02-12T20:03:47.194481Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Lost connection to relay server
+[2m2026-02-12T20:03:47.879928Z[0m [33m WARN[0m [2miroh::socket::remote_map::remote_state[0m[2m:[0m Address Lookup failed: Service 'dns' error: no calls succeeded: [Failed to resolve TXT recordFailed to resolve TXT recordFailed to resolve TXT record]
+[2m2026-02-12T20:03:49.128937Z[0m [33m WARN[0m [2miroh::socket::remote_map::remote_state[0m[2m:[0m Address Lookup failed: Service 'dns' error: no calls succeeded: [Failed to resolve TXT recordFailed to resolve TXT recordFailed to resolve TXT record]
+[2m2026-02-12T20:03:50.422179Z[0m [33m WARN[0m [2miroh::socket::remote_map::remote_state[0m[2m:[0m Address Lookup failed: Service 'dns' error: no calls succeeded: [Failed to resolve TXT recordFailed to resolve TXT recordFailed to resolve TXT record]
+[2m2026-02-12T20:03:58.068508Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m failed closing path [3merr[0m[2m=[0mClosedPath
+[2m2026-02-12T20:04:13.115182Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Lost connection to relay server
+[2m2026-02-12T20:04:18.346374Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Lost connection to relay server
+[2m2026-02-12T20:04:23.117630Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Failed to connect to relay server
+[2m2026-02-12T20:04:28.074625Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m failed closing path [3merr[0m[2m=[0mClosedPath
+[2m2026-02-12T20:04:47.906474Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Lost connection to relay server
+[2m2026-02-12T20:04:51.521960Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Lost connection to relay server
+[2m2026-02-12T20:04:52.526161Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Failed to connect to relay server
+[2m2026-02-12T20:04:52.822666Z[0m [33m WARN[0m [2miroh::socket::remote_map::remote_state[0m[2m:[0m Address Lookup failed: Service 'dns' error: no calls succeeded: [Failed to resolve TXT recordFailed to resolve TXT recordFailed to resolve TXT record]
+[2m2026-02-12T20:04:53.548116Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Failed to connect to relay server
+[2m2026-02-12T20:04:54.092206Z[0m [33m WARN[0m [2miroh::socket::remote_map::remote_state[0m[2m:[0m Address Lookup failed: Service 'dns' error: no calls succeeded: [Failed to resolve TXT recordFailed to resolve TXT recordFailed to resolve TXT record]
+[2m2026-02-12T20:04:54.576205Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Failed to connect to relay server
+[2m2026-02-12T20:04:55.649176Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Failed to connect to relay server
+[2m2026-02-12T20:04:56.803942Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Failed to connect to relay server
+[2m2026-02-12T20:04:57.910105Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Failed to connect to relay server
+[2m2026-02-12T20:04:58.048101Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Failed to connect to relay server
+[2m2026-02-12T20:05:01.735086Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m failed closing path [3merr[0m[2m=[0mClosedPath
+[2m2026-02-12T20:05:07.931113Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Failed to connect to relay server
+[2m2026-02-12T20:05:08.398427Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Failed to connect to relay server
+[2m2026-02-12T20:05:19.598814Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Failed to connect to relay server
+[2m2026-02-12T20:05:29.762642Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Failed to handshake with relay server
+[2m2026-02-12T20:05:31.739406Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m failed closing path [3merr[0m[2m=[0mClosedPath
+[2m2026-02-12T20:05:56.559639Z[0m [33m WARN[0m [2miroh::socket::remote_map::remote_state[0m[2m:[0m Address Lookup failed: Service 'dns' error: no calls succeeded: [Failed to resolve TXT recordFailed to resolve TXT recordFailed to resolve TXT record]
+[2m2026-02-12T20:06:01.745175Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m failed closing path [3merr[0m[2m=[0mClosedPath
+[2m2026-02-12T20:06:03.705734Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Lost connection to relay server
+[2m2026-02-12T20:06:13.709197Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Failed to connect to relay server
+[2m2026-02-12T20:06:23.952155Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Failed to handshake with relay server
+[2m2026-02-12T20:06:31.758837Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m failed closing path [3merr[0m[2m=[0mClosedPath
+[2m2026-02-12T20:06:51.712954Z[0m [33m WARN[0m [1mreportgen-actor[0m[2m:[0m[1mcaptive-portal[0m[2m:[0m [2miroh::net_report::reportgen[0m[2m:[0m probe timed out
+[2m2026-02-12T20:06:51.968755Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Lost connection to relay server
+[2m2026-02-12T20:06:56.557037Z[0m [33m WARN[0m [2miroh::socket::remote_map::remote_state[0m[2m:[0m Address Lookup failed: Service 'dns' error: no calls succeeded: [Failed to resolve TXT recordFailed to resolve TXT recordFailed to resolve TXT record]
+[2m2026-02-12T20:07:01.765061Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m failed closing path [3merr[0m[2m=[0mClosedPath
+[2m2026-02-12T20:07:19.628699Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Lost connection to relay server
+[2m2026-02-12T20:07:31.781742Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m failed closing path [3merr[0m[2m=[0mClosedPath
+[2m2026-02-12T20:07:42.889139Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Failed to connect to relay server
+[2m2026-02-12T20:07:43.908949Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Failed to connect to relay server
+[2m2026-02-12T20:07:44.947235Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Failed to connect to relay server
+[2m2026-02-12T20:07:49.146708Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Lost connection to relay server
+[2m2026-02-12T20:07:49.995878Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Lost connection to relay server
+[2m2026-02-12T20:07:50.999761Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Failed to connect to relay server
+[2m2026-02-12T20:07:56.533658Z[0m [33m WARN[0m [2miroh::socket::remote_map::remote_state[0m[2m:[0m Address Lookup failed: Service 'dns' error: no calls succeeded: [Failed to resolve TXT recordFailed to resolve TXT recordFailed to resolve TXT record]
+[2m2026-02-12T20:07:59.148927Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Failed to connect to relay server
+[2m2026-02-12T20:08:01.020069Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Failed to connect to relay server
+[2m2026-02-12T20:08:01.787533Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m failed closing path [3merr[0m[2m=[0mClosedPath
+[2m2026-02-12T20:08:09.172411Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Failed to connect to relay server
+[2m2026-02-12T20:08:11.047801Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Failed to connect to relay server
+[2m2026-02-12T20:08:19.214796Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Failed to connect to relay server
+[2m2026-02-12T20:08:24.205964Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Failed to handshake with relay server
+[2m2026-02-12T20:08:29.298370Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Failed to connect to relay server
+[2m2026-02-12T20:08:31.801495Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m failed closing path [3merr[0m[2m=[0mClosedPath
+[2m2026-02-12T20:08:38.306618Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Failed to handshake with relay server
+[2m2026-02-12T20:08:39.461410Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Failed to connect to relay server
+[2m2026-02-12T20:08:56.630358Z[0m [33m WARN[0m [2miroh::socket::remote_map::remote_state[0m[2m:[0m Address Lookup failed: Service 'dns' error: no calls succeeded: [Failed to resolve TXT recordFailed to resolve TXT recordFailed to resolve TXT record]
+[2m2026-02-12T20:09:01.807071Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m failed closing path [3merr[0m[2m=[0mClosedPath
+[2m2026-02-12T20:09:22.671364Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Lost connection to relay server
+[2m2026-02-12T20:09:31.817116Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m failed closing path [3merr[0m[2m=[0mClosedPath
+[2m2026-02-12T20:09:32.673963Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Failed to connect to relay server
+[2m2026-02-12T20:09:42.065757Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Lost connection to relay server
+[2m2026-02-12T20:09:43.571628Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Failed to connect to relay server
+[2m2026-02-12T20:09:46.227297Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Failed to handshake with relay server
+[2m2026-02-12T20:09:56.635608Z[0m [33m WARN[0m [2miroh::socket::remote_map::remote_state[0m[2m:[0m Address Lookup failed: Service 'dns' error: no calls succeeded: [Failed to resolve TXT recordFailed to resolve TXT recordFailed to resolve TXT record]
+[2m2026-02-12T20:10:01.823150Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m failed closing path [3merr[0m[2m=[0mClosedPath
+[2m2026-02-12T20:10:15.665759Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Lost connection to relay server
+[2m2026-02-12T20:10:31.834888Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m failed closing path [3merr[0m[2m=[0mClosedPath
+[2m2026-02-12T20:10:43.702060Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Failed to connect to relay server
+[2m2026-02-12T20:10:47.316359Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Lost connection to relay server
+[2m2026-02-12T20:10:56.693667Z[0m [33m WARN[0m [2miroh::socket::remote_map::remote_state[0m[2m:[0m Address Lookup failed: Service 'dns' error: no calls succeeded: [Failed to resolve TXT recordFailed to resolve TXT recordFailed to resolve TXT record]
+[2m2026-02-12T20:10:57.319801Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Failed to connect to relay server
+[2m2026-02-12T20:11:01.837304Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m failed closing path [3merr[0m[2m=[0mClosedPath
+[2m2026-02-12T20:11:07.346340Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Failed to connect to relay server
+[2m2026-02-12T20:11:10.071977Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Lost connection to relay server
+[2m2026-02-12T20:11:17.379358Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Failed to connect to relay server
+[2m2026-02-12T20:11:18.444756Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Failed to connect to relay server
+[2m2026-02-12T20:11:19.602962Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Failed to connect to relay server
+[2m2026-02-12T20:11:20.800253Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Failed to connect to relay server
+[2m2026-02-12T20:11:22.245931Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Failed to connect to relay server
+[2m2026-02-12T20:11:24.419255Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Failed to connect to relay server
+[2m2026-02-12T20:11:26.713730Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Failed to connect to relay server
+[2m2026-02-12T20:11:30.421804Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Failed to connect to relay server
+[2m2026-02-12T20:11:31.850854Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m failed closing path [3merr[0m[2m=[0mClosedPath
+[2m2026-02-12T20:11:33.442810Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Failed to connect to relay server
+[2m2026-02-12T20:11:47.212283Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Failed to connect to relay server
+[2m2026-02-12T20:11:56.154766Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Lost connection to relay server
+[2m2026-02-12T20:11:56.702031Z[0m [33m WARN[0m [2miroh::socket::remote_map::remote_state[0m[2m:[0m Address Lookup failed: Service 'dns' error: no calls succeeded: [Failed to resolve TXT recordFailed to resolve TXT recordFailed to resolve TXT record]
+[2m2026-02-12T20:12:01.856841Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m failed closing path [3merr[0m[2m=[0mClosedPath
+[2m2026-02-12T20:12:06.158632Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Failed to connect to relay server
+[2m2026-02-12T20:12:09.432125Z[0m [33m WARN[0m [1mreportgen-actor[0m[2m:[0m[1mcaptive-portal[0m[2m:[0m [2miroh::net_report::reportgen[0m[2m:[0m probe timed out
+[2m2026-02-12T20:12:14.032943Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Failed to connect to relay server
+[2m2026-02-12T20:12:16.176560Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Failed to connect to relay server
+[2m2026-02-12T20:12:31.866802Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m failed closing path [3merr[0m[2m=[0mClosedPath
+[2m2026-02-12T20:12:39.464373Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Failed to handshake with relay server
+[2m2026-02-12T20:12:56.670131Z[0m [33m WARN[0m [2miroh::socket::remote_map::remote_state[0m[2m:[0m Address Lookup failed: Service 'dns' error: no calls succeeded: [Failed to resolve TXT recordFailed to resolve TXT recordFailed to resolve TXT record]
+[2m2026-02-12T20:13:01.873192Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m failed closing path [3merr[0m[2m=[0mClosedPath
+[2m2026-02-12T20:13:04.928378Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Lost connection to relay server
+[2m2026-02-12T20:13:05.595244Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Failed to connect to relay server
+[2m2026-02-12T20:13:10.759225Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Lost connection to relay server
+[2m2026-02-12T20:13:18.570671Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Failed to handshake with relay server
+[2m2026-02-12T20:13:20.761999Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Failed to connect to relay server
+[2m2026-02-12T20:13:26.581049Z[0m [33m WARN[0m [2miroh::protocol[0m[2m:[0m Ignoring connection: accepting failed: detected an error with protocol compliance that was not covered by more specific error codes: authentication failed
+[2m2026-02-12T20:13:28.591452Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Failed to connect to relay server
+[2m2026-02-12T20:13:31.887375Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m failed closing path [3merr[0m[2m=[0mClosedPath
+[2m2026-02-12T20:13:38.633818Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Failed to connect to relay server
+[2m2026-02-12T20:13:47.864068Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Failed to handshake with relay server
+[2m2026-02-12T20:13:53.480812Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Lost connection to relay server
+[2m2026-02-12T20:13:56.681555Z[0m [33m WARN[0m [2miroh::socket::remote_map::remote_state[0m[2m:[0m Address Lookup failed: Service 'dns' error: no calls succeeded: [Failed to resolve TXT recordFailed to resolve TXT recordFailed to resolve TXT record]
+[2m2026-02-12T20:14:01.894005Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m failed closing path [3merr[0m[2m=[0mClosedPath
+[2m2026-02-12T20:14:03.482068Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Failed to connect to relay server
+[2m2026-02-12T20:14:05.641747Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Lost connection to relay server
+[2m2026-02-12T20:14:05.716642Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Lost connection to relay server
+[2m2026-02-12T20:14:06.720730Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Failed to connect to relay server
+[2m2026-02-12T20:14:19.836658Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Failed to handshake with relay server
+    sent 2/50 in 1082548.5ms
+[2m2026-02-12T20:14:27.570814Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Failed to handshake with relay server
+    burst round 1: 1/2 acked, 1 lost, 0 msg/s, avg RTT 1075677.8ms
+[2m2026-02-12T20:14:34.586108Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Lost connection to relay server

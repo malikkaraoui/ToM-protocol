@@ -1,0 +1,23 @@
+[     302ms] [WARNING] Ignoring inability to install OPFS sqlite3_vfs: Cannot install OPFS: Missing SharedArrayBuffer and/or Atomics. The server must emit the COOP/COEP response headers to enable those. See https://sqlite.org/wasm/doc/trunk/persistence.md#coop-coep @ https://deadpan-opossum-d1d.notion.site/_assets/wasm-sqlite-worker-ce3e75522002c88c.js:0
+[     764ms] [WARNING] Amplitude Logger [Warn]: Event not tracked, no destination plugins on the instance @ https://deadpan-opossum-d1d.notion.site/_assets/transport-support-79187dfcba564918.js:0
+[    1562ms] [ERROR] Failed to load resource: the server responded with a status of 401 () @ https://deadpan-opossum-d1d.notion.site/api/v3/recordPageExit:0
+[    1580ms] [ERROR] Failed to load resource: the server responded with a status of 401 () @ https://deadpan-opossum-d1d.notion.site/api/v3/recordPageExit:0
+[    1598ms] [ERROR] HttpRequestError: Received HTTP 401
+    at https://deadpan-opossum-d1d.notion.site/_assets/ClientFramework-78ec6cd4639ad1f1.js:1:36836
+    at async f (https://deadpan-opossum-d1d.notion.site/_assets/ClientFramework-78ec6cd4639ad1f1.js:1:36425)
+    at async _ (https://deadpan-opossum-d1d.notion.site/_assets/41403-0327eb6e39b3108e.js:5:1389106) @ https://deadpan-opossum-d1d.notion.site/_assets/51706-5b63f2c0f63a454b.js:0
+[    1598ms] [ERROR] HttpRequestError: Received HTTP 401
+    at https://deadpan-opossum-d1d.notion.site/_assets/ClientFramework-78ec6cd4639ad1f1.js:1:36836
+    at async f (https://deadpan-opossum-d1d.notion.site/_assets/ClientFramework-78ec6cd4639ad1f1.js:1:36425)
+    at async _ (https://deadpan-opossum-d1d.notion.site/_assets/41403-0327eb6e39b3108e.js:5:1389106) @ https://deadpan-opossum-d1d.notion.site/_assets/51706-5b63f2c0f63a454b.js:0
+[    1906ms] [ERROR] Failed to load resource: the server responded with a status of 500 () @ https://deadpan-opossum-d1d.notion.site/api/v3/loadPageChunkV2:0
+[    1906ms] [ERROR] HttpRequestError: Received HTTP 500
+    at https://deadpan-opossum-d1d.notion.site/_assets/ClientFramework-78ec6cd4639ad1f1.js:1:36836
+    at async f (https://deadpan-opossum-d1d.notion.site/_assets/ClientFramework-78ec6cd4639ad1f1.js:1:36425)
+    at async _ (https://deadpan-opossum-d1d.notion.site/_assets/41403-0327eb6e39b3108e.js:5:1389106)
+    at async At (https://deadpan-opossum-d1d.notion.site/_assets/mainApp-b0ec4af131533d10.js:16:2173)
+    at async t (https://deadpan-opossum-d1d.notion.site/_assets/mainApp-b0ec4af131533d10.js:16:3400) @ https://deadpan-opossum-d1d.notion.site/_assets/51706-5b63f2c0f63a454b.js:0
+[    3713ms] [WARNING] Ignoring inability to install OPFS sqlite3_vfs: Cannot install OPFS: Missing SharedArrayBuffer and/or Atomics. The server must emit the COOP/COEP response headers to enable those. See https://sqlite.org/wasm/doc/trunk/persistence.md#coop-coep @ https://deadpan-opossum-d1d.notion.site/_assets/wasm-sqlite-worker-ce3e75522002c88c.js:0
+[    4899ms] [WARNING] Amplitude Logger [Warn]: Event not tracked, no destination plugins on the instance @ https://deadpan-opossum-d1d.notion.site/_assets/transport-support-79187dfcba564918.js:0
+[   10227ms] [WARNING] Ignoring inability to install OPFS sqlite3_vfs: Cannot install OPFS: Missing SharedArrayBuffer and/or Atomics. The server must emit the COOP/COEP response headers to enable those. See https://sqlite.org/wasm/doc/trunk/persistence.md#coop-coep @ https://deadpan-opossum-d1d.notion.site/_assets/wasm-sqlite-worker-ce3e75522002c88c.js:0
+[   11794ms] [WARNING] Amplitude Logger [Warn]: Event not tracked, no destination plugins on the instance @ https://deadpan-opossum-d1d.notion.site/_assets/transport-support-79187dfcba564918.js:0

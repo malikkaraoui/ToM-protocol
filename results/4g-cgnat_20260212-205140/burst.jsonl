@@ -1,0 +1,2 @@
+{"event":"started","name":"MacBook-4g-cgnat","id":"5db28e902bec0574856929e584f401fabdb5ec8bb1b3c3fb2dc6b435aa699557","mode":"burst","timestamp":"1770926182s"}
+{"event":"burst_result","round":1,"messages_sent":2,"messages_acked":1,"lost":1,"payload_size":1024,"total_bytes":1024,"elapsed_ms":1087551.2040829998,"messages_per_sec":0.0009194969360943136,"bytes_per_sec":0.9415648625605771,"rtt_min_ms":1075677.779041,"rtt_max_ms":1075677.779041,"rtt_avg_ms":1075677.779041,"elapsed_s":1087.563558625}
