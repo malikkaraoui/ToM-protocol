@@ -110,6 +110,16 @@ pub enum RuntimeCommand {
     GetPendingInvites {
         reply: oneshot::Sender<Vec<GroupInvite>>,
     },
+    // ── Role queries ──────────────────────────────
+    /// Query role metrics for a specific peer (debug).
+    GetRoleMetrics {
+        node_id: NodeId,
+        reply: oneshot::Sender<Option<crate::roles::RoleMetrics>>,
+    },
+    /// Query all peers with their scores (debug/dashboard).
+    GetAllRoleScores {
+        reply: oneshot::Sender<Vec<(NodeId, f64, crate::relay::PeerRole)>>,
+    },
     /// Graceful shutdown.
     Shutdown,
 }
@@ -394,6 +404,33 @@ impl RuntimeHandle {
         let _ = self
             .cmd_tx
             .send(RuntimeCommand::GetPendingInvites { reply: tx })
+            .await;
+        rx.await.unwrap_or_default()
+    }
+
+    // ── Role queries ──────────────────────────────
+
+    /// Get role metrics for a peer (debug).
+    pub async fn get_role_metrics(&self, node_id: NodeId) -> Option<crate::roles::RoleMetrics> {
+        let (tx, rx) = oneshot::channel();
+        let _ = self
+            .cmd_tx
+            .send(RuntimeCommand::GetRoleMetrics {
+                node_id,
+                reply: tx,
+            })
+            .await;
+        rx.await.ok().flatten()
+    }
+
+    /// Get all peers with their role scores (debug).
+    pub async fn get_all_role_scores(
+        &self,
+    ) -> Vec<(NodeId, f64, crate::relay::PeerRole)> {
+        let (tx, rx) = oneshot::channel();
+        let _ = self
+            .cmd_tx
+            .send(RuntimeCommand::GetAllRoleScores { reply: tx })
             .await;
         rx.await.unwrap_or_default()
     }
