@@ -64,6 +64,25 @@ impl RoleManager {
             .unwrap_or(0.0)
     }
 
+    /// Record bytes relayed by a peer.
+    pub fn record_bytes_relayed(&mut self, node_id: NodeId, bytes: u64, now: u64) {
+        let metrics = self
+            .scores
+            .entry(node_id)
+            .or_insert_with(|| ContributionMetrics::new(now));
+        metrics.bytes_relayed += bytes;
+        metrics.last_activity = now;
+    }
+
+    /// Record bytes received from network (for calculating give/take ratio).
+    pub fn record_bytes_received(&mut self, node_id: NodeId, bytes: u64, now: u64) {
+        let metrics = self
+            .scores
+            .entry(node_id)
+            .or_insert_with(|| ContributionMetrics::new(now));
+        metrics.bytes_received += bytes;
+    }
+
     /// Remove all metrics for a departed node.
     pub fn remove_node(&mut self, node_id: &NodeId) {
         self.scores.remove(node_id);
