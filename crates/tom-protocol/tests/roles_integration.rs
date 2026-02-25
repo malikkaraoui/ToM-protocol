@@ -144,6 +144,31 @@ fn failures_reduce_score() {
     );
 }
 
+/// Bandwidth contribution helps promotion even with few relays.
+#[test]
+fn bandwidth_affects_promotion() {
+    let local = node_id(1);
+    let candidate = node_id(2);
+    let mut mgr = RoleManager::new(local);
+    let mut topo = make_topology(&[(candidate, PeerRole::Peer)]);
+
+    // Relay 5 messages (not enough for promotion alone: 5 < 10 threshold)
+    for i in 0..5 {
+        mgr.record_relay(candidate, 1000 + i * 1000);
+    }
+
+    // But relay 50 MB of data (should contribute 50×0.2 = 10 points)
+    mgr.record_bytes_relayed(candidate, 50 * 1_048_576, 6000);
+
+    let actions = mgr.evaluate(&mut topo, 6000);
+
+    // Should promote: relay (5) + bandwidth (10) + success_rate (5) = 20 > threshold
+    assert!(
+        actions.iter().any(|a| matches!(a, RoleAction::Promoted { node_id, .. } if *node_id == candidate)),
+        "Should promote with bandwidth contribution: {actions:?}"
+    );
+}
+
 /// Removing a node clears its contribution history.
 #[test]
 fn remove_node_resets_scoring() {
