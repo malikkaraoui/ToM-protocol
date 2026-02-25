@@ -26,7 +26,7 @@ pub use backup::{
 pub use crypto::EncryptedPayload;
 pub use discovery::{
     DiscoveryEvent, DiscoverySource, DissolveReason, EphemeralSubnetManager, HeartbeatTracker,
-    LivenessState, PeerAnnounce, SubnetEvent, SubnetInfo,
+    LivenessState, PeerAnnounce, RoleChangeAnnounce, SubnetEvent, SubnetInfo,
 };
 pub use envelope::{Envelope, EnvelopeBuilder};
 pub use error::TomProtocolError;
@@ -40,7 +40,7 @@ pub use roles::{ContributionMetrics, RoleAction, RoleManager, RoleMetrics};
 pub use router::{AckPayload, AckType, ReadReceiptPayload, Router, RoutingAction};
 pub use tracker::{MessageTracker, StatusChange};
 pub use runtime::{
-    DeliveredMessage, ProtocolEvent, ProtocolRuntime, RuntimeChannels, RuntimeConfig,
+    DeliveredMessage, GossipInput, ProtocolEvent, ProtocolRuntime, RuntimeChannels, RuntimeConfig,
     RuntimeEffect, RuntimeHandle, RuntimeState,
 };
 pub use types::{now_ms, MessageStatus, MessageType, NodeId};
