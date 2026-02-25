@@ -76,6 +76,9 @@ pub struct RuntimeState {
     pub(crate) subnets: EphemeralSubnetManager,
     pub(crate) role_manager: RoleManager,
     pub(crate) local_roles: Vec<PeerRole>,
+
+    /// Throttle role announcements (max 1 per peer per 30s).
+    role_announce_throttle: std::collections::HashMap<NodeId, u64>,
 }
 
 impl RuntimeState {
@@ -93,6 +96,7 @@ impl RuntimeState {
             subnets: EphemeralSubnetManager::new(local_id),
             role_manager: RoleManager::new(local_id),
             local_roles: vec![PeerRole::Peer],
+            role_announce_throttle: std::collections::HashMap::new(),
             local_id,
             secret_seed,
             config,
@@ -236,6 +240,68 @@ impl RuntimeState {
             self.local_roles.clone(),
         );
         rmp_serde::to_vec(&announce).ok()
+    }
+
+    // ── Handle incoming role change announcement ──────────────────────
+
+    /// Handle incoming role change announcement from gossip.
+    ///
+    /// Validates signature, throttles spam, updates topology.
+    pub fn handle_role_announce(
+        &mut self,
+        announce: crate::discovery::RoleChangeAnnounce,
+    ) -> Vec<RuntimeEffect> {
+        let now = now_ms();
+
+        // Throttle: max 1 announce per peer per 30s
+        const THROTTLE_MS: u64 = 30_000;
+        if let Some(&last_announce) = self.role_announce_throttle.get(&announce.node_id) {
+            if now.saturating_sub(last_announce) < THROTTLE_MS {
+                return Vec::new();
+            }
+        }
+
+        // Verify signature
+        if !announce.verify_signature() {
+            return vec![RuntimeEffect::Emit(ProtocolEvent::Error {
+                description: format!(
+                    "Invalid signature on role announce from {}",
+                    announce.node_id
+                ),
+            })];
+        }
+
+        // Update topology
+        if let Some(peer) = self.topology.get(&announce.node_id) {
+            let mut updated_peer = peer.clone();
+            updated_peer.role = announce.new_role;
+            updated_peer.last_seen = announce.timestamp;
+            self.topology.upsert(updated_peer);
+        } else {
+            self.topology.upsert(PeerInfo {
+                node_id: announce.node_id,
+                role: announce.new_role,
+                status: PeerStatus::Online,
+                last_seen: announce.timestamp,
+            });
+        }
+
+        // Update throttle
+        self.role_announce_throttle.insert(announce.node_id, now);
+
+        // Emit event for observability
+        let event = match announce.new_role {
+            PeerRole::Relay => ProtocolEvent::RolePromoted {
+                node_id: announce.node_id,
+                score: announce.score,
+            },
+            PeerRole::Peer => ProtocolEvent::RoleDemoted {
+                node_id: announce.node_id,
+                score: announce.score,
+            },
+        };
+
+        vec![RuntimeEffect::Emit(event)]
     }
 
     // ── Task 7: handle_incoming_chat ───────────────────────────────────
@@ -1072,6 +1138,7 @@ impl RuntimeState {
     ) -> Vec<RuntimeEffect> {
         match input {
             GossipInput::PeerAnnounce(bytes) => {
+                // Try PeerAnnounce first (most common)
                 if let Ok(announce) =
                     rmp_serde::from_slice::<PeerAnnounce>(&bytes)
                 {
@@ -1098,6 +1165,14 @@ impl RuntimeState {
                         )];
                     }
                 }
+
+                // Try RoleChangeAnnounce
+                if let Ok(role_announce) =
+                    rmp_serde::from_slice::<crate::discovery::RoleChangeAnnounce>(&bytes)
+                {
+                    return self.handle_role_announce(role_announce);
+                }
+
                 Vec::new()
             }
 
@@ -2434,5 +2509,90 @@ mod tests {
                 .any(|e| matches!(e, RuntimeEffect::BroadcastRoleChange(_))),
             "Should broadcast role change announce"
         );
+    }
+
+    #[test]
+    fn handle_role_announce_updates_topology() {
+        use crate::discovery::RoleChangeAnnounce;
+
+        let mut state = default_state(1);
+        let (remote, remote_seed) = keypair(2);
+
+        let announce = RoleChangeAnnounce::new(
+            remote,
+            PeerRole::Relay,
+            15.0,
+            now_ms(),
+            &remote_seed,
+        );
+
+        let effects = state.handle_role_announce(announce);
+
+        // Should emit RolePromoted
+        assert!(
+            effects.iter().any(|e| matches!(
+                e,
+                RuntimeEffect::Emit(ProtocolEvent::RolePromoted { node_id, .. })
+                if *node_id == remote
+            )),
+            "Should emit RolePromoted: {effects:?}"
+        );
+
+        // Topology should be updated
+        let peer = state.topology.get(&remote).expect("peer in topology");
+        assert_eq!(peer.role, PeerRole::Relay);
+    }
+
+    #[test]
+    fn handle_role_announce_throttle() {
+        use crate::discovery::RoleChangeAnnounce;
+
+        let mut state = default_state(1);
+        let (remote, remote_seed) = keypair(2);
+
+        let announce1 = RoleChangeAnnounce::new(
+            remote, PeerRole::Relay, 15.0, now_ms(), &remote_seed,
+        );
+        let announce2 = RoleChangeAnnounce::new(
+            remote, PeerRole::Peer, 1.0, now_ms(), &remote_seed,
+        );
+
+        // First announce accepted
+        let effects1 = state.handle_role_announce(announce1);
+        assert!(!effects1.is_empty(), "First announce should be accepted");
+
+        // Second announce within 30s throttled
+        let effects2 = state.handle_role_announce(announce2);
+        assert!(effects2.is_empty(), "Second announce should be throttled");
+    }
+
+    #[test]
+    fn handle_role_announce_rejects_invalid_signature() {
+        use crate::discovery::RoleChangeAnnounce;
+
+        let mut state = default_state(1);
+        let remote = node_id(2);
+
+        // Sign with WRONG key (node 3's key, not node 2's)
+        let (_, wrong_seed) = keypair(3);
+
+        let announce = RoleChangeAnnounce::new(
+            remote, PeerRole::Relay, 15.0, now_ms(), &wrong_seed,
+        );
+
+        let effects = state.handle_role_announce(announce);
+
+        // Should emit Error
+        assert!(
+            effects.iter().any(|e| matches!(
+                e,
+                RuntimeEffect::Emit(ProtocolEvent::Error { description })
+                if description.contains("Invalid signature")
+            )),
+            "Should reject invalid signature: {effects:?}"
+        );
+
+        // Topology should NOT be updated
+        assert!(state.topology.get(&remote).is_none());
     }
 }
