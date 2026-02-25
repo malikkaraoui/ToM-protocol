@@ -1036,6 +1036,22 @@ impl RuntimeState {
                 Vec::new()
             }
 
+            RuntimeCommand::GetRoleMetrics { node_id, reply } => {
+                let metrics =
+                    self.role_manager
+                        .get_metrics(&node_id, &self.topology, now_ms());
+                let _ = reply.send(metrics);
+                Vec::new()
+            }
+
+            RuntimeCommand::GetAllRoleScores { reply } => {
+                let scores =
+                    self.role_manager
+                        .get_all_scores(&self.topology, now_ms());
+                let _ = reply.send(scores);
+                Vec::new()
+            }
+
             // Handled in the loop — needs transport access.
             RuntimeCommand::GetConnectedPeers { .. } => Vec::new(),
 
