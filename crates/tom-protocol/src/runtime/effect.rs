@@ -1,3 +1,4 @@
+use crate::discovery::RoleChangeAnnounce;
 use crate::envelope::Envelope;
 use crate::tracker::StatusChange;
 use crate::types::NodeId;
@@ -35,4 +36,7 @@ pub enum RuntimeEffect {
         on_success: Vec<RuntimeEffect>,
         on_failure: Vec<RuntimeEffect>,
     },
+
+    /// Broadcast a role change via gossip to all neighbors.
+    BroadcastRoleChange(RoleChangeAnnounce),
 }
