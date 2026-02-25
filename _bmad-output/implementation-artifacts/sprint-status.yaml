@@ -109,4 +109,59 @@ development_status:
   consolidation-e2e-testing: done  # Framework ready: 50 tests, 3 specs, 5 browsers
   consolidation-hub-failover: done  # 93.3% success rate (up from 80%) - immediate detection + auto-failover
   consolidation-invitations: done  # Retry logic, invite-ack, TTL expiry, hard timeout
-  consolidation-ui-hooks: backlog
+  consolidation-ui-hooks: done  # fb29f5e — UIStateManager, Observer hooks, 25 tests
+
+  # ═══════════════════════════════════════════════════════════════
+  # Phase 2: Rust Native Transport (tom-transport + tom-protocol)
+  # Ref: rust-port-kickoff-2026-02-18.md
+  # ═══════════════════════════════════════════════════════════════
+
+  # Phase R1: Foundations (envelope, crypto, types)
+  rust-phase-1: done
+  r1-envelope-msgpack: done          # Envelope + EnvelopeBuilder, MessagePack wire format
+  r1-crypto-stack: done              # Ed25519 sign, X25519 DH, XChaCha20-Poly1305, HKDF
+  r1-types-and-errors: done          # NodeId, MessageType, MessageStatus, TomProtocolError
+
+  # Phase R2: Routing + ProtocolRuntime
+  rust-phase-2: done
+  r2-router: done                    # Router (Deliver/Forward/Reject/Ack/ReadReceipt/Drop)
+  r2-relay-selector: done            # RelaySelector + Topology
+  r2-message-tracker: done           # MessageTracker (status state machine)
+  r2-protocol-runtime: done          # RuntimeState + effect pattern + thin loop orchestrator
+  r2-e2e-transport-tests: done       # 2 E2E tests (direct + 3-node relay), Campaign V1-V4
+
+  # Phase R3: Discovery + Keepalive (gossip iroh)
+  rust-phase-3: in-progress
+  r3-peer-announce-types: done       # PeerAnnounce, DiscoveryEvent, LivenessState
+  r3-heartbeat-tracker: done         # HeartbeatTracker (stale/offline detection)
+  r3-gossip-integration: done        # iroh_gossip subscribe, NeighborUp re-broadcast
+  r3-ephemeral-subnets: done         # EphemeralSubnetManager (BFS clustering)
+  r3-discovery-handler: backlog      # Full handler wiring (currently stub in places)
+
+  # Phase R4: Backup + Roles
+  rust-phase-4: in-progress
+  r4-backup-store: done              # BackupStore (TTL, viability, replication)
+  r4-backup-coordinator: done        # BackupCoordinator (query/replicate/confirm)
+  r4-backup-runtime: done            # SendWithBackupFallback effect, tick_backup
+  r4-roles-scoring: done             # ContributionMetrics, decay, bandwidth tracking
+  r4-roles-manager: done             # RoleManager (evaluate, promote/demote)
+  r4-roles-gossip-sync: done         # RoleChangeAnnounce (signed, throttled, gossip broadcast)
+  r4-roles-observability: done       # RoleMetrics, GetRoleMetrics/GetAllRoleScores commands
+  r4-roles-live-validation: backlog  # Roles en conditions réelles (Campaign V6)
+
+  # Phase R5: Groups
+  rust-phase-5: in-progress
+  r5-group-types: done               # GroupId, GroupInfo, GroupMessage, GroupPayload
+  r5-group-manager: done             # GroupManager (member-side state machine)
+  r5-group-hub: done                 # GroupHub (hub-side fan-out, rate limiting)
+  r5-hub-election: done              # Deterministic election (lowest NodeId)
+  r5-hub-failover: done              # Shadow/Candidate chain, active watchdog, auto-promote
+  r5-group-e2e-sender-keys: done     # Sender key encryption, key rotation on member leave
+  r5-group-security: backlog         # Nonce tracking, anti-replay, message auth hardening
+
+  # Phase R6: TUI + Integration
+  rust-phase-6: in-progress
+  r6-tom-chat-tui: done              # ratatui TUI, --bot mode, cross-compile ARM64
+  r6-tom-stress-campaign: done       # Campaign V5 (6 phases: ping/burst/e2e/group/failover/endurance)
+  r6-cross-border-validation: done   # Mac (Suisse) ↔ NAS (France), direct upgrade 27ms
+  r6-scenario-automation: backlog    # Full scenario replay (scripted multi-node tests)
