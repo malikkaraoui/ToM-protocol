@@ -296,8 +296,18 @@ impl RuntimeState {
             } => {
                 let envelope_id = envelope.id.clone();
                 let sender = envelope.from;
+                let now = now_ms();
 
-                self.role_manager.record_relay(sender, now_ms());
+                self.role_manager.record_relay(sender, now);
+
+                // Track bandwidth: estimate size from serialized envelope
+                let bytes = envelope
+                    .to_bytes()
+                    .map(|b| b.len() as u64)
+                    .unwrap_or(0);
+                if bytes > 0 {
+                    self.role_manager.record_bytes_relayed(sender, bytes, now);
+                }
 
                 let mut ack = relay_ack;
                 ack.sign(&self.secret_seed);
@@ -2312,6 +2322,27 @@ mod tests {
         assert!(
             group.shadow_id.is_some(),
             "group should have a shadow after join"
+        );
+    }
+
+    // ── Bandwidth tracking tests ────────────────────────────────────────
+
+    #[test]
+    fn role_manager_bandwidth_tracking_via_runtime_state() {
+        let mut state = default_state(1);
+        let peer = node_id(2);
+
+        // Directly record bandwidth through the role_manager
+        state.role_manager.record_relay(peer, 1000);
+        state
+            .role_manager
+            .record_bytes_relayed(peer, 50 * 1_048_576, 1000); // 50 MB
+
+        let score = state.role_manager.score(&peer, 1000);
+        // Score should include bandwidth: relay(1) + success(5) + bandwidth_mb(50*0.2=10) = 16+
+        assert!(
+            score > 15.0,
+            "Score should reflect bandwidth contribution, got {score}"
         );
     }
 }
