@@ -1205,25 +1205,73 @@ impl RuntimeState {
 
     // ── Helper: surface role action ──────────────────────────────────────
 
-    /// Convert a RoleAction into RuntimeEffects. Updates local_roles on LocalRoleChanged.
+    /// Convert a RoleAction into RuntimeEffects.
+    ///
+    /// For local role changes, also broadcasts a signed `RoleChangeAnnounce` via gossip.
     fn surface_role_action(&mut self, action: &RoleAction) -> Vec<RuntimeEffect> {
-        let proto_event = match action {
-            RoleAction::Promoted { node_id, score } => ProtocolEvent::RolePromoted {
-                node_id: *node_id,
-                score: *score,
-            },
-            RoleAction::Demoted { node_id, score } => ProtocolEvent::RoleDemoted {
-                node_id: *node_id,
-                score: *score,
-            },
+        use crate::discovery::RoleChangeAnnounce;
+
+        match action {
+            RoleAction::Promoted { node_id, score } => {
+                let mut effects = vec![RuntimeEffect::Emit(ProtocolEvent::RolePromoted {
+                    node_id: *node_id,
+                    score: *score,
+                })];
+
+                // Broadcast via gossip if it's our local promotion
+                if *node_id == self.local_id {
+                    let announce = RoleChangeAnnounce::new(
+                        *node_id,
+                        PeerRole::Relay,
+                        *score,
+                        now_ms(),
+                        &self.secret_seed,
+                    );
+                    effects.push(RuntimeEffect::BroadcastRoleChange(announce));
+                }
+
+                effects
+            }
+            RoleAction::Demoted { node_id, score } => {
+                let mut effects = vec![RuntimeEffect::Emit(ProtocolEvent::RoleDemoted {
+                    node_id: *node_id,
+                    score: *score,
+                })];
+
+                // Broadcast via gossip if it's our local demotion
+                if *node_id == self.local_id {
+                    let announce = RoleChangeAnnounce::new(
+                        *node_id,
+                        PeerRole::Peer,
+                        *score,
+                        now_ms(),
+                        &self.secret_seed,
+                    );
+                    effects.push(RuntimeEffect::BroadcastRoleChange(announce));
+                }
+
+                effects
+            }
             RoleAction::LocalRoleChanged { new_role } => {
                 self.local_roles = vec![*new_role];
-                ProtocolEvent::LocalRoleChanged {
-                    new_role: *new_role,
-                }
+                let score = self.role_manager.score(&self.local_id, now_ms());
+
+                let announce = RoleChangeAnnounce::new(
+                    self.local_id,
+                    *new_role,
+                    score,
+                    now_ms(),
+                    &self.secret_seed,
+                );
+
+                vec![
+                    RuntimeEffect::Emit(ProtocolEvent::LocalRoleChanged {
+                        new_role: *new_role,
+                    }),
+                    RuntimeEffect::BroadcastRoleChange(announce),
+                ]
             }
-        };
-        vec![RuntimeEffect::Emit(proto_event)]
+        }
     }
 
     // ── Helper: group actions → effects ──────────────────────────────────
@@ -2359,6 +2407,32 @@ mod tests {
         assert!(
             score > 15.0,
             "Score should reflect bandwidth contribution, got {score}"
+        );
+    }
+
+    #[test]
+    fn local_role_change_broadcasts_announce() {
+        let mut state = default_state(1);
+
+        // Simulate local promotion
+        let action = RoleAction::LocalRoleChanged {
+            new_role: PeerRole::Relay,
+        };
+
+        let effects = state.surface_role_action(&action);
+
+        // Should emit event + broadcast announce
+        assert!(
+            effects
+                .iter()
+                .any(|e| matches!(e, RuntimeEffect::Emit(ProtocolEvent::LocalRoleChanged { .. }))),
+            "Should emit LocalRoleChanged event"
+        );
+        assert!(
+            effects
+                .iter()
+                .any(|e| matches!(e, RuntimeEffect::BroadcastRoleChange(_))),
+            "Should broadcast role change announce"
         );
     }
 }
