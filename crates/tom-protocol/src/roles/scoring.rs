@@ -87,9 +87,23 @@ impl ContributionMetrics {
 
         let uptime_hours = self.total_uptime_ms as f64 / 3_600_000.0;
 
+        // Bandwidth metrics
+        let bandwidth_mb = self.bytes_relayed as f64 / 1_048_576.0;
+        let bandwidth_ratio = if self.bytes_received > 0 {
+            self.bytes_relayed as f64 / self.bytes_received as f64
+        } else if self.bytes_relayed > 0 {
+            // Relayed bytes but received none — pure giver
+            1.0
+        } else {
+            // No bandwidth activity yet — no bonus
+            0.0
+        };
+
         let raw = (self.messages_relayed as f64) * RELAY_COUNT_WEIGHT
             + success_rate * SUCCESS_RATE_WEIGHT
-            + uptime_hours * UPTIME_WEIGHT;
+            + uptime_hours * UPTIME_WEIGHT
+            + bandwidth_mb * BANDWIDTH_MB_WEIGHT
+            + bandwidth_ratio * BANDWIDTH_RATIO_WEIGHT;
 
         // Progressive decay since last activity
         let idle_ms = now.saturating_sub(self.last_activity) as f64;
@@ -174,6 +188,24 @@ mod tests {
 
         let recovered = m.score(base + 3000);
         assert!(recovered > decayed, "score recovers with new activity");
+    }
+
+    #[test]
+    fn bandwidth_contributes_to_score() {
+        let mut m = ContributionMetrics::new(0);
+
+        // Simulate relaying 100 MB with high give/take ratio
+        m.record_relay(1000);
+        m.bytes_relayed = 100 * 1_048_576; // 100 MB
+        m.bytes_received = 20 * 1_048_576; // 20 MB (ratio = 5.0)
+
+        let score = m.score(2000);
+
+        // Score should include bandwidth contribution:
+        // relay_count (1×1.0) + success_rate (1.0×5.0) + bandwidth_mb (100×0.2) + bandwidth_ratio (5.0×1.5)
+        // = 1 + 5 + 20 + 7.5 = 33.5
+        assert!(score > 30.0, "Expected score > 30 with bandwidth, got {}", score);
+        assert!(score < 40.0, "Expected score < 40 with bandwidth, got {}", score);
     }
 
     #[test]
