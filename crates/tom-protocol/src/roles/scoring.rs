@@ -7,14 +7,22 @@
 /// Decay rate: 5% per hour (expressed as fraction per ms).
 const DECAY_RATE_PER_MS: f64 = 0.05 / 3_600_000.0;
 
+// Scoring weight constants (tunable based on beta testing)
+
 /// Weight for relay count in score calculation.
-const RELAY_COUNT_WEIGHT: f64 = 1.0;
+pub const RELAY_COUNT_WEIGHT: f64 = 1.0;
 
 /// Weight for success rate (0.0–1.0) in score calculation.
-const SUCCESS_RATE_WEIGHT: f64 = 5.0;
+pub const SUCCESS_RATE_WEIGHT: f64 = 5.0;
 
 /// Weight for uptime hours in score calculation.
-const UPTIME_WEIGHT: f64 = 0.5;
+pub const UPTIME_WEIGHT: f64 = 0.5;
+
+/// Weight for total bandwidth relayed (in MB) in score calculation.
+pub const BANDWIDTH_MB_WEIGHT: f64 = 0.2;
+
+/// Weight for give/take bandwidth ratio in score calculation.
+pub const BANDWIDTH_RATIO_WEIGHT: f64 = 1.5;
 
 /// Contribution metrics for a single node.
 #[derive(Debug, Clone)]
