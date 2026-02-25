@@ -137,9 +137,9 @@ impl RoleManager {
     ) -> Vec<(NodeId, f64, PeerRole)> {
         topology
             .peers()
-            .filter_map(|peer| {
+            .map(|peer| {
                 let score = self.score(&peer.node_id, now);
-                Some((peer.node_id, score, peer.role))
+                (peer.node_id, score, peer.role)
             })
             .collect()
     }
