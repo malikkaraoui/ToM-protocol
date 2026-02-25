@@ -193,8 +193,24 @@ pub(super) async fn runtime_loop(
             else => break,
         };
 
-        // Execute all effects
-        execute_effects(effects, &node, &msg_tx, &status_tx, &event_tx).await;
+        // Intercept BroadcastRoleChange effects (need gossip sender)
+        let mut regular_effects = Vec::with_capacity(effects.len());
+        for effect in effects {
+            if let RuntimeEffect::BroadcastRoleChange(ref announce) = effect {
+                if let Some(ref sender) = gossip_sender {
+                    if let Ok(bytes) = rmp_serde::to_vec(announce) {
+                        if let Err(e) = sender.broadcast(bytes::Bytes::from(bytes)).await {
+                            tracing::debug!("gossip: role announce broadcast failed: {e}");
+                        }
+                    }
+                }
+            } else {
+                regular_effects.push(effect);
+            }
+        }
+
+        // Execute remaining effects
+        execute_effects(regular_effects, &node, &msg_tx, &status_tx, &event_tx).await;
     }
 
     // Graceful shutdown

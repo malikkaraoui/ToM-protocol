@@ -45,6 +45,15 @@ pub(super) async fn execute_effects<T: Transport>(
                 // try_send even for critical events: large buffer + fast consumer = reliable
                 let _ = event_tx.try_send(event);
             }
+            RuntimeEffect::BroadcastRoleChange(announce) => {
+                // Handled in the runtime loop (needs gossip sender).
+                // This arm is a fallback — log if reached.
+                tracing::debug!(
+                    "BroadcastRoleChange reached executor (should be intercepted by loop): {:?} -> {:?}",
+                    announce.node_id,
+                    announce.new_role,
+                );
+            }
             RuntimeEffect::SendWithBackupFallback {
                 envelope,
                 on_success,
