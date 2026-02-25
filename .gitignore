@@ -6,5 +6,8 @@ target/
 .DS_Store
 *.local
 
+# Worktrees
+.worktrees/
+
 # Secrets
 .env
