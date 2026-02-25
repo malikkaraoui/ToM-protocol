@@ -29,6 +29,10 @@ pub struct ContributionMetrics {
     pub last_activity: u64,
     /// Cumulative uptime in milliseconds.
     pub total_uptime_ms: u64,
+    /// Total bytes relayed for other peers.
+    pub bytes_relayed: u64,
+    /// Total bytes received from the network.
+    pub bytes_received: u64,
 }
 
 impl ContributionMetrics {
@@ -40,6 +44,8 @@ impl ContributionMetrics {
             first_seen: now,
             last_activity: now,
             total_uptime_ms: 0,
+            bytes_relayed: 0,
+            bytes_received: 0,
         }
     }
 
