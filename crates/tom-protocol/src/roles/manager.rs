@@ -88,6 +88,62 @@ impl RoleManager {
         self.scores.remove(node_id);
     }
 
+    /// Get complete metrics snapshot for a peer (debug/observability).
+    pub fn get_metrics(
+        &self,
+        node_id: &NodeId,
+        topology: &Topology,
+        now: u64,
+    ) -> Option<super::RoleMetrics> {
+        let metrics = self.scores.get(node_id)?;
+        let peer_info = topology.get(node_id)?;
+
+        let total_attempts = metrics.messages_relayed + metrics.relay_failures;
+        let success_rate = if total_attempts > 0 {
+            metrics.messages_relayed as f64 / total_attempts as f64
+        } else {
+            1.0
+        };
+
+        let bandwidth_ratio = if metrics.bytes_received > 0 {
+            metrics.bytes_relayed as f64 / metrics.bytes_received as f64
+        } else if metrics.bytes_relayed > 0 {
+            1.0
+        } else {
+            0.0
+        };
+
+        Some(super::RoleMetrics {
+            node_id: *node_id,
+            role: peer_info.role,
+            score: self.score(node_id, now),
+            relay_count: metrics.messages_relayed,
+            relay_failures: metrics.relay_failures,
+            success_rate,
+            bytes_relayed: metrics.bytes_relayed,
+            bytes_received: metrics.bytes_received,
+            bandwidth_ratio,
+            uptime_hours: metrics.total_uptime_ms as f64 / 3_600_000.0,
+            first_seen: metrics.first_seen,
+            last_activity: metrics.last_activity,
+        })
+    }
+
+    /// Get all peers with their scores (debug/dashboard).
+    pub fn get_all_scores(
+        &self,
+        topology: &Topology,
+        now: u64,
+    ) -> Vec<(NodeId, f64, PeerRole)> {
+        topology
+            .peers()
+            .filter_map(|peer| {
+                let score = self.score(&peer.node_id, now);
+                Some((peer.node_id, score, peer.role))
+            })
+            .collect()
+    }
+
     /// Evaluate all tracked nodes and update topology roles.
     ///
     /// Returns a list of actions (promotions, demotions, local role change).
