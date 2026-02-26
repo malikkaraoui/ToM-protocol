@@ -131,12 +131,12 @@ development_status:
   r2-e2e-transport-tests: done       # 2 E2E tests (direct + 3-node relay), Campaign V1-V4
 
   # Phase R3: Discovery + Keepalive (gossip iroh)
-  rust-phase-3: in-progress
+  rust-phase-3: done
   r3-peer-announce-types: done       # PeerAnnounce, DiscoveryEvent, LivenessState
   r3-heartbeat-tracker: done         # HeartbeatTracker (stale/offline detection)
   r3-gossip-integration: done        # iroh_gossip subscribe, NeighborUp re-broadcast
   r3-ephemeral-subnets: done         # EphemeralSubnetManager (BFS clustering)
-  r3-discovery-handler: backlog      # Full handler wiring (currently stub in places)
+  r3-discovery-handler: done          # All 4 events surfaced with DiscoverySource tracking
 
   # Phase R4: Backup + Roles
   rust-phase-4: in-progress
