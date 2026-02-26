@@ -139,7 +139,7 @@ development_status:
   r3-discovery-handler: done          # All 4 events surfaced with DiscoverySource tracking
 
   # Phase R4: Backup + Roles
-  rust-phase-4: in-progress
+  rust-phase-4: done
   r4-backup-store: done              # BackupStore (TTL, viability, replication)
   r4-backup-coordinator: done        # BackupCoordinator (query/replicate/confirm)
   r4-backup-runtime: done            # SendWithBackupFallback effect, tick_backup
@@ -147,7 +147,7 @@ development_status:
   r4-roles-manager: done             # RoleManager (evaluate, promote/demote)
   r4-roles-gossip-sync: done         # RoleChangeAnnounce (signed, throttled, gossip broadcast)
   r4-roles-observability: done       # RoleMetrics, GetRoleMetrics/GetAllRoleScores commands
-  r4-roles-live-validation: backlog  # Roles en conditions réelles (Campaign V6)
+  r4-roles-live-validation: done     # 5 RuntimeState tests + campaign phase_roles (Phase 6)
 
   # Phase R5: Groups
   rust-phase-5: in-progress
@@ -162,6 +162,6 @@ development_status:
   # Phase R6: TUI + Integration
   rust-phase-6: in-progress
   r6-tom-chat-tui: done              # ratatui TUI, --bot mode, cross-compile ARM64
-  r6-tom-stress-campaign: done       # Campaign V5 (6 phases: ping/burst/e2e/group/failover/endurance)
+  r6-tom-stress-campaign: done       # Campaign V6 (7 phases: ping/burst/e2e/group/failover/roles/endurance)
   r6-cross-border-validation: done   # Mac (Suisse) ↔ NAS (France), direct upgrade 27ms
   r6-scenario-automation: backlog    # Full scenario replay (scripted multi-node tests)
