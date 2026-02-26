@@ -160,8 +160,8 @@ development_status:
   r5-group-security: done             # Mandatory signatures, nonce anti-replay, timestamp validation, LRU dedup
 
   # Phase R6: TUI + Integration
-  rust-phase-6: in-progress
+  rust-phase-6: done
   r6-tom-chat-tui: done              # ratatui TUI, --bot mode, cross-compile ARM64
   r6-tom-stress-campaign: done       # Campaign V6 (7 phases: ping/burst/e2e/group/failover/roles/endurance)
   r6-cross-border-validation: done   # Mac (Suisse) ↔ NAS (France), direct upgrade 27ms
-  r6-scenario-automation: backlog    # Full scenario replay (scripted multi-node tests)
+  r6-scenario-automation: done       # 6 self-contained scenarios + runner + chaos (randomized multi-node)
