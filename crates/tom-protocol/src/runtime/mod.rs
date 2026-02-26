@@ -18,6 +18,7 @@ use std::time::Duration;
 use tokio::sync::{mpsc, oneshot};
 use tom_transport::{PathEvent, TomNode};
 
+use crate::discovery::DiscoverySource;
 use crate::group::{GroupId, GroupInfo, GroupInvite, GroupMember, GroupMessage, LeaveReason};
 use crate::relay::PeerInfo;
 use crate::tracker::StatusChange;
@@ -140,10 +141,18 @@ pub struct DeliveredMessage {
 /// Protocol-level events the application may want to observe.
 #[derive(Debug, Clone)]
 pub enum ProtocolEvent {
-    /// A peer was discovered via heartbeat.
-    PeerDiscovered { node_id: NodeId },
-    /// A peer went offline.
+    /// A new peer was discovered.
+    PeerDiscovered {
+        node_id: NodeId,
+        username: String,
+        source: DiscoverySource,
+    },
+    /// A peer went stale (missed heartbeats but might recover).
+    PeerStale { node_id: NodeId },
+    /// A peer went offline (confirmed departed).
     PeerOffline { node_id: NodeId },
+    /// A peer came back online after being stale/offline.
+    PeerOnline { node_id: NodeId },
     /// A message was rejected by the router.
     MessageRejected { reason: String },
     /// We forwarded a message as relay.
@@ -200,11 +209,6 @@ pub enum ProtocolEvent {
     /// Hub failover chain fully restored after a promotion.
     GroupHubChainRestored { group_id: GroupId },
     // ── Discovery events ──────────────────────────
-    /// A peer announced itself via gossip.
-    PeerAnnounceReceived {
-        node_id: NodeId,
-        username: String,
-    },
     /// A gossip neighbor connected.
     GossipNeighborUp { node_id: NodeId },
     /// A gossip neighbor disconnected.

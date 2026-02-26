@@ -951,7 +951,7 @@ async fn wait_for_peer(events: &mut mpsc::Receiver<ProtocolEvent>, target: NodeI
                 eprintln!("Peer connected (gossip neighbor up)");
                 return;
             }
-            Ok(ProtocolEvent::PeerDiscovered { node_id }) if node_id == target => {
+            Ok(ProtocolEvent::PeerDiscovered { node_id, .. }) if node_id == target => {
                 eprintln!("Peer discovered");
                 return;
             }

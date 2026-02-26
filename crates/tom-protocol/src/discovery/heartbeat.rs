@@ -2,7 +2,8 @@
 ///
 /// Pure state machine: record heartbeats, check liveness.
 /// Two-tier timeout: Stale (1x threshold) → Departed (2x threshold).
-use std::collections::HashMap;
+/// Tracks discovery source for new peers (consumed on PeerDiscovered emission).
+use std::collections::{HashMap, HashSet};
 
 use crate::discovery::types::*;
 use crate::relay::{PeerStatus, Topology};
@@ -16,6 +17,12 @@ pub struct HeartbeatTracker {
     stale_threshold: u64,
     /// Offline threshold in ms.
     offline_threshold: u64,
+    /// Pending discovery sources (consumed when PeerDiscovered emitted).
+    pending_source: HashMap<NodeId, DiscoverySource>,
+    /// Pending usernames (consumed when PeerDiscovered emitted).
+    pending_username: HashMap<NodeId, String>,
+    /// Peers that have been discovered (PeerDiscovered already emitted).
+    discovered: HashSet<NodeId>,
 }
 
 impl HeartbeatTracker {
@@ -25,6 +32,9 @@ impl HeartbeatTracker {
             last_heartbeat: HashMap::new(),
             stale_threshold: STALE_THRESHOLD_MS,
             offline_threshold: OFFLINE_THRESHOLD_MS,
+            pending_source: HashMap::new(),
+            pending_username: HashMap::new(),
+            discovered: HashSet::new(),
         }
     }
 
@@ -34,6 +44,9 @@ impl HeartbeatTracker {
             last_heartbeat: HashMap::new(),
             stale_threshold: stale_ms,
             offline_threshold: offline_ms,
+            pending_source: HashMap::new(),
+            pending_username: HashMap::new(),
+            discovered: HashSet::new(),
         }
     }
 
@@ -45,6 +58,21 @@ impl HeartbeatTracker {
     /// Record a heartbeat with a specific timestamp (for testing).
     pub fn record_heartbeat_at(&mut self, node_id: NodeId, timestamp: u64) {
         self.last_heartbeat.insert(node_id, timestamp);
+    }
+
+    /// Record a heartbeat with a discovery source and username.
+    ///
+    /// Source and username are stored pending; consumed when PeerDiscovered
+    /// is emitted from check_all.
+    pub fn record_heartbeat_with_source(
+        &mut self,
+        node_id: NodeId,
+        source: DiscoverySource,
+        username: String,
+    ) {
+        self.pending_source.insert(node_id, source);
+        self.pending_username.insert(node_id, username);
+        self.record_heartbeat(node_id);
     }
 
     /// Start tracking a peer (initial registration).
@@ -95,7 +123,8 @@ impl HeartbeatTracker {
     /// Check all peers and return events for state transitions.
     ///
     /// Updates the provided `Topology` with status changes.
-    pub fn check_all(&self, topology: &mut Topology) -> Vec<DiscoveryEvent> {
+    /// Emits PeerDiscovered for new peers (consuming pending source/username).
+    pub fn check_all(&mut self, topology: &mut Topology) -> Vec<DiscoveryEvent> {
         let mut events = vec![];
         let now = now_ms();
 
@@ -123,18 +152,41 @@ impl HeartbeatTracker {
                     }
                     events.push(DiscoveryEvent::PeerStale { node_id });
                 }
-            } else {
-                // Alive
-                if current_status == Some(PeerStatus::Stale)
-                    || current_status == Some(PeerStatus::Offline)
-                {
-                    if let Some(peer) = topology.get(&node_id) {
-                        let mut updated = peer.clone();
-                        updated.status = PeerStatus::Online;
-                        topology.upsert(updated);
-                    }
-                    events.push(DiscoveryEvent::PeerOnline { node_id });
+            } else if !self.discovered.contains(&node_id) {
+                // Alive + first time seen → PeerDiscovered
+                let source = self.pending_source
+                    .remove(&node_id)
+                    .unwrap_or(DiscoverySource::Direct);
+                let username = self.pending_username
+                    .remove(&node_id)
+                    .unwrap_or_default();
+                if let Some(peer) = topology.get(&node_id) {
+                    let mut updated = peer.clone();
+                    updated.status = PeerStatus::Online;
+                    topology.upsert(updated);
                 }
+                events.push(DiscoveryEvent::PeerDiscovered {
+                    node_id,
+                    username,
+                    source,
+                });
+            } else if current_status == Some(PeerStatus::Stale)
+                || current_status == Some(PeerStatus::Offline)
+            {
+                // Alive + was offline/stale → PeerOnline (reconnect)
+                if let Some(peer) = topology.get(&node_id) {
+                    let mut updated = peer.clone();
+                    updated.status = PeerStatus::Online;
+                    topology.upsert(updated);
+                }
+                events.push(DiscoveryEvent::PeerOnline { node_id });
+            }
+        }
+
+        // Mark newly discovered peers
+        for event in &events {
+            if let DiscoveryEvent::PeerDiscovered { node_id, .. } = event {
+                self.discovered.insert(*node_id);
             }
         }
 
@@ -155,6 +207,13 @@ impl HeartbeatTracker {
                 true
             }
         });
+
+        // Clean up discovered + pending for removed peers
+        for id in &removed {
+            self.discovered.remove(id);
+            self.pending_source.remove(id);
+            self.pending_username.remove(id);
+        }
 
         removed
     }
@@ -261,6 +320,81 @@ mod tests {
         // Both should have status updates based on now_ms()
         // Since we can't control now_ms() in check_all, we verify the events exist
         assert!(!events.is_empty());
+    }
+
+    #[test]
+    fn check_all_emits_peer_discovered_for_new_peer() {
+        let mut tracker = HeartbeatTracker::with_thresholds(100, 200);
+        let alice = node_id(1);
+
+        let mut topology = Topology::new();
+        topology.upsert(PeerInfo {
+            node_id: alice,
+            role: PeerRole::Peer,
+            status: PeerStatus::Online,
+            last_seen: 1000,
+        });
+
+        // Record with source
+        tracker.record_heartbeat_with_source(alice, DiscoverySource::Announce, "alice".into());
+
+        let events = tracker.check_all(&mut topology);
+        assert_eq!(events.len(), 1);
+        match &events[0] {
+            DiscoveryEvent::PeerDiscovered { node_id, username, source } => {
+                assert_eq!(node_id, &alice);
+                assert_eq!(username, "alice");
+                assert_eq!(*source, DiscoverySource::Announce);
+            }
+            other => panic!("Expected PeerDiscovered, got: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn check_all_fallback_direct_source() {
+        let mut tracker = HeartbeatTracker::with_thresholds(100, 200);
+        let alice = node_id(1);
+
+        let mut topology = Topology::new();
+        topology.upsert(PeerInfo {
+            node_id: alice,
+            role: PeerRole::Peer,
+            status: PeerStatus::Online,
+            last_seen: 1000,
+        });
+
+        // Record WITHOUT source
+        tracker.record_heartbeat(alice);
+
+        let events = tracker.check_all(&mut topology);
+        assert_eq!(events.len(), 1);
+        match &events[0] {
+            DiscoveryEvent::PeerDiscovered { source, .. } => {
+                assert_eq!(*source, DiscoverySource::Direct); // fallback
+            }
+            other => panic!("Expected PeerDiscovered, got: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn source_consumed_after_discovered() {
+        let mut tracker = HeartbeatTracker::with_thresholds(100, 200);
+        let alice = node_id(1);
+
+        let mut topology = Topology::new();
+        topology.upsert(PeerInfo {
+            node_id: alice,
+            role: PeerRole::Peer,
+            status: PeerStatus::Online,
+            last_seen: 1000,
+        });
+
+        tracker.record_heartbeat_with_source(alice, DiscoverySource::Gossip, "alice".into());
+        let _ = tracker.check_all(&mut topology); // Emits PeerDiscovered
+
+        // Second check should NOT emit PeerDiscovered again
+        let events = tracker.check_all(&mut topology);
+        assert!(events.is_empty(), "expected no events on second check, got: {events:?}");
     }
 
     #[test]

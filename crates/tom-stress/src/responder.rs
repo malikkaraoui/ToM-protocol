@@ -68,11 +68,14 @@ pub async fn run(config: ResponderConfig) -> anyhow::Result<()> {
             evt = channels.events.recv() => {
                 let Some(evt) = evt else { break };
                 match &evt {
-                    ProtocolEvent::PeerDiscovered { node_id } => {
-                        eprintln!("[{:>7.1}s] Peer discovered: {}", start.elapsed().as_secs_f64(), short_id(&node_id.to_string()));
+                    ProtocolEvent::PeerDiscovered { node_id, username, source } => {
+                        eprintln!("[{:>7.1}s] Peer discovered: {} \"{}\" ({:?})", start.elapsed().as_secs_f64(), short_id(&node_id.to_string()), username, source);
                     }
-                    ProtocolEvent::PeerAnnounceReceived { node_id, username } => {
-                        eprintln!("[{:>7.1}s] Gossip: {} ({})", start.elapsed().as_secs_f64(), username, short_id(&node_id.to_string()));
+                    ProtocolEvent::PeerStale { node_id } => {
+                        eprintln!("[{:>7.1}s] Peer stale: {}", start.elapsed().as_secs_f64(), short_id(&node_id.to_string()));
+                    }
+                    ProtocolEvent::PeerOnline { node_id } => {
+                        eprintln!("[{:>7.1}s] Peer online: {}", start.elapsed().as_secs_f64(), short_id(&node_id.to_string()));
                     }
                     ProtocolEvent::GossipNeighborUp { node_id } => {
                         eprintln!("[{:>7.1}s] Neighbor UP: {}", start.elapsed().as_secs_f64(), short_id(&node_id.to_string()));

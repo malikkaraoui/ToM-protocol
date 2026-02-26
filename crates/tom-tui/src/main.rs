@@ -345,27 +345,31 @@ fn handle_incoming(app: &mut App, msg: &DeliveredMessage) {
 
 fn handle_protocol_event(app: &mut App, event: &ProtocolEvent) {
     match event {
-        ProtocolEvent::PeerDiscovered { node_id } => {
-            app.add_system_message(format!("Peer discovered: {}", short_node_id(node_id)));
+        ProtocolEvent::PeerDiscovered { node_id, username, source } => {
+            app.add_system_message(format!(
+                "Peer discovered: {} \"{}\" (via {:?})",
+                short_node_id(node_id),
+                username,
+                source
+            ));
+            // Auto-set peer if not set (discovered via gossip/announce)
+            if app.peer_id.is_none() {
+                app.peer_id = Some(*node_id);
+                app.status = format!("Connected: {} (via {:?})", short_node_id(node_id), source);
+                app.add_system_message(format!("Auto-connected to {} via {:?}", short_node_id(node_id), source));
+            }
+        }
+        ProtocolEvent::PeerStale { node_id } => {
+            app.add_system_message(format!("Peer stale: {}", short_node_id(node_id)));
         }
         ProtocolEvent::PeerOffline { node_id } => {
             app.add_system_message(format!("Peer offline: {}", short_node_id(node_id)));
         }
+        ProtocolEvent::PeerOnline { node_id } => {
+            app.add_system_message(format!("Peer online: {}", short_node_id(node_id)));
+        }
         ProtocolEvent::PathChanged { event } => {
             app.add_system_message(format!("Path changed: {:?}", event));
-        }
-        ProtocolEvent::PeerAnnounceReceived { node_id, username } => {
-            app.add_system_message(format!(
-                "Gossip: {} announced as \"{}\"",
-                short_node_id(node_id),
-                username
-            ));
-            // Auto-set peer if not set (discovered via gossip)
-            if app.peer_id.is_none() {
-                app.peer_id = Some(*node_id);
-                app.status = format!("Connected: {} (via gossip)", short_node_id(node_id));
-                app.add_system_message(format!("Auto-connected to {} via gossip", short_node_id(node_id)));
-            }
         }
         ProtocolEvent::GossipNeighborUp { node_id } => {
             app.add_system_message(format!("Gossip: neighbor up {}", short_node_id(node_id)));
