@@ -1,6 +1,7 @@
 use crate::backup::{BackupAction, BackupCoordinator, BackupEvent};
 use crate::discovery::{
-    DiscoveryEvent, EphemeralSubnetManager, HeartbeatTracker, PeerAnnounce, SubnetEvent,
+    DiscoveryEvent, DiscoverySource, EphemeralSubnetManager, HeartbeatTracker, PeerAnnounce,
+    SubnetEvent,
 };
 use crate::envelope::{Envelope, EnvelopeBuilder};
 use crate::group::{
@@ -121,17 +122,30 @@ impl RuntimeState {
 
     // ── Tick: heartbeat liveness check ───────────────────────────────────
 
-    /// Check all peers for liveness, handle offline/reconnect events.
+    /// Check all peers for liveness, handle all 4 discovery events.
     ///
-    /// - PeerOffline: remove from subnets + role_manager, emit events.
-    /// - PeerOnline (reconnect): emit PeerDiscovered, prepare backup delivery.
-    /// - PeerStale: ignored for MVP.
+    /// - PeerDiscovered: new peer first seen (with source tracking).
+    /// - PeerStale: missed heartbeats but might recover.
+    /// - PeerOffline: remove from subnets + role_manager, emit event.
+    /// - PeerOnline: reconnect after stale/offline, prepare backup delivery.
     pub fn tick_heartbeat(&mut self) -> Vec<RuntimeEffect> {
         let mut effects = Vec::new();
 
         let events = self.heartbeat.check_all(&mut self.topology);
         for disc_event in events {
             match disc_event {
+                DiscoveryEvent::PeerDiscovered { node_id, username, source } => {
+                    effects.push(RuntimeEffect::Emit(ProtocolEvent::PeerDiscovered {
+                        node_id,
+                        username,
+                        source,
+                    }));
+                }
+                DiscoveryEvent::PeerStale { node_id } => {
+                    effects.push(RuntimeEffect::Emit(ProtocolEvent::PeerStale {
+                        node_id,
+                    }));
+                }
                 DiscoveryEvent::PeerOffline { node_id } => {
                     let subnet_events = self.subnets.remove_node(&node_id);
                     for se in &subnet_events {
@@ -143,12 +157,11 @@ impl RuntimeState {
                     }));
                 }
                 DiscoveryEvent::PeerOnline { node_id } => {
-                    effects.push(RuntimeEffect::Emit(ProtocolEvent::PeerDiscovered {
+                    effects.push(RuntimeEffect::Emit(ProtocolEvent::PeerOnline {
                         node_id,
                     }));
                     effects.extend(self.prepare_backup_delivery(node_id));
                 }
-                _ => {} // PeerStale, PeerDiscovered — log or ignore for MVP
             }
         }
 
@@ -725,20 +738,28 @@ impl RuntimeState {
     // ── Task 8: handle_peer_announce ─────────────────────────────────────
 
     /// Handle a direct QUIC PeerAnnounce envelope.
+    ///
+    /// Records heartbeat with Direct source so PeerDiscovered is emitted
+    /// from the next tick_heartbeat call.
     pub fn handle_peer_announce(
-        &self,
+        &mut self,
         envelope: &Envelope,
     ) -> Vec<RuntimeEffect> {
         if let Ok(announce) =
             rmp_serde::from_slice::<PeerAnnounce>(&envelope.payload)
         {
             if announce.is_timestamp_valid(now_ms()) {
-                return vec![RuntimeEffect::Emit(
-                    ProtocolEvent::PeerAnnounceReceived {
-                        node_id: announce.node_id,
-                        username: announce.username,
-                    },
-                )];
+                self.heartbeat.record_heartbeat_with_source(
+                    announce.node_id,
+                    DiscoverySource::Direct,
+                    announce.username,
+                );
+                self.topology.upsert(PeerInfo {
+                    node_id: announce.node_id,
+                    role: PeerRole::Peer,
+                    status: PeerStatus::Online,
+                    last_seen: now_ms(),
+                });
             }
         }
         Vec::new()
@@ -1007,7 +1028,11 @@ impl RuntimeState {
             } => self.handle_send_read_receipt(to, original_message_id),
 
             RuntimeCommand::AddPeer { node_id } => {
-                self.heartbeat.record_heartbeat(node_id);
+                self.heartbeat.record_heartbeat_with_source(
+                    node_id,
+                    DiscoverySource::Direct,
+                    String::new(),
+                );
                 self.topology.upsert(PeerInfo {
                     node_id,
                     role: PeerRole::Peer,
@@ -1018,7 +1043,11 @@ impl RuntimeState {
             }
 
             RuntimeCommand::UpsertPeer { info } => {
-                self.heartbeat.record_heartbeat(info.node_id);
+                self.heartbeat.record_heartbeat_with_source(
+                    info.node_id,
+                    DiscoverySource::Direct,
+                    String::new(),
+                );
                 self.topology.upsert(info);
                 Vec::new()
             }
@@ -1150,19 +1179,19 @@ impl RuntimeState {
                             } else {
                                 PeerRole::Peer
                             };
-                        self.heartbeat.record_heartbeat(peer_id);
+                        // Record with Announce source — PeerDiscovered emitted from tick_heartbeat
+                        self.heartbeat.record_heartbeat_with_source(
+                            peer_id,
+                            DiscoverySource::Announce,
+                            announce.username,
+                        );
                         self.topology.upsert(PeerInfo {
                             node_id: peer_id,
                             role,
                             status: PeerStatus::Online,
                             last_seen: now_ms(),
                         });
-                        return vec![RuntimeEffect::Emit(
-                            ProtocolEvent::PeerAnnounceReceived {
-                                node_id: peer_id,
-                                username: announce.username,
-                            },
-                        )];
+                        return vec![];
                     }
                 }
 
@@ -1177,7 +1206,11 @@ impl RuntimeState {
             }
 
             GossipInput::NeighborUp(node_id) => {
-                self.heartbeat.record_heartbeat(node_id);
+                self.heartbeat.record_heartbeat_with_source(
+                    node_id,
+                    DiscoverySource::Gossip,
+                    String::new(),
+                );
                 self.topology.upsert(PeerInfo {
                     node_id,
                     role: PeerRole::Peer,
@@ -1629,29 +1662,38 @@ mod tests {
     }
 
     #[test]
-    fn tick_heartbeat_peer_reconnect_emits_discovered() {
+    fn tick_heartbeat_peer_reconnect_emits_online() {
         let mut state = default_state(1);
         let peer = node_id(2);
 
-        // Put peer in Offline status in topology, then give it a recent heartbeat
-        // so check_all sees it as alive (PeerOnline).
+        // First, discover the peer so it's in the discovered set
+        state.heartbeat.record_heartbeat(peer);
+        state.topology.upsert(crate::relay::PeerInfo {
+            node_id: peer,
+            role: PeerRole::Peer,
+            status: PeerStatus::Online,
+            last_seen: 0,
+        });
+        let _ = state.tick_heartbeat(); // emits PeerDiscovered (first time)
+
+        // Now put peer in Offline status in topology, then give it a recent heartbeat
+        // so check_all sees it as alive → PeerOnline (reconnect).
         state.topology.upsert(crate::relay::PeerInfo {
             node_id: peer,
             role: PeerRole::Peer,
             status: PeerStatus::Offline,
             last_seen: 0,
         });
-        // Record a fresh heartbeat so elapsed is near 0 → Alive
         state.heartbeat.record_heartbeat(peer);
 
         let effects = state.tick_heartbeat();
 
-        let has_discovered = effects.iter().any(|e| {
-            matches!(e, RuntimeEffect::Emit(ProtocolEvent::PeerDiscovered { node_id }) if *node_id == peer)
+        let has_online = effects.iter().any(|e| {
+            matches!(e, RuntimeEffect::Emit(ProtocolEvent::PeerOnline { node_id }) if *node_id == peer)
         });
         assert!(
-            has_discovered,
-            "expected PeerDiscovered event on reconnect, got: {effects:?}"
+            has_online,
+            "expected PeerOnline event on reconnect, got: {effects:?}"
         );
     }
 
@@ -2029,22 +2071,30 @@ mod tests {
         let effects =
             state.handle_gossip_event(super::GossipInput::PeerAnnounce(bytes));
 
-        let has_event = effects.iter().any(|e| {
-            matches!(
-                e,
-                RuntimeEffect::Emit(ProtocolEvent::PeerAnnounceReceived { node_id, username })
-                    if *node_id == peer && username == "bob"
-            )
-        });
+        // PeerAnnounce no longer emits immediately — PeerDiscovered comes from tick_heartbeat
         assert!(
-            has_event,
-            "expected PeerAnnounceReceived event, got: {effects:?}"
+            effects.is_empty(),
+            "PeerAnnounce should not emit directly, got: {effects:?}"
         );
 
         let topo_peer = state.topology.get(&peer);
         assert!(
             topo_peer.is_some(),
             "peer should be registered in topology after gossip announce"
+        );
+
+        // Verify PeerDiscovered emitted on next heartbeat tick
+        let tick_effects = state.tick_heartbeat();
+        let has_discovered = tick_effects.iter().any(|e| {
+            matches!(
+                e,
+                RuntimeEffect::Emit(ProtocolEvent::PeerDiscovered { node_id, username, source })
+                    if *node_id == peer && username == "bob" && *source == DiscoverySource::Announce
+            )
+        });
+        assert!(
+            has_discovered,
+            "expected PeerDiscovered from tick_heartbeat, got: {tick_effects:?}"
         );
     }
 
