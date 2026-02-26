@@ -2645,4 +2645,196 @@ mod tests {
         // Topology should NOT be updated
         assert!(state.topology.get(&remote).is_none());
     }
+
+    // ── r4: Role validation integration tests ───────────────────────────
+
+    #[test]
+    fn tick_roles_promotes_active_peer() {
+        let mut state = default_state(1);
+        let peer = node_id(2);
+        let now = now_ms();
+
+        // Register peer in topology
+        state.topology.upsert(PeerInfo {
+            node_id: peer,
+            role: PeerRole::Peer,
+            status: PeerStatus::Online,
+            last_seen: now,
+        });
+
+        // Simulate 20 relays (enough to exceed PROMOTION_THRESHOLD=10.0)
+        for i in 0..20 {
+            state.role_manager.record_relay(peer, now + i * 1000);
+        }
+
+        let effects = state.tick_roles();
+
+        let has_promoted = effects.iter().any(|e| {
+            matches!(
+                e,
+                RuntimeEffect::Emit(ProtocolEvent::RolePromoted { node_id, .. })
+                if *node_id == peer
+            )
+        });
+        assert!(
+            has_promoted,
+            "expected RolePromoted after 20 relays, got: {effects:?}"
+        );
+
+        // Topology should now show Relay
+        assert_eq!(state.topology.get(&peer).unwrap().role, PeerRole::Relay);
+    }
+
+    #[test]
+    fn tick_roles_demotes_idle_relay() {
+        let mut state = default_state(1);
+        let peer = node_id(2);
+        let now = now_ms();
+
+        // Register and promote peer
+        state.topology.upsert(PeerInfo {
+            node_id: peer,
+            role: PeerRole::Peer,
+            status: PeerStatus::Online,
+            last_seen: now,
+        });
+        for i in 0..20 {
+            state.role_manager.record_relay(peer, now + i * 1000);
+        }
+        let _ = state.tick_roles(); // Promotes
+        assert_eq!(state.topology.get(&peer).unwrap().role, PeerRole::Relay);
+
+        // 100 hours of idleness — score should decay below DEMOTION_THRESHOLD=2.0
+        let future = now + 100 * 3_600_000;
+        let score = state.role_manager.score(&peer, future);
+        assert!(
+            score < 2.0,
+            "score should be below demotion threshold after 100h idle: {score}"
+        );
+
+        // tick_roles uses now_ms() (can't fake time), so test via evaluate directly
+        let actions = state.role_manager.evaluate(&mut state.topology, future);
+        assert!(
+            actions.iter().any(|a| matches!(
+                a,
+                crate::roles::RoleAction::Demoted { node_id, .. }
+                if *node_id == peer
+            )),
+            "expected demotion after 100h idle: {actions:?}"
+        );
+        assert_eq!(state.topology.get(&peer).unwrap().role, PeerRole::Peer);
+    }
+
+    #[test]
+    fn get_role_metrics_via_command() {
+        let mut state = default_state(1);
+        let peer = node_id(2);
+        let now = now_ms();
+
+        state.topology.upsert(PeerInfo {
+            node_id: peer,
+            role: PeerRole::Peer,
+            status: PeerStatus::Online,
+            last_seen: now,
+        });
+
+        // Record some activity
+        for i in 0..5 {
+            state.role_manager.record_relay(peer, now + i * 1000);
+        }
+        state.role_manager.record_bytes_relayed(peer, 10 * 1_048_576, now + 5000);
+
+        // Query via command handler
+        let (tx, mut rx) = tokio::sync::oneshot::channel();
+        let effects = state.handle_command(RuntimeCommand::GetRoleMetrics {
+            node_id: peer,
+            reply: tx,
+        });
+        assert!(effects.is_empty(), "GetRoleMetrics should not emit effects");
+
+        let metrics = rx.try_recv().expect("should receive response");
+        let metrics = metrics.expect("metrics should exist for tracked peer");
+
+        assert_eq!(metrics.node_id, peer);
+        assert_eq!(metrics.role, PeerRole::Peer);
+        assert_eq!(metrics.relay_count, 5);
+        assert_eq!(metrics.relay_failures, 0);
+        assert!(metrics.score > 0.0, "score should be positive");
+        assert_eq!(metrics.bytes_relayed, 10 * 1_048_576);
+        assert!(
+            (metrics.success_rate - 1.0).abs() < f64::EPSILON,
+            "100% success rate"
+        );
+    }
+
+    #[test]
+    fn get_all_role_scores_via_command() {
+        let mut state = default_state(1);
+        let peer_a = node_id(2);
+        let peer_b = node_id(3);
+        let now = now_ms();
+
+        for &peer in &[peer_a, peer_b] {
+            state.topology.upsert(PeerInfo {
+                node_id: peer,
+                role: PeerRole::Peer,
+                status: PeerStatus::Online,
+                last_seen: now,
+            });
+        }
+
+        // Only peer_a has relay activity
+        state.role_manager.record_relay(peer_a, now);
+
+        let (tx, mut rx) = tokio::sync::oneshot::channel();
+        let effects = state.handle_command(RuntimeCommand::GetAllRoleScores {
+            reply: tx,
+        });
+        assert!(effects.is_empty());
+
+        let scores = rx.try_recv().expect("should receive response");
+        assert_eq!(scores.len(), 2, "should list both peers");
+
+        let a_entry = scores.iter().find(|(id, _, _)| *id == peer_a);
+        let b_entry = scores.iter().find(|(id, _, _)| *id == peer_b);
+
+        assert!(a_entry.is_some(), "peer_a should be in scores");
+        assert!(b_entry.is_some(), "peer_b should be in scores");
+
+        let (_, a_score, _) = a_entry.unwrap();
+        let (_, b_score, _) = b_entry.unwrap();
+        assert!(a_score > b_score, "active peer should score higher");
+    }
+
+    #[test]
+    fn bandwidth_tracking_via_role_metrics_command() {
+        let mut state = default_state(1);
+        let relay = node_id(2);
+        let now = now_ms();
+
+        state.topology.upsert(PeerInfo {
+            node_id: relay,
+            role: PeerRole::Peer,
+            status: PeerStatus::Online,
+            last_seen: now,
+        });
+
+        state.role_manager.record_bytes_relayed(relay, 100 * 1_048_576, now);
+        state.role_manager.record_bytes_received(relay, 50 * 1_048_576, now);
+
+        let (tx, mut rx) = tokio::sync::oneshot::channel();
+        state.handle_command(RuntimeCommand::GetRoleMetrics {
+            node_id: relay,
+            reply: tx,
+        });
+
+        let metrics = rx.try_recv().unwrap().unwrap();
+        assert_eq!(metrics.bytes_relayed, 100 * 1_048_576);
+        assert_eq!(metrics.bytes_received, 50 * 1_048_576);
+        assert!(
+            (metrics.bandwidth_ratio - 2.0).abs() < f64::EPSILON,
+            "bandwidth ratio should be 2.0 (100/50): {}",
+            metrics.bandwidth_ratio
+        );
+    }
 }
