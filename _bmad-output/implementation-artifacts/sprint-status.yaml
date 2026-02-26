@@ -150,14 +150,14 @@ development_status:
   r4-roles-live-validation: done     # 5 RuntimeState tests + campaign phase_roles (Phase 6)
 
   # Phase R5: Groups
-  rust-phase-5: in-progress
+  rust-phase-5: done
   r5-group-types: done               # GroupId, GroupInfo, GroupMessage, GroupPayload
   r5-group-manager: done             # GroupManager (member-side state machine)
   r5-group-hub: done                 # GroupHub (hub-side fan-out, rate limiting)
   r5-hub-election: done              # Deterministic election (lowest NodeId)
   r5-hub-failover: done              # Shadow/Candidate chain, active watchdog, auto-promote
   r5-group-e2e-sender-keys: done     # Sender key encryption, key rotation on member leave
-  r5-group-security: backlog         # Nonce tracking, anti-replay, message auth hardening
+  r5-group-security: done             # Mandatory signatures, nonce anti-replay, timestamp validation, LRU dedup
 
   # Phase R6: TUI + Integration
   rust-phase-6: in-progress
