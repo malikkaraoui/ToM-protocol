@@ -3805,6 +3805,7 @@ dependencies = [
  "anyhow",
  "chrono",
  "clap",
+ "rand",
  "serde",
  "serde_json",
  "tokio",

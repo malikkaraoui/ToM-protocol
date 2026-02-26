@@ -9,9 +9,13 @@ mod output;
 mod ping;
 mod responder;
 mod scenario_backup;
+mod scenario_chaos;
 mod scenario_common;
 mod scenario_e2e;
+mod scenario_failover;
 mod scenario_group;
+mod scenario_roles;
+mod scenario_runner;
 
 use clap::{Parser, Subcommand};
 use common::parse_node_id;
@@ -121,6 +125,18 @@ enum Command {
     /// Protocol scenario: Backup delivery for offline peers.
     Backup,
 
+    /// Protocol scenario: Failover (shadow chain + hub failure).
+    Failover,
+
+    /// Protocol scenario: Roles (scoring pipeline + metrics queries).
+    Roles,
+
+    /// Chaos scenario: randomized multi-node test with random delays and message sizes.
+    Chaos,
+
+    /// Run all 6 protocol scenarios in sequence (e2e, group, backup, failover, roles, chaos).
+    Scenarios,
+
     /// Full-protocol responder (auto-echo, auto-accept groups, auto-reply).
     Responder,
 
@@ -151,6 +167,10 @@ async fn main() -> anyhow::Result<()> {
         Command::E2e => "e2e",
         Command::Group => "group",
         Command::Backup => "backup",
+        Command::Failover => "failover",
+        Command::Roles => "roles",
+        Command::Chaos => "chaos",
+        Command::Scenarios => "scenarios",
         Command::Responder => "responder",
         Command::Campaign { .. } => "campaign",
     };
@@ -199,11 +219,14 @@ async fn main() -> anyhow::Result<()> {
 
     // ── Protocol scenarios (spawn their own nodes) ───────────────
     match &cli.command {
-        Command::E2e | Command::Group | Command::Backup => {
+        Command::E2e | Command::Group | Command::Backup | Command::Failover | Command::Roles | Command::Chaos => {
             let result = match cli.command {
                 Command::E2e => scenario_e2e::run().await?,
                 Command::Group => scenario_group::run().await?,
                 Command::Backup => scenario_backup::run().await?,
+                Command::Failover => scenario_failover::run().await?,
+                Command::Roles => scenario_roles::run().await?,
+                Command::Chaos => scenario_chaos::run().await?,
                 _ => unreachable!(),
             };
             result.print_summary();
@@ -211,6 +234,10 @@ async fn main() -> anyhow::Result<()> {
             if !result.success() {
                 std::process::exit(1);
             }
+            return Ok(());
+        }
+        Command::Scenarios => {
+            scenario_runner::run().await?;
             return Ok(());
         }
         Command::Responder => {
@@ -356,7 +383,8 @@ async fn main() -> anyhow::Result<()> {
         }
 
         // Already handled above
-        Command::E2e | Command::Group | Command::Backup | Command::Responder | Command::Campaign { .. } => {
+        Command::E2e | Command::Group | Command::Backup | Command::Failover | Command::Roles
+        | Command::Chaos | Command::Scenarios | Command::Responder | Command::Campaign { .. } => {
             unreachable!()
         }
     }
