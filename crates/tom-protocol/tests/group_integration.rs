@@ -115,13 +115,14 @@ fn full_group_lifecycle() {
     assert_eq!(charlie.pending_invites().len(), 0);
     assert!(!charlie.is_in_group(&group_id));
 
-    // ── Step 3: Alice sends a message ────────────────────────────────
-    let msg = GroupMessage::new(
+    // ── Step 3: Alice sends a signed message ─────────────────────────
+    let mut msg = GroupMessage::new(
         group_id.clone(),
         alice_id,
         "alice".into(),
         "Hello group!".into(),
     );
+    msg.sign(&secret_seed(1));
 
     // Deliver message to hub
     let fanout = hub.handle_payload(GroupPayload::Message(msg.clone()), alice_id);
@@ -310,12 +311,13 @@ fn hub_rate_limits_spam() {
     let mut delivered = 0;
     let mut blocked = 0;
     for i in 0..10 {
-        let msg = GroupMessage::new(
+        let mut msg = GroupMessage::new(
             gid.clone(),
             alice_id,
             "alice".into(),
             format!("msg-{}", i),
         );
+        msg.sign(&secret_seed(1));
         let actions = hub.handle_payload(GroupPayload::Message(msg), alice_id);
         if actions.is_empty() {
             blocked += 1;
@@ -359,8 +361,9 @@ fn non_member_message_rejected() {
     };
     let gid = group.group_id.clone();
 
-    // Stranger tries to send a message
-    let msg = GroupMessage::new(gid.clone(), stranger_id, "stranger".into(), "I shouldn't be here".into());
+    // Stranger tries to send a message (signed, but not a member)
+    let mut msg = GroupMessage::new(gid.clone(), stranger_id, "stranger".into(), "I shouldn't be here".into());
+    msg.sign(&secret_seed(99));
     let actions = hub.handle_payload(GroupPayload::Message(msg), stranger_id);
 
     assert_eq!(actions.len(), 1);
