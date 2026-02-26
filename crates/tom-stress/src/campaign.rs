@@ -1,6 +1,6 @@
-/// Campaign mode — orchestrates all 6 stress phases against a remote responder.
+/// Campaign mode — orchestrates all 7 stress phases against a remote responder.
 ///
-/// Phases: Ping → Burst → E2E → Group Encrypted → Failover → Endurance
+/// Phases: Ping → Burst → E2E → Group Encrypted → Failover → Roles → Endurance
 use std::time::{Duration, Instant};
 
 use serde::Serialize;
@@ -346,9 +346,22 @@ pub async fn run(config: CampaignConfig) -> anyhow::Result<()> {
         drain_local_channels(&mut local_msg_rx, &mut local_evt_rx).await;
     }
 
-    // ── Phase 6: Endurance ───────────────────────────────────────
+    // ── Phase 6: Roles ──────────────────────────────────────────
+    if should_run("roles") {
+        eprintln!("\n═══ Phase 6: ROLES (score queries & events) ═══");
+        let stats = phase_roles(&handle, &mut local_evt_rx, config.target).await;
+        let result = stats.to_result("roles");
+        emit(&result);
+        print_phase_result(&result);
+        total_sent += stats.sent;
+        total_received += stats.received;
+        summaries.push(stats.to_summary_line("roles"));
+        drain_local_channels(&mut local_msg_rx, &mut local_evt_rx).await;
+    }
+
+    // ── Phase 7: Endurance ───────────────────────────────────────
     if should_run("endurance") {
-        eprintln!("\n═══ Phase 6: ENDURANCE (1 msg/s, {}s) ═══", config.duration_s);
+        eprintln!("\n═══ Phase 7: ENDURANCE (1 msg/s, {}s) ═══", config.duration_s);
         let stats = phase_endurance(
             &handle,
             &mut local_msg_rx,
@@ -901,6 +914,73 @@ async fn phase_endurance(
             tokio::time::sleep(Duration::from_secs(1) - elapsed).await;
         }
     }
+
+    stats
+}
+
+async fn phase_roles(
+    handle: &tom_protocol::RuntimeHandle,
+    events: &mut mpsc::Receiver<ProtocolEvent>,
+    target: NodeId,
+) -> PhaseStats {
+    let mut stats = PhaseStats::new();
+
+    // Step 1: Query role metrics for target peer
+    eprintln!("  Querying role metrics for target...");
+    stats.sent += 1;
+    match handle.get_role_metrics(target).await {
+        Some(metrics) => {
+            stats.record_rtt(stats.start.elapsed().as_secs_f64() * 1000.0);
+            eprintln!(
+                "    Metrics: role={:?}, score={:.2}, relays={}, bytes_relayed={}",
+                metrics.role, metrics.score, metrics.relay_count, metrics.bytes_relayed,
+            );
+        }
+        None => {
+            // No metrics yet is OK — peer may not have relayed anything
+            stats.record_rtt(stats.start.elapsed().as_secs_f64() * 1000.0);
+            eprintln!("    No metrics for target (no relay activity yet — expected)");
+        }
+    }
+
+    // Step 2: Query all role scores
+    eprintln!("  Querying all role scores...");
+    stats.sent += 1;
+    let scores = handle.get_all_role_scores().await;
+    stats.record_rtt(stats.start.elapsed().as_secs_f64() * 1000.0);
+    eprintln!("    {} peers tracked", scores.len());
+    for (node_id, score, role) in &scores {
+        let short_id = &node_id.to_string()[..8];
+        eprintln!("      {short_id}… {role:?} score={score:.2}");
+    }
+
+    if scores.is_empty() {
+        stats.errors.push("GetAllRoleScores returned empty".into());
+    }
+
+    // Step 3: Check for any role events that occurred during the campaign
+    eprintln!("  Checking for role events...");
+    let mut role_events = 0u32;
+    while let Ok(evt) = events.try_recv() {
+        match &evt {
+            ProtocolEvent::RolePromoted { node_id, score } => {
+                let short = &node_id.to_string()[..8];
+                eprintln!("    RolePromoted: {short}… score={score:.2}");
+                role_events += 1;
+            }
+            ProtocolEvent::RoleDemoted { node_id, score } => {
+                let short = &node_id.to_string()[..8];
+                eprintln!("    RoleDemoted: {short}… score={score:.2}");
+                role_events += 1;
+            }
+            ProtocolEvent::LocalRoleChanged { new_role } => {
+                eprintln!("    LocalRoleChanged: {new_role:?}");
+                role_events += 1;
+            }
+            _ => {}
+        }
+    }
+    eprintln!("  Role events observed: {role_events}");
 
     stats
 }

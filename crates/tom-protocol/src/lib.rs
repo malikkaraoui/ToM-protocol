@@ -40,7 +40,7 @@ pub use roles::{ContributionMetrics, RoleAction, RoleManager, RoleMetrics};
 pub use router::{AckPayload, AckType, ReadReceiptPayload, Router, RoutingAction};
 pub use tracker::{MessageTracker, StatusChange};
 pub use runtime::{
-    DeliveredMessage, GossipInput, ProtocolEvent, ProtocolRuntime, RuntimeChannels, RuntimeConfig,
-    RuntimeEffect, RuntimeHandle, RuntimeState,
+    DeliveredMessage, GossipInput, ProtocolEvent, ProtocolRuntime, RuntimeChannels, RuntimeCommand,
+    RuntimeConfig, RuntimeEffect, RuntimeHandle, RuntimeState,
 };
 pub use types::{now_ms, MessageStatus, MessageType, NodeId};
