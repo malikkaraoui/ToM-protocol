@@ -15,6 +15,12 @@ use std::time::Instant;
 use crate::group::types::*;
 use crate::types::{now_ms, NodeId};
 
+/// Maximum age of a group message before the hub rejects it (5 minutes).
+const MESSAGE_MAX_AGE_MS: u64 = 5 * 60 * 1000;
+
+/// Maximum clock skew (future) allowed for group messages (30 seconds).
+const MESSAGE_MAX_FUTURE_MS: u64 = 30 * 1000;
+
 /// Hub-side state for a single group.
 struct HubGroup {
     info: GroupInfo,
@@ -24,6 +30,8 @@ struct HubGroup {
     rate_limits: HashMap<NodeId, (Instant, u32)>,
     /// Dedup: seen message IDs (bounded).
     seen_message_ids: HashSet<String>,
+    /// Anti-replay: seen nonces for encrypted messages (bounded).
+    seen_nonces: HashSet<[u8; 24]>,
 }
 
 /// Hub-side fan-out engine for all groups managed by this relay.
@@ -160,6 +168,7 @@ impl GroupHub {
             message_history: VecDeque::new(),
             rate_limits: HashMap::new(),
             seen_message_ids: HashSet::new(),
+            seen_nonces: HashSet::new(),
         };
 
         self.groups.insert(group_id.clone(), hub_group);
@@ -335,12 +344,47 @@ impl GroupHub {
             }
         }
 
-        // Verify sender signature if present
-        if msg.is_signed() && !msg.verify_signature() {
+        // Mandatory signature: reject unsigned messages
+        if !msg.is_signed() {
+            return vec![GroupAction::Event(GroupEvent::SecurityViolation {
+                group_id,
+                node_id: from,
+                reason: "unsigned message rejected".into(),
+            })];
+        }
+
+        // Verify sender signature
+        if !msg.verify_signature() {
             return vec![GroupAction::Event(GroupEvent::SecurityViolation {
                 group_id,
                 node_id: from,
                 reason: "invalid message signature".into(),
+            })];
+        }
+
+        // Timestamp validation: reject messages too old or too far in the future
+        let now = now_ms();
+        if msg.sent_at + MESSAGE_MAX_AGE_MS < now {
+            return vec![GroupAction::Event(GroupEvent::SecurityViolation {
+                group_id,
+                node_id: from,
+                reason: "message timestamp too old (>5min)".into(),
+            })];
+        }
+        if msg.sent_at > now + MESSAGE_MAX_FUTURE_MS {
+            return vec![GroupAction::Event(GroupEvent::SecurityViolation {
+                group_id,
+                node_id: from,
+                reason: "message timestamp in the future (>30s)".into(),
+            })];
+        }
+
+        // Nonce anti-replay for encrypted messages
+        if msg.encrypted && !self.check_nonce(&group_id, &msg.nonce) {
+            return vec![GroupAction::Event(GroupEvent::SecurityViolation {
+                group_id,
+                node_id: from,
+                reason: "nonce replay detected".into(),
             })];
         }
 
@@ -468,6 +512,26 @@ impl GroupHub {
         entry.1 <= GROUP_RATE_LIMIT_PER_SECOND
     }
 
+    // ── Nonce Anti-Replay ──────────────────────────────────────────────
+
+    /// Check nonce for replay. Returns `true` if nonce is new, `false` if replayed.
+    fn check_nonce(&mut self, group_id: &GroupId, nonce: &[u8; 24]) -> bool {
+        let Some(hub_group) = self.groups.get_mut(group_id) else {
+            return false;
+        };
+
+        // Evict half when at capacity (same strategy as dedup)
+        if hub_group.seen_nonces.len() >= self.max_dedup_entries {
+            let to_keep = self.max_dedup_entries / 2;
+            let drain: Vec<_> = hub_group.seen_nonces.iter().copied().take(hub_group.seen_nonces.len() - to_keep).collect();
+            for n in drain {
+                hub_group.seen_nonces.remove(&n);
+            }
+        }
+
+        hub_group.seen_nonces.insert(*nonce)
+    }
+
     // ── Dedup ────────────────────────────────────────────────────────────
 
     fn check_dedup(&mut self, group_id: &GroupId, message_id: &str) -> bool {
@@ -475,9 +539,18 @@ impl GroupHub {
             return false;
         };
 
-        // Trim dedup set if too large
+        // Evict half when at capacity (retains recent entries better than clear())
         if hub_group.seen_message_ids.len() >= self.max_dedup_entries {
-            hub_group.seen_message_ids.clear(); // Simple reset
+            let to_keep = self.max_dedup_entries / 2;
+            let drain: Vec<_> = hub_group
+                .seen_message_ids
+                .iter()
+                .take(hub_group.seen_message_ids.len() - to_keep)
+                .cloned()
+                .collect();
+            for id in drain {
+                hub_group.seen_message_ids.remove(&id);
+            }
         }
 
         hub_group.seen_message_ids.insert(message_id.to_string())
@@ -528,6 +601,7 @@ impl GroupHub {
             message_history: messages.into_iter().collect(),
             rate_limits: HashMap::new(),
             seen_message_ids: HashSet::new(),
+            seen_nonces: HashSet::new(),
         };
 
         self.groups.insert(group_id, hub_group);
@@ -701,10 +775,23 @@ mod tests {
     use super::*;
 
     fn node_id(seed: u8) -> NodeId {
+        keypair(seed).0
+    }
+
+    fn keypair(seed: u8) -> (NodeId, [u8; 32]) {
         use rand::SeedableRng;
         let mut rng = rand::rngs::StdRng::seed_from_u64(seed as u64);
         let secret = iroh::SecretKey::generate(&mut rng);
-        secret.public().to_string().parse().unwrap()
+        let node_id: NodeId = secret.public().to_string().parse().unwrap();
+        (node_id, secret.to_bytes())
+    }
+
+    /// Create a signed GroupMessage (mandatory since security hardening).
+    fn signed_msg(group_id: GroupId, sender_seed: u8, text: &str) -> GroupMessage {
+        let (sender_id, secret) = keypair(sender_seed);
+        let mut msg = GroupMessage::new(group_id, sender_id, "test".into(), text.into());
+        msg.sign(&secret);
+        msg
     }
 
     fn make_hub() -> GroupHub {
@@ -890,8 +977,8 @@ mod tests {
         hub.handle_join(bob, &gid, "bob".into());
         hub.handle_join(charlie, &gid, "charlie".into());
 
-        // Alice sends a message
-        let msg = GroupMessage::new(gid.clone(), alice, "alice".into(), "Hello!".into());
+        // Alice sends a signed message
+        let msg = signed_msg(gid.clone(), 1, "Hello!");
         let actions = hub.handle_message(alice, msg);
 
         assert_eq!(actions.len(), 1);
@@ -948,20 +1035,15 @@ mod tests {
         let gid = hub.groups.keys().next().unwrap().clone();
         hub.handle_join(bob, &gid, "bob".into());
 
-        // Send up to the rate limit
+        // Send up to the rate limit (all signed)
         for i in 0..GROUP_RATE_LIMIT_PER_SECOND {
-            let msg = GroupMessage::new(
-                gid.clone(),
-                alice,
-                "alice".into(),
-                format!("msg-{}", i),
-            );
+            let msg = signed_msg(gid.clone(), 1, &format!("msg-{i}"));
             let actions = hub.handle_message(alice, msg);
             assert_eq!(actions.len(), 1, "message {} should succeed", i);
         }
 
         // Next one should be rate-limited
-        let msg = GroupMessage::new(gid.clone(), alice, "alice".into(), "spam".into());
+        let msg = signed_msg(gid.clone(), 1, "spam");
         let actions = hub.handle_message(alice, msg);
         assert!(actions.is_empty(), "should be rate-limited");
     }
@@ -971,6 +1053,7 @@ mod tests {
         let mut hub = make_hub();
         let alice = node_id(1);
         let bob = node_id(2);
+        let (_, alice_secret) = keypair(1);
 
         hub.handle_payload(
             GroupPayload::Create {
@@ -983,7 +1066,7 @@ mod tests {
         let gid = hub.groups.keys().next().unwrap().clone();
         hub.handle_join(bob, &gid, "bob".into());
 
-        let msg = GroupMessage {
+        let mut msg = GroupMessage {
             group_id: gid.clone(),
             message_id: "fixed-id".into(),
             sender_id: alice,
@@ -993,9 +1076,10 @@ mod tests {
             nonce: [0u8; 24],
             key_epoch: 0,
             encrypted: false,
-            sent_at: 1000,
+            sent_at: now_ms(),
             sender_signature: Vec::new(),
         };
+        msg.sign(&alice_secret);
 
         // First send succeeds
         let actions = hub.handle_message(alice, msg.clone());
@@ -1025,14 +1109,9 @@ mod tests {
         let gid = hub.groups.keys().next().unwrap().clone();
         hub.handle_join(bob, &gid, "bob".into());
 
-        // Send 5 messages (history keeps last 3)
+        // Send 5 signed messages (history keeps last 3)
         for i in 0..5 {
-            let msg = GroupMessage::new(
-                gid.clone(),
-                alice,
-                "alice".into(),
-                format!("msg-{}", i),
-            );
+            let msg = signed_msg(gid.clone(), 1, &format!("msg-{i}"));
             hub.handle_message(alice, msg);
         }
 
@@ -1335,5 +1414,239 @@ mod tests {
             &actions[0],
             GroupAction::Event(GroupEvent::SecurityViolation { .. })
         ));
+    }
+
+    // ── r5: Security hardening tests ────────────────────────────────
+
+    #[test]
+    fn unsigned_message_rejected() {
+        let mut hub = make_hub();
+        let alice = node_id(1);
+        let bob = node_id(2);
+
+        hub.handle_payload(
+            GroupPayload::Create {
+                group_name: "Test".into(),
+                creator_username: "alice".into(),
+                initial_members: vec![],
+            },
+            alice,
+        );
+        let gid = hub.groups.keys().next().unwrap().clone();
+        hub.handle_join(bob, &gid, "bob".into());
+
+        // Unsigned message should be rejected
+        let msg = GroupMessage::new(gid.clone(), alice, "alice".into(), "unsigned".into());
+        let actions = hub.handle_message(alice, msg);
+        assert_eq!(actions.len(), 1);
+        match &actions[0] {
+            GroupAction::Event(GroupEvent::SecurityViolation { reason, .. }) => {
+                assert!(reason.contains("unsigned"), "reason: {reason}");
+            }
+            other => panic!("expected SecurityViolation, got: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn forged_signature_rejected() {
+        let mut hub = make_hub();
+        let alice = node_id(1);
+        let bob = node_id(2);
+        let (_, wrong_secret) = keypair(99); // Wrong key
+
+        hub.handle_payload(
+            GroupPayload::Create {
+                group_name: "Test".into(),
+                creator_username: "alice".into(),
+                initial_members: vec![],
+            },
+            alice,
+        );
+        let gid = hub.groups.keys().next().unwrap().clone();
+        hub.handle_join(bob, &gid, "bob".into());
+
+        let mut msg = GroupMessage::new(gid.clone(), alice, "alice".into(), "forged".into());
+        msg.sign(&wrong_secret); // Signed with wrong key
+        let actions = hub.handle_message(alice, msg);
+        assert_eq!(actions.len(), 1);
+        match &actions[0] {
+            GroupAction::Event(GroupEvent::SecurityViolation { reason, .. }) => {
+                assert!(reason.contains("invalid"), "reason: {reason}");
+            }
+            other => panic!("expected SecurityViolation, got: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn old_timestamp_rejected() {
+        let mut hub = make_hub();
+        let alice = node_id(1);
+        let bob = node_id(2);
+        let (_, alice_secret) = keypair(1);
+
+        hub.handle_payload(
+            GroupPayload::Create {
+                group_name: "Test".into(),
+                creator_username: "alice".into(),
+                initial_members: vec![],
+            },
+            alice,
+        );
+        let gid = hub.groups.keys().next().unwrap().clone();
+        hub.handle_join(bob, &gid, "bob".into());
+
+        // Message with timestamp 10 minutes ago
+        let mut msg = GroupMessage::new(gid.clone(), alice, "alice".into(), "old".into());
+        msg.sent_at = now_ms().saturating_sub(10 * 60 * 1000);
+        msg.sign(&alice_secret);
+
+        let actions = hub.handle_message(alice, msg);
+        assert_eq!(actions.len(), 1);
+        match &actions[0] {
+            GroupAction::Event(GroupEvent::SecurityViolation { reason, .. }) => {
+                assert!(reason.contains("too old"), "reason: {reason}");
+            }
+            other => panic!("expected SecurityViolation for old timestamp, got: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn future_timestamp_rejected() {
+        let mut hub = make_hub();
+        let alice = node_id(1);
+        let bob = node_id(2);
+        let (_, alice_secret) = keypair(1);
+
+        hub.handle_payload(
+            GroupPayload::Create {
+                group_name: "Test".into(),
+                creator_username: "alice".into(),
+                initial_members: vec![],
+            },
+            alice,
+        );
+        let gid = hub.groups.keys().next().unwrap().clone();
+        hub.handle_join(bob, &gid, "bob".into());
+
+        // Message 2 minutes in the future
+        let mut msg = GroupMessage::new(gid.clone(), alice, "alice".into(), "future".into());
+        msg.sent_at = now_ms() + 2 * 60 * 1000;
+        msg.sign(&alice_secret);
+
+        let actions = hub.handle_message(alice, msg);
+        assert_eq!(actions.len(), 1);
+        match &actions[0] {
+            GroupAction::Event(GroupEvent::SecurityViolation { reason, .. }) => {
+                assert!(reason.contains("future"), "reason: {reason}");
+            }
+            other => panic!("expected SecurityViolation for future timestamp, got: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn nonce_replay_detected() {
+        let mut hub = make_hub();
+        let alice = node_id(1);
+        let bob = node_id(2);
+        let (_, alice_secret) = keypair(1);
+
+        hub.handle_payload(
+            GroupPayload::Create {
+                group_name: "Test".into(),
+                creator_username: "alice".into(),
+                initial_members: vec![],
+            },
+            alice,
+        );
+        let gid = hub.groups.keys().next().unwrap().clone();
+        hub.handle_join(bob, &gid, "bob".into());
+
+        let nonce = [42u8; 24];
+
+        // First encrypted message with this nonce
+        let mut msg1 = GroupMessage {
+            group_id: gid.clone(),
+            message_id: "msg-1".into(),
+            sender_id: alice,
+            sender_username: "alice".into(),
+            text: String::new(),
+            ciphertext: vec![1, 2, 3],
+            nonce,
+            key_epoch: 1,
+            encrypted: true,
+            sent_at: now_ms(),
+            sender_signature: Vec::new(),
+        };
+        msg1.sign(&alice_secret);
+        let actions = hub.handle_message(alice, msg1);
+        assert_eq!(actions.len(), 1, "first message should succeed");
+
+        // Second message with SAME nonce but different message_id
+        let mut msg2 = GroupMessage {
+            group_id: gid.clone(),
+            message_id: "msg-2".into(),
+            sender_id: alice,
+            sender_username: "alice".into(),
+            text: String::new(),
+            ciphertext: vec![4, 5, 6],
+            nonce, // Same nonce!
+            key_epoch: 1,
+            encrypted: true,
+            sent_at: now_ms(),
+            sender_signature: Vec::new(),
+        };
+        msg2.sign(&alice_secret);
+        let actions = hub.handle_message(alice, msg2);
+        assert_eq!(actions.len(), 1);
+        match &actions[0] {
+            GroupAction::Event(GroupEvent::SecurityViolation { reason, .. }) => {
+                assert!(reason.contains("nonce replay"), "reason: {reason}");
+            }
+            other => panic!("expected nonce replay SecurityViolation, got: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn dedup_eviction_retains_recent() {
+        let mut hub = make_hub();
+        hub.max_dedup_entries = 4; // Low limit for testing
+
+        let alice = node_id(1);
+        let bob = node_id(2);
+
+        hub.handle_payload(
+            GroupPayload::Create {
+                group_name: "Test".into(),
+                creator_username: "alice".into(),
+                initial_members: vec![],
+            },
+            alice,
+        );
+        let gid = hub.groups.keys().next().unwrap().clone();
+        hub.handle_join(bob, &gid, "bob".into());
+
+        // Send 4 messages to fill dedup set (within rate limit of 5/sec)
+        for i in 0..4 {
+            let msg = signed_msg(gid.clone(), 1, &format!("fill-{i}"));
+            hub.handle_message(alice, msg);
+        }
+
+        // 5th message triggers eviction
+        let msg = signed_msg(gid.clone(), 1, "trigger-evict");
+        let actions = hub.handle_message(alice, msg);
+        assert_eq!(actions.len(), 1, "5th message should succeed after eviction");
+
+        // Verify dedup set is reduced but not empty
+        let hub_group = hub.groups.get(&gid).unwrap();
+        assert!(
+            hub_group.seen_message_ids.len() <= 4,
+            "dedup set should be bounded: {}",
+            hub_group.seen_message_ids.len()
+        );
+        assert!(
+            hub_group.seen_message_ids.len() >= 2,
+            "dedup set should retain recent entries: {}",
+            hub_group.seen_message_ids.len()
+        );
     }
 }
