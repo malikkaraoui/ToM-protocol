@@ -20,8 +20,8 @@ num_enum = "0.7"
 pin-project = "1"
 pkarr = { version = "5", default-features = false, features = ["signed_packet"] }
 postcard = { version = "1", default-features = false, features = ["alloc", "use-std", "experimental-derive"] }
-quinn = { package = "iroh-quinn", version = "0.16", default-features = false, features = ["rustls-ring"] }
-quinn-proto = { package = "iroh-quinn-proto", version = "0.15" }
+quinn = { package = "tom-quinn", path = "../tom-quinn", default-features = false, features = ["rustls-ring"] }
+quinn-proto = { package = "tom-quinn-proto", path = "../tom-quinn-proto" }
 rand = "0.9"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
 rustls = { version = "0.23", default-features = false, features = ["ring"] }

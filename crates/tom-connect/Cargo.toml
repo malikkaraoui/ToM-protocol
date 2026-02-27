@@ -7,9 +7,9 @@ license = "MIT"
 rust-version = "1.89"
 
 [dependencies]
-# Core QUIC (using iroh-quinn fork for compatibility)
-quinn = { package = "iroh-quinn", version = "0.16", default-features = false, features = ["runtime-tokio", "rustls-ring"] }
-quinn-proto = { package = "iroh-quinn-proto", version = "0.15" }
+# Core QUIC (tom-quinn fork)
+quinn = { package = "tom-quinn", path = "../tom-quinn", default-features = false, features = ["runtime-tokio", "rustls-ring"] }
+quinn-proto = { package = "tom-quinn-proto", path = "../tom-quinn-proto" }
 quinn-udp = { package = "iroh-quinn-udp", version = "0.8" }
 rustls = { version = "0.23", default-features = false, features = ["ring"] }
 webpki = { package = "rustls-webpki", version = "0.103", features = ["ring"] }
