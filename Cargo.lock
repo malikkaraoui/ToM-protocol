@@ -1588,6 +1588,22 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "df3b46402a9d5adb4c86a0cf463f42e19994e3ee891101b1841f30a545cb49a9"
 
 [[package]]
+name = "humantime"
+version = "2.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "135b12329e5e3ce057a9f972339ea52bc954fe1e9358ef27f95e89716fbc5424"
+
+[[package]]
+name = "humantime-serde"
+version = "1.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "57a3db5ea5923d99402c94e9feb261dc5ee9b4efa158b0315f788cf549cc200c"
+dependencies = [
+ "humantime",
+ "serde",
+]
+
+[[package]]
 name = "hybrid-array"
 version = "0.4.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2470,6 +2486,27 @@ dependencies = [
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-time",
+]
+
+[[package]]
+name = "n0-tracing-test"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "274dc19cfda091561b364e4f61b39aa959ade203232f9794884f1911022e8e59"
+dependencies = [
+ "n0-tracing-test-macro",
+ "tracing-core",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "n0-tracing-test-macro"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ab691281e87f2453a860e76dde99157f4464df18cb7cb3eb9c3847161ccc4ce1"
+dependencies = [
+ "quote",
+ "syn",
 ]
 
 [[package]]
@@ -3710,6 +3747,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "serde-byte-array"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "63213ee4ed648dbd87db6fa993d4275b46bfb4ddfd95b3756045007c2b28f742"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "serde_bencode"
 version = "0.2.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4398,6 +4444,38 @@ dependencies = [
  "serde_json",
  "sha1 0.10.6",
  "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "tom-gossip"
+version = "0.1.0"
+dependencies = [
+ "blake3",
+ "bytes",
+ "data-encoding",
+ "derive_more 2.1.1",
+ "ed25519-dalek 3.0.0-pre.1",
+ "futures-concurrency",
+ "futures-lite",
+ "futures-util",
+ "hex",
+ "humantime-serde",
+ "indexmap",
+ "iroh-base",
+ "iroh-metrics",
+ "irpc",
+ "n0-error",
+ "n0-future 0.3.2",
+ "n0-tracing-test",
+ "postcard",
+ "rand",
+ "rand_chacha",
+ "serde",
+ "serde-byte-array",
+ "tokio",
+ "tokio-util",
+ "tom-connect",
  "tracing",
 ]
 
