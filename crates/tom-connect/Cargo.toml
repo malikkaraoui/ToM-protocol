@@ -27,7 +27,7 @@ sync_wrapper = { version = "1.0", features = ["futures"] }
 # iroh-base (shared types: EndpointId, RelayUrl, SecretKey)
 iroh-base = { version = "0.96.0", default-features = false, features = ["key", "relay"] }
 tom-relay = { path = "../tom-relay", default-features = false }
-iroh-metrics = { version = "0.38", default-features = false }
+tom-metrics = { path = "../tom-metrics" }
 
 # n0 utilities
 n0-future = "0.3"
@@ -80,7 +80,7 @@ tom-relay = { path = "../tom-relay", features = ["server"] }
 
 [features]
 default = []
-metrics = ["iroh-metrics/metrics", "tom-relay/metrics", "portmapper/metrics"]
+metrics = ["tom-relay/metrics", "portmapper/metrics"]
 test-utils = ["tom-relay/server"]
 address-lookup-pkarr-dht = []
 address-lookup-mdns = []

@@ -17,7 +17,7 @@ net = [
     "dep:futures-util",
     "dep:futures-concurrency",
 ]
-metrics = ["iroh-metrics/metrics"]
+metrics = []
 test-utils = ["dep:rand_chacha", "dep:humantime-serde"]
 
 [dependencies]
@@ -26,7 +26,7 @@ tom-connect = { path = "../tom-connect", optional = true }
 
 # iroh ecosystem (shared types)
 iroh-base = { version = "0.96", default-features = false, features = ["key"] }
-iroh-metrics = { version = "0.38", default-features = false }
+tom-metrics = { path = "../tom-metrics" }
 
 # RPC
 irpc = { version = "0.12.0", features = ["derive", "stream", "spans"], optional = true, default-features = false }

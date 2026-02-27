@@ -1,10 +1,9 @@
-//! Metrics for iroh-gossip
+//! Metrics for tom-gossip
 
-use iroh_metrics::{Counter, MetricsGroup};
+use tom_metrics::Counter;
 
-/// Enum of metrics for the module
-#[derive(Debug, Default, MetricsGroup)]
-#[metrics(name = "gossip")]
+/// Metrics for the gossip module
+#[derive(Debug, Default)]
 pub struct Metrics {
     /// Number of control messages sent
     pub msgs_ctrl_sent: Counter,
