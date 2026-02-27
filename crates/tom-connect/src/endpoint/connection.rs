@@ -1210,7 +1210,7 @@ mod tests {
         test_utils::run_relay_server,
     };
 
-    const TEST_ALPN: &[u8] = b"n0/iroh/test";
+    const TEST_ALPN: &[u8] = b"n0/tom/test";
 
     async fn spawn_0rtt_server(secret_key: SecretKey, log_span: tracing::Span) -> Result<Endpoint> {
         let server = Endpoint::empty_builder(RelayMode::Disabled)

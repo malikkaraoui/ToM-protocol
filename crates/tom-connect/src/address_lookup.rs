@@ -618,7 +618,7 @@ mod tests {
         }
     }
 
-    const TEST_ALPN: &[u8] = b"n0/iroh/test";
+    const TEST_ALPN: &[u8] = b"n0/tom/test";
 
     /// This is a smoke test for our Address Lookupmechanism.
     #[tokio::test]

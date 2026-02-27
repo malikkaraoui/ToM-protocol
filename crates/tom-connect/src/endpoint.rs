@@ -1545,7 +1545,7 @@ mod tests {
         test_utils::{QlogFileGroup, run_relay_server, run_relay_server_with},
     };
 
-    const TEST_ALPN: &[u8] = b"n0/iroh/test";
+    const TEST_ALPN: &[u8] = b"n0/tom/test";
 
     #[tokio::test]
     #[traced_test]
