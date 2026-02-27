@@ -14,6 +14,7 @@
 //! # Core Components
 //!
 //! - [`Endpoint`]: Main API to establish connections
+//! - [`protocol`]: Router and ProtocolHandler for accepting connections
 //! - [`socket`]: UDP socket with path multiplexing (relay + direct)
 //! - [`address_lookup`]: DNS/Pkarr address discovery
 //! - [`net_report`]: Network diagnostics
@@ -47,6 +48,7 @@ pub mod dns;
 pub mod endpoint;
 pub mod metrics;
 mod net_report;
+pub mod protocol;
 
 // Re-export main types
 pub use endpoint::{Endpoint, RelayMode};
