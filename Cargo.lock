@@ -3957,6 +3957,7 @@ dependencies = [
  "sha2 0.10.9",
  "thiserror",
  "tokio",
+ "tom-dht",
  "tom-transport",
  "tracing",
  "tracing-subscriber",
