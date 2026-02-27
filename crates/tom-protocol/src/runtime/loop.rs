@@ -14,8 +14,8 @@ use super::state::{GossipInput, RuntimeState};
 use super::{DeliveredMessage, ProtocolEvent, RuntimeCommand};
 use crate::tracker::StatusChange;
 
-use iroh_gossip::Gossip;
-use iroh_gossip::api::Event as GossipEvent;
+use tom_gossip::Gossip;
+use tom_gossip::api::Event as GossipEvent;
 use n0_future::StreamExt;
 use tom_transport::PathEvent;
 
@@ -63,8 +63,8 @@ pub(super) async fn runtime_loop(
     role_eval.tick().await;
 
     // ── Gossip subscription ──────────────────────────────────────────
-    let topic_id = iroh_gossip::TopicId::from_bytes(TOM_GOSSIP_TOPIC);
-    let bootstrap: Vec<iroh::EndpointId> = gossip_bootstrap_peers
+    let topic_id = tom_gossip::TopicId::from_bytes(TOM_GOSSIP_TOPIC);
+    let bootstrap: Vec<tom_connect::EndpointId> = gossip_bootstrap_peers
         .iter()
         .map(|n| *n.as_endpoint_id())
         .collect();

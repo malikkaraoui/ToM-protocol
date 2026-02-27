@@ -14,7 +14,7 @@ use tom_protocol::{
 fn node_id(seed: u8) -> NodeId {
     use rand::SeedableRng;
     let mut rng = rand::rngs::StdRng::seed_from_u64(seed as u64);
-    let secret = iroh::SecretKey::generate(&mut rng);
+    let secret = tom_connect::SecretKey::generate(&mut rng);
     secret.public().to_string().parse().unwrap()
 }
 
@@ -333,7 +333,7 @@ fn hub_rate_limits_spam() {
 fn secret_seed(seed: u8) -> [u8; 32] {
     use rand::SeedableRng;
     let mut rng = rand::rngs::StdRng::seed_from_u64(seed as u64);
-    let secret = iroh::SecretKey::generate(&mut rng);
+    let secret = tom_connect::SecretKey::generate(&mut rng);
     secret.to_bytes()
 }
 

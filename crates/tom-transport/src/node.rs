@@ -5,15 +5,15 @@ use crate::path::{PathEvent, PathKind};
 use crate::protocol::{self, HandlerState, TomProtocolHandler};
 use crate::{NodeId, TomTransportError};
 
-use iroh::protocol::Router;
-use iroh::Endpoint;
-use iroh_gossip::Gossip;
+use tom_connect::protocol::Router;
+use tom_connect::Endpoint;
+use tom_gossip::Gossip;
 use std::sync::Arc;
 use tokio::sync::{broadcast, mpsc};
 
 /// A ToM transport node — bind, send, receive, monitor paths.
 ///
-/// This is the main entry point for consumers. It wraps iroh's `Endpoint`
+/// This is the main entry point for consumers. It wraps tom-connect's `Endpoint`
 /// and `Router` behind a stable API.
 pub struct TomNode {
     id: NodeId,
@@ -58,7 +58,7 @@ impl TomNode {
 
         let router = Router::builder(endpoint.clone())
             .accept(config.alpn.clone(), Arc::new(handler))
-            .accept(iroh_gossip::ALPN, gossip.clone())
+            .accept(tom_gossip::ALPN, gossip.clone())
             .spawn();
 
         let pool = Arc::new(ConnectionPool::new(endpoint.clone(), config.alpn));
@@ -92,11 +92,11 @@ impl TomNode {
     /// This node's full address (identity + relay URL + direct addrs).
     ///
     /// Share this with other nodes so they can connect to you.
-    pub fn addr(&self) -> iroh::EndpointAddr {
+    pub fn addr(&self) -> tom_connect::EndpointAddr {
         self.endpoint.addr()
     }
 
-    /// Access the iroh-gossip handle.
+    /// Access the gossip handle.
     ///
     /// Use this to subscribe to gossip topics for peer discovery.
     pub fn gossip(&self) -> &Gossip {
@@ -104,7 +104,7 @@ impl TomNode {
     }
 
     /// Add a known peer address (for bootstrap or manual discovery).
-    pub async fn add_peer_addr(&self, addr: iroh::EndpointAddr) {
+    pub async fn add_peer_addr(&self, addr: tom_connect::EndpointAddr) {
         let id = NodeId::from_endpoint_id(addr.id);
         self.pool.add_addr(id, addr).await;
     }

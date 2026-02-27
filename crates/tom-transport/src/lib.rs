@@ -1,8 +1,7 @@
 //! ToM Protocol transport layer.
 //!
-//! Wraps iroh's QUIC connectivity (hole punching, relay fallback, E2E encryption)
-//! behind a stable API. If iroh changes or disappears, swap the internals
-//! without touching the public surface.
+//! Wraps QUIC connectivity (hole punching, relay fallback, E2E encryption)
+//! via tom-connect behind a stable API.
 //!
 //! # Quick start
 //!
@@ -42,25 +41,25 @@ pub use node::TomNode;
 pub use path::{PathEvent, PathKind};
 
 // Re-export gossip types for protocol layer
-pub use iroh_gossip;
+pub use tom_gossip;
 
 use std::fmt;
 use std::str::FromStr;
 
 /// ToM network identity — Ed25519 public key.
 ///
-/// Wraps iroh's `EndpointId`. Displayed and parsed as hex string.
+/// Wraps `EndpointId`. Displayed and parsed as hex string.
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
-pub struct NodeId(iroh::EndpointId);
+pub struct NodeId(tom_connect::EndpointId);
 
 impl NodeId {
-    /// Create from an iroh EndpointId.
-    pub fn from_endpoint_id(id: iroh::EndpointId) -> Self {
+    /// Create from an EndpointId.
+    pub fn from_endpoint_id(id: tom_connect::EndpointId) -> Self {
         Self(id)
     }
 
-    /// Access the underlying iroh EndpointId.
-    pub fn as_endpoint_id(&self) -> &iroh::EndpointId {
+    /// Access the underlying EndpointId.
+    pub fn as_endpoint_id(&self) -> &tom_connect::EndpointId {
         &self.0
     }
 
@@ -88,7 +87,7 @@ impl FromStr for NodeId {
     type Err = TomTransportError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let id: iroh::EndpointId = s
+        let id: tom_connect::EndpointId = s
             .parse()
             .map_err(|_| TomTransportError::InvalidNodeId(s.to_string()))?;
         Ok(Self(id))

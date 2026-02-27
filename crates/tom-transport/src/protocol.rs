@@ -2,8 +2,8 @@ use crate::envelope::MessageEnvelope;
 use crate::path::{PathEvent, PathKind};
 use crate::{NodeId, TomTransportError};
 
-use iroh::endpoint::Connection;
-use iroh::protocol::AcceptError;
+use tom_connect::endpoint::Connection;
+use tom_connect::protocol::AcceptError;
 use n0_future::StreamExt;
 use n0_watcher::Watcher;
 use std::sync::Arc;
@@ -12,7 +12,7 @@ use tokio::sync::{broadcast, mpsc};
 
 /// Write a length-prefixed message to a QUIC send stream.
 pub(crate) async fn write_framed(
-    send: &mut iroh::endpoint::SendStream,
+    send: &mut tom_connect::endpoint::SendStream,
     data: &[u8],
 ) -> Result<(), anyhow::Error> {
     let len = (data.len() as u32).to_be_bytes();
@@ -24,7 +24,7 @@ pub(crate) async fn write_framed(
 
 /// Read a length-prefixed message from a QUIC receive stream.
 pub(crate) async fn read_framed(
-    recv: &mut iroh::endpoint::RecvStream,
+    recv: &mut tom_connect::endpoint::RecvStream,
     max_size: usize,
 ) -> Result<Vec<u8>, TomTransportError> {
     let mut len_buf = [0u8; 4];
@@ -68,7 +68,7 @@ impl std::fmt::Debug for TomProtocolHandler {
     }
 }
 
-impl iroh::protocol::ProtocolHandler for TomProtocolHandler {
+impl tom_connect::protocol::ProtocolHandler for TomProtocolHandler {
     async fn accept(&self, connection: Connection) -> Result<(), AcceptError> {
         let remote = NodeId::from_endpoint_id(connection.remote_id());
         let state = self.state.clone();
@@ -140,9 +140,9 @@ fn spawn_path_watcher(
     });
 }
 
-/// Classify the current path from iroh's PathInfoList.
+/// Classify the current path from the PathInfoList.
 fn classify_path(
-    paths: &iroh::endpoint::PathInfoList,
+    paths: &tom_connect::endpoint::PathInfoList,
 ) -> (PathKind, std::time::Duration) {
     for path in paths.iter() {
         if path.is_selected() {
