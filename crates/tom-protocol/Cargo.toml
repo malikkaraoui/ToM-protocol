@@ -6,6 +6,7 @@ description = "ToM Protocol layer — routing, encryption, discovery on top of t
 
 [dependencies]
 tom-transport = { path = "../tom-transport" }
+tom-dht = { path = "../tom-dht" }  # Phase R7.1: DHT discovery
 serde = { version = "1", features = ["derive"] }
 rmp-serde = "1"
 thiserror = "2"

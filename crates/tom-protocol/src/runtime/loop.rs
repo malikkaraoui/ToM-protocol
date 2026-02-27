@@ -81,6 +81,9 @@ pub(super) async fn runtime_loop(
         }
     };
 
+    // ── Phase R7.1: Publish to DHT at startup ───────────────────────
+    state.publish_to_dht_async().await;
+
     // ── Main loop ────────────────────────────────────────────────────
     loop {
         let effects = tokio::select! {

@@ -48,6 +48,8 @@ pub struct RuntimeConfig {
     pub gossip_bootstrap_peers: Vec<crate::types::NodeId>,
     /// Interval for shadow ping (watchdog).
     pub shadow_ping_interval: Duration,
+    /// Enable DHT-based peer discovery (Phase R7.1).
+    pub enable_dht: bool,
 }
 
 impl Default for RuntimeConfig {
@@ -63,6 +65,7 @@ impl Default for RuntimeConfig {
             gossip_announce_interval: Duration::from_secs(10),
             gossip_bootstrap_peers: Vec::new(),
             shadow_ping_interval: Duration::from_secs(3),
+            enable_dht: true, // Phase R7.1: Enable by default
         }
     }
 }

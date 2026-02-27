@@ -16,6 +16,9 @@ use crate::types::{now_ms, MessageType, NodeId};
 use super::effect::RuntimeEffect;
 use super::{DeliveredMessage, ProtocolEvent, RuntimeCommand, RuntimeConfig};
 
+// Phase R7.1: DHT discovery
+use tom_dht::{DhtDiscovery, DhtNodeAddr};
+
 /// Gossip event input for RuntimeState (avoids leaking iroh_gossip types).
 pub enum GossipInput {
     /// A peer announced itself via gossip.
@@ -80,11 +83,31 @@ pub struct RuntimeState {
 
     /// Throttle role announcements (max 1 per peer per 30s).
     role_announce_throttle: std::collections::HashMap<NodeId, u64>,
+
+    // Phase R7.1: DHT-based peer discovery
+    pub(crate) dht: Option<DhtDiscovery>,
 }
 
 impl RuntimeState {
     /// Creer un nouvel etat de protocole.
     pub fn new(local_id: NodeId, secret_seed: [u8; 32], config: RuntimeConfig) -> Self {
+        // Phase R7.1: Initialize DHT if enabled
+        let dht = if config.enable_dht {
+            match DhtDiscovery::new() {
+                Ok(d) => {
+                    tracing::info!("DHT discovery enabled");
+                    Some(d)
+                }
+                Err(e) => {
+                    tracing::warn!("Failed to initialize DHT: {e}");
+                    None
+                }
+            }
+        } else {
+            tracing::info!("DHT discovery disabled");
+            None
+        };
+
         Self {
             router: Router::new(local_id),
             relay_selector: RelaySelector::new(local_id),
@@ -98,9 +121,30 @@ impl RuntimeState {
             role_manager: RoleManager::new(local_id),
             local_roles: vec![PeerRole::Peer],
             role_announce_throttle: std::collections::HashMap::new(),
+            dht,
             local_id,
             secret_seed,
             config,
+        }
+    }
+
+    /// Publish this node's address to the DHT (Phase R7.1).
+    ///
+    /// Called once at startup to announce our presence in the DHT.
+    pub(crate) async fn publish_to_dht_async(&self) {
+        if let Some(ref dht) = self.dht {
+            let our_addr = DhtNodeAddr {
+                node_id: self.local_id.to_string(),
+                relay_urls: vec![], // TODO R7.4: Add relay URLs from node.addr()
+                direct_addrs: vec![], // TODO R7.4: Add from MagicSock
+                timestamp: now_ms(),
+            };
+
+            if let Err(e) = dht.publish(our_addr).await {
+                tracing::warn!("Failed to publish to DHT: {e}");
+            } else {
+                tracing::info!("Published to DHT: {}", self.local_id);
+            }
         }
     }
 
