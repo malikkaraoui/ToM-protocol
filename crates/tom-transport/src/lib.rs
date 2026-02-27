@@ -43,6 +43,9 @@ pub use path::{PathEvent, PathKind};
 // Re-export gossip types for protocol layer
 pub use tom_gossip;
 
+// Re-export relay URL type for custom relay configuration
+pub use tom_connect::RelayUrl;
+
 use std::fmt;
 use std::str::FromStr;
 

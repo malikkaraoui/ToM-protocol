@@ -6,7 +6,7 @@ use crate::protocol::{self, HandlerState, TomProtocolHandler};
 use crate::{NodeId, TomTransportError};
 
 use tom_connect::protocol::Router;
-use tom_connect::Endpoint;
+use tom_connect::{Endpoint, RelayMode};
 use tom_gossip::Gossip;
 use std::sync::Arc;
 use tokio::sync::{broadcast, mpsc};
@@ -33,9 +33,17 @@ impl TomNode {
     /// Generates a fresh Ed25519 identity and starts listening for
     /// incoming connections.
     pub async fn bind(config: TomNodeConfig) -> Result<Self, TomTransportError> {
-        let endpoint = Endpoint::bind()
-            .await
-            .map_err(|e| TomTransportError::Bind(e.into()))?;
+        let endpoint = match &config.relay_url {
+            Some(url) => {
+                // Use N0 preset (Pkarr/DNS discovery) but override relay to ours
+                Endpoint::builder()
+                    .relay_mode(RelayMode::custom([url.clone()]))
+                    .bind()
+                    .await
+            }
+            None => Endpoint::bind().await,
+        }
+        .map_err(|e| TomTransportError::Bind(e.into()))?;
 
         let id = NodeId::from_endpoint_id(endpoint.id());
 
