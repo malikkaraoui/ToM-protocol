@@ -292,7 +292,7 @@ mod tests {
     fn node_id(seed: u8) -> NodeId {
         use rand::SeedableRng;
         let mut rng = rand::rngs::StdRng::seed_from_u64(seed as u64);
-        let secret = iroh::SecretKey::generate(&mut rng);
+        let secret = tom_connect::SecretKey::generate(&mut rng);
         let id_str = secret.public().to_string();
         id_str.parse().unwrap()
     }
@@ -518,7 +518,7 @@ mod tests {
     fn keypair(seed: u8) -> ([u8; 32], [u8; 32], NodeId) {
         use rand::SeedableRng;
         let mut rng = rand::rngs::StdRng::seed_from_u64(seed as u64);
-        let secret = iroh::SecretKey::generate(&mut rng);
+        let secret = tom_connect::SecretKey::generate(&mut rng);
         let pk_bytes = *secret.public().as_bytes();
         let sk_bytes = secret.to_bytes();
         let node = secret.public().to_string().parse().unwrap();

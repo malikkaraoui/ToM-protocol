@@ -1,7 +1,7 @@
 use crate::{NodeId, TomTransportError};
 
-use iroh::endpoint::Connection;
-use iroh::{Endpoint, EndpointAddr};
+use tom_connect::endpoint::Connection;
+use tom_connect::{Endpoint, EndpointAddr};
 use std::collections::HashMap;
 use tokio::sync::Mutex;
 

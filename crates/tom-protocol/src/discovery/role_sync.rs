@@ -88,7 +88,7 @@ mod tests {
 
     fn test_node_id() -> (NodeId, [u8; 32]) {
         let mut rng = rand::rngs::StdRng::seed_from_u64(42);
-        let secret = iroh::SecretKey::generate(&mut rng);
+        let secret = tom_connect::SecretKey::generate(&mut rng);
         let seed = secret.to_bytes();
         let node_id = secret.public().to_string().parse().unwrap();
         (node_id, seed)

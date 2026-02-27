@@ -19,7 +19,7 @@ use super::{DeliveredMessage, ProtocolEvent, RuntimeCommand, RuntimeConfig};
 // Phase R7.1: DHT discovery
 use tom_dht::{DhtDiscovery, DhtNodeAddr};
 
-/// Gossip event input for RuntimeState (avoids leaking iroh_gossip types).
+/// Gossip event input for RuntimeState (avoids leaking gossip types).
 pub enum GossipInput {
     /// A peer announced itself via gossip.
     PeerAnnounce(Vec<u8>),
@@ -1639,14 +1639,14 @@ mod tests {
     fn node_id(seed: u8) -> NodeId {
         use rand::SeedableRng;
         let mut rng = rand::rngs::StdRng::seed_from_u64(seed as u64);
-        let secret = iroh::SecretKey::generate(&mut rng);
+        let secret = tom_connect::SecretKey::generate(&mut rng);
         secret.public().to_string().parse().unwrap()
     }
 
     fn keypair(seed: u8) -> (NodeId, [u8; 32]) {
         use rand::SeedableRng;
         let mut rng = rand::rngs::StdRng::seed_from_u64(seed as u64);
-        let secret = iroh::SecretKey::generate(&mut rng);
+        let secret = tom_connect::SecretKey::generate(&mut rng);
         let node_id: NodeId = secret.public().to_string().parse().unwrap();
         let seed_bytes = secret.to_bytes();
         (node_id, seed_bytes)

@@ -6,7 +6,7 @@ use tom_protocol::EncryptedPayload;
 fn ed25519_keypair(seed: u8) -> ([u8; 32], [u8; 32]) {
     use rand::SeedableRng;
     let mut rng = rand::rngs::StdRng::seed_from_u64(seed as u64);
-    let secret = iroh::SecretKey::generate(&mut rng);
+    let secret = tom_connect::SecretKey::generate(&mut rng);
     let pk_bytes = *secret.public().as_bytes();
     let sk_bytes = secret.to_bytes();
     (sk_bytes, pk_bytes)
