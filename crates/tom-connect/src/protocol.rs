@@ -42,7 +42,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use iroh_base::EndpointId;
+use tom_base::EndpointId;
 use n0_error::{AnyError, e, stack_error};
 use n0_future::{
     join_all,

@@ -1,6 +1,6 @@
 //! DNS endpoint discovery for tom-connect
 
-use iroh_base::EndpointId;
+use tom_base::EndpointId;
 use tom_relay::dns::DnsResolver;
 pub use tom_relay::dns::{N0_DNS_ENDPOINT_ORIGIN_PROD, N0_DNS_ENDPOINT_ORIGIN_STAGING};
 use n0_future::boxed::BoxStream;

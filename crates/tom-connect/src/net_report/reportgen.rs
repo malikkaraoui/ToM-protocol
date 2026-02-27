@@ -24,7 +24,7 @@ use std::{
 };
 
 use http::StatusCode;
-use iroh_base::RelayUrl;
+use tom_base::RelayUrl;
 use tom_relay::{
     RelayConfig, RelayMap, defaults::DEFAULT_RELAY_QUIC_PORT, http::RELAY_PROBE_PATH,
 };

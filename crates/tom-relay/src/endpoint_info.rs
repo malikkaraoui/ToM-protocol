@@ -28,7 +28,7 @@
 //! [Pkarr]: https://app.pkarr.org
 //! [z-base-32]: https://philzimmermann.com/docs/human-oriented-base-32-encoding.txt
 //! [RFC1464]: https://www.rfc-editor.org/rfc/rfc1464
-//! [`RelayUrl`]: iroh_base::RelayUrl
+//! [`RelayUrl`]: tom_base::RelayUrl
 //! [`N0_DNS_ENDPOINT_ORIGIN_PROD`]: crate::dns::N0_DNS_ENDPOINT_ORIGIN_PROD
 //! [`N0_DNS_ENDPOINT_ORIGIN_STAGING`]: crate::dns::N0_DNS_ENDPOINT_ORIGIN_STAGING
 
@@ -40,7 +40,7 @@ use std::{
     str::{FromStr, Utf8Error},
 };
 
-use iroh_base::{EndpointAddr, EndpointId, KeyParsingError, RelayUrl, SecretKey, TransportAddr};
+use tom_base::{EndpointAddr, EndpointId, KeyParsingError, RelayUrl, SecretKey, TransportAddr};
 use n0_error::{e, ensure, stack_error};
 use url::Url;
 
@@ -671,7 +671,7 @@ mod tests {
             },
         },
     };
-    use iroh_base::{EndpointId, SecretKey, TransportAddr};
+    use tom_base::{EndpointId, SecretKey, TransportAddr};
     use n0_error::{Result, StdResultExt};
 
     use super::{EndpointData, EndpointIdExt, EndpointInfo};

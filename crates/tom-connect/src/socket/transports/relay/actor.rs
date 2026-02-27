@@ -38,7 +38,7 @@ use std::{
 };
 
 use backon::{Backoff, BackoffBuilder, ExponentialBuilder};
-use iroh_base::{EndpointId, RelayUrl, SecretKey};
+use tom_base::{EndpointId, RelayUrl, SecretKey};
 use tom_relay::{
     self as relay, PingTracker,
     client::{Client, ConnectError, RecvError, SendError},
@@ -1214,7 +1214,7 @@ mod tests {
         time::Duration,
     };
 
-    use iroh_base::{EndpointId, RelayUrl, SecretKey};
+    use tom_base::{EndpointId, RelayUrl, SecretKey};
     use tom_relay::{PingTracker, protos::relay::Datagrams};
     use n0_error::{AnyError as Error, Result, StackResultExt, StdResultExt};
     use n0_tracing_test::traced_test;

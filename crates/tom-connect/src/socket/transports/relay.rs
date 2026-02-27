@@ -5,7 +5,7 @@ use std::{
 };
 
 use bytes::Bytes;
-use iroh_base::{EndpointId, RelayUrl};
+use tom_base::{EndpointId, RelayUrl};
 use tom_relay::protos::relay::Datagrams;
 use n0_future::{
     ready,
@@ -295,7 +295,7 @@ fn datagrams_from_transmit(transmit: &Transmit<'_>) -> Datagrams {
 mod tests {
     use std::{collections::BTreeSet, time::Duration};
 
-    use iroh_base::EndpointId;
+    use tom_base::EndpointId;
     use tokio::task::JoinSet;
     use tracing::debug;
 

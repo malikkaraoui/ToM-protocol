@@ -46,7 +46,7 @@
 
 use std::sync::Arc;
 
-use iroh_base::{EndpointId, RelayUrl, SecretKey};
+use tom_base::{EndpointId, RelayUrl, SecretKey};
 use tom_relay::endpoint_info::{EncodingError, EndpointInfo};
 use n0_error::{e, stack_error};
 use n0_future::{

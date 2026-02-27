@@ -4,7 +4,7 @@
 //! and signatures allegedly by the given certificates, or using raw public keys.
 
 use ed25519_dalek::pkcs8::EncodePublicKey;
-use iroh_base::PublicKey;
+use tom_base::PublicKey;
 use rustls::{
     CertificateError, DigitallySignedStruct, DistinguishedName, SignatureScheme,
     SupportedProtocolVersion,

@@ -26,7 +26,7 @@ use std::{
     },
 };
 
-use iroh_base::{EndpointAddr, EndpointId, PublicKey, RelayUrl, SecretKey, TransportAddr};
+use tom_base::{EndpointAddr, EndpointId, PublicKey, RelayUrl, SecretKey, TransportAddr};
 use tom_relay::{RelayConfig, RelayMap};
 use n0_error::{bail, e, stack_error};
 use n0_future::{
@@ -1598,7 +1598,7 @@ mod tests {
     use std::{net::SocketAddrV4, sync::Arc, time::Duration};
 
     use data_encoding::HEXLOWER;
-    use iroh_base::{EndpointAddr, EndpointId, TransportAddr};
+    use tom_base::{EndpointAddr, EndpointId, TransportAddr};
     use n0_error::{Result, StackResultExt, StdResultExt};
     use n0_future::{MergeBounded, StreamExt, time};
     use n0_tracing_test::traced_test;

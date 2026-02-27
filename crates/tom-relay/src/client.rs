@@ -10,7 +10,7 @@ use std::{
 };
 
 use conn::Conn;
-use iroh_base::{RelayUrl, SecretKey};
+use tom_base::{RelayUrl, SecretKey};
 use n0_error::{e, stack_error};
 use n0_future::{
     Sink, Stream,

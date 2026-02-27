@@ -12,7 +12,7 @@ use std::{
 
 use clap::Parser;
 use http::StatusCode;
-use iroh_base::EndpointId;
+use tom_base::EndpointId;
 use tom_relay::{
     defaults::{
         DEFAULT_HTTP_PORT, DEFAULT_HTTPS_PORT, DEFAULT_METRICS_PORT, DEFAULT_RELAY_QUIC_PORT,
@@ -700,7 +700,7 @@ async fn build_relay_config(cfg: Config) -> Result<relay::ServerConfig<std::io::
 mod tests {
     use std::num::NonZeroU32;
 
-    use iroh_base::SecretKey;
+    use tom_base::SecretKey;
     use n0_error::Result;
     use rand::SeedableRng;
     use rand_chacha::ChaCha8Rng;

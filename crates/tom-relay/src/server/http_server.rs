@@ -847,7 +847,7 @@ impl std::ops::DerefMut for Handlers {
 mod tests {
     use std::sync::Arc;
 
-    use iroh_base::{PublicKey, SecretKey};
+    use tom_base::{PublicKey, SecretKey};
     use n0_error::{Result, StdResultExt, bail_any};
     use n0_future::{SinkExt, StreamExt};
     use n0_tracing_test::traced_test;

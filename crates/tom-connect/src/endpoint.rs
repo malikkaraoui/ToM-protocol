@@ -15,7 +15,7 @@
 use std::net::SocketAddr;
 use std::sync::Arc;
 
-use iroh_base::{EndpointAddr, EndpointId, RelayUrl, SecretKey, TransportAddr};
+use tom_base::{EndpointAddr, EndpointId, RelayUrl, SecretKey, TransportAddr};
 use tom_relay::{RelayConfig, RelayMap};
 #[cfg(not(wasm_browser))]
 use n0_error::bail;
@@ -433,7 +433,7 @@ impl Builder {
     ///
     /// If not set, a new secret key will be generated.
     ///
-    /// [`PublicKey`]: iroh_base::PublicKey
+    /// [`PublicKey`]: tom_base::PublicKey
     pub fn secret_key(mut self, secret_key: SecretKey) -> Self {
         self.secret_key = Some(secret_key);
         self
@@ -1440,7 +1440,7 @@ mod tests {
         time::{Duration, Instant},
     };
 
-    use iroh_base::{EndpointAddr, EndpointId, RelayUrl, SecretKey, TransportAddr};
+    use tom_base::{EndpointAddr, EndpointId, RelayUrl, SecretKey, TransportAddr};
     use n0_error::{AnyError as Error, Result, StdResultExt};
     use n0_future::{BufferedStreamExt, StreamExt, stream, task::AbortOnDropHandle, time};
     use n0_tracing_test::traced_test;

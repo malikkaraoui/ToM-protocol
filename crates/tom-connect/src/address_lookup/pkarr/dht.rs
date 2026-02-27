@@ -7,7 +7,7 @@
 //! [pkarr module]: super
 use std::sync::{Arc, Mutex};
 
-use iroh_base::{EndpointId, SecretKey};
+use tom_base::{EndpointId, SecretKey};
 use n0_future::{
     boxed::BoxStream,
     stream::StreamExt,
@@ -336,7 +336,7 @@ impl AddressLookup for DhtAddressLookup {
 mod tests {
     use std::collections::BTreeSet;
 
-    use iroh_base::RelayUrl;
+    use tom_base::RelayUrl;
     use n0_error::{Result, StdResultExt};
     use n0_tracing_test::traced_test;
 

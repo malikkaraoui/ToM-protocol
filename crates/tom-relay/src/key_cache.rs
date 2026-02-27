@@ -3,7 +3,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use iroh_base::PublicKey;
+use tom_base::PublicKey;
 
 type SignatureError = <PublicKey as TryFrom<&'static [u8]>>::Error;
 type PublicKeyBytes = [u8; PublicKey::LENGTH];

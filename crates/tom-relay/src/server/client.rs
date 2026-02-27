@@ -2,7 +2,7 @@
 
 use std::{collections::HashSet, sync::Arc, time::Duration};
 
-use iroh_base::EndpointId;
+use tom_base::EndpointId;
 use n0_error::{e, stack_error};
 use n0_future::{SinkExt, StreamExt};
 use rand::Rng;
@@ -478,7 +478,7 @@ impl ClientCounter {
 
 #[cfg(test)]
 mod tests {
-    use iroh_base::SecretKey;
+    use tom_base::SecretKey;
     use n0_error::{Result, StdResultExt, bail_any};
     use n0_future::Stream;
     use n0_tracing_test::traced_test;

@@ -12,7 +12,7 @@ use hickory_resolver::{
     config::{ResolverConfig, ResolverOpts},
     name_server::TokioConnectionProvider,
 };
-use iroh_base::EndpointId;
+use tom_base::EndpointId;
 use n0_error::{StackError, e, stack_error};
 use n0_future::{
     StreamExt,

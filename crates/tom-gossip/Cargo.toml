@@ -24,8 +24,8 @@ test-utils = ["dep:rand_chacha", "dep:humantime-serde"]
 # Transport (REPLACES iroh)
 tom-connect = { path = "../tom-connect", optional = true }
 
-# iroh ecosystem (shared types)
-iroh-base = { version = "0.96", default-features = false, features = ["key"] }
+# tom-base (shared types)
+tom-base = { path = "../tom-base", features = ["key"] }
 tom-metrics = { path = "../tom-metrics" }
 
 # RPC

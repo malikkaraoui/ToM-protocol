@@ -29,8 +29,8 @@ use data_encoding::BASE32HEX_NOPAD as HEX;
 #[cfg(not(wasm_browser))]
 use http::HeaderValue;
 #[cfg(feature = "server")]
-use iroh_base::Signature;
-use iroh_base::{PublicKey, SecretKey};
+use tom_base::Signature;
+use tom_base::{PublicKey, SecretKey};
 use n0_error::{e, ensure, stack_error};
 use n0_future::{SinkExt, TryStreamExt};
 #[cfg(feature = "server")]
@@ -186,7 +186,7 @@ pub(crate) enum VerificationError {
         "Client signature {signature:X?} for message {message:X?} invalid for public key {public_key}"
     )]
     SignatureInvalid {
-        source: iroh_base::SignatureError,
+        source: tom_base::SignatureError,
         message: Vec<u8>,
         signature: [u8; 64],
         public_key: PublicKey,
@@ -531,7 +531,7 @@ fn deserialize_frame<F: Frame + serde::de::DeserializeOwned>(frame: Bytes) -> Re
 #[cfg(all(test, feature = "server"))]
 mod tests {
     use bytes::BytesMut;
-    use iroh_base::{PublicKey, SecretKey};
+    use tom_base::{PublicKey, SecretKey};
     use n0_error::{Result, StackResultExt, StdResultExt};
     use n0_future::{Sink, SinkExt, Stream, TryStreamExt};
     use n0_tracing_test::traced_test;

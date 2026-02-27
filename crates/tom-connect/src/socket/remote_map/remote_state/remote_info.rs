@@ -1,4 +1,4 @@
-use iroh_base::{EndpointId, TransportAddr};
+use tom_base::{EndpointId, TransportAddr};
 
 /// Information about a remote endpoint.
 ///

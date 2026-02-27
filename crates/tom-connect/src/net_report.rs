@@ -20,7 +20,7 @@ use std::{
 use defaults::timeouts::PROBES_TIMEOUT;
 // exported primarily for use in documentation
 pub use defaults::timeouts::TIMEOUT;
-use iroh_base::RelayUrl;
+use tom_base::RelayUrl;
 #[cfg(not(wasm_browser))]
 use tom_relay::RelayConfig;
 #[cfg(not(wasm_browser))]
@@ -984,7 +984,7 @@ mod test_utils {
 mod tests {
     use std::net::{Ipv4Addr, SocketAddr};
 
-    use iroh_base::RelayUrl;
+    use tom_base::RelayUrl;
     use tom_relay::dns::DnsResolver;
     use n0_error::{Result, StdResultExt};
     use n0_tracing_test::traced_test;

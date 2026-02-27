@@ -9,7 +9,7 @@ use std::{
 };
 
 use bytes::Bytes;
-use iroh_base::{EndpointId, RelayUrl, TransportAddr};
+use tom_base::{EndpointId, RelayUrl, TransportAddr};
 use tom_relay::RelayMap;
 use n0_watcher::Watcher;
 use relay::{RelayNetworkChangeSender, RelaySender};

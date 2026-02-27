@@ -23,9 +23,9 @@ use http::{
     response::Builder as ResponseBuilder,
 };
 use hyper::body::Incoming;
-use iroh_base::EndpointId;
+use tom_base::EndpointId;
 #[cfg(feature = "test-utils")]
-use iroh_base::RelayUrl;
+use tom_base::RelayUrl;
 use n0_error::{e, stack_error};
 use n0_future::{StreamExt, future::Boxed};
 use serde::Serialize;
@@ -781,7 +781,7 @@ mod tests {
     use std::{net::Ipv4Addr, time::Duration};
 
     use http::StatusCode;
-    use iroh_base::{EndpointId, RelayUrl, SecretKey};
+    use tom_base::{EndpointId, RelayUrl, SecretKey};
     use n0_error::Result;
     use n0_future::{FutureExt, SinkExt, StreamExt};
     use n0_tracing_test::traced_test;

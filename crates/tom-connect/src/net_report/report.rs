@@ -5,7 +5,7 @@ use std::{
     time::Duration,
 };
 
-use iroh_base::RelayUrl;
+use tom_base::RelayUrl;
 use serde::{Deserialize, Serialize};
 use tracing::{trace, warn};
 
