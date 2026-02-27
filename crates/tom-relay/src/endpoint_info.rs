@@ -1,6 +1,6 @@
 //! Support for handling DNS resource records for dialing by [`EndpointId`].
 //!
-//! Dialing by [`EndpointId`] is supported by iroh endpoints publishing [Pkarr] records to DNS
+//! Dialing by [`EndpointId`] is supported by endpoints publishing [Pkarr] records to DNS
 //! servers or the Mainline DHT.  This module supports creating and parsing these records.
 //!
 //! DNS records are published under the following names:

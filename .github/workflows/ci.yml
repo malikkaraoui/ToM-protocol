@@ -28,6 +28,27 @@ jobs:
 
       - run: pnpm lint
 
+  rust-protocol:
+    name: Rust protocol (build + test + clippy)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build
+        run: cargo build -p tom-protocol
+
+      - name: Test
+        run: cargo test -p tom-protocol
+
+      - name: Clippy
+        run: cargo clippy -p tom-protocol -- -D warnings
+
   rust-transport:
     name: Rust transport (build + test + clippy)
     runs-on: ubuntu-latest
@@ -48,6 +69,27 @@ jobs:
 
       - name: Clippy
         run: cargo clippy -p tom-transport -- -D warnings
+
+  rust-fork:
+    name: Rust fork crates (build + test + clippy)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build
+        run: cargo build -p tom-connect -p tom-relay -p tom-gossip
+
+      - name: Test tom-relay
+        run: cargo test -p tom-relay --lib
+
+      - name: Clippy
+        run: cargo clippy -p tom-connect -p tom-relay -p tom-gossip -- -D warnings
 
   rust-stress:
     name: Rust stress (build + clippy + localhost test)
@@ -85,6 +127,8 @@ jobs:
           components: clippy
 
       - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: experiments/iroh-poc
 
       - name: Build
         run: cargo build --bin nat-test

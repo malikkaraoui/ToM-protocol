@@ -211,8 +211,8 @@ impl fmt::Display for RelayMap {
 /// Information on a specific relay server.
 ///
 /// Includes the Url where it can be dialed.
-// Please note that this is documented in the `iroh.computer` repository under
-// `src/app/docs/reference/config/page.mdx`.  Any changes to this need to be updated there.
+// Forked from iroh — original docs were in iroh.computer repository.
+// Canonical reference is now in the tom-protocol repository.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, PartialOrd, Ord)]
 pub struct RelayConfig {
     /// The [`RelayUrl`] where this relay server can be dialed.
