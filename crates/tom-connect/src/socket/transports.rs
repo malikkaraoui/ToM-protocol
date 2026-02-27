@@ -10,7 +10,7 @@ use std::{
 
 use bytes::Bytes;
 use iroh_base::{EndpointId, RelayUrl, TransportAddr};
-use iroh_relay::RelayMap;
+use tom_relay::RelayMap;
 use n0_watcher::Watcher;
 use relay::{RelayNetworkChangeSender, RelaySender};
 use tokio_util::sync::CancellationToken;

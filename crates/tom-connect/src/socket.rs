@@ -27,7 +27,7 @@ use std::{
 };
 
 use iroh_base::{EndpointAddr, EndpointId, PublicKey, RelayUrl, SecretKey, TransportAddr};
-use iroh_relay::{RelayConfig, RelayMap};
+use tom_relay::{RelayConfig, RelayMap};
 use n0_error::{bail, e, stack_error};
 use n0_future::{
     task::{self, AbortOnDropHandle},
@@ -820,7 +820,7 @@ impl Handle {
 
         #[cfg(any(test, feature = "test-utils"))]
         let client_config = if insecure_skip_relay_cert_verify {
-            iroh_relay::client::make_dangerous_client_config()
+            tom_relay::client::make_dangerous_client_config()
         } else {
             default_quic_client_config()
         };

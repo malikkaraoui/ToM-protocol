@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use iroh_metrics::MetricsGroupSet;
 #[cfg(feature = "test-utils")]
-pub use iroh_relay::server::Metrics as RelayMetrics;
+pub use tom_relay::server::Metrics as RelayMetrics;
 #[cfg(not(wasm_browser))]
 pub use portmapper::Metrics as PortmapMetrics;
 use serde::{Deserialize, Serialize};
