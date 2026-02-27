@@ -891,7 +891,7 @@ mod tests {
         let response = client.get(&url).send().await.unwrap();
         assert_eq!(response.status(), 200);
         let body = response.text().await.unwrap();
-        assert!(body.contains("iroh.computer"));
+        assert!(body.contains("ToM Relay"));
     }
 
     #[tokio::test]
