@@ -1,3 +1,3 @@
 [workspace]
-members = ["crates/tom-transport", "crates/tom-protocol", "crates/tom-stress", "crates/tom-tui", "experiments/iroh-poc", "crates/tom-dht", "crates/tom-connect", "crates/tom-relay", "crates/tom-gossip"]
+members = ["crates/tom-transport", "crates/tom-protocol", "crates/tom-stress", "crates/tom-tui", "crates/tom-dht", "crates/tom-connect", "crates/tom-relay", "crates/tom-gossip"]
 resolver = "2"

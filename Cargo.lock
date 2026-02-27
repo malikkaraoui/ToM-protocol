@@ -877,32 +877,11 @@ dependencies = [
 
 [[package]]
 name = "derive_more"
-version = "1.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4a9b99b9cbbe49445b21764dc0625032a89b145a2642e67603e1c936f5458d05"
-dependencies = [
- "derive_more-impl 1.0.0",
-]
-
-[[package]]
-name = "derive_more"
 version = "2.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d751e9e49156b02b44f9c1815bcb94b984cdcc4396ecc32521c739452808b134"
 dependencies = [
- "derive_more-impl 2.1.1",
-]
-
-[[package]]
-name = "derive_more-impl"
-version = "1.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cb7330aeadfbe296029522e6c40f315320aba36fc43a5b3632f3795348f3bd22"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn",
- "unicode-xid",
+ "derive_more-impl",
 ]
 
 [[package]]
@@ -1912,59 +1891,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "iroh"
-version = "0.96.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3790cc3a5ef6a89a1e30b64de54de31e692958e2dc8a37cf2831d52c76805de9"
-dependencies = [
- "backon",
- "bytes",
- "cfg_aliases",
- "data-encoding",
- "derive_more 2.1.1",
- "ed25519-dalek 3.0.0-pre.1",
- "futures-util",
- "getrandom 0.3.4",
- "hickory-resolver",
- "http",
- "igd-next",
- "iroh-base",
- "iroh-metrics",
- "iroh-quinn",
- "iroh-quinn-proto",
- "iroh-quinn-udp 0.8.0",
- "iroh-relay",
- "n0-error",
- "n0-future 0.3.2",
- "n0-watcher",
- "netdev",
- "netwatch 0.14.0",
- "papaya",
- "pin-project",
- "pkarr",
- "pkcs8 0.11.0-rc.11",
- "portmapper",
- "rand",
- "reqwest",
- "rustc-hash",
- "rustls",
- "rustls-pki-types",
- "rustls-webpki",
- "serde",
- "smallvec",
- "strum 0.27.2",
- "sync_wrapper",
- "time",
- "tokio",
- "tokio-stream",
- "tokio-util",
- "tracing",
- "url",
- "wasm-bindgen-futures",
- "webpki-roots",
-]
-
-[[package]]
 name = "iroh-base"
 version = "0.96.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1972,7 +1898,7 @@ checksum = "b4c3fc0440c8775bf2677a58550fcef7e544346add01bf1b163f9fc0cedd436e"
 dependencies = [
  "curve25519-dalek 5.0.0-pre.1",
  "data-encoding",
- "derive_more 2.1.1",
+ "derive_more",
  "ed25519-dalek 3.0.0-pre.1",
  "n0-error",
  "rand_core 0.9.5",
@@ -1980,36 +1906,6 @@ dependencies = [
  "url",
  "zeroize",
  "zeroize_derive",
-]
-
-[[package]]
-name = "iroh-gossip"
-version = "0.96.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1d04f83254c847ac61a9b2215b95a36d598d87af033ca12a546cd1c6a2e06dab"
-dependencies = [
- "blake3",
- "bytes",
- "data-encoding",
- "derive_more 2.1.1",
- "ed25519-dalek 3.0.0-pre.1",
- "futures-concurrency",
- "futures-lite",
- "futures-util",
- "hex",
- "indexmap",
- "iroh",
- "iroh-base",
- "iroh-metrics",
- "irpc",
- "n0-error",
- "n0-future 0.3.2",
- "postcard",
- "rand",
- "serde",
- "tokio",
- "tokio-util",
- "tracing",
 ]
 
 [[package]]
@@ -2072,7 +1968,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0de99ad8adc878ee0e68509ad256152ce23b8bbe45f5539d04e179630aca40a9"
 dependencies = [
  "bytes",
- "derive_more 2.1.1",
+ "derive_more",
  "enum-assoc",
  "fastbloom",
  "getrandom 0.3.4",
@@ -2128,7 +2024,7 @@ dependencies = [
  "bytes",
  "cfg_aliases",
  "data-encoding",
- "derive_more 2.1.1",
+ "derive_more",
  "getrandom 0.3.4",
  "hickory-resolver",
  "http",
@@ -2141,7 +2037,7 @@ dependencies = [
  "iroh-quinn-proto",
  "lru 0.16.3",
  "n0-error",
- "n0-future 0.3.2",
+ "n0-future",
  "num_enum",
  "pin-project",
  "pkarr",
@@ -2174,7 +2070,7 @@ dependencies = [
  "futures-util",
  "irpc-derive",
  "n0-error",
- "n0-future 0.3.2",
+ "n0-future",
  "serde",
  "tokio",
  "tokio-util",
@@ -2448,33 +2344,12 @@ dependencies = [
 
 [[package]]
 name = "n0-future"
-version = "0.1.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7bb0e5d99e681ab3c938842b96fcb41bf8a7bb4bfdb11ccbd653a7e83e06c794"
-dependencies = [
- "cfg_aliases",
- "derive_more 1.0.0",
- "futures-buffered",
- "futures-lite",
- "futures-util",
- "js-sys",
- "pin-project",
- "send_wrapper",
- "tokio",
- "tokio-util",
- "wasm-bindgen",
- "wasm-bindgen-futures",
- "web-time",
-]
-
-[[package]]
-name = "n0-future"
 version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e2ab99dfb861450e68853d34ae665243a88b8c493d01ba957321a1e9b2312bbe"
 dependencies = [
  "cfg_aliases",
- "derive_more 2.1.1",
+ "derive_more",
  "futures-buffered",
  "futures-lite",
  "futures-util",
@@ -2515,9 +2390,9 @@ version = "0.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "38795f7932e6e9d1c6e989270ef5b3ff24ebb910e2c9d4bed2d28d8bae3007dc"
 dependencies = [
- "derive_more 2.1.1",
+ "derive_more",
  "n0-error",
- "n0-future 0.3.2",
+ "n0-future",
 ]
 
 [[package]]
@@ -2611,12 +2486,12 @@ dependencies = [
  "atomic-waker",
  "bytes",
  "cfg_aliases",
- "derive_more 2.1.1",
+ "derive_more",
  "iroh-quinn-udp 0.7.0",
  "js-sys",
  "libc",
  "n0-error",
- "n0-future 0.3.2",
+ "n0-future",
  "n0-watcher",
  "netdev",
  "netlink-packet-core",
@@ -2647,12 +2522,12 @@ dependencies = [
  "atomic-waker",
  "bytes",
  "cfg_aliases",
- "derive_more 2.1.1",
+ "derive_more",
  "iroh-quinn-udp 0.8.0",
  "js-sys",
  "libc",
  "n0-error",
- "n0-future 0.3.2",
+ "n0-future",
  "n0-watcher",
  "netdev",
  "netlink-packet-core",
@@ -3064,7 +2939,7 @@ checksum = "f29fb522a166045a35b507dea30e3eb69bca1c5a53669d252744d5a0d8474ffa"
 dependencies = [
  "base64",
  "bytes",
- "derive_more 2.1.1",
+ "derive_more",
  "futures-lite",
  "futures-util",
  "hyper-util",
@@ -4219,7 +4094,6 @@ checksum = "743bd48c283afc0388f9b8827b976905fb217ad9e647fae3a379a9283c4def2c"
 dependencies = [
  "deranged",
  "itoa",
- "js-sys",
  "libc",
  "num-conv",
  "num_threads",
@@ -4393,7 +4267,7 @@ dependencies = [
  "bytes",
  "cfg_aliases",
  "data-encoding",
- "derive_more 2.1.1",
+ "derive_more",
  "ed25519-dalek 3.0.0-pre.1",
  "futures-util",
  "hickory-resolver",
@@ -4406,7 +4280,7 @@ dependencies = [
  "iroh-quinn-udp 0.8.0",
  "iroh-relay",
  "n0-error",
- "n0-future 0.3.2",
+ "n0-future",
  "n0-watcher",
  "netdev",
  "netwatch 0.14.0",
@@ -4454,7 +4328,7 @@ dependencies = [
  "blake3",
  "bytes",
  "data-encoding",
- "derive_more 2.1.1",
+ "derive_more",
  "ed25519-dalek 3.0.0-pre.1",
  "futures-concurrency",
  "futures-lite",
@@ -4466,7 +4340,7 @@ dependencies = [
  "iroh-metrics",
  "irpc",
  "n0-error",
- "n0-future 0.3.2",
+ "n0-future",
  "n0-tracing-test",
  "postcard",
  "rand",
@@ -4480,23 +4354,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "tom-iroh-poc"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "clap",
- "iroh",
- "iroh-gossip",
- "n0-future 0.1.3",
- "n0-watcher",
- "serde",
- "serde_json",
- "tokio",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
 name = "tom-protocol"
 version = "0.1.0"
 dependencies = [
@@ -4506,7 +4363,7 @@ dependencies = [
  "curve25519-dalek 4.1.3",
  "ed25519-dalek 2.2.0",
  "hkdf",
- "n0-future 0.3.2",
+ "n0-future",
  "proptest",
  "rand",
  "rmp-serde",
@@ -4537,7 +4394,7 @@ dependencies = [
  "clap",
  "dashmap",
  "data-encoding",
- "derive_more 2.1.1",
+ "derive_more",
  "hickory-resolver",
  "http",
  "http-body-util",
@@ -4549,7 +4406,7 @@ dependencies = [
  "iroh-quinn-proto",
  "lru 0.16.3",
  "n0-error",
- "n0-future 0.3.2",
+ "n0-future",
  "num_enum",
  "pin-project",
  "pkarr",
@@ -4609,7 +4466,7 @@ dependencies = [
  "anyhow",
  "bytes",
  "futures-lite",
- "n0-future 0.3.2",
+ "n0-future",
  "n0-watcher",
  "serde",
  "serde_json",
