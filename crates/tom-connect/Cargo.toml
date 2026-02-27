@@ -1,0 +1,14 @@
+[package]
+name = "tom-connect"
+version = "0.1.0"
+edition = "2021"
+description = "ToM transport layer — forked from iroh 0.96"
+license = "MIT"
+
+[dependencies]
+quinn = "0.11"
+tokio = { version = "1", features = ["full"] }
+anyhow = "1"
+serde = { version = "1", features = ["derive"] }
+
+# Will add more during R7.3 (MagicSock copy)
