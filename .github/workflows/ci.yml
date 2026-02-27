@@ -83,13 +83,23 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: Build
-        run: cargo build -p tom-connect -p tom-relay -p tom-gossip
+        run: cargo build -p tom-base -p tom-metrics -p tom-quinn-proto -p tom-quinn -p tom-connect -p tom-relay -p tom-gossip
+
+      - name: Test foundation crates
+        run: |
+          cargo test -p tom-base
+          cargo test -p tom-metrics
+          cargo test -p tom-quinn-proto --lib
+          cargo test -p tom-quinn --lib
 
       - name: Test tom-relay
         run: cargo test -p tom-relay --lib
 
+      - name: Test tom-gossip
+        run: cargo test -p tom-gossip --lib
+
       - name: Clippy
-        run: cargo clippy -p tom-connect -p tom-relay -p tom-gossip -- -D warnings
+        run: cargo clippy -p tom-base -p tom-metrics -p tom-quinn-proto -p tom-quinn -p tom-connect -p tom-relay -p tom-gossip -- -D warnings
 
   rust-stress:
     name: Rust stress (build + clippy + localhost test)
