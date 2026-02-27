@@ -6,7 +6,7 @@ description = "ToM Protocol transport layer — QUIC connectivity with hole punc
 license = "MIT"
 
 [dependencies]
-iroh = "0.96"
+iroh = "0.96"  # Staying on 0.96.0 until 0.97/1.0-rc (digest conflict with mainline 6.1)
 iroh-gossip = "0.96"
 tokio = { version = "1", features = ["full"] }
 bytes = "1"
