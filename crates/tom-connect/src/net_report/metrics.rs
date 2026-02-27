@@ -1,9 +1,8 @@
-use iroh_metrics::{Counter, MetricsGroup};
 use serde::{Deserialize, Serialize};
+use tom_metrics::Counter;
 
-/// Enum of metrics for the module
-#[derive(Debug, Default, MetricsGroup, Serialize, Deserialize)]
-#[metrics(name = "net_report")]
+/// Metrics for the net_report module
+#[derive(Debug, Default, Serialize, Deserialize)]
 #[non_exhaustive]
 pub struct Metrics {
     /// Number of reports executed by net_report, including full reports.

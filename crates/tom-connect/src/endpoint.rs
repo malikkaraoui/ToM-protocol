@@ -1144,104 +1144,20 @@ impl Endpoint {
     /// # }
     /// ```
     ///
-    /// [`EndpointMetrics`] implements [`MetricsGroupSet`], and each field
-    /// implements [`MetricsGroup`]. These traits provide methods to iterate over
-    /// the groups in the set, and over the individual metrics in each group, without having
-    /// to access each field manually. With these methods, it is straightforward to collect
-    /// all metrics into a map or push their values to a metrics collector.
+    /// [`EndpointMetrics`] contains sub-structs for socket, net_report, and portmapper
+    /// metrics, each backed by atomic [`tom_metrics::Counter`] values. Access individual
+    /// counters through the struct fields:
     ///
-    /// For example, the following snippet collects all metrics into a map:
-    /// ```rust
-    /// # use std::collections::BTreeMap;
-    /// # use iroh_metrics::{Metric, MetricsGroup, MetricValue, MetricsGroupSet};
+    /// ```rust,no_run
     /// # use tom_connect::endpoint::Endpoint;
     /// # async fn wrapper() -> n0_error::Result<()> {
     /// let endpoint = Endpoint::bind().await?;
-    /// let metrics: BTreeMap<String, MetricValue> = endpoint
-    ///     .metrics()
-    ///     .iter()
-    ///     .map(|(group, metric)| {
-    ///         let name = [group, metric.name()].join(":");
-    ///         (name, metric.value())
-    ///     })
-    ///     .collect();
-    ///
-    /// assert_eq!(metrics["socket:recv_datagrams"], MetricValue::Counter(0));
+    /// let m = endpoint.metrics();
+    /// println!("datagrams received: {}", m.socket.recv_datagrams.get());
+    /// println!("reports run: {}", m.net_report.reports.get());
     /// # Ok(())
     /// # }
     /// ```
-    ///
-    /// The metrics can also be encoded into the OpenMetrics text format, as used by Prometheus.
-    /// To do so, use the [`iroh_metrics::Registry`], add the endpoint metrics to the
-    /// registry with [`Registry::register_all`], and encode the metrics to a string with
-    /// [`encode_openmetrics_to_string`]:
-    /// ```rust
-    /// # use iroh_metrics::{Registry, MetricsSource};
-    /// # use tom_connect::endpoint::Endpoint;
-    /// # async fn wrapper() -> n0_error::Result<()> {
-    /// let endpoint = Endpoint::bind().await?;
-    /// let mut registry = Registry::default();
-    /// registry.register_all(endpoint.metrics());
-    /// let s = registry.encode_openmetrics_to_string()?;
-    /// assert!(s.contains(r#"TYPE socket_recv_datagrams counter"#));
-    /// assert!(s.contains(r#"socket_recv_datagrams_total 0"#));
-    /// # Ok(())
-    /// # }
-    /// ```
-    ///
-    /// Through a registry, you can also add labels or prefixes to metrics with
-    /// [`Registry::sub_registry_with_label`] or [`Registry::sub_registry_with_prefix`].
-    /// Furthermore, [`iroh_metrics::service`] provides functions to easily start services
-    /// to serve the metrics with a HTTP server, dump them to a file, or push them
-    /// to a Prometheus gateway.
-    ///
-    /// For example, the following snippet launches an HTTP server that serves the metrics in the
-    /// OpenMetrics text format:
-    /// ```no_run
-    /// # use std::{sync::{Arc, RwLock}, time::Duration};
-    /// # use iroh_metrics::{Registry, MetricsSource};
-    /// # use tom_connect::endpoint::Endpoint;
-    /// # use n0_error::{StackResultExt, StdResultExt};
-    /// # async fn wrapper() -> n0_error::Result<()> {
-    /// // Create a registry, wrapped in a read-write lock so that we can register and serve
-    /// // the metrics independently.
-    /// let registry = Arc::new(RwLock::new(Registry::default()));
-    /// // Spawn a task to serve the metrics on an OpenMetrics HTTP endpoint.
-    /// let metrics_task = tokio::task::spawn({
-    ///     let registry = registry.clone();
-    ///     async move {
-    ///         let addr = "0.0.0.0:9100".parse().unwrap();
-    ///         iroh_metrics::service::start_metrics_server(addr, registry).await
-    ///     }
-    /// });
-    ///
-    /// // Spawn an endpoint and add the metrics to the registry.
-    /// let endpoint = Endpoint::bind().await?;
-    /// registry.write().unwrap().register_all(endpoint.metrics());
-    ///
-    /// // Wait for the metrics server to bind, then fetch the metrics via HTTP.
-    /// tokio::time::sleep(Duration::from_millis(500));
-    /// let res = reqwest::get("http://localhost:9100/metrics")
-    ///     .await
-    ///     .std_context("get")?
-    ///     .text()
-    ///     .await
-    ///     .std_context("text")?;
-    ///
-    /// assert!(res.contains(r#"TYPE socket_recv_datagrams counter"#));
-    /// assert!(res.contains(r#"socket_recv_datagrams_total 0"#));
-    /// # metrics_task.abort();
-    /// # Ok(())
-    /// # }
-    /// ```
-    ///
-    /// [`Registry`]: iroh_metrics::Registry
-    /// [`Registry::register_all`]: iroh_metrics::Registry::register_all
-    /// [`Registry::sub_registry_with_label`]: iroh_metrics::Registry::sub_registry_with_label
-    /// [`Registry::sub_registry_with_prefix`]: iroh_metrics::Registry::sub_registry_with_prefix
-    /// [`encode_openmetrics_to_string`]: iroh_metrics::MetricsSource::encode_openmetrics_to_string
-    /// [`MetricsGroup`]: iroh_metrics::MetricsGroup
-    /// [`MetricsGroupSet`]: iroh_metrics::MetricsGroupSet
     #[cfg(feature = "metrics")]
     pub fn metrics(&self) -> &EndpointMetrics {
         &self.sock.metrics
@@ -2463,8 +2379,6 @@ mod tests {
     #[tokio::test]
     #[traced_test]
     async fn metrics_smoke() -> Result {
-        use iroh_metrics::Registry;
-
         let secret_key = SecretKey::from_bytes(&[0u8; 32]);
         let client = Endpoint::empty_builder(RelayMode::Disabled)
             .secret_key(secret_key)
@@ -2493,31 +2407,11 @@ mod tests {
         let server = server_task.await.anyerr()??;
 
         let m = client.metrics();
-        // assert_eq!(m.socket.num_direct_conns_added.get(), 1);
-        // assert_eq!(m.socket.connection_became_direct.get(), 1);
-        // assert_eq!(m.socket.connection_handshake_success.get(), 1);
-        // assert_eq!(m.socket.endpoints_contacted_directly.get(), 1);
         assert!(m.socket.recv_datagrams.get() > 0);
 
         let m = server.metrics();
-        // assert_eq!(m.socket.num_direct_conns_added.get(), 1);
-        // assert_eq!(m.socket.connection_became_direct.get(), 1);
-        // assert_eq!(m.socket.endpoints_contacted_directly.get(), 1);
-        // assert_eq!(m.socket.connection_handshake_success.get(), 1);
         assert!(m.socket.recv_datagrams.get() > 0);
 
-        // test openmetrics encoding with labeled subregistries per endpoint
-        fn register_endpoint(registry: &mut Registry, endpoint: &Endpoint) {
-            let id = endpoint.id().fmt_short();
-            let sub_registry = registry.sub_registry_with_label("id", id.to_string());
-            sub_registry.register_all(endpoint.metrics());
-        }
-        let mut registry = Registry::default();
-        register_endpoint(&mut registry, &client);
-        register_endpoint(&mut registry, &server);
-        // let s = registry.encode_openmetrics_to_string().anyerr()?;
-        // assert!(s.contains(r#"socket_endpoints_contacted_directly_total{id="3b6a27bcce"} 1"#));
-        // assert!(s.contains(r#"socket_endpoints_contacted_directly_total{id="8a88e3dd74"} 1"#));
         Ok(())
     }
 

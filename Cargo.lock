@@ -4222,7 +4222,6 @@ dependencies = [
  "http",
  "igd-next",
  "iroh-base",
- "iroh-metrics",
  "iroh-quinn",
  "iroh-quinn-proto",
  "iroh-quinn-udp 0.8.0",
@@ -4252,6 +4251,7 @@ dependencies = [
  "tokio",
  "tokio-stream",
  "tokio-util",
+ "tom-metrics",
  "tom-relay",
  "tracing",
  "tracing-subscriber",
@@ -4288,7 +4288,6 @@ dependencies = [
  "humantime-serde",
  "indexmap",
  "iroh-base",
- "iroh-metrics",
  "irpc",
  "n0-error",
  "n0-future",
@@ -4301,7 +4300,16 @@ dependencies = [
  "tokio",
  "tokio-util",
  "tom-connect",
+ "tom-metrics",
  "tracing",
+]
+
+[[package]]
+name = "tom-metrics"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

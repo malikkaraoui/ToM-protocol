@@ -1,7 +1,6 @@
 //! Co-locating all of the tom-connect metrics structs
 use std::sync::Arc;
 
-use iroh_metrics::MetricsGroupSet;
 #[cfg(feature = "test-utils")]
 pub use tom_relay::server::Metrics as RelayMetrics;
 #[cfg(not(wasm_browser))]
@@ -13,8 +12,7 @@ pub use crate::{net_report::Metrics as NetReportMetrics, socket::Metrics as Sock
 /// Metrics collected by an [`crate::endpoint::Endpoint`].
 ///
 /// See [`crate::endpoint::Endpoint::metrics`] for details.
-#[derive(Default, Debug, Clone, Serialize, Deserialize, MetricsGroupSet)]
-#[metrics(name = "endpoint")]
+#[derive(Default, Debug, Clone, Serialize, Deserialize)]
 #[non_exhaustive]
 pub struct EndpointMetrics {
     /// Metrics collected by the endpoint's socket.

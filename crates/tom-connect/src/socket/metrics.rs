@@ -1,12 +1,11 @@
-use iroh_metrics::{Counter, MetricsGroup};
 use serde::{Deserialize, Serialize};
+use tom_metrics::Counter;
 
-/// Enum of metrics for the module
+/// Metrics for the socket module
 // TODO(frando): Add description doc strings for each metric.
 #[allow(missing_docs)]
-#[derive(Debug, Serialize, Deserialize, MetricsGroup)]
+#[derive(Debug, Default, Serialize, Deserialize)]
 #[non_exhaustive]
-#[metrics(name = "socket", default)]
 pub struct Metrics {
     pub update_direct_addrs: Counter,
 
