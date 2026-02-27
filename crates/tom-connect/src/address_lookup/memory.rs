@@ -1,14 +1,12 @@
 //! An in-memory address lookup system to manually add endpoint addressing information.
 //!
 //! Often an application might get endpoint addressing information out-of-band in an
-//! application-specific way.  [`EndpointTicket`]'s are one common way used to achieve this.
+//! application-specific way (e.g., via QR codes, URLs, or application-specific tickets).
 //! This addressing information is often only usable for a limited time so needs to
 //! be able to be removed again once know it is no longer useful.
 //!
 //! This is where the [`MemoryLookup`] is useful: it allows applications to add and
 //! retract endpoint addressing information that is otherwise out-of-band to tom-connect.
-//!
-//! [`EndpointTicket`]: https://docs.rs/iroh-tickets/latest/iroh_tickets/endpoint/struct.EndpointTicket.html
 
 use std::{
     collections::{BTreeMap, btree_map::Entry},
@@ -27,7 +25,7 @@ use super::{AddressLookup, EndpointData, EndpointInfo, Error, Item};
 /// An in-memory address lookup system to manually add endpoint addressing information.
 ///
 /// Often an application might get endpoint addressing information out-of-band in an
-/// application-specific way.  [`EndpointTicket`]'s are one common way used to achieve this.
+/// application-specific way (e.g., via QR codes, URLs, or application-specific tickets).
 /// This addressing information is often only usable for a limited time so needs to
 /// be able to be removed again once know it is no longer useful.
 ///
@@ -63,8 +61,6 @@ use super::{AddressLookup, EndpointData, EndpointInfo, Error, Item};
 /// # Ok(())
 /// # }
 /// ```
-///
-/// [`EndpointTicket`]: https://docs.rs/iroh-tickets/latest/iroh_tickets/endpoint/struct.EndpointTicket.html
 #[derive(Debug, Clone)]
 pub struct MemoryLookup {
     endpoints: Arc<RwLock<BTreeMap<EndpointId, StoredEndpointInfo>>>,
