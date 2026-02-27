@@ -59,8 +59,8 @@ pub use iroh_base::{
     Signature, SignatureError, TransportAddr,
 };
 
-// Re-export iroh-relay types
-pub use iroh_relay::{RelayConfig, RelayMap, endpoint_info};
+// Re-export tom-relay types
+pub use tom_relay::{RelayConfig, RelayMap, endpoint_info};
 
 // Re-export net_report
 pub use net_report::{Report as NetReport, TIMEOUT as NET_REPORT_TIMEOUT};

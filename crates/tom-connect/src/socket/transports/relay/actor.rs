@@ -22,7 +22,7 @@
 //!   - Received datagrams are placed on an mpsc channel that now bypasses the
 //!     [`RelayActor`] and goes straight to the `AsyncUpdSocket` interface.
 //!
-//! [`Client`]: iroh_relay::client::Client
+//! [`Client`]: tom_relay::client::Client
 
 #[cfg(test)]
 use std::net::SocketAddr;
@@ -39,7 +39,7 @@ use std::{
 
 use backon::{Backoff, BackoffBuilder, ExponentialBuilder};
 use iroh_base::{EndpointId, RelayUrl, SecretKey};
-use iroh_relay::{
+use tom_relay::{
     self as relay, PingTracker,
     client::{Client, ConnectError, RecvError, SendError},
     protos::relay::{ClientToRelayMsg, Datagrams, RelayToClientMsg},
@@ -385,7 +385,7 @@ impl ActiveRelayActor {
     ///
     /// Returns `None` if the actor needs to shut down.  Returns `Some(Ok(client))` when the
     /// connection is established, and `Some(Err(err))` if dialing the relay failed.
-    async fn run_dialing(&mut self) -> Option<Result<iroh_relay::client::Client, DialError>> {
+    async fn run_dialing(&mut self) -> Option<Result<tom_relay::client::Client, DialError>> {
         trace!("Actor loop: connecting to relay.");
 
         // We regularly flush the relay_datagrams_send queue so it is not full of stale
@@ -491,7 +491,7 @@ impl ActiveRelayActor {
     /// to the relay server is lost.
     async fn run_connected(
         &mut self,
-        client: iroh_relay::client::Client,
+        client: tom_relay::client::Client,
     ) -> Result<(), RelayConnectionError> {
         debug!("Actor loop: connected to relay");
         event!(
@@ -708,7 +708,7 @@ impl ActiveRelayActor {
         &mut self,
         sending_fut: impl Future<Output = Result<T, RunError>>,
         state: &mut ConnectedRelayState,
-        client_stream: &mut iroh_relay::client::ClientStream,
+        client_stream: &mut tom_relay::client::ClientStream,
     ) -> Result<(), RelayConnectionError> {
         // we use the same time as for our ping interval
         let send_timeout = PING_INTERVAL;
@@ -1215,7 +1215,7 @@ mod tests {
     };
 
     use iroh_base::{EndpointId, RelayUrl, SecretKey};
-    use iroh_relay::{PingTracker, protos::relay::Datagrams};
+    use tom_relay::{PingTracker, protos::relay::Datagrams};
     use n0_error::{AnyError as Error, Result, StackResultExt, StdResultExt};
     use n0_tracing_test::traced_test;
     use tokio::sync::{mpsc, oneshot};

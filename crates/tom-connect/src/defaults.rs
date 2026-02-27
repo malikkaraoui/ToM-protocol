@@ -4,7 +4,7 @@
 /// for QUIC address discovery
 ///
 /// The port is "QUIC" typed on a phone keypad.
-pub use iroh_relay::defaults::DEFAULT_RELAY_QUIC_PORT;
+pub use tom_relay::defaults::DEFAULT_RELAY_QUIC_PORT;
 use url::Url;
 
 /// The default HTTP port used by the Relay server.
@@ -18,7 +18,7 @@ pub const DEFAULT_METRICS_PORT: u16 = 9090;
 
 /// Production configuration.
 pub mod prod {
-    use iroh_relay::{RelayConfig, RelayMap, RelayQuicConfig};
+    use tom_relay::{RelayConfig, RelayMap, RelayQuicConfig};
 
     use super::*;
 
@@ -96,7 +96,7 @@ pub mod prod {
 ///
 /// Note: we have staging servers in EU and NA, but no corresponding staging server for AP at this time.
 pub mod staging {
-    use iroh_relay::{RelayConfig, RelayMap, RelayQuicConfig};
+    use tom_relay::{RelayConfig, RelayMap, RelayQuicConfig};
 
     use super::*;
 

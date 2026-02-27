@@ -832,7 +832,7 @@ mod tests {
 #[cfg(test)]
 mod test_dns_pkarr {
     use iroh_base::{EndpointAddr, SecretKey, TransportAddr};
-    use iroh_relay::{RelayMap, endpoint_info::UserData};
+    use tom_relay::{RelayMap, endpoint_info::UserData};
     use n0_error::{AnyError, Result, StackResultExt};
     use n0_future::time::Duration;
     use n0_tracing_test::traced_test;
