@@ -159,7 +159,7 @@ enum AccessConfig {
     Denylist(Vec<EndpointId>),
     /// Performs a HTTP POST request to determine access for each endpoint that connects to the relay.
     ///
-    /// The request will have a header `X-Iroh-Endpoint-Id` set to the hex-encoded endpoint id attempting
+    /// The request will have a header `X-Iroh-NodeId` set to the hex-encoded endpoint id attempting
     /// to connect to the relay.
     ///
     /// To grant access, the HTTP endpoint must return a `200` response with `true` as the response text.

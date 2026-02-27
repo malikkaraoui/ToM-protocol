@@ -71,6 +71,9 @@ reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"
 cfg_aliases = "0.2"
 
 [dev-dependencies]
+postcard = { version = "1", default-features = false, features = ["alloc", "use-std"] }
+pretty_assertions = "1"
+rand_chacha = "0.9"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tokio = { version = "1", features = ["full", "test-util"] }
 tom-relay = { path = "../tom-relay", features = ["server"] }

@@ -62,8 +62,10 @@ anyhow = "1"
 
 [dev-dependencies]
 clap = { version = "4", features = ["derive"] }
+n0-tracing-test = "0.3"
 proptest = "1.2"
 rand_chacha = "0.9"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
 tokio = { version = "1", features = ["full", "test-util"] }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 serde_json = "1"
