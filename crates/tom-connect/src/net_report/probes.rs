@@ -97,6 +97,11 @@ impl ProbePlan {
         let mut plan = Self::default();
 
         for relay in relay_map.relays::<Vec<_>>() {
+            // Skip HTTPS probes for non-HTTPS relays (e.g. HTTP-only dev relays)
+            if relay.url.scheme() != "https" {
+                continue;
+            }
+
             let mut https_probes = ProbeSet::new(Probe::Https);
 
             for attempt in 0u32..3 {
