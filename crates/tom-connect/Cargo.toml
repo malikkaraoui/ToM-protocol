@@ -24,8 +24,8 @@ futures-util = "0.3"
 pin-project = "1"
 sync_wrapper = { version = "1.0", features = ["futures"] }
 
-# iroh-base (shared types: EndpointId, RelayUrl, SecretKey)
-iroh-base = { version = "0.96.0", default-features = false, features = ["key", "relay"] }
+# tom-base (shared types: EndpointId, RelayUrl, SecretKey)
+tom-base = { path = "../tom-base", features = ["key"] }
 tom-relay = { path = "../tom-relay", default-features = false }
 tom-metrics = { path = "../tom-metrics" }
 

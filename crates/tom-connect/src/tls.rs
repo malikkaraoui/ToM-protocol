@@ -7,7 +7,7 @@
 
 use std::sync::Arc;
 
-use iroh_base::SecretKey;
+use tom_base::SecretKey;
 use quinn::crypto::rustls::{QuicClientConfig, QuicServerConfig};
 use tracing::warn;
 

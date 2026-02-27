@@ -13,7 +13,7 @@ use std::{
     sync::{Arc, RwLock},
 };
 
-use iroh_base::EndpointId;
+use tom_base::EndpointId;
 use n0_future::{
     boxed::BoxStream,
     stream::{self, StreamExt},
@@ -36,7 +36,7 @@ use super::{AddressLookup, EndpointData, EndpointInfo, Error, Item};
 ///
 /// ```rust
 /// use tom_connect::{Endpoint, EndpointAddr, TransportAddr, address_lookup::memory::MemoryLookup};
-/// use iroh_base::SecretKey;
+/// use tom_base::SecretKey;
 ///
 /// # #[tokio::main]
 /// # async fn main() -> n0_error::Result<()> {
@@ -229,7 +229,7 @@ impl AddressLookup for MemoryLookup {
 
 #[cfg(test)]
 mod tests {
-    use iroh_base::{EndpointAddr, SecretKey, TransportAddr};
+    use tom_base::{EndpointAddr, SecretKey, TransportAddr};
     use n0_error::{Result, StackResultExt};
 
     use super::*;

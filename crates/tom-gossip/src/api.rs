@@ -9,7 +9,7 @@ use std::{
 };
 
 use bytes::Bytes;
-use iroh_base::EndpointId;
+use tom_base::EndpointId;
 use irpc::{channel::mpsc, rpc_requests, Client};
 use n0_error::{e, stack_error};
 use n0_future::{Stream, StreamExt, TryStreamExt};

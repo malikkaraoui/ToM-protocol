@@ -54,7 +54,7 @@ pub mod protocol;
 pub use endpoint::{Endpoint, RelayMode};
 
 // Re-export iroh-base types (these will be our bridge to iroh ecosystem)
-pub use iroh_base::{
+pub use tom_base::{
     EndpointAddr, EndpointId, KeyParsingError, PublicKey, RelayUrl, RelayUrlParseError, SecretKey,
     Signature, SignatureError, TransportAddr,
 };

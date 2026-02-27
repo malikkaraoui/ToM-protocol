@@ -48,7 +48,7 @@ use std::{
     sync::Arc,
 };
 
-use iroh_base::{EndpointId, PublicKey};
+use tom_base::{EndpointId, PublicKey};
 use n0_future::{
     Stream,
     boxed::BoxStream,
@@ -548,7 +548,7 @@ mod tests {
     /// This module's name signals nextest to run test in a single thread (no other concurrent
     /// tests)
     mod run_in_isolation {
-        use iroh_base::{SecretKey, TransportAddr};
+        use tom_base::{SecretKey, TransportAddr};
         use n0_error::{AnyError as Error, Result, StdResultExt, bail_any};
         use n0_future::StreamExt;
         use n0_tracing_test::traced_test;

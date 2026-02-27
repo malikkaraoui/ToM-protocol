@@ -1,4 +1,4 @@
 [workspace]
-members = ["crates/tom-transport", "crates/tom-protocol", "crates/tom-stress", "crates/tom-tui", "crates/tom-dht", "crates/tom-connect", "crates/tom-relay", "crates/tom-gossip", "crates/tom-metrics"]
+members = ["crates/tom-transport", "crates/tom-protocol", "crates/tom-stress", "crates/tom-tui", "crates/tom-dht", "crates/tom-connect", "crates/tom-relay", "crates/tom-gossip", "crates/tom-metrics", "crates/tom-base"]
 exclude = ["experiments/iroh-poc"]
 resolver = "2"

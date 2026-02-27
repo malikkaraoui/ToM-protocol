@@ -304,7 +304,7 @@ mod tests {
         time::Duration,
     };
 
-    use iroh_base::{RelayUrl, SecretKey};
+    use tom_base::{RelayUrl, SecretKey};
     use rand::SeedableRng;
 
     use super::*;

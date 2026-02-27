@@ -6,7 +6,7 @@ use std::{
     sync::{Arc, RwLock},
 };
 
-use iroh_base::{RelayUrl, RelayUrlParseError};
+use tom_base::{RelayUrl, RelayUrlParseError};
 use serde::{Deserialize, Serialize};
 
 use crate::defaults::DEFAULT_RELAY_QUIC_PORT;
@@ -20,7 +20,7 @@ use crate::defaults::DEFAULT_RELAY_QUIC_PORT;
 /// Example:
 /// ```
 /// # use std::str::FromStr;
-/// # use iroh_base::RelayUrl;
+/// # use tom_base::RelayUrl;
 /// # use tom_relay::RelayMap;
 /// let relay1 = RelayUrl::from_str("https://relay1.example.org").unwrap();
 /// let relay2 = RelayUrl::from_str("https://relay2.example.org").unwrap();

@@ -98,7 +98,7 @@
 //! # }
 //! ```
 //!
-//! [`EndpointAddr`]: iroh_base::EndpointAddr
+//! [`EndpointAddr`]: tom_base::EndpointAddr
 //! [`RelayUrl`]: crate::RelayUrl
 //! [`Builder::address_lookup`]: crate::endpoint::Builder::address_lookup
 //! [`address_lookup::DnsAddressLookup`]: crate::address_lookup::DnsAddressLookup
@@ -112,7 +112,7 @@
 
 use std::sync::{Arc, RwLock};
 
-use iroh_base::{EndpointAddr, EndpointId};
+use tom_base::{EndpointAddr, EndpointId};
 use n0_error::{AnyError, e, stack_error};
 use n0_future::boxed::BoxStream;
 
@@ -506,7 +506,7 @@ mod tests {
         time::{Duration, SystemTime},
     };
 
-    use iroh_base::{EndpointAddr, SecretKey, TransportAddr};
+    use tom_base::{EndpointAddr, SecretKey, TransportAddr};
     use n0_error::{AnyError, Result, StackResultExt};
     use n0_future::{StreamExt, time};
     use n0_tracing_test::traced_test;
@@ -831,7 +831,7 @@ mod tests {
 /// publish to. The DNS and pkarr servers share their state.
 #[cfg(test)]
 mod test_dns_pkarr {
-    use iroh_base::{EndpointAddr, SecretKey, TransportAddr};
+    use tom_base::{EndpointAddr, SecretKey, TransportAddr};
     use tom_relay::{RelayMap, endpoint_info::UserData};
     use n0_error::{AnyError, Result, StackResultExt};
     use n0_future::time::Duration;

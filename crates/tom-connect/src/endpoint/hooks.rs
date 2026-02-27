@@ -1,6 +1,6 @@
 use std::pin::Pin;
 
-use iroh_base::EndpointAddr;
+use tom_base::EndpointAddr;
 
 use crate::endpoint::{connection::ConnectionInfo, quic::VarInt};
 

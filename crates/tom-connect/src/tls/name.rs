@@ -12,7 +12,7 @@
 //! We *could* decide to remove that indicator in the future likely without breakage.
 
 use data_encoding::BASE32_DNSSEC;
-use iroh_base::EndpointId;
+use tom_base::EndpointId;
 
 pub(crate) fn encode(endpoint_id: EndpointId) -> String {
     format!(
@@ -37,7 +37,7 @@ pub(crate) fn decode(name: &str) -> Option<EndpointId> {
 
 #[cfg(test)]
 mod tests {
-    use iroh_base::SecretKey;
+    use tom_base::SecretKey;
     use rand::SeedableRng;
 
     #[test]

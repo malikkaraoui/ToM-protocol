@@ -27,7 +27,7 @@ use std::{
 
 use ed25519_dalek::{VerifyingKey, pkcs8::DecodePublicKey};
 use futures_util::{FutureExt, future::Shared};
-use iroh_base::EndpointId;
+use tom_base::EndpointId;
 use n0_error::{e, stack_error};
 use n0_future::{TryFutureExt, future::Boxed as BoxFuture, time::Duration};
 use n0_watcher::Watcher;
@@ -306,7 +306,7 @@ fn static_info_from_conn(conn: &quinn::Connection) -> Result<StaticInfo, Authent
 /// This function allows you to get the [`EndpointId`] of the remote endpoint of this
 /// connection.
 ///
-/// [`PublicKey`]: iroh_base::PublicKey
+/// [`PublicKey`]: tom_base::PublicKey
 fn remote_id_from_quinn_conn(
     conn: &quinn::Connection,
 ) -> Result<EndpointId, RemoteEndpointIdError> {
@@ -1000,7 +1000,7 @@ impl Connection<HandshakeCompleted> {
     /// This function allows you to get the [`EndpointId`] of the remote endpoint of this
     /// connection.
     ///
-    /// [`PublicKey`]: iroh_base::PublicKey
+    /// [`PublicKey`]: tom_base::PublicKey
     pub fn remote_id(&self) -> EndpointId {
         self.data.info.endpoint_id
     }
@@ -1069,7 +1069,7 @@ impl Connection<IncomingZeroRtt> {
     /// This function allows you to get the [`EndpointId`] of the remote endpoint of this
     /// connection.
     ///
-    /// [`PublicKey`]: iroh_base::PublicKey
+    /// [`PublicKey`]: tom_base::PublicKey
     pub fn remote_id(&self) -> Result<EndpointId, RemoteEndpointIdError> {
         remote_id_from_quinn_conn(&self.inner)
     }
@@ -1111,7 +1111,7 @@ impl Connection<OutgoingZeroRtt> {
     /// This function allows you to get the [`EndpointId`] of the remote endpoint of this
     /// connection.
     ///
-    /// [`PublicKey`]: iroh_base::PublicKey
+    /// [`PublicKey`]: tom_base::PublicKey
     pub fn remote_id(&self) -> Result<EndpointId, RemoteEndpointIdError> {
         remote_id_from_quinn_conn(&self.inner)
     }
@@ -1195,7 +1195,7 @@ impl ConnectionInfo {
 mod tests {
     use std::time::Duration;
 
-    use iroh_base::{EndpointAddr, SecretKey};
+    use tom_base::{EndpointAddr, SecretKey};
     use n0_error::{Result, StackResultExt, StdResultExt};
     use n0_future::StreamExt;
     use n0_tracing_test::traced_test;

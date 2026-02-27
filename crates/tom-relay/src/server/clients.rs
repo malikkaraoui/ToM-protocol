@@ -10,7 +10,7 @@ use std::{
 };
 
 use dashmap::DashMap;
-use iroh_base::EndpointId;
+use tom_base::EndpointId;
 use tokio::sync::mpsc::error::TrySendError;
 use tracing::{debug, trace};
 
@@ -143,7 +143,7 @@ impl Clients {
 mod tests {
     use std::time::Duration;
 
-    use iroh_base::SecretKey;
+    use tom_base::SecretKey;
     use n0_error::{Result, StdResultExt};
     use n0_future::{Stream, StreamExt};
     use rand::SeedableRng;

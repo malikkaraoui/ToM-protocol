@@ -7,7 +7,7 @@ use std::{
 };
 
 use tom_connect::address_lookup::{self, AddressLookup, EndpointData, EndpointInfo};
-use iroh_base::EndpointId;
+use tom_base::EndpointId;
 use n0_future::{
     boxed::BoxStream,
     stream::{self, StreamExt},

@@ -10,7 +10,7 @@
 use std::num::NonZeroU16;
 
 use bytes::{Buf, BufMut, Bytes, BytesMut};
-use iroh_base::{EndpointId, KeyParsingError};
+use tom_base::{EndpointId, KeyParsingError};
 use n0_error::{e, ensure, stack_error};
 use n0_future::time::Duration;
 
@@ -498,7 +498,7 @@ impl ClientToRelayMsg {
 #[cfg(feature = "server")]
 mod tests {
     use data_encoding::HEXLOWER;
-    use iroh_base::SecretKey;
+    use tom_base::SecretKey;
     use n0_error::Result;
 
     use super::*;
@@ -669,7 +669,7 @@ mod tests {
 
 #[cfg(all(test, feature = "server"))]
 mod proptests {
-    use iroh_base::SecretKey;
+    use tom_base::SecretKey;
     use proptest::prelude::*;
 
     use super::*;
