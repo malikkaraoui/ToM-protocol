@@ -19,9 +19,9 @@
 //!   the Mainline DHT on behalf on the client as well as cache lookups performed on the DHT
 //!   to improve performance.
 //!
-//! For address lookup in iroh the pkarr Resource Records contain the addressing information,
+//! For address lookup the pkarr Resource Records contain the addressing information,
 //! providing endpoints which retrieve the pkarr Resource Record with enough detail
-//! to contact the iroh endpoint.
+//! to contact the endpoint.
 //!
 //! There are several Address Lookup's built on top of pkarr, which can be composed
 //! to the application's needs:
@@ -135,7 +135,7 @@ pub const N0_DNS_PKARR_RELAY_STAGING: &str = "https://staging-dns.iroh.link/pkar
 /// Default TTL for the records in the pkarr signed packet.
 ///
 /// The Time To Live (TTL) tells DNS caches how long to store a record. It is ignored by the
-/// `iroh-dns-server`, e.g. as running on [`N0_DNS_PKARR_RELAY_PROD`], as the home server
+/// DNS server, e.g. as running on [`N0_DNS_PKARR_RELAY_PROD`], as the home server
 /// keeps the records for the domain. When using the pkarr relay no DNS is involved and the
 /// setting is ignored.
 // TODO(flub): huh?

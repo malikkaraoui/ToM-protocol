@@ -268,7 +268,7 @@ impl Builder {
     /// ```no_run
     /// # #[tokio::main]
     /// # async fn main() -> n0_error::Result<()> {
-    /// # use iroh::Endpoint;
+    /// # use tom_connect::Endpoint;
     /// let endpoint = Endpoint::builder()
     ///     .clear_ip_transports()
     ///     .bind_addr("127.0.0.1:0")?
@@ -345,7 +345,7 @@ impl Builder {
     /// ```no_run
     /// # #[tokio::main]
     /// # async fn main() -> n0_error::Result<()> {
-    /// # use iroh::{Endpoint, endpoint::BindOpts};
+    /// # use tom_connect::{Endpoint, endpoint::BindOpts};
     /// let endpoint = Endpoint::builder()
     ///     .clear_ip_transports()
     ///     .bind_addr_with_opts("127.0.0.1:0", BindOpts::default().set_prefix_len(24))?
@@ -651,15 +651,15 @@ impl StaticConfig {
     }
 }
 
-/// Controls an iroh endpoint, establishing connections with other endpoints.
+/// Controls a tom-connect endpoint, establishing connections with other endpoints.
 ///
 /// This is the main API interface to create connections to, and accept connections from
-/// other iroh endpoints.  The connections are peer-to-peer and encrypted, a Relay server is
+/// other endpoints.  The connections are peer-to-peer and encrypted, a Relay server is
 /// used to make the connections reliable.  See the [crate docs] for a more detailed
-/// overview of iroh.
+/// overview of tom-connect.
 ///
 /// It is recommended to only create a single instance per application.  This ensures all
-/// the connections made share the same peer-to-peer connections to other iroh endpoints,
+/// the connections made share the same peer-to-peer connections to other endpoints,
 /// while still remaining independent connections.  This will result in more optimal network
 /// behaviour.
 ///
@@ -952,7 +952,7 @@ impl Endpoint {
     ///
     /// ```no_run
     /// # async fn wrapper() -> n0_error::Result<()> {
-    /// use iroh::{Endpoint, Watcher};
+    /// use tom_connect::{Endpoint, Watcher};
     ///
     /// let endpoint = Endpoint::builder()
     ///     .alpns(vec![b"my-alpn".to_vec()])
@@ -1045,7 +1045,7 @@ impl Endpoint {
     /// # Examples
     ///
     /// ```no run
-    /// use iroh::Endpoint;
+    /// use tom_connect::Endpoint;
     ///
     /// #[tokio::main]
     /// async fn main() {
@@ -1083,7 +1083,7 @@ impl Endpoint {
     ///
     /// To get the first report use [`Watcher::initialized`]:
     /// ```no_run
-    /// use iroh::{Endpoint, Watcher as _};
+    /// use tom_connect::{Endpoint, Watcher as _};
     ///
     /// # let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
     /// # rt.block_on(async move {
@@ -1136,7 +1136,7 @@ impl Endpoint {
     /// You can access individual metrics directly by using the public fields:
     /// ```rust
     /// # use std::collections::BTreeMap;
-    /// # use iroh::endpoint::Endpoint;
+    /// # use tom_connect::endpoint::Endpoint;
     /// # async fn wrapper() -> n0_error::Result<()> {
     /// let endpoint = Endpoint::bind().await?;
     /// assert_eq!(endpoint.metrics().socket.recv_datagrams.get(), 0);
@@ -1154,7 +1154,7 @@ impl Endpoint {
     /// ```rust
     /// # use std::collections::BTreeMap;
     /// # use iroh_metrics::{Metric, MetricsGroup, MetricValue, MetricsGroupSet};
-    /// # use iroh::endpoint::Endpoint;
+    /// # use tom_connect::endpoint::Endpoint;
     /// # async fn wrapper() -> n0_error::Result<()> {
     /// let endpoint = Endpoint::bind().await?;
     /// let metrics: BTreeMap<String, MetricValue> = endpoint
@@ -1177,7 +1177,7 @@ impl Endpoint {
     /// [`encode_openmetrics_to_string`]:
     /// ```rust
     /// # use iroh_metrics::{Registry, MetricsSource};
-    /// # use iroh::endpoint::Endpoint;
+    /// # use tom_connect::endpoint::Endpoint;
     /// # async fn wrapper() -> n0_error::Result<()> {
     /// let endpoint = Endpoint::bind().await?;
     /// let mut registry = Registry::default();
@@ -1200,7 +1200,7 @@ impl Endpoint {
     /// ```no_run
     /// # use std::{sync::{Arc, RwLock}, time::Duration};
     /// # use iroh_metrics::{Registry, MetricsSource};
-    /// # use iroh::endpoint::Endpoint;
+    /// # use tom_connect::endpoint::Endpoint;
     /// # use n0_error::{StackResultExt, StdResultExt};
     /// # async fn wrapper() -> n0_error::Result<()> {
     /// // Create a registry, wrapped in a read-write lock so that we can register and serve
@@ -1263,13 +1263,13 @@ impl Endpoint {
 
     /// Notifies the system of potential network changes.
     ///
-    /// On many systems iroh is able to detect network changes by itself, however
+    /// On many systems tom-connect is able to detect network changes by itself, however
     /// some systems like android do not expose this functionality to native code.
     /// Android does however provide this functionality to Java code.  This
-    /// function allows for notifying iroh of any potential network changes like
+    /// function allows for notifying tom-connect of any potential network changes like
     /// this.
     ///
-    /// Even when the network did not change, or iroh was already able to detect
+    /// Even when the network did not change, or tom-connect was already able to detect
     /// the network change itself, there is no harm in calling this function.
     pub async fn network_change(&self) {
         self.sock.network_change().await;
@@ -1472,7 +1472,7 @@ impl RelayMode {
     ///
     /// ```
     /// # fn main() -> n0_error::Result<()> {
-    /// # use iroh::RelayMode;
+    /// # use tom_connect::RelayMode;
     /// RelayMode::custom([
     ///     "https://use1-1.relay.n0.iroh-canary.iroh.link.".parse()?,
     ///     "https://euw-1.relay.n0.iroh-canary.iroh.link.".parse()?,

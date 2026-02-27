@@ -34,7 +34,7 @@ impl RemoteInfo {
     /// You can use this to construct an [`EndpointAddr`] for this remote:
     ///
     /// ```no_run
-    /// # use iroh::{Endpoint, EndpointId, EndpointAddr};
+    /// # use tom_connect::{Endpoint, EndpointId, EndpointAddr};
     /// # #[tokio::main]
     /// # async fn main() {
     /// # let endpoint = Endpoint::bind().await.unwrap();
