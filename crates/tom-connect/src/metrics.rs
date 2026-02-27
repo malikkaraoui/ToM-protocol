@@ -1,4 +1,4 @@
-//! Co-locating all of the iroh metrics structs
+//! Co-locating all of the tom-connect metrics structs
 use std::sync::Arc;
 
 use iroh_metrics::MetricsGroupSet;

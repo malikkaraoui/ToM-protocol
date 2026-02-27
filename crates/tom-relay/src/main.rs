@@ -1,7 +1,7 @@
-//! The relay server for iroh.
+//! The relay server for tom-relay.
 //!
 //! This handles only the CLI and config file loading, the server implementation lives in
-//! [`iroh::relay::server`].
+//! [`tom_relay::server`].
 
 use std::{
     net::{Ipv6Addr, SocketAddr},
@@ -35,7 +35,7 @@ const X_IROH_ENDPOINT_ID: &str = "X-Iroh-NodeId";
 /// Environment variable to read a bearer token for HTTP auth requests from.
 const ENV_HTTP_BEARER_TOKEN: &str = "IROH_RELAY_HTTP_BEARER_TOKEN";
 
-/// A relay server for iroh.
+/// A relay server for tom-relay.
 #[derive(Parser, Debug, Clone)]
 #[clap(version, about, long_about = None)]
 struct Cli {

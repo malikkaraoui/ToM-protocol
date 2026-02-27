@@ -1053,11 +1053,11 @@ impl Connection<IncomingZeroRtt> {
     /// we accepted the connection.
     ///
     /// This may fail with [`ConnectingError::HandshakeFailure`], if the other side
-    /// doesn't use the right TLS authentication, which usually every iroh endpoint
+    /// doesn't use the right TLS authentication, which usually every endpoint
     /// uses and requires.
     ///
     /// Thus, those errors should only occur if someone connects to you with a
-    /// modified iroh endpoint or with a plain QUIC client.
+    /// modified endpoint or with a plain QUIC client.
     pub async fn handshake_completed(&self) -> Result<Connection, ConnectingError> {
         self.data.accepted.clone().await
     }
@@ -1095,11 +1095,11 @@ impl Connection<OutgoingZeroRtt> {
     /// we initiated the connection.
     ///
     /// This may fail with [`ConnectingError::HandshakeFailure`], if the other side
-    /// doesn't use the right TLS authentication, which usually every iroh endpoint
+    /// doesn't use the right TLS authentication, which usually every endpoint
     /// uses and requires.
     ///
     /// Thus, those errors should only occur if someone connects to you with a
-    /// modified iroh endpoint or with a plain QUIC client.
+    /// modified endpoint or with a plain QUIC client.
     pub async fn handshake_completed(&self) -> Result<ZeroRttStatus, ConnectingError> {
         self.data.accepted.clone().await
     }

@@ -1,13 +1,11 @@
-//! Iroh's relay is a feature within [iroh](https://github.com/n0-computer/iroh), a peer-to-peer
-//! networking system designed to facilitate direct, encrypted connections between devices. Iroh
-//! aims to simplify decentralized communication by automatically handling connections through
-//! "relays" when direct connections aren't immediately possible. The relay server helps establish
-//! connections by temporarily routing encrypted traffic until a direct, P2P connection is
-//! feasible. Once this direct path is set up, the relay server steps back, and the data flows
-//! directly between devices. This approach allows Iroh to maintain a secure, low-latency
-//! connection, even in challenging network situations.
+//! tom-relay provides relay server and client functionality for the ToM transport layer.
 //!
-//! This crate provides a complete setup for creating and interacting with iroh relays, including:
+//! Relays enable connectivity between endpoints when direct connections are not possible,
+//! acting as encrypted pass-through proxies. This approach maintains secure, low-latency
+//! connections, even in challenging network situations. Once a direct peer-to-peer path is
+//! established, the relay steps back and data flows directly between devices.
+//!
+//! This crate provides a complete setup for creating and interacting with relays, including:
 //! - [`protos::relay`]: The protocol used to communicate between relay servers and clients. It's a
 //!   revised version of the Designated Encrypted Relay for Packets (DERP) protocol written by
 //!   Tailscale.
@@ -26,7 +24,7 @@
 //!   QAD support and expose metrics.
 // Based on tailscale/derp/derp.go
 
-#![cfg_attr(iroh_docsrs, feature(doc_cfg))]
+#![cfg_attr(docsrs, feature(doc_cfg))]
 #![deny(missing_docs, rustdoc::broken_intra_doc_links)]
 #![cfg_attr(not(test), deny(clippy::unwrap_used))]
 

@@ -1,4 +1,4 @@
-//! Implementation of encoding iroh EndpointIds as domain names.
+//! Implementation of encoding EndpointIds as domain names.
 //!
 //! We used to use a constant "localhost" for the TLS server name - however, that affects
 //! 0-RTT and would put all of the TLS session tickets we receive into the same bucket in
@@ -8,7 +8,7 @@
 //! have 63 maximum per DNS subdomain. Base32 is the next best alternative.
 //! We use the `.invalid` TLD, as that's specified (in RFC 2606) to never actually resolve
 //! "for real", unlike `.localhost` which is allowed to resolve to `127.0.0.1`.
-//! We also add "iroh" as a subdomain, although those 5 bytes might not be necessary.
+//! We also add "iroh" as a subdomain for wire compatibility, although those 5 bytes might not be necessary.
 //! We *could* decide to remove that indicator in the future likely without breakage.
 
 use data_encoding::BASE32_DNSSEC;

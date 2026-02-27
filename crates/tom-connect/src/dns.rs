@@ -5,7 +5,7 @@
 //! and to resolve endpoint ids to endpoint addresses.
 //!
 //! See the [`endpoint_info`](crate::endpoint_info) module documentation for details on how
-//! iroh endpoint records are structured.
+//! endpoint records are structured.
 
 pub use iroh_relay::dns::{
     DnsResolver, N0_DNS_ENDPOINT_ORIGIN_PROD, N0_DNS_ENDPOINT_ORIGIN_STAGING,

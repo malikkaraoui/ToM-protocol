@@ -373,7 +373,7 @@ impl ActiveRelayActor {
         let prev = std::mem::replace(&mut self.is_home_relay, is_home);
         if self.is_home_relay != prev {
             event!(
-                target: "iroh::_events::relay::home_changed",
+                target: "tom_connect::_events::relay::home_changed",
                 Level::DEBUG,
                 url = %self.url,
                 home_relay = self.is_home_relay,
@@ -495,7 +495,7 @@ impl ActiveRelayActor {
     ) -> Result<(), RelayConnectionError> {
         debug!("Actor loop: connected to relay");
         event!(
-            target: "iroh::_events::relay::connected",
+            target: "tom_connect::_events::relay::connected",
             Level::DEBUG,
             url = %self.url,
             home_relay = self.is_home_relay,
@@ -1261,9 +1261,9 @@ mod tests {
         AbortOnDropHandle::new(task)
     }
 
-    /// Starts an [`ActiveRelayActor`] as an "iroh echo endpoint".
+    /// Starts an [`ActiveRelayActor`] as an echo endpoint.
     ///
-    /// This actor will connect to the relay server, pretending to be an iroh endpoint, and echo
+    /// This actor will connect to the relay server, pretending to be an endpoint, and echo
     /// back any datagram it receives from the relay.  This is used by the
     /// [`ActiveRelayActor`] under test to check connectivity works.
     fn start_echo_endpoint(relay_url: RelayUrl) -> (EndpointId, AbortOnDropHandle<()>) {
