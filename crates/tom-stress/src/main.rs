@@ -35,6 +35,10 @@ struct Cli {
     #[arg(long, default_value = "1048576")]
     max_message_size: usize,
 
+    /// Custom relay URL (overrides TOM_RELAY_URL env var).
+    #[arg(long)]
+    relay_url: Option<String>,
+
     /// Auto-archive output to this directory.
     /// Creates timestamped .jsonl and .log files (never overwrites).
     #[arg(long)]
@@ -270,7 +274,10 @@ async fn main() -> anyhow::Result<()> {
     // ── Transport-level tests (shared node) ──────────────────────
     let start = Instant::now();
 
-    let config = TomNodeConfig::new().max_message_size(cli.max_message_size);
+    let mut config = TomNodeConfig::new().max_message_size(cli.max_message_size);
+    if let Some(ref url) = cli.relay_url {
+        config = config.relay_url(url.parse()?);
+    }
     let node = TomNode::bind(config).await?;
 
     eprintln!("Node ID: {}", node.id());
