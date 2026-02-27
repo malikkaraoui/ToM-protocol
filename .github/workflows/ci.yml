@@ -130,6 +130,11 @@ jobs:
         with:
           workspaces: experiments/iroh-poc
 
+      - name: Debug target directory
+        run: |
+          echo "pwd=$(pwd)"
+          cargo metadata --format-version 1 --no-deps | python3 -c "import sys, json; print('target_directory=' + json.load(sys.stdin)['target_directory'])"
+
       - name: Build
         run: cargo build --bin nat-test
 
