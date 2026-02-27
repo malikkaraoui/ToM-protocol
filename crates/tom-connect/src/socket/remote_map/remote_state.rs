@@ -551,7 +551,7 @@ impl RemoteStateActor {
                 };
                 let res = path.set_status(path_status);
                 event!(
-                    target: "iroh::_events::path::set_status",
+                    target: "tom_connect::_events::path::set_status",
                     Level::DEBUG,
                     remote = %self.endpoint_id.fmt_short(),
                     ?path_remote,
@@ -784,7 +784,7 @@ impl RemoteStateActor {
                     .map(|addr| SocketAddr::new(addr.ip().to_canonical(), addr.port()))
                     .collect();
                 event!(
-                    target: "iroh::_events::qnt::init",
+                    target: "tom_connect::_events::qnt::init",
                     Level::DEBUG,
                     remote = %self.endpoint_id.fmt_short(),
                     ?local_candidates,
@@ -849,7 +849,7 @@ impl RemoteStateActor {
                 // to use PATH_STATUS_AVAILABLE though!
                 let res = path.set_status(path_status);
                 event!(
-                    target: "iroh::_events::path::set_status",
+                    target: "tom_connect::_events::path::set_status",
                     Level::DEBUG,
                     remote = %self.endpoint_id.fmt_short(),
                     ?open_addr,
@@ -873,7 +873,7 @@ impl RemoteStateActor {
                     if let Some(path) = conn.path(path_id) {
                         let res = path.set_status(path_status);
                         event!(
-                            target: "iroh::_events::path::set_status",
+                            target: "tom_connect::_events::path::set_status",
                             Level::DEBUG,
                             remote = %self.endpoint_id.fmt_short(),
                             ?open_addr,
@@ -935,7 +935,7 @@ impl RemoteStateActor {
                     && let Some(path_remote) = self.relay_mapped_addrs.to_transport_addr(socketaddr)
                 {
                     event!(
-                        target: "iroh::_events::path::open",
+                        target: "tom_connect::_events::path::open",
                         Level::DEBUG,
                         remote = %self.endpoint_id.fmt_short(),
                         ?path_remote,
@@ -962,7 +962,7 @@ impl RemoteStateActor {
                     return;
                 };
                 event!(
-                    target: "iroh::_events::path::closed",
+                    target: "tom_connect::_events::path::closed",
                     Level::DEBUG,
                     remote = %self.endpoint_id.fmt_short(),
                     ?path_remote,
@@ -1079,7 +1079,7 @@ impl RemoteStateActor {
             let prev = self.selected_path.set(Some(addr.clone()));
             if prev.is_ok() {
                 event!(
-                    target: "iroh::_events::path::selected",
+                    target: "tom_connect::_events::path::selected",
                     Level::DEBUG,
                     remote = %self.endpoint_id.fmt_short(),
                     path_remote = ?addr,

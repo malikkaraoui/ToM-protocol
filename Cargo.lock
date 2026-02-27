@@ -4345,6 +4345,7 @@ dependencies = [
  "anyhow",
  "backon",
  "bytes",
+ "cfg_aliases",
  "data-encoding",
  "derive_more 2.1.1",
  "ed25519-dalek 3.0.0-pre.1",

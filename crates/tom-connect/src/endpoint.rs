@@ -1,12 +1,12 @@
-//! The [`Endpoint`] allows establishing connections to other iroh endpoints.
+//! The [`Endpoint`] allows establishing connections to other tom-connect endpoints.
 //!
-//! The [`Endpoint`] is the main API interface to manage a local iroh endpoint.  It allows
+//! The [`Endpoint`] is the main API interface to manage a local endpoint.  It allows
 //! connecting to and accepting connections from other endpoints.  See the [module docs] for
-//! more details on how iroh connections work.
+//! more details on how connections work.
 //!
 //! The main items in this module are:
 //!
-//! - [`Endpoint`] to establish iroh connections with other endpoints.
+//! - [`Endpoint`] to establish connections with other endpoints.
 //! - [`Builder`] to create an [`Endpoint`].
 //!
 //! [module docs]: crate
@@ -212,7 +212,7 @@ impl Builder {
 
         let sock = socket::Socket::spawn(sock_opts).await?;
         trace!("created socket");
-        debug!(version = env!("CARGO_PKG_VERSION"), "iroh Endpoint created");
+        debug!(version = env!("CARGO_PKG_VERSION"), "tom-connect Endpoint created");
 
         let ep = Endpoint {
             sock,
@@ -454,7 +454,7 @@ impl Builder {
 
     /// Sets the relay servers to assist in establishing connectivity.
     ///
-    /// Relay servers are used to establish initial connection with another iroh endpoint.
+    /// Relay servers are used to establish initial connection with another endpoint.
     /// They also perform various functions related to hole punching, see the [crate docs]
     /// for more details.
     ///
@@ -526,7 +526,7 @@ impl Builder {
     /// with the endpoint's addresses and relay URL. When other endpoints discover this endpoint,
     /// they retrieve the [`UserData`] in addition to the addressing info.
     ///
-    /// Iroh itself does not interpret the user-defined data in any way, it is purely left
+    /// tom-connect itself does not interpret the user-defined data in any way, it is purely left
     /// for applications to parse and use.
     pub fn user_data_for_address_lookup(mut self, user_data: UserData) -> Self {
         self.address_lookup_user_data = Some(user_data);

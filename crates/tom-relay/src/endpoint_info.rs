@@ -22,7 +22,7 @@
 //!
 //! - `relay=<url>`: The home [`RelayUrl`] of this endpoint.
 //!
-//! - `addr=<addr> <addr>`: A space-separated list of sockets addresses for this iroh endpoint.
+//! - `addr=<addr> <addr>`: A space-separated list of sockets addresses for this endpoint.
 //!   Each address is an IPv4 or IPv6 address with a port.
 //!
 //! [Pkarr]: https://app.pkarr.org
@@ -112,7 +112,7 @@ impl EndpointIdExt for EndpointId {
 /// Data about an endpoint that may be published to and resolved from discovery services.
 ///
 /// This includes an optional [`RelayUrl`], a set of direct addresses, and the optional
-/// [`UserData`], a string that can be set by applications and is not parsed or used by iroh
+/// [`UserData`], a string that can be set by applications and is not parsed or used by tom-relay
 /// itself.
 ///
 /// This struct does not include the endpoint's [`EndpointId`], only the data *about* a certain
@@ -225,7 +225,7 @@ impl From<EndpointAddr> for EndpointData {
 ///
 /// Under the hood this is a UTF-8 String is no longer than [`UserData::MAX_LENGTH`] bytes.
 ///
-/// Iroh does not keep track of or examine the user-defined data.
+/// The relay does not keep track of or examine the user-defined data.
 ///
 /// `UserData` implements [`FromStr`] and [`TryFrom<String>`], so you can
 /// convert `&str` and `String` into `UserData` easily.
@@ -456,7 +456,7 @@ impl std::ops::DerefMut for EndpointInfo {
     }
 }
 
-/// Parses a [`EndpointId`] from iroh DNS name.
+/// Parses a [`EndpointId`] from the DNS name.
 ///
 /// Takes a [`hickory_resolver::proto::rr::Name`] DNS name and expects the first label to be
 /// [`IROH_TXT_NAME`] and the second label to be a z32 encoded [`EndpointId`]. Ignores
@@ -479,7 +479,7 @@ fn endpoint_id_from_txt_name(name: &str) -> Result<EndpointId, ParseError> {
     Ok(endpoint_id)
 }
 
-/// The attributes supported by iroh for [`IROH_TXT_NAME`] DNS resource records.
+/// The attributes supported for [`IROH_TXT_NAME`] DNS resource records.
 ///
 /// The resource record uses the lower-case names.
 #[derive(

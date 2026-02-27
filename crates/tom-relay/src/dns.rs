@@ -36,7 +36,7 @@ pub const N0_DNS_ENDPOINT_ORIGIN_STAGING: &str = "staging-dns.iroh.link";
 /// Percent of total delay to jitter. 20 means +/- 20% of delay.
 const MAX_JITTER_PERCENT: u64 = 20;
 
-/// Trait for DNS resolvers used in iroh.
+/// Trait for DNS resolvers used in tom-relay.
 pub trait Resolver: fmt::Debug + Send + Sync + 'static {
     /// Looks up an IPv4 address.
     fn lookup_ipv4(&self, host: String) -> BoxFuture<Result<BoxIter<Ipv4Addr>, DnsError>>;
@@ -188,7 +188,7 @@ impl Builder {
     }
 }
 
-/// The DNS resolver used throughout `iroh`.
+/// The DNS resolver used throughout tom-relay.
 #[derive(Debug, Clone)]
 pub struct DnsResolver(DnsResolverInner);
 

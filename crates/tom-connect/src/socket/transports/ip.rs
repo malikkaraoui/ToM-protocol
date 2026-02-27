@@ -207,7 +207,7 @@ impl IpTransport {
                         };
                         meta.addr = SocketAddr::new(v6_ip.into(), meta.addr.port());
                     }
-                    // The transport addresses are internal to iroh and we always want those
+                    // The transport addresses are internal to tom-connect and we always want those
                     // to remain the canonical address.
                     *source_addr =
                         SocketAddr::new(meta.addr.ip().to_canonical(), meta.addr.port()).into();

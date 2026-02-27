@@ -1,6 +1,6 @@
 //! Default values used in net_report.
 
-/// Contains all timeouts that we use in `iroh-net-report`.
+/// Contains all timeouts that we use in net-report.
 pub(crate) mod timeouts {
     use n0_future::time::Duration;
 

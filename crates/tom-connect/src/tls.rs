@@ -1,4 +1,4 @@
-//! TLS configuration for iroh.
+//! TLS configuration for tom-connect.
 //!
 //! Currently there is one mechanisms available
 //! - Raw Public Keys, using the TLS extension described in [RFC 7250]

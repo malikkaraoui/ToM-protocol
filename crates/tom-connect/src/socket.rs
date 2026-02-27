@@ -190,7 +190,7 @@ impl ShutdownState {
     }
 }
 
-/// Iroh connectivity layer.
+/// tom-connect connectivity layer.
 ///
 /// This is responsible for routing packets to endpoints based on endpoint IDs, it will initially
 /// route packets via a relay and transparently try and establish an endpoint-to-endpoint
@@ -1246,7 +1246,7 @@ impl Actor {
                     };
                     let is_major = state.is_major_change(&current_netmon_state);
                     event!(
-                        target: "iroh::_events::link_change",
+                        target: "tom_connect::_events::link_change",
                         Level::DEBUG,
                         ?state,
                         is_major
@@ -1523,7 +1523,7 @@ impl DiscoveredDirectAddrs {
         let updated = self.addrs.set(addrs).is_ok();
         if updated {
             event!(
-                target: "iroh::_events::direct_addrs",
+                target: "tom_connect::_events::direct_addrs",
                 Level::DEBUG,
                 addrs = ?self.addrs.get(),
             );
@@ -1536,11 +1536,11 @@ impl DiscoveredDirectAddrs {
     }
 }
 
-/// A *direct address* on which an iroh-endpoint might be contactable.
+/// A *direct address* on which an endpoint might be contactable.
 ///
-/// Direct addresses are UDP socket addresses on which an iroh endpoint could potentially be
+/// Direct addresses are UDP socket addresses on which an endpoint could potentially be
 /// contacted.  These can come from various sources depending on the network topology of the
-/// iroh endpoint, see [`DirectAddrType`] for the several kinds of sources.
+/// endpoint, see [`DirectAddrType`] for the several kinds of sources.
 ///
 /// This is essentially a combination of our local addresses combined with any reflexive
 /// transport addresses we discovered using QAD.
@@ -1554,7 +1554,7 @@ pub struct DirectAddr {
 
 /// The type of direct address.
 ///
-/// These are the various sources or origins from which an iroh endpoint might have found a
+/// These are the various sources or origins from which an endpoint might have found a
 /// possible [`DirectAddr`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum DirectAddrType {
@@ -1564,19 +1564,19 @@ pub enum DirectAddrType {
     Local,
     /// Public internet address discovered via QAD.
     ///
-    /// When possible an iroh endpoint will perform QAD to discover which is the address
+    /// When possible an endpoint will perform QAD to discover which is the address
     /// from which it sends data on the public internet.  This can be different from locally
     /// bound addresses when the endpoint is on a local network which performs NAT or similar.
     Qad,
     /// An address assigned by the router using port mapping.
     ///
-    /// When possible an iroh endpoint will request a port mapping from the local router to
+    /// When possible an endpoint will request a port mapping from the local router to
     /// get a publicly routable direct address.
     Portmapped,
     /// Hard NAT: QAD'ed IPv4 address + local fixed port.
     ///
-    /// It is possible to configure iroh to bound to a specific port and independently
-    /// configure the router to forward this port to the iroh endpoint.  This indicates a
+    /// It is possible to bound to a specific port and independently
+    /// configure the router to forward this port to the endpoint.  This indicates a
     /// situation like this, which still uses QAD to discover the public address.
     Qad4LocalPort,
 }

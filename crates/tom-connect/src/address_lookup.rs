@@ -1,6 +1,6 @@
 //! Lookup the address of an Endpoint ID.
 //!
-//! To connect to an iroh endpoint a [`EndpointAddr`] is needed, which may contain a
+//! To connect to an endpoint a [`EndpointAddr`] is needed, which may contain a
 //! [`RelayUrl`] or one or more *direct addresses* in addition to the [`EndpointId`].
 //!
 //! Since there is a conversion from [`EndpointId`] to [`EndpointAddr`], you can also use
@@ -10,7 +10,7 @@
 //! other means.
 //!
 //! [`AddressLookup`] is an automated system for an [`Endpoint`] to retrieve this addressing
-//! information.  Each iroh endpoint will automatically publish their own addressing
+//! information.  Each endpoint will automatically publish their own addressing
 //! information.  Usually this means publishing which [`RelayUrl`] to use for their
 //! [`EndpointId`], but they could also publish their direct addresses.
 //!
@@ -142,7 +142,7 @@ pub use pkarr::*;
 ///
 /// Any type that implements [`AddressLookup`] also implements [`IntoAddressLookup`].
 ///
-/// Iroh uses this trait to allow configuring the set of address lookup services on
+/// tom-connect uses this trait to allow configuring the set of address lookup services on
 /// the endpoint builder, while also providing them access to information about the
 /// endpoint to [`IntoAddressLookup::into_address_lookup`].
 ///

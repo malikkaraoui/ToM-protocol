@@ -1,4 +1,4 @@
-//! Default values used in [`iroh`][`crate`]
+//! Default values used in [`tom-connect`][`crate`]
 
 /// The default QUIC port used by the Relay server to accept QUIC connections
 /// for QUIC address discovery
@@ -135,7 +135,7 @@ pub mod staging {
     }
 }
 
-/// Contains all timeouts that we use in `iroh`.
+/// Contains all timeouts that we use in tom-connect.
 pub(crate) mod timeouts {
     use n0_future::time::Duration;
 

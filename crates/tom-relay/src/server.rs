@@ -61,9 +61,9 @@ const NO_CONTENT_RESPONSE_HEADER: &str = "X-Iroh-Response";
 const NOTFOUND: &[u8] = b"Not Found";
 const ROBOTS_TXT: &[u8] = b"User-agent: *\nDisallow: /\n";
 const INDEX: &[u8] = br#"<html><body>
-<h1>Iroh Relay</h1>
+<h1>ToM Relay</h1>
 <p>
-  This is an <a href="https://iroh.computer/">Iroh</a> Relay server.
+  This is a ToM Relay server.
 </p>
 "#;
 const TLS_HEADERS: [(&str, &str); 2] = [

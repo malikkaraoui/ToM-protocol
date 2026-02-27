@@ -1,4 +1,4 @@
-//! Streams used in the server-side implementation of iroh relays.
+//! Streams used in the server-side implementation of tom-relay.
 
 use std::{
     pin::Pin,
