@@ -72,12 +72,32 @@ else
     exit 1
 fi
 
-# Workspace member: binary is in workspace root target/
-WORKSPACE_ROOT="$(cd "$POC_DIR/../.." && pwd)"
-if [[ -f "$WORKSPACE_ROOT/Cargo.toml" ]] && grep -q '\[workspace\]' "$WORKSPACE_ROOT/Cargo.toml" 2>/dev/null; then
-    NAT_TEST="$WORKSPACE_ROOT/target/debug/nat-test"
+# Resolve binary path robustly (workspace, CARGO_TARGET_DIR, CI cache layouts)
+TARGET_DIR=$(cargo metadata --format-version 1 --no-deps --manifest-path "$POC_DIR/Cargo.toml" 2>/dev/null | \
+    python3 -c "import sys, json; print(json.load(sys.stdin)['target_directory'])" 2>/dev/null || true)
+
+if [[ -n "$TARGET_DIR" ]]; then
+    NAT_TEST="$TARGET_DIR/debug/nat-test"
 else
-    NAT_TEST="$POC_DIR/target/debug/nat-test"
+    # Fallback: keep legacy heuristics
+    WORKSPACE_ROOT="$(cd "$POC_DIR/../.." && pwd)"
+    if [[ -f "$WORKSPACE_ROOT/Cargo.toml" ]] && grep -q '\[workspace\]' "$WORKSPACE_ROOT/Cargo.toml" 2>/dev/null; then
+        NAT_TEST="$WORKSPACE_ROOT/target/debug/nat-test"
+    else
+        NAT_TEST="$POC_DIR/target/debug/nat-test"
+    fi
+fi
+
+if [[ ! -x "$NAT_TEST" ]]; then
+    # Last-resort search to survive unusual target-dir setups in CI
+    NAT_TEST=$(find "${CARGO_TARGET_DIR:-$POC_DIR/target}" "$POC_DIR/target" "$POC_DIR/../../target" \
+        -type f -name nat-test -perm -111 2>/dev/null | head -1 || true)
+fi
+
+if [[ -z "$NAT_TEST" ]] || [[ ! -x "$NAT_TEST" ]]; then
+    echo "  [FAIL] nat-test binary not found after build"
+    echo "  [INFO] target_directory from metadata: ${TARGET_DIR:-<none>}"
+    exit 1
 fi
 
 # --- Step 2: Start listener ---
