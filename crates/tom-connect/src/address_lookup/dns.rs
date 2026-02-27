@@ -1,4 +1,4 @@
-//! DNS endpoint discovery for iroh
+//! DNS endpoint discovery for tom-connect
 
 use iroh_base::EndpointId;
 use iroh_relay::dns::DnsResolver;

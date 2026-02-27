@@ -1,4 +1,4 @@
-//! Utilities used in [`iroh`][`crate`]
+//! Utilities used in [`tom_connect`][`crate`]
 
 use std::{
     future::Future,

@@ -4,7 +4,7 @@
 //!
 //! ```no_run
 //! # async fn wrapper() -> n0_error::Result {
-//! use iroh::{Endpoint, RelayMode, Watcher, endpoint::presets};
+//! use tom_connect::{Endpoint, RelayMode, Watcher, endpoint::presets};
 //!
 //! let endpoint = Endpoint::empty_builder(RelayMode::Disabled)
 //!     .preset(presets::N0)
@@ -33,7 +33,7 @@ pub trait Preset {
 /// - the default relay servers provided by Number 0.
 ///
 /// The default address lookup service publishes to and resolves from the
-/// n0.computer dns server `iroh.link`.
+/// n0.computer DNS server `iroh.link`.
 ///
 /// This is equivalent to adding both a [`crate::address_lookup::PkarrPublisher`]
 /// and a [`crate::address_lookup::DnsAddressLookup`], both configured to use the

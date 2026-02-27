@@ -1,6 +1,6 @@
-//! Pkarr based address lookup for iroh, supporting both relay servers and the DHT.
+//! Pkarr based address lookup, supporting both relay servers and the DHT.
 //!
-//! This module contains pkarr-based address lookup for iroh which can use both pkarr
+//! This module contains pkarr-based address lookup which can use both pkarr
 //! relay servers as well as the Mainline DHT directly.  See the [pkarr module] for an
 //! overview of pkarr.
 //!

@@ -1,40 +1,40 @@
 //! Exporting and encapsulating structs from quinn
 //!
-//! Co-locates all iroh-quinn exports.
+//! Co-locates all quinn exports used by tom-connect.
 //!
 //! There are some structs that we use in particular ways, where we would like
-//! to limit or expand how those structs are used in iroh. By encapsulating them
-//! we can ensure the functionality needed to make iroh work.
+//! to limit or expand how those structs are used in tom-connect. By encapsulating them
+//! we can ensure the functionality needed to make tom-connect work.
 
 #[cfg(feature = "qlog")]
 use std::path::Path;
 use std::{sync::Arc, time::Duration};
 
-/// `quinn` types that are used in the public iroh API.
-// Each type is notated with the iroh type or quinn type that uses it.
+/// `quinn` types that are used in the public tom-connect API.
+// Each type is notated with the tom_connect type or quinn type that uses it.
 pub use quinn::{
-    AcceptBi,             // iroh::endpoint::Connection
-    AcceptUni,            // iroh::endpoint::Connection
-    AckFrequencyConfig,   // iroh::endpoint::quic::QuicTransportConfig
-    ClosedStream,         // iroh::protocol::AcceptError, quinn::RecvStream, quinn::SendStream
-    ConnectionError,      // iroh::endpoint::ConnectError
-    ConnectionStats,      // iroh::endpoint::Connection
+    AcceptBi,             // tom_connect::endpoint::Connection
+    AcceptUni,            // tom_connect::endpoint::Connection
+    AckFrequencyConfig,   // tom_connect::endpoint::quic::QuicTransportConfig
+    ClosedStream,         // tom_connect::protocol::AcceptError, quinn::RecvStream, quinn::SendStream
+    ConnectionError,      // tom_connect::endpoint::ConnectError
+    ConnectionStats,      // tom_connect::endpoint::Connection
     Dir,                  // quinn::StreamId
-    IdleTimeout,          // iroh::endpoint::quic::QuicTransportConfig
-    MtuDiscoveryConfig,   // iroh::endpoint::quic::QuicTransportConfig
-    OpenBi,               // iroh::endpoint::Connection
-    OpenUni,              // iroh::endpoint::Connection
-    PathStats,            // iroh::socket::remote_map::remote_state::PathInfo
-    ReadDatagram,         // iroh::endpoint::Connection
+    IdleTimeout,          // tom_connect::endpoint::quic::QuicTransportConfig
+    MtuDiscoveryConfig,   // tom_connect::endpoint::quic::QuicTransportConfig
+    OpenBi,               // tom_connect::endpoint::Connection
+    OpenUni,              // tom_connect::endpoint::Connection
+    PathStats,            // tom_connect::socket::remote_map::remote_state::PathInfo
+    ReadDatagram,         // tom_connect::endpoint::Connection
     ReadError,            // quinn::RecvStream
     ReadExactError,       // quinn::RecvStream
     ReadToEndError,       // quinn::RecvStream
     RecvStream,           // quinn::AcceptBi, quinn::AcceptUni, quinn::OpenBi, quinn::OpenUni
     ResetError,           // quinn::RecvStream
-    SendDatagram,         // iroh::endpoint::Connection
-    SendDatagramError,    // iroh::endpoint::Connection
+    SendDatagram,         // tom_connect::endpoint::Connection
+    SendDatagramError,    // tom_connect::endpoint::Connection
     SendStream,           // quinn::AcceptBi, quinn::OpenUni
-    Side,                 // iroh::endpoint::Connection, quinn::StreamId,
+    Side,                 // tom_connect::endpoint::Connection, quinn::StreamId,
     StoppedError,         // quinn::SendStream
     StreamId,             // quinn::RecvStream
     UnorderedRecvStream,  // quinn::RecvStream
@@ -45,40 +45,40 @@ pub use quinn::{
 };
 #[cfg(feature = "qlog")]
 pub use quinn::{QlogConfig, QlogFactory, QlogFileFactory};
-/// `quinn_proto` types that are used in the public iroh API.
-// Each type is notated with the iroh type or quinn type that uses it.
+/// `quinn_proto` types that are used in the public tom-connect API.
+// Each type is notated with the tom_connect type or quinn type that uses it.
 pub use quinn_proto::{
     ApplicationClose,                 // quinn::ConnectionError
     Chunk,                            // quinn::RecvStream
-    ConnectError as QuicConnectError, // iroh::endpoint::ConnectWithOptsError
+    ConnectError as QuicConnectError, // tom_connect::endpoint::ConnectWithOptsError
     ConnectionClose,                  // quinn::ConnectionError
     FrameStats,                       // quinn::ConnectionStats
     FrameType,                        // quinn_proto::TransportError
     PathId,                           // quinn_proto::crypto::PacketKey
     RttEstimator,                     // quinn_proto::congestion::Controller
-    TimeSource,                       // iroh::endpoint::quic::ServerConfig
+    TimeSource,                       // tom_connect::endpoint::quic::ServerConfig
     TokenLog,                         // quinn::ValidationTokenConfig
     TokenReuseError,                  // quinn::TokenLog
     TransportError,                   // quinn::ConnectionError
     TransportErrorCode,               // quinn_proto::TransportError
     UdpStats,                         // quinn::ConnectionStats
-    ValidationTokenConfig,            // iroh::endpoint::quic::::ServerConfig
+    ValidationTokenConfig,            // tom_connect::endpoint::quic::ServerConfig
     congestion::{
-        Controller,        // iroh::endpoint::Connection
-        ControllerFactory, // iroh::endpoint::quic::QuicTransportConfig
+        Controller,        // tom_connect::endpoint::Connection
+        ControllerFactory, // tom_connect::endpoint::quic::QuicTransportConfig
         ControllerMetrics, // quinn_proto::congestion::Controller
     },
     crypto::{
         AeadKey,                   // quinn::HandshakeTokenKey
         CryptoError, // quinn_proto::crypto::CryptoError, quinn_proto::crypto::PacketKey
-        ExportKeyingMaterialError, // iroh::endpoint::Connection
-        HandshakeTokenKey, // iroh::endpoint::quic::ServerConfig
+        ExportKeyingMaterialError, // tom_connect::endpoint::Connection
+        HandshakeTokenKey, // tom_connect::endpoint::quic::ServerConfig
         HeaderKey,   // quinn_proto::crypto::Keys
         Keys,        // quinn_proto::crypto::Session
         PacketKey,   // quinn_proto::crypto::Keys
         UnsupportedVersion, // quinn_proto::ConnectError
     },
-    transport_parameters::TransportParameters, // quinn_proto::crypot::ServerConfig
+    transport_parameters::TransportParameters, // quinn_proto::crypto::ServerConfig
 };
 use tracing::warn;
 
@@ -103,7 +103,7 @@ pub struct QuicTransportConfigBuilder(quinn::TransportConfig);
 ///
 /// Use the [`QuicTransportConfigBuilder`] to customize these tunable fields.
 ///
-/// In iroh, the config has some specific default values that make iroh's holepunching work
+/// In tom-connect, the config has some specific default values that make holepunching work
 /// well with QUIC multipath. Adjusting those settings may cause suboptimal usage.
 ///
 /// Look at the following methods for more details:
@@ -116,7 +116,7 @@ pub struct QuicTransportConfigBuilder(quinn::TransportConfig);
 /// ```
 /// use std::time::Duration;
 ///
-/// use iroh::endpoint::QuicTransportConfig;
+/// use tom_connect::endpoint::QuicTransportConfig;
 ///
 /// let _cfg = QuicTransportConfig::builder()
 ///     .send_observed_address_reports(true)
@@ -190,7 +190,7 @@ impl QuicTransportConfigBuilder {
     ///
     /// ```
     /// # use std::{convert::TryInto, time::Duration};
-    /// # use iroh::endpoint::{QuicTransportConfig, VarInt, VarIntBoundsExceeded};
+    /// # use tom_connect::endpoint::{QuicTransportConfig, VarInt, VarIntBoundsExceeded};
     /// # fn main() -> Result<(), VarIntBoundsExceeded> {
     /// let mut builder = QuicTransportConfig::builder()
     ///     // Set the idle timeout as `VarInt`-encoded milliseconds
@@ -407,7 +407,7 @@ impl QuicTransportConfigBuilder {
     ///
     /// # Example
     /// ```
-    /// # use iroh::endpoint::QuicTransportConfig; use quinn_proto::congestion; use std::sync::Arc;
+    /// # use tom_connect::endpoint::QuicTransportConfig; use quinn_proto::congestion; use std::sync::Arc;
     /// let config = QuicTransportConfig::builder()
     ///     .congestion_controller_factory(Arc::new(congestion::NewRenoConfig::default()))
     ///     .build();
@@ -519,7 +519,7 @@ impl QuicTransportConfigBuilder {
     /// Sets the maximum number of nat traversal addresses this endpoint allows the remote to
     /// advertise.
     ///
-    /// Setting this to any nonzero value will enable Iroh's holepunching, loosely based in the Nat
+    /// Setting this to any nonzero value will enable holepunching, loosely based on the NAT
     /// Traversal Extension for QUIC, see
     /// <https://www.ietf.org/archive/id/draft-seemann-quic-nat-traversal-02.html>
     ///
@@ -593,7 +593,7 @@ pub struct ServerConfigBuilder {
 ///
 /// [`Endpoint`]: crate::Endpoint
 /// [`Endpoint::create_server_config_builder`]: crate::Endpoint::create_server_config_builder
-// Note: used in `iroh::endpoint::connection::Incoming::accept_with`
+// Note: used in `tom_connect::endpoint::connection::Incoming::accept_with`
 // This is new-typed since `quinn::ServerConfig` takes a `TransportConfig`, which we new-type as a `QuicTransportConfig`
 #[derive(Debug, Clone)]
 pub struct ServerConfig(Arc<quinn::ServerConfig>);

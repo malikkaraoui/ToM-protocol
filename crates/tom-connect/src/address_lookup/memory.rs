@@ -6,7 +6,7 @@
 //! be able to be removed again once know it is no longer useful.
 //!
 //! This is where the [`MemoryLookup`] is useful: it allows applications to add and
-//! retract endpoint addressing information that is otherwise out-of-band to iroh.
+//! retract endpoint addressing information that is otherwise out-of-band to tom-connect.
 //!
 //! [`EndpointTicket`]: https://docs.rs/iroh-tickets/latest/iroh_tickets/endpoint/struct.EndpointTicket.html
 
@@ -32,12 +32,12 @@ use super::{AddressLookup, EndpointData, EndpointInfo, Error, Item};
 /// be able to be removed again once know it is no longer useful.
 ///
 /// This is where the [`MemoryLookup`] is useful: it allows applications to add and
-/// retract endpoint addressing information that is otherwise out-of-band to iroh.
+/// retract endpoint addressing information that is otherwise out-of-band to tom-connect.
 ///
 /// # Examples
 ///
 /// ```rust
-/// use iroh::{Endpoint, EndpointAddr, TransportAddr, address_lookup::memory::MemoryLookup};
+/// use tom_connect::{Endpoint, EndpointAddr, TransportAddr, address_lookup::memory::MemoryLookup};
 /// use iroh_base::SecretKey;
 ///
 /// # #[tokio::main]
@@ -90,7 +90,7 @@ impl MemoryLookup {
     /// The provenance string for this Address Lookup implementation.
     ///
     /// This is mostly used for debugging information and allows understanding the origin of
-    /// addressing information used by an iroh [`Endpoint`].
+    /// addressing information used by an [`Endpoint`].
     ///
     /// [`Endpoint`]: crate::Endpoint
     pub const PROVENANCE: &'static str = "memory_lookup";
@@ -104,7 +104,7 @@ impl MemoryLookup {
     ///
     /// The provenance is part of [`address_lookup::Item`]s returned from [`Self::resolve`].
     /// It is mostly used for debugging information and allows understanding the origin of
-    /// addressing information used by an iroh [`Endpoint`].
+    /// addressing information used by an [`Endpoint`].
     ///
     /// [`Endpoint`]: crate::Endpoint
     /// [`address_lookup::Item`]: crate::address_lookup::Item
@@ -122,7 +122,7 @@ impl MemoryLookup {
     /// ```rust
     /// use std::{net::SocketAddr, str::FromStr};
     ///
-    /// use iroh::{Endpoint, EndpointAddr, address_lookup::memory::MemoryLookup};
+    /// use tom_connect::{Endpoint, EndpointAddr, address_lookup::memory::MemoryLookup};
     ///
     /// # fn get_addrs() -> Vec<EndpointAddr> {
     /// #     Vec::new()
