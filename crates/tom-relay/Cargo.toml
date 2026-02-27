@@ -1,0 +1,17 @@
+[package]
+name = "tom-relay"
+version = "0.1.0"
+edition = "2021"
+description = "ToM relay server — forked from iroh-relay"
+license = "MIT"
+
+[[bin]]
+name = "tom-relay"
+path = "src/bin/server.rs"
+
+[dependencies]
+tokio = { version = "1", features = ["full"] }
+axum = "0.7"
+anyhow = "1"
+
+# Will add more during R7.3 (full copy)
