@@ -1,0 +1,20 @@
+[Unit]
+Description=ToM Relay Server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/tom-relay --dev
+Restart=always
+RestartSec=3
+Environment=RUST_LOG=info
+LimitNOFILE=65536
+
+# Logging to journald (view with: journalctl -u tom-relay -f)
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=tom-relay
+
+[Install]
+WantedBy=multi-user.target
