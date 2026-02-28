@@ -319,7 +319,7 @@ impl PkarrPublisher {
     /// [`N0_DNS_PKARR_RELAY_PROD`].
     ///
     /// When running with the environment variable
-    /// `IROH_FORCE_STAGING_RELAYS` set to any non empty value [`N0_DNS_PKARR_RELAY_STAGING`]
+    /// `TOM_FORCE_STAGING_RELAYS` set to any non empty value [`N0_DNS_PKARR_RELAY_STAGING`]
     /// server is used instead.
     ///
     /// [number 0]: https://n0.computer
@@ -499,7 +499,7 @@ impl PkarrResolver {
     /// This uses the pkarr relay server operated by [number 0] at
     /// [`N0_DNS_PKARR_RELAY_PROD`].
     ///
-    /// When running with the environment variable `IROH_FORCE_STAGING_RELAYS`
+    /// When running with the environment variable `TOM_FORCE_STAGING_RELAYS`
     /// set to any non empty value [`N0_DNS_PKARR_RELAY_STAGING`]
     /// server is used instead.
     ///

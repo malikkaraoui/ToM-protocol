@@ -21,9 +21,9 @@ pub(crate) const DNS_STAGGERING_MS: &[u64] = &[200, 300];
 /// When asked to resolve a [`EndpointId`], this service performs a lookup in the Domain Name System (DNS).
 ///
 /// It uses the [`Endpoint`]'s DNS resolver to query for `TXT` records under the domain
-/// `_iroh.<z32-endpoint-id>.<origin-domain>`:
+/// `_tom.<z32-endpoint-id>.<origin-domain>`:
 ///
-/// * `_iroh`: is the record name
+/// * `_tom`: is the record name
 /// * `<z32-endpoint-id>` is the [`EndpointId`] encoded in [`z-base-32`] format
 /// * `<origin-domain>` is the endpoint origin domain as set in [`DnsAddressLookup::builder`].
 ///

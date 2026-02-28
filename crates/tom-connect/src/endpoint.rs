@@ -1402,7 +1402,7 @@ impl RelayMode {
 }
 
 /// Environment variable to force the use of staging relays.
-pub const ENV_FORCE_STAGING_RELAYS: &str = "IROH_FORCE_STAGING_RELAYS";
+pub const ENV_FORCE_STAGING_RELAYS: &str = "TOM_FORCE_STAGING_RELAYS";
 
 /// Returns `true` if the use of staging relays is forced.
 pub fn force_staging_infra() -> bool {
@@ -1411,7 +1411,7 @@ pub fn force_staging_infra() -> bool {
 
 /// Returns the default relay mode.
 ///
-/// If the `IROH_FORCE_STAGING_RELAYS` environment variable is non empty, it will return `RelayMode::Staging`.
+/// If the `TOM_FORCE_STAGING_RELAYS` environment variable is non empty, it will return `RelayMode::Staging`.
 /// Otherwise, it will return `RelayMode::Default`.
 pub fn default_relay_mode() -> RelayMode {
     // Use staging in testing

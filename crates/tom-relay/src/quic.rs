@@ -8,7 +8,7 @@ use quinn::{VarInt, crypto::rustls::QuicClientConfig};
 use tokio::sync::watch;
 
 /// ALPN for our quic addr discovery
-pub const ALPN_QUIC_ADDR_DISC: &[u8] = b"/iroh-qad/0";
+pub const ALPN_QUIC_ADDR_DISC: &[u8] = b"/tom-qad/0";
 /// Endpoint close error code
 pub const QUIC_ADDR_DISC_CLOSE_CODE: VarInt = VarInt::from_u32(1);
 /// Endpoint close reason

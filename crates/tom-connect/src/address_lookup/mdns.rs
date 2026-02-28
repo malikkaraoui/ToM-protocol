@@ -69,8 +69,8 @@ use crate::{
     },
 };
 
-/// The n0 local service name
-const N0_SERVICE_NAME: &str = "irohv1";
+/// The local mDNS service name
+const N0_SERVICE_NAME: &str = "tomv1";
 
 /// Name of this address lookup service.
 ///
@@ -170,9 +170,9 @@ impl MdnsAddressLookupBuilder {
 
     /// Sets a custom service name.
     ///
-    /// The default is `irohv1`, which will show up on a record in the
+    /// The default is `tomv1`, which will show up on a record in the
     /// following form, for example:
-    /// `7rutqynuzu65fcdgoerbt4uoh3p62wuto2mp56x3uvhitqzssxga._irohv1._udp.local`
+    /// `7rutqynuzu65fcdgoerbt4uoh3p62wuto2mp56x3uvhitqzssxga._tomv1._udp.local`
     ///
     /// Any custom service name will take the form, for example:
     /// `7rutqynuzu65fcdgoerbt4uoh3p62wuto2mp56x3uvhitqzssxga._{service_name}.upd.local`

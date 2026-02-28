@@ -5,9 +5,9 @@
 //!
 //! DNS records are published under the following names:
 //!
-//! `_iroh.<z32-endpoint-id>.<origin-domain> TXT`
+//! `_tom.<z32-endpoint-id>.<origin-domain> TXT`
 //!
-//! - `_iroh` is the record name as defined by [`IROH_TXT_NAME`].
+//! - `_tom` is the record name as defined by [`TOM_TXT_NAME`].
 //!
 //! - `<z32-endpoint-id>` is the [z-base-32] encoding of the [`EndpointId`].
 //!
@@ -44,8 +44,8 @@ use tom_base::{EndpointAddr, EndpointId, KeyParsingError, RelayUrl, SecretKey, T
 use n0_error::{e, ensure, stack_error};
 use url::Url;
 
-/// The DNS name for the iroh TXT record.
-pub const IROH_TXT_NAME: &str = "_iroh";
+/// The DNS name for the ToM TXT record.
+pub const TOM_TXT_NAME: &str = "_tom";
 
 #[allow(missing_docs)]
 #[stack_error(derive, add_meta)]
@@ -288,31 +288,31 @@ pub struct EndpointInfo {
     pub data: EndpointData,
 }
 
-impl From<TxtAttrs<IrohAttr>> for EndpointInfo {
-    fn from(attrs: TxtAttrs<IrohAttr>) -> Self {
+impl From<TxtAttrs<TomAttr>> for EndpointInfo {
+    fn from(attrs: TxtAttrs<TomAttr>) -> Self {
         (&attrs).into()
     }
 }
 
-impl From<&TxtAttrs<IrohAttr>> for EndpointInfo {
-    fn from(attrs: &TxtAttrs<IrohAttr>) -> Self {
+impl From<&TxtAttrs<TomAttr>> for EndpointInfo {
+    fn from(attrs: &TxtAttrs<TomAttr>) -> Self {
         let endpoint_id = attrs.endpoint_id();
         let attrs = attrs.attrs();
         let relay_urls = attrs
-            .get(&IrohAttr::Relay)
+            .get(&TomAttr::Relay)
             .into_iter()
             .flatten()
             .filter_map(|s| Url::parse(s).ok())
             .map(|url| TransportAddr::Relay(url.into()));
         let ip_addrs = attrs
-            .get(&IrohAttr::Addr)
+            .get(&TomAttr::Addr)
             .into_iter()
             .flatten()
             .filter_map(|s| SocketAddr::from_str(s).ok())
             .map(TransportAddr::Ip);
 
         let user_data = attrs
-            .get(&IrohAttr::UserData)
+            .get(&TomAttr::UserData)
             .into_iter()
             .flatten()
             .next()
@@ -385,7 +385,7 @@ impl EndpointInfo {
         }
     }
 
-    fn to_attrs(&self) -> TxtAttrs<IrohAttr> {
+    fn to_attrs(&self) -> TxtAttrs<TomAttr> {
         self.into()
     }
 
@@ -437,8 +437,8 @@ pub enum ParseError {
         #[error(std_err)]
         source: Utf8Error,
     },
-    #[error("Record is not an `iroh` record, expected `_iroh`, got `{label}`")]
-    NotAnIrohRecord { label: String },
+    #[error("Record is not a `tom` record, expected `_tom`, got `{label}`")]
+    NotATomRecord { label: String },
     #[error(transparent)]
     DecodingError { source: DecodingError },
 }
@@ -459,7 +459,7 @@ impl std::ops::DerefMut for EndpointInfo {
 /// Parses a [`EndpointId`] from the DNS name.
 ///
 /// Takes a [`hickory_resolver::proto::rr::Name`] DNS name and expects the first label to be
-/// [`IROH_TXT_NAME`] and the second label to be a z32 encoded [`EndpointId`]. Ignores
+/// [`TOM_TXT_NAME`] and the second label to be a z32 encoded [`EndpointId`]. Ignores
 /// subsequent labels.
 #[cfg(not(wasm_browser))]
 fn endpoint_id_from_txt_name(name: &str) -> Result<EndpointId, ParseError> {
@@ -469,8 +469,8 @@ fn endpoint_id_from_txt_name(name: &str) -> Result<EndpointId, ParseError> {
     }
     let mut labels = name.split(".");
     let label = labels.next().expect("checked above");
-    if label != IROH_TXT_NAME {
-        return Err(e!(ParseError::NotAnIrohRecord {
+    if label != TOM_TXT_NAME {
+        return Err(e!(ParseError::NotATomRecord {
             label: label.to_string()
         }));
     }
@@ -479,14 +479,14 @@ fn endpoint_id_from_txt_name(name: &str) -> Result<EndpointId, ParseError> {
     Ok(endpoint_id)
 }
 
-/// The attributes supported for [`IROH_TXT_NAME`] DNS resource records.
+/// The attributes supported for [`TOM_TXT_NAME`] DNS resource records.
 ///
 /// The resource record uses the lower-case names.
 #[derive(
     Debug, strum::Display, strum::AsRefStr, strum::EnumString, Hash, Eq, PartialEq, Ord, PartialOrd,
 )]
 #[strum(serialize_all = "kebab-case")]
-pub(crate) enum IrohAttr {
+pub(crate) enum TomAttr {
     /// URL of home relay.
     Relay,
     /// Direct address.
@@ -495,7 +495,7 @@ pub(crate) enum IrohAttr {
     UserData,
 }
 
-/// Attributes parsed from [`IROH_TXT_NAME`] TXT records.
+/// Attributes parsed from [`TOM_TXT_NAME`] TXT records.
 ///
 /// This struct is generic over the key type. When using with [`String`], this will parse
 /// all attributes. Can also be used with an enum, if it implements [`FromStr`] and
@@ -506,21 +506,21 @@ pub(crate) struct TxtAttrs<T> {
     attrs: BTreeMap<T, Vec<String>>,
 }
 
-impl From<&EndpointInfo> for TxtAttrs<IrohAttr> {
+impl From<&EndpointInfo> for TxtAttrs<TomAttr> {
     fn from(info: &EndpointInfo) -> Self {
         let mut attrs = vec![];
         for addr in &info.data.addrs {
             match addr {
                 TransportAddr::Relay(relay_url) => {
-                    attrs.push((IrohAttr::Relay, relay_url.to_string()))
+                    attrs.push((TomAttr::Relay, relay_url.to_string()))
                 }
-                TransportAddr::Ip(addr) => attrs.push((IrohAttr::Addr, addr.to_string())),
+                TransportAddr::Ip(addr) => attrs.push((TomAttr::Addr, addr.to_string())),
                 _ => {}
             }
         }
 
         if let Some(user_data) = &info.data.user_data {
-            attrs.push((IrohAttr::UserData, user_data.to_string()));
+            attrs.push((TomAttr::UserData, user_data.to_string()));
         }
         Self::from_parts(info.endpoint_id, attrs.into_iter())
     }
@@ -587,7 +587,7 @@ impl<T: FromStr + Display + Hash + Ord> TxtAttrs<T> {
             .all_resource_records()
             .filter_map(|rr| match &rr.rdata {
                 RData::TXT(txt) => match rr.name.without(&zone) {
-                    Some(name) if name.to_string() == IROH_TXT_NAME => Some(txt),
+                    Some(name) if name.to_string() == TOM_TXT_NAME => Some(txt),
                     Some(_) | None => None,
                 },
                 _ => None,
@@ -625,7 +625,7 @@ impl<T: FromStr + Display + Hash + Ord> TxtAttrs<T> {
     ) -> Result<pkarr::SignedPacket, EncodingError> {
         use pkarr::dns::{self, rdata};
         let keypair = pkarr::Keypair::from_secret_key(&secret_key.to_bytes());
-        let name = dns::Name::new(IROH_TXT_NAME).expect("constant");
+        let name = dns::Name::new(TOM_TXT_NAME).expect("constant");
 
         let mut builder = pkarr::SignedPacket::builder();
         for s in self.to_txt_strings() {
@@ -642,12 +642,12 @@ impl<T: FromStr + Display + Hash + Ord> TxtAttrs<T> {
 }
 
 #[cfg(not(wasm_browser))]
-pub(crate) fn ensure_iroh_txt_label(name: String) -> String {
+pub(crate) fn ensure_tom_txt_label(name: String) -> String {
     let mut parts = name.split(".");
-    if parts.next() == Some(IROH_TXT_NAME) {
+    if parts.next() == Some(TOM_TXT_NAME) {
         name
     } else {
-        format!("{IROH_TXT_NAME}.{name}")
+        format!("{TOM_TXT_NAME}.{name}")
     }
 }
 
@@ -717,7 +717,7 @@ mod tests {
     #[test]
     fn test_from_hickory_lookup() -> Result {
         let name = Name::from_utf8(
-            "_iroh.dgjpkxyn3zyrk3zfads5duwdgbqpkwbjxfj4yt7rezidr3fijccy.dns.iroh.link.",
+            "_tom.dgjpkxyn3zyrk3zfads5duwdgbqpkwbjxfj4yt7rezidr3fijccy.dns.iroh.link.",
         )
         .std_context("dns name")?;
         let query = Query::query(name.clone(), RecordType::TXT);
@@ -737,7 +737,7 @@ mod tests {
             // Test a record with a mismatching name
             Record::from_rdata(
                 Name::from_utf8(format!(
-                    "_iroh.{}.dns.iroh.link.",
+                    "_tom.{}.dns.iroh.link.",
                     EndpointId::from_str(
                         // Another EndpointId
                         "a55f26132e5e43de834d534332f66a20d480c3e50a13a312a071adea6569981e"
