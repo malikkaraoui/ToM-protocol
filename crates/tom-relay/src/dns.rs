@@ -80,7 +80,7 @@ pub enum DnsError {
     Resolve {
         source: hickory_resolver::ResolveError,
     },
-    #[error("invalid DNS response: not a query for _iroh.z32encodedpubkey")]
+    #[error("invalid DNS response: not a query for _tom.z32encodedpubkey")]
     InvalidResponse {},
 }
 
@@ -392,7 +392,7 @@ impl DnsResolver {
         origin: &str,
     ) -> Result<EndpointInfo, LookupError> {
         let name = endpoint_info::endpoint_domain(endpoint_id, origin);
-        let name = endpoint_info::ensure_iroh_txt_label(name);
+        let name = endpoint_info::ensure_tom_txt_label(name);
         let lookup = self.lookup_txt(name.clone(), DNS_TIMEOUT).await?;
         let info = EndpointInfo::from_txt_lookup(name, lookup)?;
         Ok(info)
@@ -403,7 +403,7 @@ impl DnsResolver {
         &self,
         name: &str,
     ) -> Result<EndpointInfo, LookupError> {
-        let name = endpoint_info::ensure_iroh_txt_label(name.to_string());
+        let name = endpoint_info::ensure_tom_txt_label(name.to_string());
         let lookup = self.lookup_txt(name.clone(), DNS_TIMEOUT).await?;
         let info = EndpointInfo::from_txt_lookup(name, lookup)?;
         Ok(info)

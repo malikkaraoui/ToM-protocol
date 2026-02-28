@@ -31,9 +31,9 @@ use webpki_types::{CertificateDer, PrivateKeyDer, pem::PemObject};
 /// The default `http_bind_port` when using `--dev`.
 const DEV_MODE_HTTP_PORT: u16 = 3340;
 /// The header name for setting the endpoint id in HTTP auth requests.
-const X_IROH_ENDPOINT_ID: &str = "X-Iroh-NodeId";
+const X_TOM_ENDPOINT_ID: &str = "X-Tom-NodeId";
 /// Environment variable to read a bearer token for HTTP auth requests from.
-const ENV_HTTP_BEARER_TOKEN: &str = "IROH_RELAY_HTTP_BEARER_TOKEN";
+const ENV_HTTP_BEARER_TOKEN: &str = "TOM_RELAY_HTTP_BEARER_TOKEN";
 
 /// A relay server for tom-relay.
 #[derive(Parser, Debug, Clone)]
@@ -159,7 +159,7 @@ enum AccessConfig {
     Denylist(Vec<EndpointId>),
     /// Performs a HTTP POST request to determine access for each endpoint that connects to the relay.
     ///
-    /// The request will have a header `X-Iroh-NodeId` set to the hex-encoded endpoint id attempting
+    /// The request will have a header `X-Tom-NodeId` set to the hex-encoded endpoint id attempting
     /// to connect to the relay.
     ///
     /// To grant access, the HTTP endpoint must return a `200` response with `true` as the response text.
@@ -174,7 +174,7 @@ struct HttpAccessConfig {
     /// Optional bearer token for authorizing to the HTTP endpoint.
     ///
     /// If set, an `Authorization: Bearer {token}` header will be set on the HTTP request.
-    /// The bearer token can also be set via the `IROH_RELAY_HTTP_BEARER_TOKEN` environment variable.
+    /// The bearer token can also be set via the `TOM_RELAY_HTTP_BEARER_TOKEN` environment variable.
     /// If both the config and the environment variable are set, the value from the environment variable
     /// is used.
     bearer_token: Option<String>,
@@ -260,7 +260,7 @@ async fn http_access_check_inner(
 ) -> Result<()> {
     let mut request = client
         .post(config.url.clone())
-        .header(X_IROH_ENDPOINT_ID, endpoint_id.to_string());
+        .header(X_TOM_ENDPOINT_ID, endpoint_id.to_string());
     if let Some(token) = config.bearer_token.as_ref() {
         request = request.header(http::header::AUTHORIZATION, format!("Bearer {token}"));
     }

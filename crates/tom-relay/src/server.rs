@@ -56,8 +56,8 @@ pub use self::{
     resolver::{DEFAULT_CERT_RELOAD_INTERVAL, ReloadingResolver},
 };
 
-const NO_CONTENT_CHALLENGE_HEADER: &str = "X-Iroh-Challenge";
-const NO_CONTENT_RESPONSE_HEADER: &str = "X-Iroh-Response";
+const NO_CONTENT_CHALLENGE_HEADER: &str = "X-Tom-Challenge";
+const NO_CONTENT_RESPONSE_HEADER: &str = "X-Tom-Response";
 const NOTFOUND: &[u8] = b"Not Found";
 const ROBOTS_TXT: &[u8] = b"User-agent: *\nDisallow: /\n";
 const INDEX: &[u8] = br#"<html><body>

@@ -43,7 +43,7 @@ mod address_lookup;
 mod util;
 
 /// ALPN protocol name
-pub const GOSSIP_ALPN: &[u8] = b"/iroh-gossip/1";
+pub const GOSSIP_ALPN: &[u8] = b"/tom-gossip/1";
 
 /// Channel capacity for the send queue (one per connection)
 const SEND_QUEUE_CAP: usize = 64;
