@@ -39,6 +39,11 @@ struct Cli {
     #[arg(long)]
     relay_url: Option<String>,
 
+    /// Disable n0-computer address discovery (Pkarr/DNS).
+    /// Use when running your own relay with --relay-url.
+    #[arg(long)]
+    no_n0_discovery: bool,
+
     /// Auto-archive output to this directory.
     /// Creates timestamped .jsonl and .log files (never overwrites).
     #[arg(long)]
@@ -248,6 +253,8 @@ async fn main() -> anyhow::Result<()> {
             responder::run(responder::ResponderConfig {
                 name: cli.name.clone(),
                 max_message_size: cli.max_message_size,
+                relay_url: cli.relay_url.clone(),
+                no_n0_discovery: cli.no_n0_discovery,
             })
             .await?;
             return Ok(());
@@ -264,6 +271,8 @@ async fn main() -> anyhow::Result<()> {
                 duration_s: *duration,
                 phase: phase.clone(),
                 max_message_size: cli.max_message_size,
+                relay_url: cli.relay_url.clone(),
+                no_n0_discovery: cli.no_n0_discovery,
             })
             .await?;
             return Ok(());
@@ -277,6 +286,9 @@ async fn main() -> anyhow::Result<()> {
     let mut config = TomNodeConfig::new().max_message_size(cli.max_message_size);
     if let Some(ref url) = cli.relay_url {
         config = config.relay_url(url.parse()?);
+    }
+    if cli.no_n0_discovery {
+        config = config.n0_discovery(false);
     }
     let node = TomNode::bind(config).await?;
 

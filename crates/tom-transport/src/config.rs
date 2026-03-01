@@ -19,6 +19,12 @@ pub struct TomNodeConfig {
     pub(crate) recv_buffer: usize,
     /// Custom relay URL. If set, only this relay is used instead of the n0 defaults.
     pub(crate) relay_url: Option<tom_connect::RelayUrl>,
+    /// Enable n0-computer address discovery (Pkarr/DNS).
+    ///
+    /// When `true` (default), the node publishes and resolves addresses via
+    /// n0's Pkarr relay and DNS infrastructure. Set to `false` when running
+    /// your own relay and using gossip-based peer discovery instead.
+    pub(crate) n0_discovery: bool,
 }
 
 impl Default for TomNodeConfig {
@@ -42,6 +48,7 @@ impl TomNodeConfig {
             max_message_size: 1024 * 1024, // 1 MB
             recv_buffer: 256,
             relay_url,
+            n0_discovery: true,
         }
     }
 
@@ -73,6 +80,26 @@ impl TomNodeConfig {
     /// ```
     pub fn relay_url(mut self, url: tom_connect::RelayUrl) -> Self {
         self.relay_url = Some(url);
+        self
+    }
+
+    /// Disable n0-computer address discovery (Pkarr/DNS).
+    ///
+    /// When disabled, the node does not publish or resolve addresses via
+    /// n0's infrastructure. Peers must be discovered through gossip or
+    /// added manually via [`TomNode::add_peer_addr`](crate::TomNode::add_peer_addr).
+    ///
+    /// Requires a custom relay URL to be set.
+    ///
+    /// ```rust
+    /// use tom_transport::TomNodeConfig;
+    ///
+    /// let config = TomNodeConfig::new()
+    ///     .relay_url("http://192.168.0.21:3340".parse().unwrap())
+    ///     .n0_discovery(false);
+    /// ```
+    pub fn n0_discovery(mut self, enabled: bool) -> Self {
+        self.n0_discovery = enabled;
         self
     }
 }

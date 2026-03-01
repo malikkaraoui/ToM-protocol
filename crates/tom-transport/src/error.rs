@@ -37,6 +37,9 @@ pub enum TomTransportError {
 
     #[error("invalid node id: {0}")]
     InvalidNodeId(String),
+
+    #[error("invalid configuration: {0}")]
+    Config(String),
 }
 
 // Allow anyhow -> TomTransportError for convenience in protocol handler
