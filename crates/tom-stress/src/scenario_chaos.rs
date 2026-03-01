@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 use rand::seq::SliceRandom;
 use rand::Rng;
 use tom_protocol::{ProtocolRuntime, RuntimeConfig};
-use tom_transport::{TomNode, TomNodeConfig};
+use tom_transport::{EndpointAddr, TomNode, TomNodeConfig};
 
 use crate::scenario_common::{recv_timeout, timed_step_async, ScenarioResult};
 
@@ -25,6 +25,11 @@ pub async fn run() -> anyhow::Result<ScenarioResult> {
     let id_a = node_a.id();
     let id_b = node_b.id();
     let id_c = node_c.id();
+
+    // Exchange full addresses for direct local connectivity
+    let addr_a = node_a.addr();
+    let addr_b = node_b.addr();
+    let addr_c = node_c.addr();
 
     eprintln!("Node A: {id_a}");
     eprintln!("Node B: {id_b}");
@@ -50,28 +55,28 @@ pub async fn run() -> anyhow::Result<ScenarioResult> {
     let mut channels_b = ProtocolRuntime::spawn(node_b, config_b);
     let mut channels_c = ProtocolRuntime::spawn(node_c, config_c);
 
-    // ── Register all peers with random delays ───────────────────────
+    // ── Register all peers with full addresses + random delays ────
     let step = timed_step_async("register peers (random delays)", || async {
-        let pairs = vec![
-            (channels_a.handle.clone(), id_b),
-            (channels_a.handle.clone(), id_c),
-            (channels_b.handle.clone(), id_a),
-            (channels_b.handle.clone(), id_c),
-            (channels_c.handle.clone(), id_a),
-            (channels_c.handle.clone(), id_b),
+        let pairs: Vec<(tom_protocol::RuntimeHandle, EndpointAddr)> = vec![
+            (channels_a.handle.clone(), addr_b.clone()),
+            (channels_a.handle.clone(), addr_c.clone()),
+            (channels_b.handle.clone(), addr_a.clone()),
+            (channels_b.handle.clone(), addr_c.clone()),
+            (channels_c.handle.clone(), addr_a.clone()),
+            (channels_c.handle.clone(), addr_b.clone()),
         ];
 
         // Shuffle registration order
-        let mut shuffled: Vec<_> = pairs.into_iter().collect();
+        let mut shuffled = pairs;
         shuffled.shuffle(&mut rand::rng());
 
-        for (handle, peer) in shuffled {
-            handle.add_peer(peer).await;
+        for (handle, addr) in shuffled {
+            handle.add_peer_addr(addr).await;
             let delay_ms = rand::rng().random_range(50..300);
             tokio::time::sleep(Duration::from_millis(delay_ms)).await;
         }
 
-        tokio::time::sleep(Duration::from_secs(2)).await;
+        tokio::time::sleep(Duration::from_millis(500)).await;
         Ok(String::new())
     })
     .await;

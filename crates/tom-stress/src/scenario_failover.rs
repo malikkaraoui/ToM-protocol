@@ -22,6 +22,11 @@ pub async fn run() -> anyhow::Result<ScenarioResult> {
     let id_b = node_b.id();
     let id_hub = node_hub.id();
 
+    // Exchange full addresses for direct local connectivity
+    let addr_a = node_a.addr();
+    let addr_b = node_b.addr();
+    let addr_hub = node_hub.addr();
+
     eprintln!("Alice : {id_a}");
     eprintln!("Bob   : {id_b}");
     eprintln!("Hub   : {id_hub}");
@@ -43,15 +48,15 @@ pub async fn run() -> anyhow::Result<ScenarioResult> {
     let mut channels_b = ProtocolRuntime::spawn(node_b, config_b);
     let channels_hub = ProtocolRuntime::spawn(node_hub, config_hub);
 
-    // ── Register peers ──────────────────────────────────────────────
+    // ── Register peers with full addresses ────────────────────────
     let step = timed_step_async("register peers", || async {
-        channels_a.handle.add_peer(id_hub).await;
-        channels_a.handle.add_peer(id_b).await;
-        channels_b.handle.add_peer(id_hub).await;
-        channels_b.handle.add_peer(id_a).await;
-        channels_hub.handle.add_peer(id_a).await;
-        channels_hub.handle.add_peer(id_b).await;
-        tokio::time::sleep(Duration::from_secs(3)).await;
+        channels_a.handle.add_peer_addr(addr_hub.clone()).await;
+        channels_a.handle.add_peer_addr(addr_b.clone()).await;
+        channels_b.handle.add_peer_addr(addr_hub.clone()).await;
+        channels_b.handle.add_peer_addr(addr_a.clone()).await;
+        channels_hub.handle.add_peer_addr(addr_a.clone()).await;
+        channels_hub.handle.add_peer_addr(addr_b.clone()).await;
+        tokio::time::sleep(Duration::from_millis(500)).await;
         Ok(String::new())
     })
     .await;

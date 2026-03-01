@@ -21,6 +21,10 @@ pub async fn run() -> anyhow::Result<ScenarioResult> {
     let id_a = node_a.id();
     let id_b = node_b.id();
 
+    // Exchange full addresses for direct local connectivity
+    let addr_a = node_a.addr();
+    let addr_b = node_b.addr();
+
     eprintln!("Node A: {id_a}");
     eprintln!("Node B: {id_b}");
 
@@ -38,12 +42,12 @@ pub async fn run() -> anyhow::Result<ScenarioResult> {
     let channels_a = ProtocolRuntime::spawn(node_a, config_a);
     let mut channels_b = ProtocolRuntime::spawn(node_b, config_b);
 
-    // ── Register peers ──────────────────────────────────────────────
+    // ── Register peers with full addresses ────────────────────────
     let step = timed_step_async("register peers", || async {
-        channels_a.handle.add_peer(id_b).await;
-        channels_b.handle.add_peer(id_a).await;
-        // Give iroh time to discover
-        tokio::time::sleep(Duration::from_secs(2)).await;
+        channels_a.handle.add_peer_addr(addr_b).await;
+        channels_b.handle.add_peer_addr(addr_a).await;
+        // Brief pause for QUIC handshake
+        tokio::time::sleep(Duration::from_millis(500)).await;
         Ok(String::new())
     })
     .await;
