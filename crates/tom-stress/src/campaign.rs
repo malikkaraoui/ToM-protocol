@@ -711,10 +711,8 @@ async fn phase_group(
             eprintln!("    {group_received}/{} received so far...", seq + 1);
         }
 
-        // Small delay
-        if seq % 10 == 0 {
-            tokio::time::sleep(Duration::from_millis(50)).await;
-        }
+        // Pace at ~4 msg/sec to stay under hub rate limit (5/sec/sender)
+        tokio::time::sleep(Duration::from_millis(250)).await;
     }
 
     eprintln!("  Group messages: {group_received}/{msg_count}");
@@ -803,6 +801,9 @@ async fn phase_failover(
                 Err(_) => break,
             }
         }
+
+        // Pace at ~4 msg/sec to stay under hub rate limit (5/sec/sender)
+        tokio::time::sleep(Duration::from_millis(250)).await;
     }
 
     // Also send some direct pings to verify P2P still works alongside groups
