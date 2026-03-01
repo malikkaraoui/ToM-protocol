@@ -12,15 +12,20 @@ pub(crate) struct ConnectionPool {
     connections: Mutex<HashMap<NodeId, Connection>>,
     addresses: Mutex<HashMap<NodeId, EndpointAddr>>,
     alpn: Vec<u8>,
+    /// Default relay URL to include when no address is stored for a peer.
+    /// Used when n0 discovery is disabled — tells the endpoint to route
+    /// through our relay instead of relying on Pkarr/DNS resolution.
+    default_relay_url: Option<tom_connect::RelayUrl>,
 }
 
 impl ConnectionPool {
-    pub fn new(endpoint: Endpoint, alpn: Vec<u8>) -> Self {
+    pub fn new(endpoint: Endpoint, alpn: Vec<u8>, default_relay_url: Option<tom_connect::RelayUrl>) -> Self {
         Self {
             endpoint,
             connections: Mutex::new(HashMap::new()),
             addresses: Mutex::new(HashMap::new()),
             alpn,
+            default_relay_url,
         }
     }
 
@@ -46,13 +51,18 @@ impl ConnectionPool {
             conns.remove(&target);
         }
 
-        // Create new connection — use stored address or fall back to discovery
+        // Create new connection — use stored address or fall back to discovery.
+        // When n0 discovery is disabled, we hint the relay URL so the endpoint
+        // knows to route through our relay instead of querying Pkarr/DNS.
         let addr = {
             let addrs = self.addresses.lock().await;
-            addrs
-                .get(&target)
-                .cloned()
-                .unwrap_or_else(|| EndpointAddr::new(*target.as_endpoint_id()))
+            addrs.get(&target).cloned().unwrap_or_else(|| {
+                let mut addr = EndpointAddr::new(*target.as_endpoint_id());
+                if let Some(relay_url) = &self.default_relay_url {
+                    addr = addr.with_relay_url(relay_url.clone());
+                }
+                addr
+            })
         };
         let conn = self
             .endpoint

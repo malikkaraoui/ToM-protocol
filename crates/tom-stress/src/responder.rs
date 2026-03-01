@@ -14,13 +14,21 @@ use tom_transport::{TomNode, TomNodeConfig};
 pub struct ResponderConfig {
     pub name: String,
     pub max_message_size: usize,
+    pub relay_url: Option<String>,
+    pub no_n0_discovery: bool,
 }
 
 pub async fn run(config: ResponderConfig) -> anyhow::Result<()> {
     let start = Instant::now();
     let running = crate::common::setup_ctrlc();
 
-    let node_config = TomNodeConfig::new().max_message_size(config.max_message_size);
+    let mut node_config = TomNodeConfig::new().max_message_size(config.max_message_size);
+    if let Some(ref url) = config.relay_url {
+        node_config = node_config.relay_url(url.parse()?);
+    }
+    if config.no_n0_discovery {
+        node_config = node_config.n0_discovery(false);
+    }
     let node = TomNode::bind(node_config).await?;
 
     eprintln!("Responder Node ID: {}", node.id());
