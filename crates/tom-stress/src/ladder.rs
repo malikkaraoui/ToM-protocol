@@ -12,7 +12,13 @@ pub struct LadderConfig {
 }
 
 /// Default size ladder (geometric progression up to max_message_size).
+///
+/// Accounts for ~512 bytes of envelope overhead (NodeIds, UUID, JSON framing)
+/// so the serialized message stays within the transport limit.
+const ENVELOPE_OVERHEAD: usize = 512;
+
 pub fn default_sizes(max: usize) -> Vec<usize> {
+    let effective_max = max.saturating_sub(ENVELOPE_OVERHEAD);
     let candidates = [
         1_024,     //   1 KB
         4_096,     //   4 KB
@@ -23,7 +29,11 @@ pub fn default_sizes(max: usize) -> Vec<usize> {
         524_288,   // 512 KB
         1_048_576, //   1 MB
     ];
-    candidates.iter().copied().filter(|&s| s <= max).collect()
+    candidates
+        .iter()
+        .copied()
+        .filter(|&s| s <= effective_max)
+        .collect()
 }
 
 pub async fn run(

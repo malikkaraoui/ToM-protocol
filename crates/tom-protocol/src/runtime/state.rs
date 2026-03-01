@@ -1193,6 +1193,7 @@ impl RuntimeState {
 
             // Handled in the loop — needs transport access.
             RuntimeCommand::GetConnectedPeers { .. } => Vec::new(),
+            RuntimeCommand::AddPeerAddr { .. } => Vec::new(),
 
             // Handled in the loop — signals the loop to break.
             RuntimeCommand::Shutdown => Vec::new(),

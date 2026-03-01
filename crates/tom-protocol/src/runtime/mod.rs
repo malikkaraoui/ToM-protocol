@@ -16,6 +16,7 @@ pub use transport::Transport;
 use std::time::Duration;
 
 use tokio::sync::{mpsc, oneshot};
+use tom_connect::EndpointAddr;
 use tom_transport::{PathEvent, TomNode};
 
 use crate::discovery::DiscoverySource;
@@ -83,6 +84,8 @@ pub enum RuntimeCommand {
     },
     /// Register a peer in the network (triggers discovery via iroh).
     AddPeer { node_id: NodeId },
+    /// Register a peer with its full network address (for direct connectivity).
+    AddPeerAddr { addr: EndpointAddr },
     /// Update topology: add or refresh a peer.
     UpsertPeer { info: PeerInfo },
     /// Remove a peer from topology.
@@ -301,6 +304,17 @@ impl RuntimeHandle {
         let _ = self
             .cmd_tx
             .send(RuntimeCommand::AddPeer { node_id })
+            .await;
+    }
+
+    /// Register a peer with its full network address.
+    ///
+    /// Use this when you have the peer's `EndpointAddr` (e.g. from a local
+    /// peer exchange) to enable direct connectivity without relay discovery.
+    pub async fn add_peer_addr(&self, addr: EndpointAddr) {
+        let _ = self
+            .cmd_tx
+            .send(RuntimeCommand::AddPeerAddr { addr })
             .await;
     }
 

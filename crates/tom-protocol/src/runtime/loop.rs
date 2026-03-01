@@ -105,6 +105,11 @@ pub(super) async fn runtime_loop(
                         let _ = reply.send(peers);
                         Vec::new()
                     }
+                    RuntimeCommand::AddPeerAddr { addr } => {
+                        let node_id = NodeId::from_endpoint_id(addr.id);
+                        node.add_peer_addr(addr).await;
+                        state.handle_command(RuntimeCommand::AddPeer { node_id })
+                    }
                     RuntimeCommand::Shutdown => break,
                     other => state.handle_command(other),
                 }
