@@ -250,6 +250,7 @@ impl RuntimeState {
     /// Send heartbeat probes to all group members (hub-side).
     pub fn tick_group_hub_heartbeat(&mut self) -> Vec<RuntimeEffect> {
         let actions = self.group_hub.heartbeat_actions();
+        let actions = self.intercept_self_group_actions(actions);
         self.group_actions_to_effects(&actions)
     }
 
@@ -1144,6 +1145,7 @@ impl RuntimeState {
             RuntimeCommand::AcceptInvite { group_id } => {
                 let actions =
                     self.group_manager.accept_invite(&group_id);
+                let actions = self.intercept_self_group_actions(actions);
                 self.group_actions_to_effects(&actions)
             }
 
@@ -1155,6 +1157,7 @@ impl RuntimeState {
             RuntimeCommand::LeaveGroup { group_id } => {
                 let actions =
                     self.group_manager.leave_group(&group_id);
+                let actions = self.intercept_self_group_actions(actions);
                 self.group_actions_to_effects(&actions)
             }
 
@@ -3161,6 +3164,75 @@ mod tests {
         assert!(
             self_sends.is_empty(),
             "Group message from hub should NOT produce SendEnvelope to self, got self-sends: {self_sends:?}"
+        );
+    }
+
+    #[test]
+    fn hub_heartbeat_does_not_self_send() {
+        // When hub=self ticks heartbeat, it should broadcast to other members
+        // but NOT produce a SendEnvelope to self.
+        let (hub_id, hub_secret) = keypair(220);
+        let (bob_id, bob_secret) = keypair(221);
+
+        let mut state = RuntimeState::new(
+            hub_id,
+            hub_secret,
+            RuntimeConfig {
+                encryption: false,
+                ..Default::default()
+            },
+        );
+
+        // Create group locally (hub=self)
+        state.handle_command(RuntimeCommand::CreateGroup {
+            name: "HBTest".to_string(),
+            hub_relay_id: hub_id,
+            initial_members: vec![bob_id],
+        });
+        let gid = state.group_hub.groups().next().unwrap().0.clone();
+
+        // Bob joins
+        let join_payload = crate::group::GroupPayload::Join {
+            group_id: gid.clone(),
+            username: "bob".into(),
+        };
+        let join_bytes = rmp_serde::to_vec(&join_payload).unwrap();
+        let join_env = EnvelopeBuilder::new(
+            bob_id,
+            hub_id,
+            MessageType::GroupJoin,
+            join_bytes,
+        )
+        .sign(&bob_secret);
+        state.handle_incoming_group(join_env);
+
+        // Tick heartbeat
+        let effects = state.tick_group_hub_heartbeat();
+
+        // Should send heartbeat to bob (network)
+        let sends_to_bob: Vec<_> = effects
+            .iter()
+            .filter(|e| {
+                matches!(e, RuntimeEffect::SendEnvelope(env)
+                    if env.to == bob_id && env.msg_type == MessageType::GroupHubHeartbeat)
+            })
+            .collect();
+        assert!(
+            !sends_to_bob.is_empty(),
+            "Heartbeat should reach bob, got: {effects:?}"
+        );
+
+        // Should NOT self-send heartbeat to hub
+        let self_sends: Vec<_> = effects
+            .iter()
+            .filter(|e| {
+                matches!(e, RuntimeEffect::SendEnvelope(env)
+                    if env.to == hub_id)
+            })
+            .collect();
+        assert!(
+            self_sends.is_empty(),
+            "Heartbeat should NOT produce SendEnvelope to self, got: {self_sends:?}"
         );
     }
 }
