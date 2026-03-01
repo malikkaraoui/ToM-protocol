@@ -686,6 +686,10 @@ impl RuntimeState {
             }
         };
 
+        // Intercept self-addressed group actions: when the hub sends to itself
+        // (e.g. MemberJoined broadcast when hub is also a group member),
+        // process locally via GroupManager instead of network round-trip.
+        let actions = self.intercept_self_group_actions(actions);
         self.group_actions_to_effects(&actions)
     }
 
@@ -1002,6 +1006,14 @@ impl RuntimeState {
 
         msg.sign(&self.secret_seed);
         let payload = GroupPayload::Message(msg);
+
+        // If we ARE the hub, handle locally without network round-trip
+        if hub_id == self.local_id {
+            let actions = self.group_hub.handle_payload(payload, self.local_id);
+            let actions = self.intercept_self_group_actions(actions);
+            return self.group_actions_to_effects(&actions);
+        }
+
         let payload_bytes =
             rmp_serde::to_vec(&payload).expect("group msg serialization");
 
@@ -1115,16 +1127,9 @@ impl RuntimeState {
                         initial_members: initial_members.clone(),
                     };
                     let actions = self.group_hub.handle_payload(payload, self.local_id);
-                    let mut effects = self.group_actions_to_effects(&actions);
-
-                    // Also process the GroupCreated callback on the member side
-                    // (since we're both hub and member)
-                    if let Some((_, group_info)) = self.group_hub.groups().find(|(_, g)| g.name == name) {
-                        let member_actions = self.group_manager.handle_group_created(group_info.clone());
-                        effects.extend(self.group_actions_to_effects(&member_actions));
-                    }
-
-                    effects
+                    // Intercept self-addressed actions (e.g. Created → self)
+                    let actions = self.intercept_self_group_actions(actions);
+                    self.group_actions_to_effects(&actions)
                 } else {
                     // Remote hub — send GroupPayload::Create over network
                     let actions = self.group_manager.create_group(
@@ -1424,6 +1429,125 @@ impl RuntimeState {
                     RuntimeEffect::BroadcastRoleChange(announce),
                 ]
             }
+        }
+    }
+
+    // ── Helper: self-addressed group action interception ─────────────────
+
+    /// Intercept Send/Broadcast actions that target `local_id` and process
+    /// them locally instead of sending over the network (QUIC self-sends).
+    /// Recursive: handles chains where local processing generates more self-sends
+    /// (e.g., MemberJoined → SenderKeyDistribution → hub fanout).
+    fn intercept_self_group_actions(&mut self, actions: Vec<GroupAction>) -> Vec<GroupAction> {
+        let mut result = Vec::new();
+        for action in actions {
+            match action {
+                GroupAction::Send { to, payload } if to == self.local_id => {
+                    let new_actions = self.handle_local_group_payload(payload);
+                    // Recursively intercept any resulting self-sends
+                    result.extend(self.intercept_self_group_actions(new_actions));
+                }
+                GroupAction::Broadcast { to, payload } if to.contains(&self.local_id) => {
+                    // Process locally for self
+                    let new_actions = self.handle_local_group_payload(payload.clone());
+                    result.extend(self.intercept_self_group_actions(new_actions));
+                    // Keep broadcast for remote targets
+                    let remote: Vec<NodeId> =
+                        to.into_iter().filter(|t| *t != self.local_id).collect();
+                    if !remote.is_empty() {
+                        result.push(GroupAction::Broadcast {
+                            to: remote,
+                            payload,
+                        });
+                    }
+                }
+                other => result.push(other),
+            }
+        }
+        result
+    }
+
+    /// Dispatch a group payload locally. Routes hub-bound payloads to the
+    /// GroupHub for processing, and member-bound payloads to the GroupManager.
+    fn handle_local_group_payload(&mut self, payload: GroupPayload) -> Vec<GroupAction> {
+        match payload {
+            // ── Hub-bound payloads: route through GroupHub ─────────────
+            GroupPayload::Create { .. }
+            | GroupPayload::Join { .. }
+            | GroupPayload::Leave { .. } => {
+                self.group_hub.handle_payload(payload, self.local_id)
+            }
+            GroupPayload::SenderKeyDistribution {
+                group_id, from, epoch, encrypted_keys,
+            } => {
+                let mut actions = Vec::new();
+                // Always try to store keys for self via manager
+                actions.extend(self.group_manager.handle_sender_key_distribution(
+                    &group_id, from, epoch, &encrypted_keys, &self.secret_seed,
+                ));
+                // If there are keys for OTHER members and we're the hub, fan out
+                let keys_for_others: Vec<_> = encrypted_keys
+                    .into_iter()
+                    .filter(|ek| ek.recipient_id != self.local_id)
+                    .collect();
+                if !keys_for_others.is_empty()
+                    && self.group_hub.get_group(&group_id).is_some()
+                {
+                    let fanout_payload = GroupPayload::SenderKeyDistribution {
+                        group_id,
+                        from,
+                        epoch,
+                        encrypted_keys: keys_for_others,
+                    };
+                    actions.extend(
+                        self.group_hub
+                            .handle_payload(fanout_payload, self.local_id),
+                    );
+                }
+                actions
+            }
+            GroupPayload::DeliveryAck { ref group_id, .. } => {
+                if self.group_hub.get_group(group_id).is_some() {
+                    self.group_hub.handle_payload(payload, self.local_id)
+                } else {
+                    vec![]
+                }
+            }
+
+            // ── Member-bound payloads: route to GroupManager ──────────
+            GroupPayload::MemberJoined { group_id, member } => {
+                self.group_manager.handle_member_joined(&group_id, member)
+            }
+            GroupPayload::MemberLeft {
+                group_id,
+                node_id,
+                username,
+                reason,
+            } => self
+                .group_manager
+                .handle_member_left(&group_id, &node_id, username, reason),
+            GroupPayload::Message(msg) => self.group_manager.handle_message(msg),
+            GroupPayload::Sync {
+                group,
+                recent_messages,
+            } => self.group_manager.handle_group_sync(group, recent_messages),
+            GroupPayload::Created { group } => {
+                self.group_manager.handle_group_created(group)
+            }
+            GroupPayload::Invite {
+                group_id,
+                group_name,
+                inviter_id,
+                inviter_username,
+            } => self.group_manager.handle_invite(
+                group_id,
+                group_name,
+                inviter_id,
+                inviter_username,
+                self.local_id,
+            ),
+            // Payloads that don't need local dispatch
+            _ => vec![],
         }
     }
 
@@ -2880,6 +3004,163 @@ mod tests {
             (metrics.bandwidth_ratio - 2.0).abs() < f64::EPSILON,
             "bandwidth ratio should be 2.0 (100/50): {}",
             metrics.bandwidth_ratio
+        );
+    }
+
+    // ── Hub-as-member self-send interception ───────────────────────────
+
+    #[test]
+    fn hub_as_member_join_emits_local_member_joined_event() {
+        // When local node is BOTH hub and group creator, a remote Join should
+        // produce a local GroupMemberJoined event (not a SendEnvelope to self).
+        let (hub_id, hub_secret) = keypair(200);
+        let (bob_id, bob_secret) = keypair(201);
+
+        let mut state = RuntimeState::new(
+            hub_id,
+            hub_secret,
+            RuntimeConfig {
+                encryption: false,
+                ..Default::default()
+            },
+        );
+
+        // Create group locally (hub=self)
+        let effects = state.handle_command(RuntimeCommand::CreateGroup {
+            name: "SelfHubTest".to_string(),
+            hub_relay_id: hub_id,
+            initial_members: vec![bob_id],
+        });
+        // Should emit GroupCreated event locally (no SendEnvelope to self)
+        let has_created_event = effects.iter().any(|e| {
+            matches!(e, RuntimeEffect::Emit(ProtocolEvent::GroupCreated { .. }))
+        });
+        assert!(
+            has_created_event,
+            "CreateGroup with hub=self should emit GroupCreated locally, got: {effects:?}"
+        );
+        // Should NOT have SendEnvelope to self
+        let has_self_send = effects.iter().any(|e| {
+            matches!(e, RuntimeEffect::SendEnvelope(env) if env.to == hub_id)
+        });
+        assert!(
+            !has_self_send,
+            "CreateGroup with hub=self should NOT produce SendEnvelope to self"
+        );
+
+        // Get group_id
+        let gid = state.group_hub.groups().next().unwrap().0.clone();
+
+        // Bob joins via network
+        let join_payload = crate::group::GroupPayload::Join {
+            group_id: gid.clone(),
+            username: "bob".into(),
+        };
+        let join_bytes = rmp_serde::to_vec(&join_payload).unwrap();
+        let join_env = EnvelopeBuilder::new(
+            bob_id,
+            hub_id,
+            MessageType::GroupJoin,
+            join_bytes,
+        )
+        .sign(&bob_secret);
+
+        let join_effects = state.handle_incoming_group(join_env);
+
+        // Should emit GroupMemberJoined event LOCALLY (via interception)
+        let has_member_joined = join_effects.iter().any(|e| {
+            matches!(e, RuntimeEffect::Emit(ProtocolEvent::GroupMemberJoined { member, .. })
+                if member.node_id == bob_id)
+        });
+        assert!(
+            has_member_joined,
+            "Join when hub=self should emit local GroupMemberJoined, got: {join_effects:?}"
+        );
+
+        // Should NOT have SendEnvelope(GroupMemberJoined) to self
+        let has_member_joined_self_send = join_effects.iter().any(|e| {
+            matches!(e, RuntimeEffect::SendEnvelope(env)
+                if env.to == hub_id && env.msg_type == MessageType::GroupMemberJoined)
+        });
+        assert!(
+            !has_member_joined_self_send,
+            "Join when hub=self should NOT SendEnvelope(MemberJoined) to self"
+        );
+
+        // Should still send Sync to bob (over network)
+        let has_sync_to_bob = join_effects.iter().any(|e| {
+            matches!(e, RuntimeEffect::SendEnvelope(env)
+                if env.to == bob_id && env.msg_type == MessageType::GroupSync)
+        });
+        assert!(
+            has_sync_to_bob,
+            "Join should send GroupSync to joiner (bob), got: {join_effects:?}"
+        );
+    }
+
+    #[test]
+    fn hub_as_member_group_message_fans_out_not_self_send() {
+        // When hub=self sends a group message, it should fan out to other
+        // members via network (not self-send to hub).
+        let (hub_id, hub_secret) = keypair(210);
+        let (bob_id, bob_secret) = keypair(211);
+
+        let mut state = RuntimeState::new(
+            hub_id,
+            hub_secret,
+            RuntimeConfig {
+                encryption: false,
+                ..Default::default()
+            },
+        );
+
+        // Create group locally (hub=self)
+        state.handle_command(RuntimeCommand::CreateGroup {
+            name: "MsgTest".to_string(),
+            hub_relay_id: hub_id,
+            initial_members: vec![bob_id],
+        });
+        let gid = state.group_hub.groups().next().unwrap().0.clone();
+
+        // Bob joins via network (full flow to populate both hub and manager)
+        let join_payload = crate::group::GroupPayload::Join {
+            group_id: gid.clone(),
+            username: "bob".into(),
+        };
+        let join_bytes = rmp_serde::to_vec(&join_payload).unwrap();
+        let join_env = EnvelopeBuilder::new(
+            bob_id,
+            hub_id,
+            MessageType::GroupJoin,
+            join_bytes,
+        )
+        .sign(&bob_secret);
+        state.handle_incoming_group(join_env);
+
+        // Send group message from hub (who is also a member)
+        let effects = state.handle_command(RuntimeCommand::SendGroupMessage {
+            group_id: gid.clone(),
+            text: "hello from hub".to_string(),
+        });
+
+        // Should send to bob (network)
+        let sends_to_bob: Vec<_> = effects.iter().filter(|e| {
+            matches!(e, RuntimeEffect::SendEnvelope(env)
+                if env.to == bob_id && env.msg_type == MessageType::GroupMessage)
+        }).collect();
+        assert!(
+            !sends_to_bob.is_empty(),
+            "Group message from hub should fan out to bob, got: {effects:?}"
+        );
+
+        // Should NOT self-send to hub
+        let self_sends: Vec<_> = effects.iter().filter(|e| {
+            matches!(e, RuntimeEffect::SendEnvelope(env)
+                if env.to == hub_id)
+        }).collect();
+        assert!(
+            self_sends.is_empty(),
+            "Group message from hub should NOT produce SendEnvelope to self, got self-sends: {self_sends:?}"
         );
     }
 }
