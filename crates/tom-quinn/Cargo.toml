@@ -102,39 +102,9 @@ tracing-log = [
 name = "tom_quinn"
 path = "src/lib.rs"
 
-[[example]]
-name = "client"
-path = "examples/client.rs"
-required-features = ["rustls-ring"]
+# Examples removed — forked from iroh-quinn, examples not copied
 
-[[example]]
-name = "connection"
-path = "examples/connection.rs"
-required-features = ["rustls-ring"]
-
-[[example]]
-name = "insecure_connection"
-path = "examples/insecure_connection.rs"
-required-features = ["rustls-ring"]
-
-[[example]]
-name = "server"
-path = "examples/server.rs"
-required-features = ["rustls-ring"]
-
-[[example]]
-name = "single_socket"
-path = "examples/single_socket.rs"
-required-features = ["rustls-ring"]
-
-[[test]]
-name = "many_connections"
-path = "tests/many_connections.rs"
-
-[[test]]
-name = "post_quantum"
-path = "tests/post_quantum.rs"
-required-features = ["__rustls-post-quantum-test"]
+# Tests removed — forked from iroh-quinn, integration tests not copied
 
 [[bench]]
 name = "bench"
