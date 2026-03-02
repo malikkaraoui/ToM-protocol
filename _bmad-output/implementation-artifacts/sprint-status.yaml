@@ -165,3 +165,13 @@ development_status:
   r6-tom-stress-campaign: done       # Campaign V6 (7 phases: ping/burst/e2e/group/failover/roles/endurance)
   r6-cross-border-validation: done   # Mac (Suisse) ↔ NAS (France), direct upgrade 27ms
   r6-scenario-automation: done       # 6 self-contained scenarios + runner + chaos (randomized multi-node)
+
+  # Phase R7: Fork + Bootstrap Elimination
+  rust-phase-7: done
+  r7-1-dht-poc: done                   # DHT PoC (Mainline BEP-0044), validated on existing stack
+  r7-2-fork-preparation: done          # Crate skeletons, API boundaries documented
+  r7-3-the-fork: done                  # tom-connect (~15K), tom-relay (~8K), tom-gossip (~5K), tom-metrics, tom-base, tom-quinn (6.5K), tom-quinn-proto (41K)
+  r7-4-integration: done               # Own relay on NAS (3340), n0_discovery flag, self-send interception, 232/232 Mac↔NAS campaigns
+  r7-fork-remaining: done              # iroh-quinn-udp (netwatch compat) + iroh-metrics (relay Prometheus) — intentional, not forked
+  r7-self-send-fix: done               # Hub self-send interception when hub==local_id (3 unit tests)
+  r7-campaign-v5-pump-fix: done        # Channel pump fix — 250/250 Mac↔NAS, rate limit 5msg/s/sender

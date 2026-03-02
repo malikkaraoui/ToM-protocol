@@ -231,9 +231,12 @@ If any of these commands return results, **review carefully** before merge.
 
 ## History
 
-- **2026-02-27**: Initial fork (R7.3) - 33,539 lines from iroh v0.96.0
+- **2026-02-27**: Initial fork (R7.3) — 33,539 lines from iroh v0.96.0
 - **2026-02-27**: Review prompt created, findings documented
 - **2026-02-27**: This governance doc created to prevent regressions
+- **2026-02-27**: R7.4 — tom-base (831 LOC), tom-quinn (6.5K), tom-quinn-proto (41K) forked
+- **2026-03-01**: Hub self-send interception fix (hub==local_id edge case)
+- **2026-03-02**: Phase R7 finalized — all forks operational, 232/232 Mac↔NAS campaigns passing
 
 ---
 
