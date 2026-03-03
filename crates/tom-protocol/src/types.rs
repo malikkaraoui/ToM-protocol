@@ -44,6 +44,7 @@ pub enum MessageType {
 /// Delivery status pipeline for a message.
 ///
 /// Follows the progression: Pending -> Sent -> Relayed -> Delivered -> Read.
+/// `Failed` is a terminal state set explicitly after ACK timeout + retries exhausted.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub enum MessageStatus {
     Pending = 0,
@@ -51,6 +52,7 @@ pub enum MessageStatus {
     Relayed = 2,
     Delivered = 3,
     Read = 4,
+    Failed = 5,
 }
 
 /// Maximum relay depth (hops) for a message.
