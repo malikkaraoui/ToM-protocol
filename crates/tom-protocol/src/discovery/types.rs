@@ -110,6 +110,8 @@ pub enum DiscoverySource {
     Gossip,
     /// Peer announced itself.
     Announce,
+    /// Discovered via DHT (BEP-0044) lookup.
+    Dht,
 }
 
 // ── LivenessState ────────────────────────────────────────────────────────
@@ -186,7 +188,7 @@ mod tests {
 
     #[test]
     fn discovery_source_roundtrip() {
-        for source in [DiscoverySource::Direct, DiscoverySource::Gossip, DiscoverySource::Announce] {
+        for source in [DiscoverySource::Direct, DiscoverySource::Gossip, DiscoverySource::Announce, DiscoverySource::Dht] {
             let bytes = rmp_serde::to_vec(&source).expect("serialize");
             let decoded: DiscoverySource = rmp_serde::from_slice(&bytes).expect("deserialize");
             assert_eq!(source, decoded);

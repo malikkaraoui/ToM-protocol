@@ -4976,10 +4976,10 @@ name = "tom-dht"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "futures-lite",
  "mainline",
  "serde",
  "serde_json",
- "sha1 0.10.6",
  "tokio",
  "tracing",
 ]

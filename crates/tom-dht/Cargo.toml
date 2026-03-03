@@ -2,14 +2,14 @@
 name = "tom-dht"
 version = "0.1.0"
 edition = "2021"
-description = "DHT discovery for ToM Protocol"
+description = "DHT discovery for ToM Protocol (BEP-0044 mutable storage)"
 license = "MIT"
 
 [dependencies]
-mainline = "6.1"  # Mainline DHT (BEP-0044)
-sha1 = "0.10"     # NodeId → DHT key hashing
+mainline = "6.1"  # Mainline DHT (BEP-0044) — re-exports SigningKey
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 anyhow = "1"
 tokio = { version = "1", features = ["full"] }
 tracing = "0.1"
+futures-lite = "2"  # StreamExt for get_mutable stream
