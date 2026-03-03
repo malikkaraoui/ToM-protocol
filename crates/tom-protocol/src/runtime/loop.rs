@@ -57,6 +57,7 @@ pub(super) async fn runtime_loop(
     let mut role_eval = tokio::time::interval(std::time::Duration::from_secs(60));
     let mut state_save = tokio::time::interval(std::time::Duration::from_secs(30));
     let mut dht_republish = tokio::time::interval(std::time::Duration::from_secs(30 * 60));
+    let mut delivery_deadline = tokio::time::interval(std::time::Duration::from_secs(5));
 
     // Skip the immediate first tick
     cache_cleanup.tick().await;
@@ -70,6 +71,7 @@ pub(super) async fn runtime_loop(
     role_eval.tick().await;
     state_save.tick().await;
     dht_republish.tick().await;
+    delivery_deadline.tick().await;
 
     // ── Gossip subscription ──────────────────────────────────────────
     let topic_id = tom_gossip::TopicId::from_bytes(TOM_GOSSIP_TOPIC);
@@ -264,6 +266,9 @@ pub(super) async fn runtime_loop(
                 state.publish_to_dht(&secret_seed, relay_urls, direct_addrs).await;
                 Vec::new()
             }
+
+            // ── 15. Timer: delivery deadline check (5s) ────
+            _ = delivery_deadline.tick() => state.tick_delivery_deadlines(),
 
             else => break,
         };
