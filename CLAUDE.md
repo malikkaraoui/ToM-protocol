@@ -362,6 +362,7 @@ TomNodeConfig::new().n0_discovery(false).bind().await?;
 | R7 | Fork + Bootstrap Elimination | ✅ Complete |
 | R8 | Production Hardening | ✅ Complete |
 | R9 | Consolidation (DHT, delivery reliability) | ✅ Complete |
+| R10 | Group Recovery (rejoin, tracker persistence, liveness reset) | ✅ Complete |
 
 ### Stress Test Results
 - Campaign V5: 250/250 Mac ↔ NAS (100% success)
