@@ -56,6 +56,8 @@ pub struct RuntimeConfig {
     pub enable_dht: bool,
     /// Directory for persistent state (SQLite). None = ephemeral (no persistence).
     pub data_dir: Option<PathBuf>,
+    /// Anti-spam configuration (progressive rate limiting).
+    pub antispam_config: crate::roles::AntiSpamConfig,
 }
 
 impl Default for RuntimeConfig {
@@ -73,6 +75,7 @@ impl Default for RuntimeConfig {
             shadow_ping_interval: Duration::from_secs(3),
             enable_dht: true, // Phase R7.1: Enable by default
             data_dir: None,
+            antispam_config: crate::roles::AntiSpamConfig::default(),
         }
     }
 }
@@ -271,6 +274,13 @@ pub enum ProtocolEvent {
         message_id: String,
         to: NodeId,
         last_status: crate::types::MessageStatus,
+    },
+    // ── Anti-spam events ─────────────────────────────
+    /// A sender was throttled by progressive rate limiting.
+    SenderThrottled {
+        node_id: NodeId,
+        score: f64,
+        current_rate: f64,
     },
 }
 

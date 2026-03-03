@@ -92,6 +92,9 @@ pub struct RuntimeState {
 
     // Phase R9.2: Envelope cache for ACK-timeout retry
     pub(crate) pending_envelopes: std::collections::HashMap<String, crate::envelope::Envelope>,
+
+    // Phase R11.1: Progressive anti-spam
+    pub(crate) antispam: crate::roles::AntiSpam,
 }
 
 impl RuntimeState {
@@ -188,6 +191,7 @@ impl RuntimeState {
             local_roles: vec![PeerRole::Peer],
             role_announce_throttle: std::collections::HashMap::new(),
             dht,
+            antispam: crate::roles::AntiSpam::new(config.antispam_config.clone()),
             local_id,
             secret_seed,
             config,
@@ -980,11 +984,35 @@ impl RuntimeState {
     /// Parses the envelope, verifies signature, auto-registers the peer,
     /// records heartbeat, then dispatches to the appropriate handler.
     pub fn handle_incoming(&mut self, raw_data: &[u8]) -> Vec<RuntimeEffect> {
+        // Anti-spam: size check BEFORE parse (save CPU on oversized envelopes)
+        if let Err(reason) = crate::roles::AntiSpam::validate_size(
+            raw_data,
+            self.config.antispam_config.max_envelope_size,
+        ) {
+            return vec![RuntimeEffect::Emit(ProtocolEvent::MessageRejected { reason })];
+        }
+
         // Parse envelope
         let envelope = match Envelope::from_bytes(raw_data) {
             Ok(e) => e,
             Err(_) => return Vec::new(),
         };
+
+        // Anti-spam: rate check AFTER parse (need sender), BEFORE sig verify (save CPU)
+        let now = now_ms();
+        let sender_score = self.role_manager.score(&envelope.from, now);
+        if let Err(_reason) = self.antispam.check_rate(envelope.from, sender_score, now) {
+            let current_rate = self.antispam.compute_rate(sender_score);
+            return vec![RuntimeEffect::Emit(ProtocolEvent::SenderThrottled {
+                node_id: envelope.from,
+                score: sender_score,
+                current_rate,
+            })];
+        }
+
+        // Track bytes received (fixes bandwidth_ratio calculation)
+        self.role_manager
+            .record_bytes_received(envelope.from, raw_data.len() as u64, now);
 
         // Verify signature
         let signature_valid = if envelope.is_signed() {
@@ -3423,5 +3451,86 @@ mod tests {
             self_sends.is_empty(),
             "Heartbeat should NOT produce SendEnvelope to self, got: {self_sends:?}"
         );
+    }
+
+    // ── Anti-spam integration tests (R11.1) ─────────────────────────────
+
+    #[test]
+    fn antispam_handle_incoming_rejects_oversized() {
+        let mut state = default_state(1);
+        let huge = vec![0u8; 512 * 1024]; // 512 KB > 256 KB limit
+        let effects = state.handle_incoming(&huge);
+
+        let rejected = effects.iter().any(|e| {
+            matches!(e, RuntimeEffect::Emit(ProtocolEvent::MessageRejected { .. }))
+        });
+        assert!(rejected, "oversized envelope should be rejected: {effects:?}");
+    }
+
+    #[test]
+    fn antispam_handle_incoming_throttles_spammer() {
+        let mut state = default_state(1);
+        let (sender_id, sender_secret) = keypair(42);
+        // Spammer has score=0 → min_rate=2, burst=4
+
+        let env = crate::envelope::EnvelopeBuilder::new(
+            sender_id,
+            state.local_id,
+            MessageType::Chat,
+            b"spam".to_vec(),
+        )
+        .sign(&sender_secret);
+        let raw = env.to_bytes().expect("serialize");
+
+        // Send rapid burst — first 4 should pass (burst), rest throttled
+        let mut throttled = 0;
+        for _ in 0..10 {
+            let effects = state.handle_incoming(raw.as_slice());
+            if effects.iter().any(|e| {
+                matches!(e, RuntimeEffect::Emit(ProtocolEvent::SenderThrottled { .. }))
+            }) {
+                throttled += 1;
+            }
+        }
+
+        assert!(throttled > 0, "spammer should be throttled after burst");
+        assert!(throttled >= 6, "expected ~6 throttled, got {throttled}");
+    }
+
+    #[test]
+    fn antispam_handle_incoming_records_bytes_received() {
+        let mut state = default_state(1);
+        let (sender_id, sender_secret) = keypair(43);
+
+        let env = crate::envelope::EnvelopeBuilder::new(
+            sender_id,
+            state.local_id,
+            MessageType::Chat,
+            b"hello".to_vec(),
+        )
+        .sign(&sender_secret);
+        let raw = env.to_bytes().expect("serialize");
+
+        let before = state
+            .role_manager
+            .scores()
+            .get(&sender_id)
+            .map(|m| m.bytes_received)
+            .unwrap_or(0);
+
+        state.handle_incoming(raw.as_slice());
+
+        let after = state
+            .role_manager
+            .scores()
+            .get(&sender_id)
+            .map(|m| m.bytes_received)
+            .unwrap_or(0);
+
+        assert!(
+            after > before,
+            "bytes_received should be tracked: before={before}, after={after}"
+        );
+        assert_eq!(after - before, raw.len() as u64);
     }
 }
