@@ -259,6 +259,19 @@ pub enum ProtocolEvent {
         message_id: String,
         recipient_id: NodeId,
     },
+    // ── Delivery events ─────────────────────────────
+    /// A message delivery was retried after ACK timeout.
+    DeliveryRetry {
+        message_id: String,
+        to: NodeId,
+        attempt: u8,
+    },
+    /// A message delivery failed after all retries exhausted.
+    DeliveryTimeout {
+        message_id: String,
+        to: NodeId,
+        last_status: crate::types::MessageStatus,
+    },
 }
 
 // ── RuntimeHandle (app-facing API) ───────────────────────────────────
