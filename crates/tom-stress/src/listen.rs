@@ -1,4 +1,5 @@
 use crate::common::{setup_ctrlc, spawn_path_monitor};
+use crate::common::node_direct_addrs;
 use crate::events::{emit, now_ms, EventStarted};
 use std::sync::atomic::Ordering;
 use std::time::Instant;
@@ -7,7 +8,7 @@ use tom_transport::{MessageEnvelope, TomNode};
 pub async fn run(mut node: TomNode, name: &str, start: Instant) -> anyhow::Result<()> {
     let my_id = node.id();
 
-    emit(&EventStarted::new(name, &my_id.to_string(), "listen"));
+    emit(&EventStarted::new(name, &my_id.to_string(), "listen", node_direct_addrs(&node)));
     eprintln!("Listening as {name} — ID: {my_id}");
     eprintln!("Press Ctrl+C to stop.\n");
 

@@ -68,12 +68,12 @@ if [ ! -x "$BINARY" ]; then
 fi
 echo ""
 
-# Start listener in background
+# Start listener in background (no discovery — localhost only)
 echo "Starting listener..."
-"$BINARY" --name Listener listen > /tmp/tom-stress-listener.jsonl 2>/dev/null &
+"$BINARY" --no-n0-discovery --name Listener listen > /tmp/tom-stress-listener.jsonl 2>/dev/null &
 LISTENER_PID=$!
 
-# Wait for listener to emit "started" event (iroh relay connect can take a few seconds)
+# Wait for listener to emit "started" event
 for i in $(seq 1 60); do
     if grep -q '"event":"started"' /tmp/tom-stress-listener.jsonl 2>/dev/null; then
         break
@@ -81,11 +81,23 @@ for i in $(seq 1 60); do
     sleep 0.5
 done
 
-# Extract listener's NodeId from the started event
+# Extract listener's NodeId and direct address from the started event
 LISTENER_ID=$(head -1 /tmp/tom-stress-listener.jsonl | python3 -c "
 import sys, json
 data = json.load(sys.stdin)
 print(data['id'])
+" 2>/dev/null || echo "")
+
+LISTENER_ADDR=$(head -1 /tmp/tom-stress-listener.jsonl | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+addrs = data.get('addrs', [])
+# Prefer 127.0.0.1, fall back to first available
+for a in addrs:
+    if a.startswith('127.0.0.1:'):
+        print(a); break
+else:
+    if addrs: print(addrs[0])
 " 2>/dev/null || echo "")
 
 if [ -z "$LISTENER_ID" ]; then
@@ -95,17 +107,28 @@ if [ -z "$LISTENER_ID" ]; then
     exit 1
 fi
 echo "  Listener ID: ${LISTENER_ID:0:16}..."
+if [ -n "$LISTENER_ADDR" ]; then
+    echo "  Listener addr: $LISTENER_ADDR"
+fi
 echo ""
+
+# Build common flags for client commands
+CLIENT_FLAGS="--no-n0-discovery"
+if [ -n "$LISTENER_ADDR" ]; then
+    CLIENT_FLAGS="$CLIENT_FLAGS --target-addr $LISTENER_ADDR"
+fi
 
 # --- Test 1: Ping ---
 echo "Test 1: Ping (3 pings, 200ms delay)"
-run_with_timeout "$BINARY" --name Pinger ping --connect "$LISTENER_ID" --count 3 --delay 200 \
+run_with_timeout "$BINARY" $CLIENT_FLAGS --name Pinger ping --connect "$LISTENER_ID" --count 3 --delay 200 \
     > /tmp/tom-stress-ping.jsonl 2>/dev/null || true
 
-PING_STARTED=$(grep -c '"event":"started"' /tmp/tom-stress-ping.jsonl || echo 0)
+PING_STARTED=$(grep -c '"event":"started"' /tmp/tom-stress-ping.jsonl 2>/dev/null || true)
+PING_STARTED=${PING_STARTED:-0}
 PING_EVENTS=$(grep -c '"event":"ping"' /tmp/tom-stress-ping.jsonl 2>/dev/null || true)
 PING_EVENTS=${PING_EVENTS:-0}
-PING_SUMMARY=$(grep -c '"event":"summary"' /tmp/tom-stress-ping.jsonl || echo 0)
+PING_SUMMARY=$(grep -c '"event":"summary"' /tmp/tom-stress-ping.jsonl 2>/dev/null || true)
+PING_SUMMARY=${PING_SUMMARY:-0}
 
 check "ping: started event emitted" "$([ "$PING_STARTED" -ge 1 ] && echo 0 || echo 1)"
 check "ping: summary emitted" "$([ "$PING_SUMMARY" -ge 1 ] && echo 0 || echo 1)"
@@ -123,10 +146,11 @@ echo ""
 
 # --- Test 2: Burst ---
 echo "Test 2: Burst (5 envelopes, 512B payload)"
-run_with_timeout "$BINARY" --name Burster burst --connect "$LISTENER_ID" --count 5 --payload-size 512 \
+run_with_timeout "$BINARY" $CLIENT_FLAGS --name Burster burst --connect "$LISTENER_ID" --count 5 --payload-size 512 \
     > /tmp/tom-stress-burst.jsonl 2>/dev/null || true
 
-BURST_RESULT=$(grep -c '"event":"burst_result"' /tmp/tom-stress-burst.jsonl || echo 0)
+BURST_RESULT=$(grep -c '"event":"burst_result"' /tmp/tom-stress-burst.jsonl 2>/dev/null || true)
+BURST_RESULT=${BURST_RESULT:-0}
 check "burst: burst_result emitted" "$([ "$BURST_RESULT" -ge 1 ] && echo 0 || echo 1)"
 
 # Check some messages were acked
@@ -143,10 +167,11 @@ echo ""
 
 # --- Test 3: Ladder ---
 echo "Test 3: Ladder (2 sizes, 2 reps)"
-run_with_timeout "$BINARY" --name Ladder ladder --connect "$LISTENER_ID" --sizes 1024,4096 --reps 2 --delay 200 \
+run_with_timeout "$BINARY" $CLIENT_FLAGS --name Ladder ladder --connect "$LISTENER_ID" --sizes 1024,4096 --reps 2 --delay 200 \
     > /tmp/tom-stress-ladder.jsonl 2>/dev/null || true
 
-LADDER_RESULTS=$(grep -c '"event":"ladder_result"' /tmp/tom-stress-ladder.jsonl || echo 0)
+LADDER_RESULTS=$(grep -c '"event":"ladder_result"' /tmp/tom-stress-ladder.jsonl 2>/dev/null || true)
+LADDER_RESULTS=${LADDER_RESULTS:-0}
 check "ladder: ladder_result events ($LADDER_RESULTS)" "$([ "$LADDER_RESULTS" -ge 2 ] && echo 0 || echo 1)"
 echo ""
 

@@ -34,16 +34,18 @@ pub struct EventStarted {
     pub name: String,
     pub id: String,
     pub mode: String,
+    pub addrs: Vec<String>,
     pub timestamp: String,
 }
 
 impl EventStarted {
-    pub fn new(name: &str, id: &str, mode: &str) -> Self {
+    pub fn new(name: &str, id: &str, mode: &str, addrs: Vec<String>) -> Self {
         Self {
             event: "started",
             name: name.to_string(),
             id: id.to_string(),
             mode: mode.to_string(),
+            addrs,
             timestamp: now_iso(),
         }
     }

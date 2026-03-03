@@ -1,4 +1,4 @@
-use crate::common::{elapsed_s, generate_payload};
+use crate::common::{elapsed_s, generate_payload, node_direct_addrs};
 use crate::events::*;
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
@@ -20,7 +20,7 @@ pub async fn run(
 ) -> anyhow::Result<()> {
     let my_id = node.id();
 
-    emit(&EventStarted::new(&config.name, &my_id.to_string(), "burst"));
+    emit(&EventStarted::new(&config.name, &my_id.to_string(), "burst", node_direct_addrs(&node)));
     eprintln!(
         "Burst mode → target: {}, {} msgs x {} bytes, {} rounds",
         config.target, config.count, config.payload_size, config.rounds

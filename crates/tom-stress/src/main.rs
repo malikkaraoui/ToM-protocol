@@ -54,6 +54,11 @@ struct Cli {
     #[arg(long)]
     data_dir: Option<String>,
 
+    /// Direct socket address of the connect target (ip:port).
+    /// Used with --no-n0-discovery for local tests without relay/discovery.
+    #[arg(long)]
+    target_addr: Option<String>,
+
     /// Auto-archive output to this directory.
     /// Creates timestamped .jsonl and .log files (never overwrites).
     #[arg(long)]
@@ -310,6 +315,26 @@ async fn main() -> anyhow::Result<()> {
 
     eprintln!("Node ID: {}", node.id());
     eprintln!();
+
+    // Register target's direct address for local connectivity (no relay/discovery needed)
+    if let Some(ref addr_str) = cli.target_addr {
+        let target_id = match &cli.command {
+            Command::Ping { connect, .. }
+            | Command::Burst { connect, .. }
+            | Command::Ladder { connect, .. } => Some(parse_node_id(connect)?),
+            Command::Fanout { targets, .. } => targets.first().map(|s| parse_node_id(s)).transpose()?,
+            _ => None,
+        };
+        if let Some(target) = target_id {
+            let sock_addr: std::net::SocketAddr = addr_str
+                .parse()
+                .map_err(|e| anyhow::anyhow!("invalid --target-addr '{addr_str}': {e}"))?;
+            let endpoint_addr =
+                tom_transport::EndpointAddr::new(*target.as_endpoint_id()).with_ip_addr(sock_addr);
+            node.add_peer_addr(endpoint_addr).await;
+            eprintln!("Registered target addr: {sock_addr}");
+        }
+    }
 
     match cli.command {
         Command::Listen => {

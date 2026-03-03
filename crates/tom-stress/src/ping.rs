@@ -1,4 +1,4 @@
-use crate::common::{elapsed_s, setup_ctrlc, spawn_path_monitor};
+use crate::common::{elapsed_s, node_direct_addrs, setup_ctrlc, spawn_path_monitor};
 use crate::events::*;
 use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
@@ -44,7 +44,7 @@ pub async fn run(
 ) -> anyhow::Result<()> {
     let my_id = node.id();
 
-    emit(&EventStarted::new(&config.name, &my_id.to_string(), "ping"));
+    emit(&EventStarted::new(&config.name, &my_id.to_string(), "ping", node_direct_addrs(&node)));
     eprintln!("Ping mode → target: {}", config.target);
 
     let running = setup_ctrlc();
