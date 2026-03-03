@@ -9,7 +9,9 @@
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
-use crate::types::{MessageStatus, NodeId};
+use serde::{Deserialize, Serialize};
+
+use crate::types::{now_ms, MessageStatus, NodeId};
 
 /// Maximum number of tracked messages (DoS protection).
 const MAX_TRACKED: usize = 10_000;
@@ -214,6 +216,61 @@ impl MessageTracker {
             previous,
             current: new_status,
         })
+    }
+}
+
+/// Serializable record for persistence (Instant → u64 ms since epoch).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TrackedMessageRecord {
+    pub to: NodeId,
+    pub status: MessageStatus,
+    pub created_ms: u64,
+    pub retries_remaining: u8,
+}
+
+impl MessageTracker {
+    /// Export active (non-terminal) messages for persistence.
+    ///
+    /// Only messages with status < Delivered are included (Pending, Sent, Relayed).
+    /// Delivered/Read/Failed messages are not worth persisting — they're done.
+    pub fn snapshot(&self) -> HashMap<String, TrackedMessageRecord> {
+        let epoch_now = now_ms();
+        self.messages
+            .iter()
+            .filter(|(_, m)| m.status < MessageStatus::Delivered && m.status != MessageStatus::Failed)
+            .map(|(id, m)| {
+                let created_ms = epoch_now.saturating_sub(m.created.elapsed().as_millis() as u64);
+                (
+                    id.clone(),
+                    TrackedMessageRecord {
+                        to: m.to,
+                        status: m.status,
+                        created_ms,
+                        retries_remaining: m.retries_remaining,
+                    },
+                )
+            })
+            .collect()
+    }
+
+    /// Restore tracked messages from persistence.
+    ///
+    /// Deadlines are reset to `now + DEFAULT_ACK_DEADLINE_SECS` since wall-clock
+    /// time has passed during the downtime. Retries are preserved as-is.
+    pub fn restore(&mut self, records: HashMap<String, TrackedMessageRecord>) {
+        let now = Instant::now();
+        for (id, record) in records {
+            self.messages.insert(
+                id,
+                TrackedMessage {
+                    status: record.status,
+                    to: record.to,
+                    created: now,
+                    deadline: Some(now + Duration::from_secs(DEFAULT_ACK_DEADLINE_SECS)),
+                    retries_remaining: record.retries_remaining,
+                },
+            );
+        }
     }
 }
 
@@ -424,5 +481,54 @@ mod tests {
         // (even if they somehow had a deadline)
         let expired = tracker.expired_deadlines();
         assert!(expired.is_empty());
+    }
+
+    // ── R10.2: Snapshot/restore tests ──────────────────────────────────
+
+    #[test]
+    fn snapshot_excludes_delivered_and_failed() {
+        let mut tracker = MessageTracker::new();
+        let bob = node_id(2);
+
+        tracker.track("pending".into(), bob);
+        tracker.track("sent".into(), bob);
+        tracker.mark_sent("sent");
+        tracker.track("delivered".into(), bob);
+        tracker.mark_delivered("delivered");
+        tracker.track("failed".into(), bob);
+        tracker.mark_failed("failed");
+
+        let snap = tracker.snapshot();
+        // Only Pending and Sent should be in snapshot
+        assert_eq!(snap.len(), 2);
+        assert!(snap.contains_key("pending"));
+        assert!(snap.contains_key("sent"));
+        assert!(!snap.contains_key("delivered"));
+        assert!(!snap.contains_key("failed"));
+    }
+
+    #[test]
+    fn restore_resets_deadlines() {
+        let bob = node_id(2);
+        let mut records = HashMap::new();
+        records.insert(
+            "msg-1".to_string(),
+            TrackedMessageRecord {
+                to: bob,
+                status: MessageStatus::Sent,
+                created_ms: 1000000,
+                retries_remaining: 1,
+            },
+        );
+
+        let mut tracker = MessageTracker::new();
+        tracker.restore(records);
+
+        assert_eq!(tracker.len(), 1);
+        assert_eq!(tracker.status("msg-1"), Some(MessageStatus::Sent));
+
+        // Should have a fresh deadline (not expired yet)
+        let expired = tracker.expired_deadlines();
+        assert!(expired.is_empty(), "restored message should have fresh deadline");
     }
 }

@@ -1372,4 +1372,57 @@ mod tests {
             .any(|a| matches!(a, GroupAction::Broadcast { payload: GroupPayload::HubMigration { .. }, .. }));
         assert!(has_migration, "unreachable + 1 ping failure should promote");
     }
+
+    // ── R10.1: Rejoin tests ──────────────────────────────────────────
+
+    #[test]
+    fn rejoin_groups_sends_join_to_each_hub() {
+        let alice = node_id(1);
+        let hub1 = node_id(10);
+        let hub2 = node_id(20);
+
+        let mut mgr = GroupManager::new(alice, "alice".into());
+
+        // Simulate restored groups (normally done via restore())
+        let mut g1 = make_test_group(alice, hub1);
+        g1.group_id = GroupId::from("grp-1".to_string());
+        let mut g2 = make_test_group(alice, hub2);
+        g2.group_id = GroupId::from("grp-2".to_string());
+        let gid1 = g1.group_id.clone();
+        let gid2 = g2.group_id.clone();
+        mgr.groups.insert(gid1.clone(), g1);
+        mgr.groups.insert(gid2.clone(), g2);
+
+        let actions = mgr.rejoin_groups();
+        assert_eq!(actions.len(), 2);
+
+        // Verify each action is a Join to the correct hub
+        for action in &actions {
+            match action {
+                GroupAction::Send { to, payload } => {
+                    match payload {
+                        GroupPayload::Join { group_id, username } => {
+                            assert_eq!(username, "alice");
+                            if group_id == &gid1 {
+                                assert_eq!(*to, hub1);
+                            } else if group_id == &gid2 {
+                                assert_eq!(*to, hub2);
+                            } else {
+                                panic!("unexpected group_id: {group_id}");
+                            }
+                        }
+                        other => panic!("expected Join, got: {other:?}"),
+                    }
+                }
+                other => panic!("expected Send, got: {other:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn rejoin_groups_empty_when_no_groups() {
+        let alice = node_id(1);
+        let mgr = GroupManager::new(alice, "alice".into());
+        assert!(mgr.rejoin_groups().is_empty());
+    }
 }

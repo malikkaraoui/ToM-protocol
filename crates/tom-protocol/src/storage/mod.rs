@@ -15,7 +15,8 @@ use crate::group::{GroupHubSnapshot, GroupId, GroupInfo, GroupManagerSnapshot};
 use crate::group::SenderKeyEntry;
 use crate::relay::{PeerInfo, PeerRole, PeerStatus};
 use crate::roles::ContributionMetrics;
-use crate::types::NodeId;
+use crate::tracker::TrackedMessageRecord;
+use crate::types::{MessageStatus, NodeId};
 
 /// SQLite-backed state store.
 ///
@@ -32,6 +33,7 @@ pub struct StateSnapshot {
     pub hub: Option<GroupHubSnapshot>,
     pub peers: HashMap<NodeId, PeerInfo>,
     pub metrics: HashMap<NodeId, ContributionMetrics>,
+    pub tracked_messages: HashMap<String, TrackedMessageRecord>,
 }
 
 impl StateStore {
@@ -79,6 +81,7 @@ impl StateStore {
 
         self.save_peers_tx(&tx, &snapshot.peers)?;
         self.save_metrics_tx(&tx, &snapshot.metrics)?;
+        self.save_tracked_messages_tx(&tx, &snapshot.tracked_messages)?;
 
         tx.commit()?;
         Ok(())
@@ -192,6 +195,28 @@ impl StateStore {
         Ok(())
     }
 
+    fn save_tracked_messages_tx(
+        &self,
+        tx: &rusqlite::Transaction,
+        messages: &HashMap<String, TrackedMessageRecord>,
+    ) -> Result<(), rusqlite::Error> {
+        tx.execute("DELETE FROM tracked_messages", [])?;
+        let mut stmt = tx.prepare(
+            "INSERT INTO tracked_messages (message_id, to_node_id, status, created_ms, retries_remaining) \
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+        )?;
+        for (msg_id, record) in messages {
+            stmt.execute(rusqlite::params![
+                msg_id,
+                record.to.to_string(),
+                record.status as i32,
+                record.created_ms as i64,
+                record.retries_remaining as i32
+            ])?;
+        }
+        Ok(())
+    }
+
     // ── Load methods ────────────────────────────────────────────────────
 
     /// Load all persistent state.
@@ -202,6 +227,7 @@ impl StateStore {
         let hub_groups = Self::load_hub_groups(&conn)?;
         let peers = Self::load_peers(&conn)?;
         let metrics = Self::load_metrics(&conn)?;
+        let tracked_messages = Self::load_tracked_messages(&conn)?;
 
         let manager = if !groups.is_empty() || !local_keys.is_empty() {
             Some(GroupManagerSnapshot {
@@ -227,6 +253,7 @@ impl StateStore {
             hub,
             peers,
             metrics,
+            tracked_messages,
         })
     }
 
@@ -359,6 +386,48 @@ impl StateStore {
             }
         }
         Ok(metrics)
+    }
+
+    fn load_tracked_messages(
+        conn: &Connection,
+    ) -> Result<HashMap<String, TrackedMessageRecord>, rusqlite::Error> {
+        let mut stmt = conn.prepare(
+            "SELECT message_id, to_node_id, status, created_ms, retries_remaining FROM tracked_messages",
+        )?;
+        let mut messages = HashMap::new();
+        let rows = stmt.query_map([], |row| {
+            let msg_id: String = row.get(0)?;
+            let to: String = row.get(1)?;
+            let status: i32 = row.get(2)?;
+            let created_ms: i64 = row.get(3)?;
+            let retries: i32 = row.get(4)?;
+            Ok((msg_id, to, status, created_ms, retries))
+        })?;
+        for row in rows {
+            let (msg_id, to, status_int, created_ms, retries) = row?;
+            let Ok(to_id) = to.parse::<NodeId>() else {
+                continue;
+            };
+            let status = match status_int {
+                0 => MessageStatus::Pending,
+                1 => MessageStatus::Sent,
+                2 => MessageStatus::Relayed,
+                3 => MessageStatus::Delivered,
+                4 => MessageStatus::Read,
+                5 => MessageStatus::Failed,
+                _ => MessageStatus::Pending,
+            };
+            messages.insert(
+                msg_id,
+                TrackedMessageRecord {
+                    to: to_id,
+                    status,
+                    created_ms: created_ms as u64,
+                    retries_remaining: retries as u8,
+                },
+            );
+        }
+        Ok(messages)
     }
 }
 
@@ -576,6 +645,45 @@ mod tests {
     }
 
     #[test]
+    fn roundtrip_tracked_messages() {
+        let store = StateStore::open_memory().unwrap();
+        let bob = node_id(2);
+
+        let mut tracked = HashMap::new();
+        tracked.insert(
+            "msg-001".to_string(),
+            TrackedMessageRecord {
+                to: bob,
+                status: MessageStatus::Sent,
+                created_ms: 1000000,
+                retries_remaining: 2,
+            },
+        );
+        tracked.insert(
+            "msg-002".to_string(),
+            TrackedMessageRecord {
+                to: bob,
+                status: MessageStatus::Relayed,
+                created_ms: 1000500,
+                retries_remaining: 1,
+            },
+        );
+
+        let snapshot = StateSnapshot {
+            tracked_messages: tracked,
+            ..Default::default()
+        };
+        store.save(&snapshot).unwrap();
+        let loaded = store.load().unwrap();
+
+        assert_eq!(loaded.tracked_messages.len(), 2);
+        assert_eq!(loaded.tracked_messages["msg-001"].status, MessageStatus::Sent);
+        assert_eq!(loaded.tracked_messages["msg-001"].retries_remaining, 2);
+        assert_eq!(loaded.tracked_messages["msg-002"].status, MessageStatus::Relayed);
+        assert_eq!(loaded.tracked_messages["msg-002"].created_ms, 1000500);
+    }
+
+    #[test]
     fn empty_database_loads_empty() {
         let store = StateStore::open_memory().unwrap();
         let loaded = store.load().unwrap();
@@ -583,6 +691,7 @@ mod tests {
         assert!(loaded.hub.is_none());
         assert!(loaded.peers.is_empty());
         assert!(loaded.metrics.is_empty());
+        assert!(loaded.tracked_messages.is_empty());
     }
 
     #[test]

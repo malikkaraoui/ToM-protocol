@@ -133,6 +133,7 @@ impl RuntimeState {
         let mut group_hub = GroupHub::new(local_id);
         let mut topology = Topology::new();
         let mut role_manager = RoleManager::new(local_id);
+        let mut tracker = MessageTracker::new();
 
         if let Some(ref s) = store {
             match s.load() {
@@ -161,6 +162,11 @@ impl RuntimeState {
                         role_manager.restore_scores(snapshot.metrics);
                         tracing::info!("Restored {count} contribution metrics");
                     }
+                    if !snapshot.tracked_messages.is_empty() {
+                        let count = snapshot.tracked_messages.len();
+                        tracker.restore(snapshot.tracked_messages);
+                        tracing::info!("Restored {count} tracked messages");
+                    }
                 }
                 Err(e) => {
                     tracing::error!("Failed to load state: {e}");
@@ -172,7 +178,7 @@ impl RuntimeState {
             router: Router::new(local_id),
             relay_selector: RelaySelector::new(local_id),
             topology,
-            tracker: MessageTracker::new(),
+            tracker,
             heartbeat: HeartbeatTracker::new(),
             group_manager,
             group_hub,
@@ -232,6 +238,7 @@ impl RuntimeState {
             hub: Some(self.group_hub.snapshot()),
             peers: self.topology.peers_map().clone(),
             metrics: self.role_manager.scores().clone(),
+            tracked_messages: self.tracker.snapshot(),
         };
 
         if let Err(e) = store.save(&snapshot) {
