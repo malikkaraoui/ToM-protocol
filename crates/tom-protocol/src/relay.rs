@@ -9,6 +9,9 @@ use crate::types::NodeId;
 /// Maximum relay depth for path selection.
 pub const MAX_RELAY_DEPTH: usize = 4;
 
+/// Maximum tracked peers in topology (memory exhaustion protection, R11.2).
+pub const MAX_PEERS: usize = 10_000;
+
 // ── Peer topology info ─────────────────────────────────────────────────
 
 /// Role a node plays in the network (assigned dynamically).
@@ -55,9 +58,13 @@ impl Topology {
         Self::default()
     }
 
-    /// Add or update a peer.
-    pub fn upsert(&mut self, info: PeerInfo) {
+    /// Add or update a peer. Returns false if at capacity and peer is new.
+    pub fn upsert(&mut self, info: PeerInfo) -> bool {
+        if self.peers.len() >= MAX_PEERS && !self.peers.contains_key(&info.node_id) {
+            return false;
+        }
         self.peers.insert(info.node_id, info);
+        true
     }
 
     /// Remove a peer.
@@ -415,6 +422,48 @@ mod tests {
 
         let path = selector.select_path(target, &topo);
         assert!(path.is_empty());
+    }
+
+    #[test]
+    fn topology_max_peers_cap() {
+        use rand::SeedableRng;
+        let mut topo = Topology::new();
+        // Fill to MAX_PEERS
+        for i in 0..MAX_PEERS {
+            let mut rng = rand::rngs::StdRng::seed_from_u64(i as u64 + 1000);
+            let secret = tom_connect::SecretKey::generate(&mut rng);
+            let id: NodeId = secret.public().to_string().parse().unwrap();
+            assert!(topo.upsert(PeerInfo {
+                node_id: id,
+                role: PeerRole::Peer,
+                status: PeerStatus::Online,
+                last_seen: 1000,
+            }));
+        }
+        assert_eq!(topo.len(), MAX_PEERS);
+
+        // New peer should be rejected
+        let overflow_id = node_id(255);
+        assert!(
+            !topo.upsert(PeerInfo {
+                node_id: overflow_id,
+                role: PeerRole::Peer,
+                status: PeerStatus::Online,
+                last_seen: 2000,
+            }),
+            "should reject new peer at capacity"
+        );
+        assert_eq!(topo.len(), MAX_PEERS);
+
+        // Updating existing peer should still work
+        let existing_id = topo.peers().next().unwrap().node_id;
+        assert!(topo.upsert(PeerInfo {
+            node_id: existing_id,
+            role: PeerRole::Relay,
+            status: PeerStatus::Online,
+            last_seen: 5000,
+        }));
+        assert_eq!(topo.get(&existing_id).unwrap().role, PeerRole::Relay);
     }
 
     #[test]
