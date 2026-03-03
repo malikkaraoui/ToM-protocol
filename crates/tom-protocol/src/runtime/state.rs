@@ -11,7 +11,7 @@ use crate::relay::{PeerInfo, PeerRole, PeerStatus, RelaySelector, Topology};
 use crate::roles::{RoleAction, RoleManager};
 use crate::router::{AckType, ReadReceiptPayload, Router, RoutingAction};
 use crate::tracker::MessageTracker;
-use crate::types::{now_ms, MessageType, NodeId};
+use crate::types::{now_ms, MessageStatus, MessageType, NodeId};
 
 use super::effect::RuntimeEffect;
 use super::{DeliveredMessage, ProtocolEvent, RuntimeCommand, RuntimeConfig};
@@ -89,6 +89,9 @@ pub struct RuntimeState {
 
     // Phase R8.2: State persistence
     pub(crate) store: Option<crate::storage::StateStore>,
+
+    // Phase R9.2: Envelope cache for ACK-timeout retry
+    pub(crate) pending_envelopes: std::collections::HashMap<String, crate::envelope::Envelope>,
 }
 
 impl RuntimeState {
@@ -181,6 +184,7 @@ impl RuntimeState {
             secret_seed,
             config,
             store,
+            pending_envelopes: std::collections::HashMap::new(),
         }
     }
 
@@ -248,7 +252,49 @@ impl RuntimeState {
     /// Evict expired message status entries from the tracker.
     pub fn tick_tracker_cleanup(&mut self) -> Vec<RuntimeEffect> {
         self.tracker.evict_expired();
+        // Clean orphaned envelope cache entries (R9.2)
+        self.pending_envelopes
+            .retain(|id, _| self.tracker.status(id).is_some());
         Vec::new()
+    }
+
+    /// Check for messages whose ACK deadline expired. Retry or mark failed.
+    pub fn tick_delivery_deadlines(&mut self) -> Vec<RuntimeEffect> {
+        let expired = self.tracker.expired_deadlines();
+        let mut effects = Vec::new();
+
+        for (message_id, to, retries_remaining) in expired {
+            if retries_remaining > 0 {
+                // Retry: resend cached envelope
+                if let Some(envelope) = self.pending_envelopes.get(&message_id).cloned() {
+                    self.tracker.reset_deadline(&message_id);
+                    let attempt =
+                        crate::tracker::DEFAULT_MAX_RETRIES - retries_remaining + 1;
+                    effects.push(RuntimeEffect::SendEnvelope(envelope));
+                    effects.push(RuntimeEffect::Emit(ProtocolEvent::DeliveryRetry {
+                        message_id,
+                        to,
+                        attempt,
+                    }));
+                }
+            } else {
+                // All retries exhausted — mark failed
+                let last_status = self
+                    .tracker
+                    .status(&message_id)
+                    .unwrap_or(MessageStatus::Pending);
+                if let Some(change) = self.tracker.mark_failed(&message_id) {
+                    effects.push(RuntimeEffect::StatusChange(change));
+                }
+                self.pending_envelopes.remove(&message_id);
+                effects.push(RuntimeEffect::Emit(ProtocolEvent::DeliveryTimeout {
+                    message_id,
+                    to,
+                    last_status,
+                }));
+            }
+        }
+        effects
     }
 
     // ── Tick: heartbeat liveness check ───────────────────────────────────
@@ -549,6 +595,8 @@ impl RuntimeState {
                         self.tracker.mark_relayed(&original_message_id)
                     }
                     AckType::RecipientReceived => {
+                        // Delivery confirmed — remove from retry cache (R9.2)
+                        self.pending_envelopes.remove(&original_message_id);
                         self.tracker.mark_delivered(&original_message_id)
                     }
                 };
@@ -1047,6 +1095,10 @@ impl RuntimeState {
                 envelope.via.first().copied().unwrap_or(to)
             ),
         }));
+
+        // Cache envelope for potential ACK-timeout retry (R9.2)
+        self.pending_envelopes
+            .insert(envelope_id, envelope.clone());
 
         vec![RuntimeEffect::SendWithBackupFallback {
             envelope,
