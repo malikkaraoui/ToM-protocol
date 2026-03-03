@@ -149,10 +149,12 @@ impl RuntimeState {
                         tracing::info!("Restored {hub_count} hub groups");
                     }
                     for peer in snapshot.peers.values() {
-                        topology.upsert(peer.clone());
+                        let mut peer = peer.clone();
+                        peer.status = PeerStatus::Offline; // QUIC connections lost on restart
+                        topology.upsert(peer);
                     }
                     if !snapshot.peers.is_empty() {
-                        tracing::info!("Restored {} peers", snapshot.peers.len());
+                        tracing::info!("Restored {} peers (all marked Offline)", snapshot.peers.len());
                     }
                     if !snapshot.metrics.is_empty() {
                         let count = snapshot.metrics.len();
@@ -431,6 +433,21 @@ impl RuntimeState {
             self.local_roles.clone(),
         );
         rmp_serde::to_vec(&announce).ok()
+    }
+
+    /// Build effects to rejoin all restored groups (called once at startup).
+    ///
+    /// After a restart, groups are loaded from SQLite but the hub doesn't know
+    /// we're back online. This sends a Join to each group's hub, which triggers
+    /// a re-sync with current state and sender keys.
+    pub fn build_rejoin_effects(&mut self) -> Vec<RuntimeEffect> {
+        let actions = self.group_manager.rejoin_groups();
+        if actions.is_empty() {
+            return Vec::new();
+        }
+        tracing::info!("Rejoining {} groups after restart", actions.len());
+        let actions = self.intercept_self_group_actions(actions);
+        self.group_actions_to_effects(&actions)
     }
 
     // ── Handle incoming role change announcement ──────────────────────

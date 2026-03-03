@@ -222,9 +222,16 @@ impl GroupHub {
             return vec![]; // Group doesn't exist
         };
 
-        // Already a member?
+        // Already a member? Re-sync them (they may have restarted).
         if hub_group.info.is_member(&joiner) {
-            return vec![];
+            let recent: Vec<GroupMessage> = hub_group.message_history.iter().cloned().collect();
+            return vec![GroupAction::Send {
+                to: joiner,
+                payload: GroupPayload::Sync {
+                    group: hub_group.info.clone(),
+                    recent_messages: recent,
+                },
+            }];
         }
 
         // Group full?

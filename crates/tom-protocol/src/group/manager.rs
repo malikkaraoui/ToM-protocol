@@ -206,6 +206,23 @@ impl GroupManager {
         }]
     }
 
+    /// Build rejoin actions for all restored groups (after restart).
+    ///
+    /// Sends a `Join` to each group's hub so it re-registers this node as a
+    /// live member and triggers a Sync back with current state + sender keys.
+    pub fn rejoin_groups(&self) -> Vec<GroupAction> {
+        self.groups
+            .values()
+            .map(|group| GroupAction::Send {
+                to: group.hub_relay_id,
+                payload: GroupPayload::Join {
+                    group_id: group.group_id.clone(),
+                    username: self.local_username.clone(),
+                },
+            })
+            .collect()
+    }
+
     /// Decline a pending invitation.
     pub fn decline_invite(&mut self, group_id: &GroupId) -> bool {
         self.pending_invites.remove(group_id).is_some()
