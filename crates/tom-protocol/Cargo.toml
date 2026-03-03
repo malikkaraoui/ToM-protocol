@@ -32,6 +32,9 @@ serde_json = "1"
 # Metrics (Phase R8.5)
 tom-metrics = { path = "../tom-metrics" }
 
+# Anti-spam (Phase R11.1)
+lru = "0.12"
+
 # Gossip discovery (Phase 3)
 tom-connect = { path = "../tom-connect" }
 tom-gossip = { path = "../tom-gossip" }
