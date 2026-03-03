@@ -44,6 +44,11 @@ pub mod mock {
         sent: Arc<Mutex<SentLog>>,
         peers: Arc<Mutex<Vec<NodeId>>>,
         fail_sends: Arc<Mutex<bool>>,
+        /// Number of times send_raw() will fail before succeeding.
+        /// Decrements on each failure. 0 = succeed immediately.
+        fail_count: Arc<Mutex<u32>>,
+        /// Total number of send_raw() calls (for retry verification).
+        pub send_attempts: Arc<Mutex<u32>>,
     }
 
     impl MockTransport {
@@ -52,6 +57,8 @@ pub mod mock {
                 sent: Arc::new(Mutex::new(Vec::new())),
                 peers: Arc::new(Mutex::new(Vec::new())),
                 fail_sends: Arc::new(Mutex::new(false)),
+                fail_count: Arc::new(Mutex::new(0)),
+                send_attempts: Arc::new(Mutex::new(0)),
             }
         }
 
@@ -67,6 +74,11 @@ pub mod mock {
             *self.fail_sends.lock().unwrap() = fail;
         }
 
+        /// Set the mock to fail N times, then succeed.
+        pub fn set_fail_count(&self, n: u32) {
+            *self.fail_count.lock().unwrap() = n;
+        }
+
         pub fn clear_sent(&self) {
             self.sent.lock().unwrap().clear();
         }
@@ -75,9 +87,19 @@ pub mod mock {
     #[async_trait::async_trait]
     impl Transport for MockTransport {
         async fn send_raw(&self, target: NodeId, data: &[u8]) -> Result<(), String> {
+            *self.send_attempts.lock().unwrap() += 1;
+
             if *self.fail_sends.lock().unwrap() {
                 return Err("mock: send failed".to_string());
             }
+
+            let mut fc = self.fail_count.lock().unwrap();
+            if *fc > 0 {
+                *fc -= 1;
+                return Err("mock: transient failure".to_string());
+            }
+            drop(fc);
+
             self.sent.lock().unwrap().push((target, data.to_vec()));
             Ok(())
         }

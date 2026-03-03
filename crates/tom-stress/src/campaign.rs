@@ -24,6 +24,7 @@ pub struct CampaignConfig {
     pub max_message_size: usize,
     pub relay_url: Option<String>,
     pub no_n0_discovery: bool,
+    pub data_dir: Option<String>,
 }
 
 // ── JSONL Event Types ──────────────────────────────────────────────
@@ -58,8 +59,8 @@ struct EnduranceRolling {
     event: &'static str,
     phase: &'static str,
     minute: u64,
-    sent: u32,
-    received: u32,
+    sent: u64,
+    received: u64,
     loss_pct: f64,
     avg_rtt_ms: f64,
     reconnections: u32,
@@ -211,6 +212,7 @@ pub async fn run(config: CampaignConfig) -> anyhow::Result<()> {
     let runtime_config = RuntimeConfig {
         username: config.name.clone(),
         encryption: true,
+        data_dir: config.data_dir.as_ref().map(std::path::PathBuf::from),
         ..Default::default()
     };
 
@@ -850,8 +852,8 @@ async fn phase_endurance(
     let endurance_deadline = endurance_start + Duration::from_secs(duration_s);
 
     let mut last_report = Instant::now();
-    let mut minute_sent: u32 = 0;
-    let mut minute_received: u32 = 0;
+    let mut minute_sent: u64 = 0;
+    let mut minute_received: u64 = 0;
     let mut minute_rtts: Vec<f64> = Vec::new();
     let mut minute_num: u64 = 0;
     let mut seq: u32 = 0;
@@ -926,7 +928,7 @@ async fn phase_endurance(
                 minute_rtts.iter().sum::<f64>() / minute_rtts.len() as f64
             };
             let loss = if minute_sent > 0 {
-                ((minute_sent - minute_received) as f64 / minute_sent as f64) * 100.0
+                (minute_sent.saturating_sub(minute_received) as f64 / minute_sent as f64) * 100.0
             } else {
                 0.0
             };

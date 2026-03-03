@@ -86,6 +86,9 @@ pub struct RuntimeState {
 
     // Phase R7.1: DHT-based peer discovery
     pub(crate) dht: Option<DhtDiscovery>,
+
+    // Phase R8.2: State persistence
+    pub(crate) store: Option<crate::storage::StateStore>,
 }
 
 impl RuntimeState {
@@ -108,23 +111,76 @@ impl RuntimeState {
             None
         };
 
+        // Phase R8.2: Open state store and load persistent state
+        let store = config.data_dir.as_ref().and_then(|dir| {
+            let db_path = dir.join("state.db");
+            match crate::storage::StateStore::open(&db_path) {
+                Ok(s) => {
+                    tracing::info!("State store opened: {}", db_path.display());
+                    Some(s)
+                }
+                Err(e) => {
+                    tracing::error!("Failed to open state store {}: {e}", db_path.display());
+                    None
+                }
+            }
+        });
+
+        let mut group_manager = GroupManager::new(local_id, config.username.clone());
+        let mut group_hub = GroupHub::new(local_id);
+        let mut topology = Topology::new();
+        let mut role_manager = RoleManager::new(local_id);
+
+        if let Some(ref s) = store {
+            match s.load() {
+                Ok(snapshot) => {
+                    if let Some(mgr_snap) = snapshot.manager {
+                        let group_count = mgr_snap.groups.len();
+                        let key_count = mgr_snap.local_sender_keys.len();
+                        group_manager.restore(mgr_snap);
+                        tracing::info!("Restored {group_count} groups, {key_count} sender keys");
+                    }
+                    if let Some(hub_snap) = snapshot.hub {
+                        let hub_count = hub_snap.groups.len();
+                        group_hub.restore(hub_snap);
+                        tracing::info!("Restored {hub_count} hub groups");
+                    }
+                    for peer in snapshot.peers.values() {
+                        topology.upsert(peer.clone());
+                    }
+                    if !snapshot.peers.is_empty() {
+                        tracing::info!("Restored {} peers", snapshot.peers.len());
+                    }
+                    if !snapshot.metrics.is_empty() {
+                        let count = snapshot.metrics.len();
+                        role_manager.restore_scores(snapshot.metrics);
+                        tracing::info!("Restored {count} contribution metrics");
+                    }
+                }
+                Err(e) => {
+                    tracing::error!("Failed to load state: {e}");
+                }
+            }
+        }
+
         Self {
             router: Router::new(local_id),
             relay_selector: RelaySelector::new(local_id),
-            topology: Topology::new(),
+            topology,
             tracker: MessageTracker::new(),
             heartbeat: HeartbeatTracker::new(),
-            group_manager: GroupManager::new(local_id, config.username.clone()),
-            group_hub: GroupHub::new(local_id),
+            group_manager,
+            group_hub,
             backup: BackupCoordinator::new(local_id),
             subnets: EphemeralSubnetManager::new(local_id),
-            role_manager: RoleManager::new(local_id),
+            role_manager,
             local_roles: vec![PeerRole::Peer],
             role_announce_throttle: std::collections::HashMap::new(),
             dht,
             local_id,
             secret_seed,
             config,
+            store,
         }
     }
 
@@ -145,6 +201,26 @@ impl RuntimeState {
             } else {
                 tracing::info!("Published to DHT: {}", self.local_id);
             }
+        }
+    }
+
+    // ── State persistence ───────────────────────────────────────────────
+
+    /// Save current state to SQLite (called periodically by runtime loop).
+    pub fn save_state(&self) {
+        let Some(ref store) = self.store else { return };
+
+        let snapshot = crate::storage::StateSnapshot {
+            manager: Some(self.group_manager.snapshot()),
+            hub: Some(self.group_hub.snapshot()),
+            peers: self.topology.peers_map().clone(),
+            metrics: self.role_manager.scores().clone(),
+        };
+
+        if let Err(e) = store.save(&snapshot) {
+            tracing::error!("Failed to save state: {e}");
+        } else {
+            tracing::debug!("State saved to SQLite");
         }
     }
 

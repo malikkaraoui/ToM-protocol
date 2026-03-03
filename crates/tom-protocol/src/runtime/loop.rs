@@ -19,6 +19,8 @@ use tom_gossip::api::Event as GossipEvent;
 use n0_future::StreamExt;
 use tom_transport::PathEvent;
 
+use super::metrics::ProtocolMetrics;
+
 /// Fixed gossip topic for ToM peer discovery (all nodes share this).
 const TOM_GOSSIP_TOPIC: [u8; 32] = *b"tom-protocol-gossip-discovery-v1";
 
@@ -39,6 +41,7 @@ pub(super) async fn runtime_loop(
     event_tx: mpsc::Sender<ProtocolEvent>,
     mut path_rx: broadcast::Receiver<PathEvent>,
     gossip: Gossip,
+    metrics: ProtocolMetrics,
 ) {
     // ── Timers (read intervals from state.config) ───────────────────
     let mut cache_cleanup = tokio::time::interval(state.config.cache_cleanup_interval);
@@ -50,6 +53,7 @@ pub(super) async fn runtime_loop(
     let mut shadow_ping = tokio::time::interval(state.config.shadow_ping_interval);
     let mut subnet_eval = tokio::time::interval(std::time::Duration::from_secs(30));
     let mut role_eval = tokio::time::interval(std::time::Duration::from_secs(60));
+    let mut state_save = tokio::time::interval(std::time::Duration::from_secs(30));
 
     // Skip the immediate first tick
     cache_cleanup.tick().await;
@@ -61,6 +65,7 @@ pub(super) async fn runtime_loop(
     shadow_ping.tick().await;
     subnet_eval.tick().await;
     role_eval.tick().await;
+    state_save.tick().await;
 
     // ── Gossip subscription ──────────────────────────────────────────
     let topic_id = tom_gossip::TopicId::from_bytes(TOM_GOSSIP_TOPIC);
@@ -90,7 +95,10 @@ pub(super) async fn runtime_loop(
             // ── 1. Incoming data from transport ─────────────────
             result = node.recv_raw() => {
                 match result {
-                    Ok((_from, data)) => state.handle_incoming(&data),
+                    Ok((_from, data)) => {
+                        metrics.inc_messages_received();
+                        state.handle_incoming(&data)
+                    }
                     Err(e) => vec![RuntimeEffect::Emit(ProtocolEvent::Error {
                         description: format!("recv error: {e}"),
                     })],
@@ -198,6 +206,14 @@ pub(super) async fn runtime_loop(
             // ── 12. Timer: role evaluation ──────────────────────
             _ = role_eval.tick() => state.tick_roles(),
 
+            // ── 13. Timer: state persistence + metrics update ──
+            _ = state_save.tick() => {
+                state.save_state();
+                metrics.set_groups_count(state.group_manager.group_count() as u64);
+                metrics.set_peers_known(state.topology.len() as u64);
+                Vec::new()
+            }
+
             else => break,
         };
 
@@ -218,8 +234,11 @@ pub(super) async fn runtime_loop(
         }
 
         // Execute remaining effects
-        execute_effects(regular_effects, &node, &msg_tx, &status_tx, &event_tx).await;
+        execute_effects(regular_effects, &node, &msg_tx, &status_tx, &event_tx, &metrics).await;
     }
+
+    // Save state before shutdown
+    state.save_state();
 
     // Graceful shutdown
     if let Err(e) = node.shutdown().await {

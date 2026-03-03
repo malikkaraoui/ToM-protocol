@@ -88,6 +88,16 @@ impl RoleManager {
         self.scores.remove(node_id);
     }
 
+    /// Access the raw scores map (for persistence).
+    pub fn scores(&self) -> &HashMap<NodeId, ContributionMetrics> {
+        &self.scores
+    }
+
+    /// Restore scores from persistent storage.
+    pub fn restore_scores(&mut self, scores: HashMap<NodeId, ContributionMetrics>) {
+        self.scores = scores;
+    }
+
     /// Get complete metrics snapshot for a peer (debug/observability).
     pub fn get_metrics(
         &self,

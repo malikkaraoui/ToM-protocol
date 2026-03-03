@@ -69,6 +69,74 @@ impl<'de> serde::Deserialize<'de> for Counter {
     }
 }
 
+/// An atomic gauge that can go up or down (e.g., active connections).
+pub struct Gauge(AtomicU64);
+
+impl Gauge {
+    /// Create a gauge starting at zero.
+    pub fn new() -> Self {
+        Self(AtomicU64::new(0))
+    }
+
+    /// Set the gauge to an absolute value.
+    pub fn set(&self, value: u64) {
+        self.0.store(value, Ordering::Relaxed);
+    }
+
+    /// Increment by one.
+    pub fn inc(&self) {
+        self.0.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// Decrement by one (saturating).
+    pub fn dec(&self) {
+        self.0.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |v| {
+            Some(v.saturating_sub(1))
+        })
+        .ok();
+    }
+
+    /// Read the current value.
+    pub fn get(&self) -> u64 {
+        self.0.load(Ordering::Relaxed)
+    }
+}
+
+impl Default for Gauge {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Clone for Gauge {
+    fn clone(&self) -> Self {
+        let g = Self::new();
+        g.set(self.get());
+        g
+    }
+}
+
+impl fmt::Debug for Gauge {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_tuple("Gauge").field(&self.get()).finish()
+    }
+}
+
+impl serde::Serialize for Gauge {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        self.get().serialize(serializer)
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for Gauge {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let value = u64::deserialize(deserializer)?;
+        let gauge = Self::new();
+        gauge.set(value);
+        Ok(gauge)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -109,5 +177,36 @@ mod tests {
         assert_eq!(json, "99");
         let c2: Counter = serde_json::from_str(&json).unwrap();
         assert_eq!(c2.get(), 99);
+    }
+
+    // ── Gauge tests ──────────────────────────────────────────────────
+
+    #[test]
+    fn gauge_basic_operations() {
+        let g = Gauge::new();
+        assert_eq!(g.get(), 0);
+        g.set(42);
+        assert_eq!(g.get(), 42);
+        g.inc();
+        assert_eq!(g.get(), 43);
+        g.dec();
+        assert_eq!(g.get(), 42);
+    }
+
+    #[test]
+    fn gauge_dec_saturates() {
+        let g = Gauge::new();
+        g.dec(); // 0 - 1 should saturate to 0
+        assert_eq!(g.get(), 0);
+    }
+
+    #[test]
+    fn gauge_serde_roundtrip() {
+        let g = Gauge::new();
+        g.set(77);
+        let json = serde_json::to_string(&g).unwrap();
+        assert_eq!(json, "77");
+        let g2: Gauge = serde_json::from_str(&json).unwrap();
+        assert_eq!(g2.get(), 77);
     }
 }

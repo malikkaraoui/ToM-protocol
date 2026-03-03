@@ -8,8 +8,8 @@ pub mod manager;
 pub mod types;
 
 pub use election::{elect_hub, ElectionReason, ElectionResult};
-pub use hub::GroupHub;
-pub use manager::GroupManager;
+pub use hub::{GroupHub, GroupHubSnapshot};
+pub use manager::{GroupManager, GroupManagerSnapshot};
 pub use types::{
     EncryptedSenderKey, GroupAction, GroupEvent, GroupId, GroupInfo, GroupInvite, GroupMember,
     GroupMemberRole, GroupMessage, GroupMessageContent, GroupPayload, LeaveReason, SenderKeyEntry,

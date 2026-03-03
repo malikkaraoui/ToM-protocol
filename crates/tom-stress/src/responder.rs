@@ -16,6 +16,8 @@ pub struct ResponderConfig {
     pub max_message_size: usize,
     pub relay_url: Option<String>,
     pub no_n0_discovery: bool,
+    pub identity_path: Option<String>,
+    pub data_dir: Option<String>,
 }
 
 pub async fn run(config: ResponderConfig) -> anyhow::Result<()> {
@@ -29,6 +31,9 @@ pub async fn run(config: ResponderConfig) -> anyhow::Result<()> {
     if config.no_n0_discovery {
         node_config = node_config.n0_discovery(false);
     }
+    if let Some(ref path) = config.identity_path {
+        node_config = node_config.identity_path(path.into());
+    }
     let node = TomNode::bind(node_config).await?;
 
     eprintln!("Responder Node ID: {}", node.id());
@@ -38,6 +43,7 @@ pub async fn run(config: ResponderConfig) -> anyhow::Result<()> {
     let runtime_config = RuntimeConfig {
         username: config.name.clone(),
         encryption: true,
+        data_dir: config.data_dir.map(std::path::PathBuf::from),
         ..Default::default()
     };
 
@@ -141,8 +147,17 @@ pub async fn run(config: ResponderConfig) -> anyhow::Result<()> {
                 // Silently consume
             }
 
-            // ── Shutdown check ───────────────────────────────────────
-            _ = tokio::time::sleep(std::time::Duration::from_millis(500)) => {}
+            // ── Periodic stats (every 60s) ──────────────────────────
+            _ = tokio::time::sleep(std::time::Duration::from_secs(60)) => {
+                let peers = handle.connected_peers().await;
+                eprintln!(
+                    "[{:>7.1}s] status: {} msgs, {} group msgs, {} connected peers",
+                    start.elapsed().as_secs_f64(),
+                    msg_count,
+                    group_msg_count,
+                    peers.len(),
+                );
+            }
         }
     }
 

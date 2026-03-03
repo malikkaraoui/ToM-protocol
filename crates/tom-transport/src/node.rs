@@ -5,9 +5,11 @@ use crate::path::{PathEvent, PathKind};
 use crate::protocol::{self, HandlerState, TomProtocolHandler};
 use crate::{NodeId, TomTransportError};
 
+use tom_base::SecretKey;
 use tom_connect::protocol::Router;
 use tom_connect::{Endpoint, RelayMode};
 use tom_gossip::Gossip;
+use std::path::Path;
 use std::sync::Arc;
 use tokio::sync::{broadcast, mpsc};
 
@@ -30,35 +32,41 @@ pub struct TomNode {
 impl TomNode {
     /// Create and bind a new ToM transport node.
     ///
-    /// Generates a fresh Ed25519 identity and starts listening for
-    /// incoming connections.
+    /// If `identity_path` is configured, loads or creates a persistent identity.
+    /// Otherwise, generates a fresh ephemeral Ed25519 identity.
     pub async fn bind(config: TomNodeConfig) -> Result<Self, TomTransportError> {
-        let endpoint = match (&config.relay_url, config.n0_discovery) {
+        // Load or generate identity
+        let secret_key = match &config.identity_path {
+            Some(path) => Some(load_or_create_identity(path)?),
+            None => None,
+        };
+
+        let mut builder = match (&config.relay_url, config.n0_discovery) {
             (Some(url), false) => {
                 // Own relay, no n0 discovery — fully independent
                 Endpoint::empty_builder(RelayMode::custom([url.clone()]))
-                    .bind()
-                    .await
             }
             (Some(url), true) => {
                 // Own relay + n0 discovery (transition mode)
                 Endpoint::builder()
                     .relay_mode(RelayMode::custom([url.clone()]))
-                    .bind()
-                    .await
             }
             (None, false) => {
                 // No relay, no discovery — local-only mode (tests, scenarios)
                 Endpoint::empty_builder(RelayMode::Disabled)
-                    .bind()
-                    .await
             }
             (None, true) => {
                 // Default: n0 presets (Pkarr/DNS + default relays)
-                Endpoint::bind().await
+                Endpoint::builder()
             }
+        };
+
+        if let Some(key) = secret_key {
+            builder = builder.secret_key(key);
         }
-        .map_err(|e| TomTransportError::Bind(e.into()))?;
+
+        let endpoint = builder.bind().await
+            .map_err(|e| TomTransportError::Bind(e.into()))?;
 
         let id = NodeId::from_endpoint_id(endpoint.id());
 
@@ -238,5 +246,148 @@ impl TomNode {
     pub async fn shutdown(self) -> Result<(), TomTransportError> {
         self.endpoint.close().await;
         Ok(())
+    }
+}
+
+/// Load an identity from a file, or create a new one if the file doesn't exist.
+///
+/// The file contains a raw 32-byte Ed25519 secret key seed.
+/// On Unix, the file is created with permissions 0600 (owner read/write only).
+fn load_or_create_identity(path: &Path) -> Result<SecretKey, TomTransportError> {
+    if path.exists() {
+        let bytes = std::fs::read(path).map_err(|e| {
+            TomTransportError::Identity(format!("failed to read {}: {e}", path.display()))
+        })?;
+        let key_bytes: [u8; 32] = bytes.try_into().map_err(|v: Vec<u8>| {
+            TomTransportError::Identity(format!(
+                "invalid identity file {}: expected 32 bytes, got {}",
+                path.display(),
+                v.len()
+            ))
+        })?;
+        Ok(SecretKey::from_bytes(&key_bytes))
+    } else {
+        let key = SecretKey::generate(&mut rand::rng());
+        // Create parent directories if needed
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| {
+                TomTransportError::Identity(format!(
+                    "failed to create directory {}: {e}",
+                    parent.display()
+                ))
+            })?;
+        }
+        std::fs::write(path, key.to_bytes()).map_err(|e| {
+            TomTransportError::Identity(format!("failed to write {}: {e}", path.display()))
+        })?;
+        // Set file permissions to 0600 on Unix
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let perms = std::fs::Permissions::from_mode(0o600);
+            std::fs::set_permissions(path, perms).map_err(|e| {
+                TomTransportError::Identity(format!(
+                    "failed to set permissions on {}: {e}",
+                    path.display()
+                ))
+            })?;
+        }
+        Ok(key)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn identity_create_and_reload() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("identity.key");
+
+        // First call: creates the file
+        let key1 = load_or_create_identity(&path).unwrap();
+        assert!(path.exists());
+        assert_eq!(std::fs::read(&path).unwrap().len(), 32);
+
+        // Second call: loads the same identity
+        let key2 = load_or_create_identity(&path).unwrap();
+        assert_eq!(key1.to_bytes(), key2.to_bytes());
+    }
+
+    #[test]
+    fn identity_creates_parent_dirs() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("deep").join("nested").join("identity.key");
+
+        let key = load_or_create_identity(&path).unwrap();
+        assert!(path.exists());
+        assert_eq!(std::fs::read(&path).unwrap().len(), 32);
+
+        let reloaded = load_or_create_identity(&path).unwrap();
+        assert_eq!(key.to_bytes(), reloaded.to_bytes());
+    }
+
+    #[test]
+    fn identity_rejects_invalid_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("bad.key");
+        std::fs::write(&path, b"too short").unwrap();
+
+        let result = load_or_create_identity(&path);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("expected 32 bytes"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn identity_file_permissions() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("identity.key");
+
+        load_or_create_identity(&path).unwrap();
+
+        let perms = std::fs::metadata(&path).unwrap().permissions();
+        assert_eq!(perms.mode() & 0o777, 0o600);
+    }
+
+    #[tokio::test]
+    async fn bind_with_persistent_identity() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("identity.key");
+
+        // Bind twice with the same identity path — should get the same NodeId
+        let config1 = TomNodeConfig::new()
+            .n0_discovery(false)
+            .identity_path(path.clone());
+        let node1 = TomNode::bind(config1).await.unwrap();
+        let id1 = node1.id();
+        node1.shutdown().await.unwrap();
+
+        let config2 = TomNodeConfig::new()
+            .n0_discovery(false)
+            .identity_path(path);
+        let node2 = TomNode::bind(config2).await.unwrap();
+        let id2 = node2.id();
+        node2.shutdown().await.unwrap();
+
+        assert_eq!(id1, id2, "Same identity file should produce same NodeId");
+    }
+
+    #[tokio::test]
+    async fn bind_without_identity_path_is_ephemeral() {
+        let config1 = TomNodeConfig::new().n0_discovery(false);
+        let node1 = TomNode::bind(config1).await.unwrap();
+        let id1 = node1.id();
+        node1.shutdown().await.unwrap();
+
+        let config2 = TomNodeConfig::new().n0_discovery(false);
+        let node2 = TomNode::bind(config2).await.unwrap();
+        let id2 = node2.id();
+        node2.shutdown().await.unwrap();
+
+        assert_ne!(id1, id2, "No identity path should produce different NodeIds");
     }
 }
