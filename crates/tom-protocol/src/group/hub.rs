@@ -913,7 +913,7 @@ mod tests {
     }
 
     #[test]
-    fn join_duplicate_ignored() {
+    fn join_duplicate_triggers_resync() {
         let mut hub = make_hub();
         let alice = node_id(1);
 
@@ -927,9 +927,16 @@ mod tests {
         );
         let gid = hub.groups.keys().next().unwrap().clone();
 
-        // Alice tries to join again
+        // Alice tries to join again (e.g., after restart) — should get re-sync
         let actions = hub.handle_join(alice, &gid, "alice".into());
-        assert!(actions.is_empty());
+        assert_eq!(actions.len(), 1);
+        match &actions[0] {
+            GroupAction::Send { to, payload } => {
+                assert_eq!(*to, alice);
+                assert!(matches!(payload, GroupPayload::Sync { .. }));
+            }
+            other => panic!("expected Send(Sync), got: {other:?}"),
+        }
     }
 
     #[test]

@@ -4,7 +4,7 @@
 use rusqlite::Connection;
 
 #[cfg(test)]
-const CURRENT_VERSION: i64 = 1;
+const CURRENT_VERSION: i64 = 2;
 
 /// Initialize the database schema (create tables if not exist, run migrations).
 pub fn initialize(conn: &Connection) -> Result<(), rusqlite::Error> {
@@ -25,6 +25,9 @@ pub fn initialize(conn: &Connection) -> Result<(), rusqlite::Error> {
 
     if version < 1 {
         migrate_v1(conn)?;
+    }
+    if version < 2 {
+        migrate_v2(conn)?;
     }
 
     Ok(())
@@ -74,6 +77,25 @@ fn migrate_v1(conn: &Connection) -> Result<(), rusqlite::Error> {
     Ok(())
 }
 
+/// V2: Message tracker persistence (R10.2).
+fn migrate_v2(conn: &Connection) -> Result<(), rusqlite::Error> {
+    conn.execute_batch(
+        "
+        -- Tracked messages (delivery status persistence)
+        CREATE TABLE IF NOT EXISTS tracked_messages (
+            message_id TEXT PRIMARY KEY,
+            to_node_id TEXT NOT NULL,
+            status INTEGER NOT NULL,
+            created_ms INTEGER NOT NULL,
+            retries_remaining INTEGER NOT NULL
+        );
+
+        INSERT OR REPLACE INTO schema_version (version) VALUES (2);
+        ",
+    )?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -97,6 +119,7 @@ mod tests {
         assert!(tables.contains(&"hub_groups".to_string()));
         assert!(tables.contains(&"peers".to_string()));
         assert!(tables.contains(&"contribution_metrics".to_string()));
+        assert!(tables.contains(&"tracked_messages".to_string()));
         assert!(tables.contains(&"schema_version".to_string()));
     }
 
