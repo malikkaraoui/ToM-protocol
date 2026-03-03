@@ -48,9 +48,10 @@ impl TomNode {
                     .await
             }
             (None, false) => {
-                return Err(TomTransportError::Config(
-                    "n0_discovery=false requires a relay_url".into(),
-                ));
+                // No relay, no discovery — local-only mode (tests, scenarios)
+                Endpoint::empty_builder(RelayMode::Disabled)
+                    .bind()
+                    .await
             }
             (None, true) => {
                 // Default: n0 presets (Pkarr/DNS + default relays)
