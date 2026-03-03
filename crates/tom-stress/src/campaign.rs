@@ -1,6 +1,7 @@
 /// Campaign mode — orchestrates all 7 stress phases against a remote responder.
 ///
 /// Phases: Ping → Burst → E2E → Group Encrypted → Failover → Roles → Endurance
+use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
 use serde::Serialize;
@@ -855,29 +856,65 @@ async fn phase_endurance(
     let mut minute_num: u64 = 0;
     let mut seq: u32 = 0;
 
+    // Pipelined: track pending messages by seq, match PONG responses asynchronously
+    let mut pending: HashMap<u32, Instant> = HashMap::new();
+    let mut consecutive_timeouts: u32 = 0;
+    let mut reconnections: u32 = 0;
+
     while Instant::now() < endurance_deadline {
-        // Send one message
+        // Send one message (never block on response)
         let payload = format!("PING:{seq}");
         let send_time = Instant::now();
+        pending.insert(seq, send_time);
         stats.sent += 1;
         minute_sent += 1;
         seq += 1;
 
         if let Err(e) = handle.send_message(target, payload.into_bytes()).await {
             stats.errors.push(format!("endurance send #{seq}: {e}"));
-        } else {
-            // Wait for response (short timeout to keep 1 msg/s pace)
-            match recv_timeout(messages, Duration::from_secs(5)).await {
-                Ok(_msg) => {
-                    let rtt = send_time.elapsed().as_secs_f64() * 1000.0;
-                    stats.record_rtt(rtt);
-                    minute_received += 1;
-                    minute_rtts.push(rtt);
-                }
-                Err(_) => {
-                    // Don't add to errors for each timeout — just count losses
-                }
+        }
+
+        // Drain all responses during the ~1s sleep window
+        let sleep_until = send_time + Duration::from_secs(1);
+        loop {
+            let now = Instant::now();
+            if now >= sleep_until {
+                break;
             }
+            match tokio::time::timeout(sleep_until - now, messages.recv()).await {
+                Ok(Some(msg)) => {
+                    let text = String::from_utf8_lossy(&msg.payload);
+                    if let Some(pong_seq) = text.strip_prefix("PONG:") {
+                        if let Ok(pong_n) = pong_seq.parse::<u32>() {
+                            if let Some(sent_at) = pending.remove(&pong_n) {
+                                let rtt = sent_at.elapsed().as_secs_f64() * 1000.0;
+                                stats.record_rtt(rtt);
+                                minute_received += 1;
+                                minute_rtts.push(rtt);
+                                // Detect recovery after consecutive timeouts
+                                if consecutive_timeouts >= 5 {
+                                    reconnections += 1;
+                                    eprintln!(
+                                        "  [reconnect #{reconnections}] recovered after {consecutive_timeouts} timeouts"
+                                    );
+                                }
+                                consecutive_timeouts = 0;
+                            }
+                        }
+                    }
+                    // Silently ignore non-PONG messages (late echoes, etc.)
+                }
+                Ok(None) => break, // Channel closed
+                Err(_) => break,   // 1s window expired
+            }
+        }
+
+        // Expire pending messages older than 10s
+        let before = pending.len();
+        pending.retain(|_, sent_at| sent_at.elapsed() < Duration::from_secs(10));
+        let expired = before - pending.len();
+        if expired > 0 {
+            consecutive_timeouts += expired as u32;
         }
 
         // Rolling report every 60s
@@ -902,12 +939,12 @@ async fn phase_endurance(
                 received: minute_received,
                 loss_pct: loss,
                 avg_rtt_ms: avg_rtt,
-                reconnections: 0,
+                reconnections,
                 elapsed_s: endurance_start.elapsed().as_secs_f64(),
             });
 
             eprintln!(
-                "  [min {minute_num}] {minute_received}/{minute_sent} (loss {loss:.1}%) avg {avg_rtt:.1}ms | total {}/{}",
+                "  [min {minute_num}] {minute_received}/{minute_sent} (loss {loss:.1}%) avg {avg_rtt:.1}ms reconn={reconnections} | total {}/{}",
                 stats.received, stats.sent,
             );
 
@@ -917,11 +954,12 @@ async fn phase_endurance(
             last_report = Instant::now();
         }
 
-        // Target ~1 msg/s
-        let elapsed = send_time.elapsed();
-        if elapsed < Duration::from_secs(1) {
-            tokio::time::sleep(Duration::from_secs(1) - elapsed).await;
-        }
+        // No additional sleep — the drain loop already waited ~1s
+    }
+
+    // Count remaining pending as lost (stats.lost = sent - received)
+    if !pending.is_empty() {
+        eprintln!("  {} messages still pending at endurance end", pending.len());
     }
 
     stats

@@ -14,9 +14,9 @@ pub async fn run() -> anyhow::Result<ScenarioResult> {
     let start = Instant::now();
 
     // ── Spawn three nodes ───────────────────────────────────────────
-    let node_a = TomNode::bind(TomNodeConfig::new()).await?;
-    let node_b = TomNode::bind(TomNodeConfig::new()).await?;
-    let node_hub = TomNode::bind(TomNodeConfig::new()).await?;
+    let node_a = TomNode::bind(TomNodeConfig::new().n0_discovery(false)).await?;
+    let node_b = TomNode::bind(TomNodeConfig::new().n0_discovery(false)).await?;
+    let node_hub = TomNode::bind(TomNodeConfig::new().n0_discovery(false)).await?;
 
     let id_a = node_a.id();
     let id_b = node_b.id();
