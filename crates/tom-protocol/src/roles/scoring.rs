@@ -25,7 +25,7 @@ pub const BANDWIDTH_MB_WEIGHT: f64 = 0.2;
 pub const BANDWIDTH_RATIO_WEIGHT: f64 = 1.5;
 
 /// Contribution metrics for a single node.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ContributionMetrics {
     /// Total messages successfully relayed.
     pub messages_relayed: u64,

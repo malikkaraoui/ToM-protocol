@@ -16,6 +16,7 @@ pub mod relay;
 pub mod roles;
 pub mod router;
 pub mod runtime;
+pub mod storage;
 pub mod tracker;
 pub mod types;
 
@@ -40,7 +41,8 @@ pub use roles::{ContributionMetrics, RoleAction, RoleManager, RoleMetrics};
 pub use router::{AckPayload, AckType, ReadReceiptPayload, Router, RoutingAction};
 pub use tracker::{MessageTracker, StatusChange};
 pub use runtime::{
-    DeliveredMessage, GossipInput, ProtocolEvent, ProtocolRuntime, RuntimeChannels, RuntimeCommand,
-    RuntimeConfig, RuntimeEffect, RuntimeHandle, RuntimeState,
+    DeliveredMessage, GossipInput, MetricsSnapshot, ProtocolEvent, ProtocolMetrics, ProtocolRuntime,
+    RuntimeChannels, RuntimeCommand, RuntimeConfig, RuntimeEffect, RuntimeHandle, RuntimeState,
 };
+pub use storage::{StateStore, StateSnapshot};
 pub use types::{now_ms, MessageStatus, MessageType, NodeId};

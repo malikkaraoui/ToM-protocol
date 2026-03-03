@@ -7,7 +7,9 @@ license = "MIT"
 
 [dependencies]
 tom-connect = { path = "../tom-connect" }
+tom-base = { path = "../tom-base" }
 tom-gossip = { path = "../tom-gossip" }
+rand = "0.9"
 tokio = { version = "1", features = ["full"] }
 bytes = "1"
 futures-lite = "2"
@@ -23,3 +25,4 @@ n0-watcher = "0.6"
 [dev-dependencies]
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tokio = { version = "1", features = ["full", "test-util"] }
+tempfile = "3"

@@ -44,6 +44,16 @@ struct Cli {
     #[arg(long)]
     no_n0_discovery: bool,
 
+    /// Path to persistent identity file (32-byte Ed25519 key).
+    /// If the file doesn't exist, a new identity is created.
+    #[arg(long)]
+    identity: Option<String>,
+
+    /// Directory for persistent state (SQLite — groups, keys, contacts).
+    /// If not set, state is ephemeral.
+    #[arg(long)]
+    data_dir: Option<String>,
+
     /// Auto-archive output to this directory.
     /// Creates timestamped .jsonl and .log files (never overwrites).
     #[arg(long)]
@@ -255,6 +265,8 @@ async fn main() -> anyhow::Result<()> {
                 max_message_size: cli.max_message_size,
                 relay_url: cli.relay_url.clone(),
                 no_n0_discovery: cli.no_n0_discovery,
+                identity_path: cli.identity.clone(),
+                data_dir: cli.data_dir.clone(),
             })
             .await?;
             return Ok(());
@@ -273,6 +285,7 @@ async fn main() -> anyhow::Result<()> {
                 max_message_size: cli.max_message_size,
                 relay_url: cli.relay_url.clone(),
                 no_n0_discovery: cli.no_n0_discovery,
+                data_dir: cli.data_dir.clone(),
             })
             .await?;
             return Ok(());
@@ -289,6 +302,9 @@ async fn main() -> anyhow::Result<()> {
     }
     if cli.no_n0_discovery {
         config = config.n0_discovery(false);
+    }
+    if let Some(ref path) = cli.identity {
+        config = config.identity_path(path.into());
     }
     let node = TomNode::bind(config).await?;
 

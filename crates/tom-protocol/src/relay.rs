@@ -30,7 +30,7 @@ pub enum PeerStatus {
 }
 
 /// Information about a known peer in the network topology.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PeerInfo {
     pub node_id: NodeId,
     pub role: PeerRole,
@@ -78,6 +78,11 @@ impl Topology {
     /// All known peers.
     pub fn peers(&self) -> impl Iterator<Item = &PeerInfo> {
         self.peers.values()
+    }
+
+    /// Access the raw peer map (for persistence).
+    pub fn peers_map(&self) -> &HashMap<NodeId, PeerInfo> {
+        &self.peers
     }
 
     /// Number of known peers.

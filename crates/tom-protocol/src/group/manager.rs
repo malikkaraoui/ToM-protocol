@@ -6,8 +6,19 @@
 /// Tracks: groups we belong to, pending invites, message history.
 use std::collections::HashMap;
 
+use serde::{Deserialize, Serialize};
+
 use crate::group::types::*;
 use crate::types::{now_ms, NodeId};
+
+/// Serializable snapshot of GroupManager's persistent state.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GroupManagerSnapshot {
+    pub groups: HashMap<GroupId, GroupInfo>,
+    pub local_sender_keys: HashMap<GroupId, SenderKeyEntry>,
+    pub sender_keys: HashMap<GroupId, HashMap<NodeId, SenderKeyEntry>>,
+    pub message_history: HashMap<GroupId, Vec<GroupMessage>>,
+}
 
 /// State for a group where we are the shadow.
 #[derive(Debug)]
@@ -71,6 +82,11 @@ impl GroupManager {
     }
 
     // ── Queries ──────────────────────────────────────────────────────────
+
+    /// Number of groups we belong to.
+    pub fn group_count(&self) -> usize {
+        self.groups.len()
+    }
 
     /// Get all groups we belong to.
     pub fn all_groups(&self) -> Vec<&GroupInfo> {
@@ -676,6 +692,30 @@ impl GroupManager {
                 Some((gid, group.hub_relay_id))
             })
             .collect()
+    }
+
+    // ── Persistence ──────────────────────────────────────────────────────
+
+    /// Extract a serializable snapshot of persistent state.
+    pub fn snapshot(&self) -> GroupManagerSnapshot {
+        GroupManagerSnapshot {
+            groups: self.groups.clone(),
+            local_sender_keys: self.local_sender_keys.clone(),
+            sender_keys: self.sender_keys.clone(),
+            message_history: self.message_history.clone(),
+        }
+    }
+
+    /// Restore persistent state from a snapshot.
+    pub fn restore(&mut self, snapshot: GroupManagerSnapshot) {
+        self.groups = snapshot.groups;
+        self.local_sender_keys = snapshot.local_sender_keys;
+        self.sender_keys = snapshot.sender_keys;
+        self.message_history = snapshot.message_history;
+        // Initialize message_history entries for any groups missing them
+        for gid in self.groups.keys() {
+            self.message_history.entry(gid.clone()).or_default();
+        }
     }
 }
 

@@ -40,6 +40,9 @@ pub enum TomTransportError {
 
     #[error("invalid configuration: {0}")]
     Config(String),
+
+    #[error("identity file error: {0}")]
+    Identity(String),
 }
 
 // Allow anyhow -> TomTransportError for convenience in protocol handler

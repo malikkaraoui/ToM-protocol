@@ -6,13 +6,16 @@
 mod effect;
 mod executor;
 mod r#loop;
+pub mod metrics;
 mod state;
 mod transport;
 
 pub use effect::RuntimeEffect;
+pub use metrics::{MetricsSnapshot, ProtocolMetrics};
 pub use state::{GossipInput, RuntimeState};
 pub use transport::Transport;
 
+use std::path::PathBuf;
 use std::time::Duration;
 
 use tokio::sync::{mpsc, oneshot};
@@ -51,6 +54,8 @@ pub struct RuntimeConfig {
     pub shadow_ping_interval: Duration,
     /// Enable DHT-based peer discovery (Phase R7.1).
     pub enable_dht: bool,
+    /// Directory for persistent state (SQLite). None = ephemeral (no persistence).
+    pub data_dir: Option<PathBuf>,
 }
 
 impl Default for RuntimeConfig {
@@ -67,6 +72,7 @@ impl Default for RuntimeConfig {
             gossip_bootstrap_peers: Vec::new(),
             shadow_ping_interval: Duration::from_secs(3),
             enable_dht: true, // Phase R7.1: Enable by default
+            data_dir: None,
         }
     }
 }
@@ -261,6 +267,7 @@ pub enum ProtocolEvent {
 pub struct RuntimeHandle {
     cmd_tx: mpsc::Sender<RuntimeCommand>,
     local_id: NodeId,
+    metrics: ProtocolMetrics,
 }
 
 impl RuntimeHandle {
@@ -460,6 +467,11 @@ impl RuntimeHandle {
     pub async fn shutdown(&self) {
         let _ = self.cmd_tx.send(RuntimeCommand::Shutdown).await;
     }
+
+    /// Get a snapshot of all protocol metrics.
+    pub fn metrics(&self) -> MetricsSnapshot {
+        self.metrics.snapshot()
+    }
 }
 
 // ── RuntimeChannels ──────────────────────────────────────────────────
@@ -490,6 +502,9 @@ impl ProtocolRuntime {
         let local_id = node.id();
         let secret_seed = node.secret_key_seed();
 
+        // Shared metrics (Arc-backed, safe to clone)
+        let metrics = ProtocolMetrics::new();
+
         // Command channel (app -> runtime)
         let (cmd_tx, cmd_rx) = mpsc::channel::<RuntimeCommand>(512);
 
@@ -510,6 +525,7 @@ impl ProtocolRuntime {
         let state = RuntimeState::new(local_id, secret_seed, config);
 
         // Spawn the event loop (thin orchestrator + executor)
+        let loop_metrics = metrics.clone();
         tokio::spawn(r#loop::runtime_loop(
             node,
             state,
@@ -520,10 +536,11 @@ impl ProtocolRuntime {
             event_tx,
             path_rx,
             gossip,
+            loop_metrics,
         ));
 
         RuntimeChannels {
-            handle: RuntimeHandle { cmd_tx, local_id },
+            handle: RuntimeHandle { cmd_tx, local_id, metrics },
             messages: msg_rx,
             status_changes: status_rx,
             events: event_rx,

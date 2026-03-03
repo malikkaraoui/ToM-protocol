@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 /// Configuration for a [`TomNode`](crate::TomNode).
 ///
 /// All fields have sensible defaults. Use the builder pattern:
@@ -25,6 +27,11 @@ pub struct TomNodeConfig {
     /// n0's Pkarr relay and DNS infrastructure. Set to `false` when running
     /// your own relay and using gossip-based peer discovery instead.
     pub(crate) n0_discovery: bool,
+    /// Path to persistent identity file (32-byte Ed25519 secret key).
+    ///
+    /// If set, the node loads its identity from this file (creating it on first run).
+    /// If unset, a fresh ephemeral identity is generated on each bind.
+    pub(crate) identity_path: Option<PathBuf>,
 }
 
 impl Default for TomNodeConfig {
@@ -43,12 +50,17 @@ impl TomNodeConfig {
             .ok()
             .and_then(|s| s.parse().ok());
 
+        let identity_path = std::env::var("TOM_IDENTITY_PATH")
+            .ok()
+            .map(PathBuf::from);
+
         Self {
             alpn: crate::TOM_ALPN.to_vec(),
             max_message_size: 1024 * 1024, // 1 MB
             recv_buffer: 256,
             relay_url,
             n0_discovery: true,
+            identity_path,
         }
     }
 
@@ -100,6 +112,23 @@ impl TomNodeConfig {
     /// ```
     pub fn n0_discovery(mut self, enabled: bool) -> Self {
         self.n0_discovery = enabled;
+        self
+    }
+
+    /// Use a persistent identity stored at the given path.
+    ///
+    /// The file contains a raw 32-byte Ed25519 secret key seed.
+    /// If the file doesn't exist, a new identity is generated and saved.
+    /// If unset, checks the `TOM_IDENTITY_PATH` environment variable.
+    ///
+    /// ```rust
+    /// use tom_transport::TomNodeConfig;
+    ///
+    /// let config = TomNodeConfig::new()
+    ///     .identity_path("/home/user/.tom/identity.key".into());
+    /// ```
+    pub fn identity_path(mut self, path: PathBuf) -> Self {
+        self.identity_path = Some(path);
         self
     }
 }

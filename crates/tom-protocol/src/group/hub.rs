@@ -12,8 +12,16 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::time::Instant;
 
+use serde::{Deserialize, Serialize};
+
 use crate::group::types::*;
 use crate::types::{now_ms, NodeId};
+
+/// Serializable snapshot of GroupHub's persistent state.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GroupHubSnapshot {
+    pub groups: HashMap<GroupId, GroupInfo>,
+}
 
 /// Maximum age of a group message before the hub rejects it (5 minutes).
 const MESSAGE_MAX_AGE_MS: u64 = 5 * 60 * 1000;
@@ -767,6 +775,33 @@ impl GroupHub {
                 group_id: group_id.clone(),
             },
         }]
+    }
+
+    // ── Persistence ──────────────────────────────────────────────────────
+
+    /// Extract a serializable snapshot of persistent state.
+    ///
+    /// Ephemeral state (rate limits, dedup sets, nonces) is excluded.
+    pub fn snapshot(&self) -> GroupHubSnapshot {
+        GroupHubSnapshot {
+            groups: self.groups.iter().map(|(id, hg)| {
+                (id.clone(), hg.info.clone())
+            }).collect(),
+        }
+    }
+
+    /// Restore persistent state from a snapshot.
+    pub fn restore(&mut self, snapshot: GroupHubSnapshot) {
+        for (group_id, info) in snapshot.groups {
+            let hub_group = HubGroup {
+                info,
+                message_history: VecDeque::new(),
+                rate_limits: HashMap::new(),
+                seen_message_ids: HashSet::new(),
+                seen_nonces: HashSet::new(),
+            };
+            self.groups.insert(group_id, hub_group);
+        }
     }
 }
 

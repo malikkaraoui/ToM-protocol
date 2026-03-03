@@ -1,0 +1,616 @@
+/// State persistence for the ToM protocol runtime.
+///
+/// Stores groups, sender keys, contacts, and hub state in SQLite.
+/// Designed for fast reads on startup and periodic batched writes.
+mod schema;
+
+use std::collections::HashMap;
+use std::path::Path;
+
+use std::sync::Mutex;
+
+use rusqlite::Connection;
+
+use crate::group::{GroupHubSnapshot, GroupId, GroupInfo, GroupManagerSnapshot};
+use crate::group::SenderKeyEntry;
+use crate::relay::{PeerInfo, PeerRole, PeerStatus};
+use crate::roles::ContributionMetrics;
+use crate::types::NodeId;
+
+/// SQLite-backed state store.
+///
+/// Wraps Connection in Mutex for Sync (required because RuntimeState
+/// holds &self across .await points in tokio::spawn).
+pub struct StateStore {
+    conn: Mutex<Connection>,
+}
+
+/// Combined snapshot of all persistent state.
+#[derive(Debug, Default)]
+pub struct StateSnapshot {
+    pub manager: Option<GroupManagerSnapshot>,
+    pub hub: Option<GroupHubSnapshot>,
+    pub peers: HashMap<NodeId, PeerInfo>,
+    pub metrics: HashMap<NodeId, ContributionMetrics>,
+}
+
+impl StateStore {
+    /// Open (or create) a state database at the given path.
+    pub fn open(path: &Path) -> Result<Self, rusqlite::Error> {
+        // Create parent directories if needed
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).ok();
+        }
+
+        let conn = Connection::open(path)?;
+
+        // Performance: WAL mode for concurrent reads during writes
+        conn.pragma_update(None, "journal_mode", "WAL")?;
+        conn.pragma_update(None, "synchronous", "NORMAL")?;
+
+        schema::initialize(&conn)?;
+
+        Ok(Self { conn: Mutex::new(conn) })
+    }
+
+    /// Open an in-memory database (for testing).
+    #[cfg(test)]
+    pub fn open_memory() -> Result<Self, rusqlite::Error> {
+        let conn = Connection::open_in_memory()?;
+        schema::initialize(&conn)?;
+        Ok(Self { conn: Mutex::new(conn) })
+    }
+
+    // ── Save methods ────────────────────────────────────────────────────
+
+    /// Save all persistent state in a single transaction.
+    pub fn save(&self, snapshot: &StateSnapshot) -> Result<(), rusqlite::Error> {
+        let conn = self.conn.lock().unwrap();
+        let tx = conn.unchecked_transaction()?;
+
+        if let Some(ref mgr) = snapshot.manager {
+            self.save_groups_tx(&tx, &mgr.groups)?;
+            self.save_sender_keys_tx(&tx, &mgr.local_sender_keys, &mgr.sender_keys)?;
+        }
+
+        if let Some(ref hub) = snapshot.hub {
+            self.save_hub_groups_tx(&tx, &hub.groups)?;
+        }
+
+        self.save_peers_tx(&tx, &snapshot.peers)?;
+        self.save_metrics_tx(&tx, &snapshot.metrics)?;
+
+        tx.commit()?;
+        Ok(())
+    }
+
+    fn save_groups_tx(
+        &self,
+        tx: &rusqlite::Transaction,
+        groups: &HashMap<GroupId, GroupInfo>,
+    ) -> Result<(), rusqlite::Error> {
+        tx.execute("DELETE FROM groups", [])?;
+        let mut stmt = tx.prepare(
+            "INSERT INTO groups (group_id, data) VALUES (?1, ?2)",
+        )?;
+        for (gid, info) in groups {
+            let json = serde_json::to_string(info).unwrap_or_default();
+            stmt.execute(rusqlite::params![gid.to_string(), json])?;
+        }
+        Ok(())
+    }
+
+    fn save_sender_keys_tx(
+        &self,
+        tx: &rusqlite::Transaction,
+        local_keys: &HashMap<GroupId, SenderKeyEntry>,
+        remote_keys: &HashMap<GroupId, HashMap<NodeId, SenderKeyEntry>>,
+    ) -> Result<(), rusqlite::Error> {
+        tx.execute("DELETE FROM sender_keys", [])?;
+        let mut stmt = tx.prepare(
+            "INSERT INTO sender_keys (group_id, owner_id, data) VALUES (?1, ?2, ?3)",
+        )?;
+
+        // Save local sender keys (owner_id = "LOCAL")
+        for (gid, entry) in local_keys {
+            let json = serde_json::to_string(entry).unwrap_or_default();
+            stmt.execute(rusqlite::params![gid.to_string(), "LOCAL", json])?;
+        }
+
+        // Save remote sender keys
+        for (gid, keys) in remote_keys {
+            for (node_id, entry) in keys {
+                let json = serde_json::to_string(entry).unwrap_or_default();
+                stmt.execute(rusqlite::params![
+                    gid.to_string(),
+                    node_id.to_string(),
+                    json
+                ])?;
+            }
+        }
+        Ok(())
+    }
+
+    fn save_hub_groups_tx(
+        &self,
+        tx: &rusqlite::Transaction,
+        groups: &HashMap<GroupId, GroupInfo>,
+    ) -> Result<(), rusqlite::Error> {
+        tx.execute("DELETE FROM hub_groups", [])?;
+        let mut stmt = tx.prepare(
+            "INSERT INTO hub_groups (group_id, data) VALUES (?1, ?2)",
+        )?;
+        for (gid, info) in groups {
+            let json = serde_json::to_string(info).unwrap_or_default();
+            stmt.execute(rusqlite::params![gid.to_string(), json])?;
+        }
+        Ok(())
+    }
+
+    fn save_peers_tx(
+        &self,
+        tx: &rusqlite::Transaction,
+        peers: &HashMap<NodeId, PeerInfo>,
+    ) -> Result<(), rusqlite::Error> {
+        tx.execute("DELETE FROM peers", [])?;
+        let mut stmt = tx.prepare(
+            "INSERT INTO peers (node_id, role, status, last_seen) VALUES (?1, ?2, ?3, ?4)",
+        )?;
+        for (nid, info) in peers {
+            let role = match info.role {
+                PeerRole::Peer => "Peer",
+                PeerRole::Relay => "Relay",
+            };
+            let status = match info.status {
+                PeerStatus::Online => "Online",
+                PeerStatus::Offline => "Offline",
+                PeerStatus::Stale => "Stale",
+            };
+            stmt.execute(rusqlite::params![
+                nid.to_string(),
+                role,
+                status,
+                info.last_seen as i64
+            ])?;
+        }
+        Ok(())
+    }
+
+    fn save_metrics_tx(
+        &self,
+        tx: &rusqlite::Transaction,
+        metrics: &HashMap<NodeId, ContributionMetrics>,
+    ) -> Result<(), rusqlite::Error> {
+        tx.execute("DELETE FROM contribution_metrics", [])?;
+        let mut stmt = tx.prepare(
+            "INSERT INTO contribution_metrics (node_id, data) VALUES (?1, ?2)",
+        )?;
+        for (nid, m) in metrics {
+            let json = serde_json::to_string(m).unwrap_or_default();
+            stmt.execute(rusqlite::params![nid.to_string(), json])?;
+        }
+        Ok(())
+    }
+
+    // ── Load methods ────────────────────────────────────────────────────
+
+    /// Load all persistent state.
+    pub fn load(&self) -> Result<StateSnapshot, rusqlite::Error> {
+        let conn = self.conn.lock().unwrap();
+        let groups = Self::load_groups(&conn)?;
+        let (local_keys, remote_keys) = Self::load_sender_keys(&conn)?;
+        let hub_groups = Self::load_hub_groups(&conn)?;
+        let peers = Self::load_peers(&conn)?;
+        let metrics = Self::load_metrics(&conn)?;
+
+        let manager = if !groups.is_empty() || !local_keys.is_empty() {
+            Some(GroupManagerSnapshot {
+                groups,
+                local_sender_keys: local_keys,
+                sender_keys: remote_keys,
+                message_history: HashMap::new(), // Not persisted (rebuilt via hub sync)
+            })
+        } else {
+            None
+        };
+
+        let hub = if !hub_groups.is_empty() {
+            Some(GroupHubSnapshot {
+                groups: hub_groups,
+            })
+        } else {
+            None
+        };
+
+        Ok(StateSnapshot {
+            manager,
+            hub,
+            peers,
+            metrics,
+        })
+    }
+
+    fn load_groups(conn: &Connection) -> Result<HashMap<GroupId, GroupInfo>, rusqlite::Error> {
+        let mut stmt = conn.prepare("SELECT group_id, data FROM groups")?;
+        let mut groups = HashMap::new();
+        let rows = stmt.query_map([], |row| {
+            let gid: String = row.get(0)?;
+            let json: String = row.get(1)?;
+            Ok((gid, json))
+        })?;
+        for row in rows {
+            let (gid, json) = row?;
+            if let Ok(info) = serde_json::from_str::<GroupInfo>(&json) {
+                groups.insert(GroupId::from(gid), info);
+            }
+        }
+        Ok(groups)
+    }
+
+    #[allow(clippy::type_complexity)]
+    fn load_sender_keys(
+        conn: &Connection,
+    ) -> Result<
+        (
+            HashMap<GroupId, SenderKeyEntry>,
+            HashMap<GroupId, HashMap<NodeId, SenderKeyEntry>>,
+        ),
+        rusqlite::Error,
+    > {
+        let mut stmt = conn.prepare("SELECT group_id, owner_id, data FROM sender_keys")?;
+        let mut local_keys = HashMap::new();
+        let mut remote_keys: HashMap<GroupId, HashMap<NodeId, SenderKeyEntry>> = HashMap::new();
+
+        let rows = stmt.query_map([], |row| {
+            let gid: String = row.get(0)?;
+            let owner: String = row.get(1)?;
+            let json: String = row.get(2)?;
+            Ok((gid, owner, json))
+        })?;
+
+        for row in rows {
+            let (gid, owner, json) = row?;
+            let Ok(entry) = serde_json::from_str::<SenderKeyEntry>(&json) else {
+                continue;
+            };
+            let group_id = GroupId::from(gid);
+            if owner == "LOCAL" {
+                local_keys.insert(group_id, entry);
+            } else if let Ok(node_id) = owner.parse::<NodeId>() {
+                remote_keys
+                    .entry(group_id)
+                    .or_default()
+                    .insert(node_id, entry);
+            }
+        }
+
+        Ok((local_keys, remote_keys))
+    }
+
+    fn load_hub_groups(conn: &Connection) -> Result<HashMap<GroupId, GroupInfo>, rusqlite::Error> {
+        let mut stmt = conn.prepare("SELECT group_id, data FROM hub_groups")?;
+        let mut groups = HashMap::new();
+        let rows = stmt.query_map([], |row| {
+            let gid: String = row.get(0)?;
+            let json: String = row.get(1)?;
+            Ok((gid, json))
+        })?;
+        for row in rows {
+            let (gid, json) = row?;
+            if let Ok(info) = serde_json::from_str::<GroupInfo>(&json) {
+                groups.insert(GroupId::from(gid), info);
+            }
+        }
+        Ok(groups)
+    }
+
+    fn load_peers(conn: &Connection) -> Result<HashMap<NodeId, PeerInfo>, rusqlite::Error> {
+        let mut stmt = conn.prepare("SELECT node_id, role, status, last_seen FROM peers")?;
+        let mut peers = HashMap::new();
+        let rows = stmt.query_map([], |row| {
+            let nid: String = row.get(0)?;
+            let role: String = row.get(1)?;
+            let status: String = row.get(2)?;
+            let last_seen: i64 = row.get(3)?;
+            Ok((nid, role, status, last_seen))
+        })?;
+        for row in rows {
+            let (nid, role, status, last_seen) = row?;
+            let Ok(node_id) = nid.parse::<NodeId>() else {
+                continue;
+            };
+            let role = match role.as_str() {
+                "Relay" => PeerRole::Relay,
+                _ => PeerRole::Peer,
+            };
+            let status = match status.as_str() {
+                "Online" => PeerStatus::Online,
+                "Stale" => PeerStatus::Stale,
+                _ => PeerStatus::Offline, // All peers start offline after restart
+            };
+            peers.insert(
+                node_id,
+                PeerInfo {
+                    node_id,
+                    role,
+                    status,
+                    last_seen: last_seen as u64,
+                },
+            );
+        }
+        Ok(peers)
+    }
+
+    fn load_metrics(conn: &Connection) -> Result<HashMap<NodeId, ContributionMetrics>, rusqlite::Error> {
+        let mut stmt = conn.prepare("SELECT node_id, data FROM contribution_metrics")?;
+        let mut metrics = HashMap::new();
+        let rows = stmt.query_map([], |row| {
+            let nid: String = row.get(0)?;
+            let json: String = row.get(1)?;
+            Ok((nid, json))
+        })?;
+        for row in rows {
+            let (nid, json) = row?;
+            let Ok(node_id) = nid.parse::<NodeId>() else {
+                continue;
+            };
+            if let Ok(m) = serde_json::from_str::<ContributionMetrics>(&json) {
+                metrics.insert(node_id, m);
+            }
+        }
+        Ok(metrics)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::group::types::*;
+
+    fn node_id(seed: u8) -> NodeId {
+        use rand::SeedableRng;
+        let mut rng = rand::rngs::StdRng::seed_from_u64(seed as u64);
+        let secret = tom_connect::SecretKey::generate(&mut rng);
+        secret.public().to_string().parse().unwrap()
+    }
+
+    fn make_group_info(name: &str, hub_id: NodeId, creator: NodeId) -> GroupInfo {
+        GroupInfo {
+            group_id: GroupId::new(),
+            name: name.into(),
+            hub_relay_id: hub_id,
+            backup_hub_id: None,
+            members: vec![GroupMember {
+                node_id: creator,
+                username: "alice".into(),
+                joined_at: 1000,
+                role: GroupMemberRole::Admin,
+            }],
+            created_by: creator,
+            created_at: 1000,
+            last_activity_at: 1000,
+            max_members: MAX_GROUP_MEMBERS,
+            shadow_id: None,
+            candidate_id: None,
+        }
+    }
+
+    #[test]
+    fn roundtrip_groups() {
+        let store = StateStore::open_memory().unwrap();
+        let hub = node_id(10);
+        let alice = node_id(1);
+
+        let g1 = make_group_info("Group A", hub, alice);
+        let g2 = make_group_info("Group B", hub, alice);
+        let gid1 = g1.group_id.clone();
+        let gid2 = g2.group_id.clone();
+
+        let mut groups = HashMap::new();
+        groups.insert(gid1.clone(), g1);
+        groups.insert(gid2.clone(), g2);
+
+        let snapshot = StateSnapshot {
+            manager: Some(GroupManagerSnapshot {
+                groups,
+                local_sender_keys: HashMap::new(),
+                sender_keys: HashMap::new(),
+                message_history: HashMap::new(),
+            }),
+            ..Default::default()
+        };
+
+        store.save(&snapshot).unwrap();
+        let loaded = store.load().unwrap();
+
+        let mgr = loaded.manager.unwrap();
+        assert_eq!(mgr.groups.len(), 2);
+        assert_eq!(mgr.groups[&gid1].name, "Group A");
+        assert_eq!(mgr.groups[&gid2].name, "Group B");
+    }
+
+    #[test]
+    fn roundtrip_sender_keys() {
+        let store = StateStore::open_memory().unwrap();
+        let alice = node_id(1);
+        let bob = node_id(2);
+        let gid = GroupId::from("grp-1".to_string());
+
+        let local_key = SenderKeyEntry {
+            owner_id: alice,
+            key: [42u8; 32],
+            epoch: 3,
+            created_at: 5000,
+        };
+        let remote_key = SenderKeyEntry {
+            owner_id: bob,
+            key: [7u8; 32],
+            epoch: 1,
+            created_at: 6000,
+        };
+
+        let mut local_keys = HashMap::new();
+        local_keys.insert(gid.clone(), local_key.clone());
+
+        let mut remote_keys = HashMap::new();
+        remote_keys
+            .entry(gid.clone())
+            .or_insert_with(HashMap::new)
+            .insert(bob, remote_key.clone());
+
+        let snapshot = StateSnapshot {
+            manager: Some(GroupManagerSnapshot {
+                groups: HashMap::new(),
+                local_sender_keys: local_keys,
+                sender_keys: remote_keys,
+                message_history: HashMap::new(),
+            }),
+            ..Default::default()
+        };
+
+        store.save(&snapshot).unwrap();
+        let loaded = store.load().unwrap();
+
+        let mgr = loaded.manager.unwrap();
+        assert_eq!(mgr.local_sender_keys[&gid].epoch, 3);
+        assert_eq!(mgr.local_sender_keys[&gid].key, [42u8; 32]);
+        assert_eq!(mgr.sender_keys[&gid][&bob].epoch, 1);
+    }
+
+    #[test]
+    fn roundtrip_peers() {
+        let store = StateStore::open_memory().unwrap();
+        let alice = node_id(1);
+        let bob = node_id(2);
+
+        let mut peers = HashMap::new();
+        peers.insert(alice, PeerInfo {
+            node_id: alice,
+            role: PeerRole::Relay,
+            status: PeerStatus::Online,
+            last_seen: 99000,
+        });
+        peers.insert(bob, PeerInfo {
+            node_id: bob,
+            role: PeerRole::Peer,
+            status: PeerStatus::Stale,
+            last_seen: 88000,
+        });
+
+        let snapshot = StateSnapshot { peers, ..Default::default() };
+        store.save(&snapshot).unwrap();
+        let loaded = store.load().unwrap();
+
+        assert_eq!(loaded.peers.len(), 2);
+        assert_eq!(loaded.peers[&alice].role, PeerRole::Relay);
+        // After restart, Online peers become Offline
+        assert_eq!(loaded.peers[&bob].last_seen, 88000);
+    }
+
+    #[test]
+    fn roundtrip_hub_groups() {
+        let store = StateStore::open_memory().unwrap();
+        let hub = node_id(10);
+        let alice = node_id(1);
+
+        let info = make_group_info("Hub Group", hub, alice);
+        let gid = info.group_id.clone();
+
+        let mut groups = HashMap::new();
+        groups.insert(gid.clone(), info);
+
+        let snapshot = StateSnapshot {
+            hub: Some(GroupHubSnapshot { groups }),
+            ..Default::default()
+        };
+
+        store.save(&snapshot).unwrap();
+        let loaded = store.load().unwrap();
+
+        let hub_snap = loaded.hub.unwrap();
+        assert_eq!(hub_snap.groups.len(), 1);
+        assert_eq!(hub_snap.groups[&gid].name, "Hub Group");
+    }
+
+    #[test]
+    fn roundtrip_metrics() {
+        let store = StateStore::open_memory().unwrap();
+        let alice = node_id(1);
+
+        let mut m = ContributionMetrics::new(1000);
+        m.record_relay(2000);
+        m.bytes_relayed = 1024;
+
+        let mut metrics = HashMap::new();
+        metrics.insert(alice, m);
+
+        let snapshot = StateSnapshot { metrics, ..Default::default() };
+        store.save(&snapshot).unwrap();
+        let loaded = store.load().unwrap();
+
+        assert_eq!(loaded.metrics.len(), 1);
+        assert_eq!(loaded.metrics[&alice].messages_relayed, 1);
+        assert_eq!(loaded.metrics[&alice].bytes_relayed, 1024);
+    }
+
+    #[test]
+    fn save_overwrites_previous() {
+        let store = StateStore::open_memory().unwrap();
+        let alice = node_id(1);
+
+        // Save with 1 peer
+        let mut peers = HashMap::new();
+        peers.insert(alice, PeerInfo {
+            node_id: alice,
+            role: PeerRole::Peer,
+            status: PeerStatus::Online,
+            last_seen: 1000,
+        });
+        store.save(&StateSnapshot { peers, ..Default::default() }).unwrap();
+
+        // Save with 0 peers
+        store.save(&StateSnapshot::default()).unwrap();
+
+        let loaded = store.load().unwrap();
+        assert!(loaded.peers.is_empty());
+    }
+
+    #[test]
+    fn empty_database_loads_empty() {
+        let store = StateStore::open_memory().unwrap();
+        let loaded = store.load().unwrap();
+        assert!(loaded.manager.is_none());
+        assert!(loaded.hub.is_none());
+        assert!(loaded.peers.is_empty());
+        assert!(loaded.metrics.is_empty());
+    }
+
+    #[test]
+    fn file_persistence() {
+        let dir = tempfile::tempdir().unwrap();
+        let db_path = dir.path().join("state.db");
+
+        let alice = node_id(1);
+
+        // Write
+        {
+            let store = StateStore::open(&db_path).unwrap();
+            let mut peers = HashMap::new();
+            peers.insert(alice, PeerInfo {
+                node_id: alice,
+                role: PeerRole::Relay,
+                status: PeerStatus::Online,
+                last_seen: 42000,
+            });
+            store.save(&StateSnapshot { peers, ..Default::default() }).unwrap();
+        }
+
+        // Read from a new connection
+        {
+            let store = StateStore::open(&db_path).unwrap();
+            let loaded = store.load().unwrap();
+            assert_eq!(loaded.peers.len(), 1);
+            assert_eq!(loaded.peers[&alice].last_seen, 42000);
+        }
+    }
+}
