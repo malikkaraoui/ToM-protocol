@@ -4,8 +4,10 @@
 /// telling the caller what to do (deliver, forward, reject, drop).
 /// No I/O, no transport dependency.
 use std::collections::HashMap;
+use std::num::NonZeroUsize;
 use std::time::{Duration, Instant};
 
+use lru::LruCache;
 use serde::{Deserialize, Serialize};
 
 use crate::envelope::Envelope;
@@ -23,6 +25,9 @@ const ACK_TTL: Duration = Duration::from_secs(300);
 
 /// Maximum cached entries per cache (DoS protection).
 const MAX_CACHE_SIZE: usize = 10_000;
+
+/// Maximum nonce cache entries (crypto anti-replay for encrypted 1-1 messages).
+const MAX_NONCE_CACHE: usize = 50_000;
 
 /// Maximum age for read receipt timestamps (7 days in ms).
 const READ_RECEIPT_MAX_AGE_MS: u64 = 7 * 24 * 60 * 60 * 1000;
@@ -118,6 +123,8 @@ pub struct Router {
     message_cache: HashMap<String, Instant>,
     /// ACK anti-replay cache: "msg_id:from:ack_type" → first seen.
     ack_cache: HashMap<String, Instant>,
+    /// Nonce anti-replay cache for encrypted 1-1 messages (R11.2).
+    nonce_cache: LruCache<[u8; 24], ()>,
 }
 
 impl Router {
@@ -126,6 +133,9 @@ impl Router {
             local_id,
             message_cache: HashMap::new(),
             ack_cache: HashMap::new(),
+            nonce_cache: LruCache::new(
+                NonZeroUsize::new(MAX_NONCE_CACHE).expect("MAX_NONCE_CACHE > 0"),
+            ),
         }
     }
 
@@ -173,9 +183,9 @@ impl Router {
             .retain(|_, ts| now.duration_since(*ts) < ACK_TTL);
     }
 
-    /// Current sizes of (message_cache, ack_cache).
-    pub fn cache_sizes(&self) -> (usize, usize) {
-        (self.message_cache.len(), self.ack_cache.len())
+    /// Current sizes of (message_cache, ack_cache, nonce_cache).
+    pub fn cache_sizes(&self) -> (usize, usize, usize) {
+        (self.message_cache.len(), self.ack_cache.len(), self.nonce_cache.len())
     }
 
     // ── Internal ───────────────────────────────────────────────────────
@@ -193,6 +203,16 @@ impl Router {
         let cache_key = format!("{}:{}", envelope.id, envelope.from);
         if self.message_cache.contains_key(&cache_key) {
             return RoutingAction::Drop;
+        }
+
+        // Nonce anti-replay for encrypted messages (R11.2)
+        if envelope.encrypted {
+            if let Ok(enc) = crate::crypto::EncryptedPayload::from_bytes(&envelope.payload) {
+                if self.nonce_cache.contains(&enc.nonce) {
+                    return RoutingAction::Drop;
+                }
+                self.nonce_cache.push(enc.nonce, ());
+            }
         }
 
         // Evict if at capacity
@@ -675,11 +695,11 @@ mod tests {
         let env = chat(sender, me, b"cached");
         router.route(env);
 
-        assert_eq!(router.cache_sizes(), (1, 0));
+        assert_eq!(router.cache_sizes(), (1, 0, 0));
 
         router.cleanup_caches();
         // Entries are fresh — not evicted yet
-        assert_eq!(router.cache_sizes(), (1, 0));
+        assert_eq!(router.cache_sizes(), (1, 0, 0));
     }
 
     #[test]
@@ -734,5 +754,91 @@ mod tests {
             }
             other => panic!("expected Forward, got {:?}", other),
         }
+    }
+
+    // ── Nonce anti-replay tests (R11.2) ─────────────────────────────
+
+    /// Build an encrypted chat envelope with a specific nonce.
+    fn encrypted_chat_with_nonce(from: NodeId, to: NodeId, nonce: [u8; 24]) -> Envelope {
+        use crate::crypto::EncryptedPayload;
+        let enc = EncryptedPayload {
+            ciphertext: b"fake-ciphertext".to_vec(),
+            nonce,
+            ephemeral_pk: [0u8; 32],
+        };
+        let payload = enc.to_bytes().expect("serialize");
+        Envelope {
+            id: uuid::Uuid::new_v4().to_string(),
+            from,
+            to,
+            via: Vec::new(),
+            msg_type: MessageType::Chat,
+            payload,
+            timestamp: 1708000000000,
+            signature: Vec::new(),
+            ttl: crate::types::DEFAULT_TTL,
+            encrypted: true,
+        }
+    }
+
+    #[test]
+    fn nonce_replay_detected() {
+        let me = node_id(1);
+        let sender = node_id(2);
+        let mut router = Router::new(me);
+
+        let nonce = [42u8; 24];
+        let env1 = encrypted_chat_with_nonce(sender, me, nonce);
+        let mut env2 = encrypted_chat_with_nonce(sender, me, nonce);
+        env2.id = uuid::Uuid::new_v4().to_string(); // different UUID, same nonce
+
+        assert!(matches!(router.route(env1), RoutingAction::Deliver { .. }));
+        assert!(matches!(router.route(env2), RoutingAction::Drop), "nonce replay should be dropped");
+    }
+
+    #[test]
+    fn unique_nonces_pass() {
+        let me = node_id(1);
+        let sender = node_id(2);
+        let mut router = Router::new(me);
+
+        let env1 = encrypted_chat_with_nonce(sender, me, [1u8; 24]);
+        let env2 = encrypted_chat_with_nonce(sender, me, [2u8; 24]);
+
+        assert!(matches!(router.route(env1), RoutingAction::Deliver { .. }));
+        assert!(matches!(router.route(env2), RoutingAction::Deliver { .. }));
+    }
+
+    #[test]
+    fn nonce_cache_bounded() {
+        let me = node_id(1);
+        let sender = node_id(2);
+        let mut router = Router::new(me);
+
+        // Fill beyond cache — LRU eviction should keep it bounded
+        for i in 0..100u32 {
+            let mut nonce = [0u8; 24];
+            nonce[..4].copy_from_slice(&i.to_le_bytes());
+            let env = encrypted_chat_with_nonce(sender, me, nonce);
+            router.route(env);
+        }
+
+        let (_, _, nonce_count) = router.cache_sizes();
+        assert_eq!(nonce_count, 100);
+        assert!(nonce_count <= MAX_NONCE_CACHE);
+    }
+
+    #[test]
+    fn unencrypted_skips_nonce_check() {
+        let me = node_id(1);
+        let sender = node_id(2);
+        let mut router = Router::new(me);
+
+        // Two unencrypted messages with different IDs — both pass
+        let env1 = chat(sender, me, b"hello");
+        let env2 = chat(sender, me, b"hello"); // same payload, different UUID
+        assert!(matches!(router.route(env1), RoutingAction::Deliver { .. }));
+        assert!(matches!(router.route(env2), RoutingAction::Deliver { .. }));
+        assert_eq!(router.cache_sizes().2, 0, "no nonce cached for unencrypted");
     }
 }
