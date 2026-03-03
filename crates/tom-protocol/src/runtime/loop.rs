@@ -17,6 +17,7 @@ use crate::tracker::StatusChange;
 use tom_gossip::Gossip;
 use tom_gossip::api::Event as GossipEvent;
 use n0_future::StreamExt;
+use tom_connect::TransportAddr;
 use tom_transport::PathEvent;
 
 use super::metrics::ProtocolMetrics;
@@ -35,6 +36,7 @@ pub(super) async fn runtime_loop(
     mut node: TomNode,
     mut state: RuntimeState,
     gossip_bootstrap_peers: Vec<NodeId>,
+    cmd_tx: mpsc::Sender<RuntimeCommand>,
     mut cmd_rx: mpsc::Receiver<RuntimeCommand>,
     msg_tx: mpsc::Sender<DeliveredMessage>,
     status_tx: mpsc::Sender<StatusChange>,
@@ -54,6 +56,7 @@ pub(super) async fn runtime_loop(
     let mut subnet_eval = tokio::time::interval(std::time::Duration::from_secs(30));
     let mut role_eval = tokio::time::interval(std::time::Duration::from_secs(60));
     let mut state_save = tokio::time::interval(std::time::Duration::from_secs(30));
+    let mut dht_republish = tokio::time::interval(std::time::Duration::from_secs(30 * 60));
 
     // Skip the immediate first tick
     cache_cleanup.tick().await;
@@ -66,6 +69,7 @@ pub(super) async fn runtime_loop(
     subnet_eval.tick().await;
     role_eval.tick().await;
     state_save.tick().await;
+    dht_republish.tick().await;
 
     // ── Gossip subscription ──────────────────────────────────────────
     let topic_id = tom_gossip::TopicId::from_bytes(TOM_GOSSIP_TOPIC);
@@ -86,8 +90,17 @@ pub(super) async fn runtime_loop(
         }
     };
 
-    // ── Phase R7.1: Publish to DHT at startup ───────────────────────
-    state.publish_to_dht_async().await;
+    // ── DHT setup ──────────────────────────────────────────────────
+    let secret_seed = node.secret_key_seed();
+    // Clone the async DHT handle for spawned lookup tasks (cheap Arc clone)
+    let dht_handle: Option<tom_dht::AsyncDht> =
+        state.dht().map(|d| d.async_dht());
+
+    // Publish to DHT at startup (BEP-0044)
+    {
+        let (relay_urls, direct_addrs) = extract_node_addrs(&node);
+        state.publish_to_dht(&secret_seed, relay_urls, direct_addrs).await;
+    }
 
     // ── Main loop ────────────────────────────────────────────────────
     loop {
@@ -117,6 +130,37 @@ pub(super) async fn runtime_loop(
                         let node_id = NodeId::from_endpoint_id(addr.id);
                         node.add_peer_addr(addr).await;
                         state.handle_command(RuntimeCommand::AddPeer { node_id })
+                    }
+                    RuntimeCommand::AddPeer { node_id } => {
+                        // Spawn a DHT lookup for unknown peers (non-blocking)
+                        if let Some(dht_client) = dht_handle.as_ref() {
+                            if state.topology.get(&node_id).is_none() {
+                                let dht_clone = dht_client.clone();
+                                let pk = node_id.as_bytes();
+                                let tx = cmd_tx.clone();
+                                tokio::spawn(async move {
+                                    match tom_dht::dht_lookup(&dht_clone, &pk).await {
+                                        Ok(Some(addr)) => {
+                                            let _ = tx.send(
+                                                RuntimeCommand::DhtLookupResult { addr }
+                                            ).await;
+                                        }
+                                        Ok(None) => {}
+                                        Err(e) => {
+                                            tracing::debug!("DHT lookup failed: {e}");
+                                        }
+                                    }
+                                });
+                            }
+                        }
+                        state.handle_command(RuntimeCommand::AddPeer { node_id })
+                    }
+                    RuntimeCommand::DhtLookupResult { ref addr } => {
+                        // Build EndpointAddr from DHT record and inject into transport
+                        if let Some(endpoint_addr) = dht_addr_to_endpoint_addr(addr) {
+                            node.add_peer_addr(endpoint_addr).await;
+                        }
+                        state.handle_command(cmd)
                     }
                     RuntimeCommand::Shutdown => break,
                     other => state.handle_command(other),
@@ -214,6 +258,13 @@ pub(super) async fn runtime_loop(
                 Vec::new()
             }
 
+            // ── 14. Timer: DHT re-publish (30 min) ───────────
+            _ = dht_republish.tick() => {
+                let (relay_urls, direct_addrs) = extract_node_addrs(&node);
+                state.publish_to_dht(&secret_seed, relay_urls, direct_addrs).await;
+                Vec::new()
+            }
+
             else => break,
         };
 
@@ -244,4 +295,48 @@ pub(super) async fn runtime_loop(
     if let Err(e) = node.shutdown().await {
         tracing::warn!("runtime shutdown error: {e}");
     }
+}
+
+/// Extract relay URLs and direct addresses from the TomNode for DHT publication.
+fn extract_node_addrs(node: &TomNode) -> (Vec<String>, Vec<String>) {
+    let addr = node.addr();
+    let relay_urls: Vec<String> = addr
+        .addrs
+        .iter()
+        .filter_map(|a| match a {
+            TransportAddr::Relay(url) => Some(url.to_string()),
+            _ => None,
+        })
+        .collect();
+    let direct_addrs: Vec<String> = addr
+        .addrs
+        .iter()
+        .filter_map(|a| match a {
+            TransportAddr::Ip(sa) => Some(sa.to_string()),
+            _ => None,
+        })
+        .collect();
+    (relay_urls, direct_addrs)
+}
+
+/// Convert a DHT node address to an EndpointAddr for transport injection.
+fn dht_addr_to_endpoint_addr(addr: &tom_dht::DhtNodeAddr) -> Option<tom_connect::EndpointAddr> {
+    let node_id: NodeId = addr.node_id.parse().ok()?;
+    let mut addrs = std::collections::BTreeSet::new();
+
+    for url_str in &addr.relay_urls {
+        if let Ok(url) = url_str.parse::<tom_connect::RelayUrl>() {
+            addrs.insert(TransportAddr::Relay(url));
+        }
+    }
+    for addr_str in &addr.direct_addrs {
+        if let Ok(sa) = addr_str.parse::<std::net::SocketAddr>() {
+            addrs.insert(TransportAddr::Ip(sa));
+        }
+    }
+
+    Some(tom_connect::EndpointAddr {
+        id: *node_id.as_endpoint_id(),
+        addrs,
+    })
 }

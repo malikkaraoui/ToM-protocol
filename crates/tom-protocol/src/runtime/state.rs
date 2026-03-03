@@ -184,24 +184,35 @@ impl RuntimeState {
         }
     }
 
-    /// Publish this node's address to the DHT (Phase R7.1).
+    /// Publish this node's address to the DHT (BEP-0044).
     ///
-    /// Called once at startup to announce our presence in the DHT.
-    pub(crate) async fn publish_to_dht_async(&self) {
+    /// Called at startup and periodically (every 30 min) to keep our
+    /// DHT record fresh. The loop passes real addresses from TomNode.
+    pub(crate) async fn publish_to_dht(
+        &self,
+        signing_key: &[u8; 32],
+        relay_urls: Vec<String>,
+        direct_addrs: Vec<String>,
+    ) {
         if let Some(ref dht) = self.dht {
             let our_addr = DhtNodeAddr {
                 node_id: self.local_id.to_string(),
-                relay_urls: vec![], // TODO R7.4: Add relay URLs from node.addr()
-                direct_addrs: vec![], // TODO R7.4: Add from MagicSock
+                relay_urls,
+                direct_addrs,
                 timestamp: now_ms(),
             };
 
-            if let Err(e) = dht.publish(our_addr).await {
+            if let Err(e) = dht.publish(signing_key, &our_addr).await {
                 tracing::warn!("Failed to publish to DHT: {e}");
             } else {
                 tracing::info!("Published to DHT: {}", self.local_id);
             }
         }
+    }
+
+    /// Check if DHT is enabled and return a reference for spawning lookups.
+    pub(crate) fn dht(&self) -> Option<&DhtDiscovery> {
+        self.dht.as_ref()
     }
 
     // ── State persistence ───────────────────────────────────────────────
@@ -1272,6 +1283,32 @@ impl RuntimeState {
                     self.role_manager
                         .get_all_scores(&self.topology, now_ms());
                 let _ = reply.send(scores);
+                Vec::new()
+            }
+
+            // DHT lookup completed — register the discovered peer.
+            RuntimeCommand::DhtLookupResult { addr } => {
+                let Ok(node_id) = addr.node_id.parse::<NodeId>() else {
+                    tracing::warn!("DHT lookup result: invalid node_id '{}'", addr.node_id);
+                    return Vec::new();
+                };
+                self.heartbeat.record_heartbeat_with_source(
+                    node_id,
+                    DiscoverySource::Dht,
+                    String::new(),
+                );
+                self.topology.upsert(PeerInfo {
+                    node_id,
+                    role: PeerRole::Peer,
+                    status: PeerStatus::Online,
+                    last_seen: now_ms(),
+                });
+                tracing::info!(
+                    node_id = %node_id,
+                    relays = addr.relay_urls.len(),
+                    addrs = addr.direct_addrs.len(),
+                    "DHT lookup result applied"
+                );
                 Vec::new()
             }
 

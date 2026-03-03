@@ -133,6 +133,9 @@ pub enum RuntimeCommand {
     GetAllRoleScores {
         reply: oneshot::Sender<Vec<(NodeId, f64, crate::relay::PeerRole)>>,
     },
+    // ── DHT discovery ──────────────────────────────
+    /// DHT lookup completed — inject discovered address into transport.
+    DhtLookupResult { addr: tom_dht::DhtNodeAddr },
     /// Graceful shutdown.
     Shutdown,
 }
@@ -526,10 +529,12 @@ impl ProtocolRuntime {
 
         // Spawn the event loop (thin orchestrator + executor)
         let loop_metrics = metrics.clone();
+        let loop_cmd_tx = cmd_tx.clone();
         tokio::spawn(r#loop::runtime_loop(
             node,
             state,
             gossip_bootstrap_peers,
+            loop_cmd_tx,
             cmd_rx,
             msg_tx,
             status_tx,
