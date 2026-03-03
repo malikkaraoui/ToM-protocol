@@ -104,6 +104,12 @@ pub(super) async fn runtime_loop(
         state.publish_to_dht(&secret_seed, relay_urls, direct_addrs).await;
     }
 
+    // ── Rejoin groups after restart (one-shot) ────────────────────────
+    let rejoin_effects = state.build_rejoin_effects();
+    if !rejoin_effects.is_empty() {
+        execute_effects(rejoin_effects, &node, &msg_tx, &status_tx, &event_tx, &metrics).await;
+    }
+
     // ── Main loop ────────────────────────────────────────────────────
     loop {
         let effects = tokio::select! {
