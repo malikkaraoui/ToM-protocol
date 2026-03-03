@@ -360,7 +360,8 @@ TomNodeConfig::new().n0_discovery(false).bind().await?;
 | R5 | Groups (hub, failover, sender keys, security) | ✅ Complete |
 | R6 | TUI + Integration + Stress campaigns | ✅ Complete |
 | R7 | Fork + Bootstrap Elimination | ✅ Complete |
-| R8 | Production Hardening | Next |
+| R8 | Production Hardening | ✅ Complete |
+| R9 | Consolidation (DHT, delivery reliability) | ✅ Complete |
 
 ### Stress Test Results
 - Campaign V5: 250/250 Mac ↔ NAS (100% success)
