@@ -1,4 +1,4 @@
-use crate::common::{elapsed_s, generate_payload};
+use crate::common::{elapsed_s, generate_payload, node_direct_addrs};
 use crate::events::*;
 use std::time::{Duration, Instant};
 use tom_transport::{MessageEnvelope, NodeId, TomNode};
@@ -43,7 +43,7 @@ pub async fn run(
 ) -> anyhow::Result<()> {
     let my_id = node.id();
 
-    emit(&EventStarted::new(&config.name, &my_id.to_string(), "ladder"));
+    emit(&EventStarted::new(&config.name, &my_id.to_string(), "ladder", node_direct_addrs(&node)));
     eprintln!(
         "Ladder mode → target: {}, {} sizes, {} reps each",
         config.target,

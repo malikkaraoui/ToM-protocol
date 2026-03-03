@@ -43,6 +43,11 @@ pub fn parse_node_id(s: &str) -> anyhow::Result<NodeId> {
         .map_err(|e| anyhow::anyhow!("invalid NodeId '{s}': {e}"))
 }
 
+/// Extract direct socket addresses from a TomNode as string list (for JSONL output).
+pub fn node_direct_addrs(node: &TomNode) -> Vec<String> {
+    node.addr().ip_addrs().map(|a| a.to_string()).collect()
+}
+
 /// Generate a JSON payload of approximately `size` bytes.
 pub fn generate_payload(size: usize, seq: u32) -> serde_json::Value {
     // Overhead for JSON structure: {"seq":N,"data":"..."}

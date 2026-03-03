@@ -1,4 +1,4 @@
-use crate::common::{elapsed_s, generate_payload};
+use crate::common::{elapsed_s, generate_payload, node_direct_addrs};
 use crate::events::*;
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
@@ -19,7 +19,7 @@ pub async fn run(
     let my_id = node.id();
     let target_count = config.targets.len() as u32;
 
-    emit(&EventStarted::new(&config.name, &my_id.to_string(), "fanout"));
+    emit(&EventStarted::new(&config.name, &my_id.to_string(), "fanout", node_direct_addrs(&node)));
     eprintln!(
         "Fanout mode → {} targets, {} msgs each, {} byte payload",
         target_count, config.count, config.payload_size
