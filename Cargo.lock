@@ -4985,6 +4985,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "tom-gateway"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "hex",
+ "hmac",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sha1 0.10.6",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "tom-gossip"
 version = "0.1.0"
 dependencies = [
