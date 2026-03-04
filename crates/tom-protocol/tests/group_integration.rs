@@ -8,7 +8,8 @@
 /// Bob receives it. Bob leaves. Hub election on failure.
 use tom_protocol::{
     elect_hub, ElectionReason, GroupAction, GroupEvent, GroupHub, GroupId, GroupInfo, GroupManager,
-    GroupMessage, GroupPayload, LeaveReason, NodeId, PeerInfo, PeerRole, PeerStatus, Topology,
+    GroupMemberRole, GroupMessage, GroupPayload, LeaveReason, NodeId, PeerInfo, PeerRole,
+    PeerStatus, Topology,
 };
 
 fn node_id(seed: u8) -> NodeId {
@@ -189,6 +190,7 @@ fn hub_election_on_failure() {
         max_members: 50,
         shadow_id: None,
         candidate_id: None,
+        invite_only: false,
     };
 
     let mut topology = Topology::new();
@@ -287,6 +289,7 @@ fn hub_rate_limits_spam() {
             group_name: "Spam Test".into(),
             creator_username: "alice".into(),
             initial_members: vec![],
+            invite_only: false,
         },
         alice_id,
     );
@@ -337,6 +340,206 @@ fn secret_seed(seed: u8) -> [u8; 32] {
     secret.to_bytes()
 }
 
+// ── R11.3 Integration Tests ─────────────────────────────────────────────
+
+/// Test self-kick: when a member is kicked, they clean up local state.
+#[test]
+fn self_kick_cleans_up_local_state() {
+    let alice_id = node_id(1);
+    let bob_id = node_id(2);
+    let hub_id = node_id(10);
+
+    let mut alice = GroupManager::new(alice_id, "alice".into());
+    let mut bob = GroupManager::new(bob_id, "bob".into());
+    let mut hub = GroupHub::new(hub_id);
+
+    // Create group
+    let create_actions = alice.create_group("Kick Cleanup".into(), hub_id, vec![]);
+    let GroupAction::Send { payload, .. } = &create_actions[0] else { panic!() };
+    let hub_actions = hub.handle_payload(payload.clone(), alice_id);
+    let GroupAction::Send { payload: GroupPayload::Created { group }, .. } = &hub_actions[0]
+    else { panic!() };
+    let gid = group.group_id.clone();
+    alice.handle_group_created(group.clone());
+
+    // Bob joins
+    let join_actions = hub.handle_payload(
+        GroupPayload::Join { group_id: gid.clone(), username: "bob".into() },
+        bob_id,
+    );
+    let GroupAction::Send { payload: GroupPayload::Sync { group: sg, recent_messages: rm }, .. } =
+        &join_actions[0]
+    else { panic!() };
+    bob.handle_group_sync(sg.clone(), rm.clone());
+    assert!(bob.is_in_group(&gid));
+
+    // Alice kicks Bob
+    let kick_actions = hub.kick_member(&gid, &alice_id, &bob_id);
+    let GroupAction::Broadcast { payload: GroupPayload::MemberLeft { reason, .. }, .. } =
+        &kick_actions[0]
+    else { panic!() };
+    assert_eq!(*reason, LeaveReason::Kicked);
+
+    // Bob receives the kick notification (self-kick)
+    let bob_events = bob.handle_member_left(&gid, &bob_id, "bob".into(), LeaveReason::Kicked);
+    assert_eq!(bob_events.len(), 1);
+    assert!(matches!(&bob_events[0], GroupAction::Event(GroupEvent::MemberLeft { reason: LeaveReason::Kicked, .. })));
+
+    // Bob should no longer be in the group
+    assert!(!bob.is_in_group(&gid));
+    assert!(bob.get_group(&gid).is_none());
+}
+
+/// Test role change propagation: admin promotes member, member sees updated role.
+#[test]
+fn role_change_propagation() {
+    let alice_id = node_id(1);
+    let bob_id = node_id(2);
+    let hub_id = node_id(10);
+
+    let mut alice = GroupManager::new(alice_id, "alice".into());
+    let mut bob = GroupManager::new(bob_id, "bob".into());
+    let mut hub = GroupHub::new(hub_id);
+
+    // Create group
+    let create_actions = alice.create_group("Role Test".into(), hub_id, vec![]);
+    let GroupAction::Send { payload, .. } = &create_actions[0] else { panic!() };
+    let hub_actions = hub.handle_payload(payload.clone(), alice_id);
+    let GroupAction::Send { payload: GroupPayload::Created { group }, .. } = &hub_actions[0]
+    else { panic!() };
+    let gid = group.group_id.clone();
+    alice.handle_group_created(group.clone());
+
+    // Bob joins
+    let join_actions = hub.handle_payload(
+        GroupPayload::Join { group_id: gid.clone(), username: "bob".into() },
+        bob_id,
+    );
+    let GroupAction::Send { payload: GroupPayload::Sync { group: sg, recent_messages: rm }, .. } =
+        &join_actions[0]
+    else { panic!() };
+    bob.handle_group_sync(sg.clone(), rm.clone());
+
+    // Deliver MemberJoined to Alice
+    if let GroupAction::Broadcast { payload: GroupPayload::MemberJoined { member, .. }, .. } =
+        &join_actions[1]
+    {
+        alice.handle_member_joined(&gid, member.clone());
+    }
+
+    // Bob is Member initially
+    assert_eq!(
+        bob.get_group(&gid).unwrap().members.iter().find(|m| m.node_id == bob_id).unwrap().role,
+        GroupMemberRole::Member
+    );
+
+    // Alice promotes Bob to Admin
+    let promote_actions = hub.update_member_role(&gid, &alice_id, &bob_id, GroupMemberRole::Admin);
+    assert!(!promote_actions.is_empty());
+
+    let GroupAction::Broadcast {
+        to,
+        payload: GroupPayload::MemberRoleChanged { node_id, new_role, .. },
+    } = &promote_actions[0]
+    else { panic!("expected MemberRoleChanged broadcast, got: {:?}", promote_actions[0]) };
+    assert_eq!(*node_id, bob_id);
+    assert_eq!(*new_role, GroupMemberRole::Admin);
+    assert!(to.contains(&alice_id));
+    assert!(to.contains(&bob_id));
+
+    // Both Alice and Bob process the role change
+    alice.handle_member_role_changed(&gid, &bob_id, GroupMemberRole::Admin);
+    bob.handle_member_role_changed(&gid, &bob_id, GroupMemberRole::Admin);
+
+    // Verify role updated locally
+    assert_eq!(
+        alice.get_group(&gid).unwrap().members.iter().find(|m| m.node_id == bob_id).unwrap().role,
+        GroupMemberRole::Admin
+    );
+    assert_eq!(
+        bob.get_group(&gid).unwrap().members.iter().find(|m| m.node_id == bob_id).unwrap().role,
+        GroupMemberRole::Admin
+    );
+
+    // Last-admin protection: can't demote Alice (only admin left after Bob also admin? No, both admin)
+    // Demote Alice — should work since Bob is also admin
+    let demote_actions = hub.update_member_role(&gid, &bob_id, &alice_id, GroupMemberRole::Member);
+    assert!(!demote_actions.is_empty());
+
+    // Now try demoting Bob (last admin) — should be rejected
+    alice.handle_member_role_changed(&gid, &alice_id, GroupMemberRole::Member);
+    bob.handle_member_role_changed(&gid, &alice_id, GroupMemberRole::Member);
+    let last_admin_actions = hub.update_member_role(&gid, &bob_id, &bob_id, GroupMemberRole::Member);
+    assert!(last_admin_actions.is_empty(), "should reject demoting last admin");
+}
+
+/// Test invite-only group: uninvited joins are rejected.
+#[test]
+fn invite_only_group_workflow() {
+    let alice_id = node_id(1);
+    let bob_id = node_id(2);
+    let charlie_id = node_id(3);
+    let hub_id = node_id(10);
+
+    let mut alice = GroupManager::new(alice_id, "alice".into());
+    let mut bob = GroupManager::new(bob_id, "bob".into());
+    let mut hub = GroupHub::new(hub_id);
+
+    // Create invite-only group with Bob invited
+    let create_actions = alice.create_group_invite_only("Private".into(), hub_id, vec![bob_id]);
+    let GroupAction::Send { payload, .. } = &create_actions[0] else { panic!() };
+
+    // Verify the payload has invite_only=true
+    let GroupPayload::Create { invite_only, .. } = &payload else { panic!() };
+    assert!(*invite_only, "invite_only should be true");
+
+    let hub_actions = hub.handle_payload(payload.clone(), alice_id);
+    let GroupAction::Send { payload: GroupPayload::Created { group }, .. } = &hub_actions[0]
+    else { panic!() };
+    let gid = group.group_id.clone();
+    assert!(group.invite_only, "created group should be invite_only");
+    alice.handle_group_created(group.clone());
+
+    // Bob was invited → deliver invite
+    let GroupAction::Send { payload: GroupPayload::Invite { group_id, group_name, inviter_id, inviter_username }, .. } =
+        &hub_actions[1]
+    else { panic!() };
+    bob.handle_invite(group_id.clone(), group_name.clone(), *inviter_id, inviter_username.clone(), hub_id);
+
+    // Bob accepts → should succeed (was invited)
+    let accept_actions = bob.accept_invite(&gid);
+    let GroupAction::Send { payload: join_payload, .. } = &accept_actions[0] else { panic!() };
+    let bob_join_result = hub.handle_payload(join_payload.clone(), bob_id);
+    assert!(!bob_join_result.is_empty(), "invited member should be allowed to join");
+
+    // Charlie tries to join without invitation → silently rejected (no Sync)
+    let charlie_join = hub.handle_payload(
+        GroupPayload::Join { group_id: gid.clone(), username: "charlie".into() },
+        charlie_id,
+    );
+    assert!(charlie_join.is_empty(), "uninvited member should be rejected from invite-only group");
+
+    // Admin invites Charlie explicitly → then Charlie can join
+    let invite_actions = hub.invite_member(&gid, &alice_id, charlie_id);
+    assert!(!invite_actions.is_empty(), "admin should be able to invite to invite-only group");
+
+    // Deliver invite to Charlie (simulate)
+    let mut charlie = GroupManager::new(charlie_id, "charlie".into());
+    if let GroupAction::Send { payload: GroupPayload::Invite { group_id, group_name, inviter_id, inviter_username }, .. } =
+        &invite_actions[0]
+    {
+        charlie.handle_invite(group_id.clone(), group_name.clone(), *inviter_id, inviter_username.clone(), hub_id);
+    }
+
+    // Charlie accepts
+    let charlie_accept = charlie.accept_invite(&gid);
+    let GroupAction::Send { payload: charlie_join_payload, .. } = &charlie_accept[0] else { panic!() };
+    let charlie_join_result = hub.handle_payload(charlie_join_payload.clone(), charlie_id);
+    assert!(!charlie_join_result.is_empty(), "explicitly invited member should join invite-only group");
+    // Verify Sync was sent (not a security violation)
+    assert!(matches!(&charlie_join_result[0], GroupAction::Send { payload: GroupPayload::Sync { .. }, .. }));
+}
+
 /// Non-member message is rejected with SecurityViolation.
 #[test]
 fn non_member_message_rejected() {
@@ -352,6 +555,7 @@ fn non_member_message_rejected() {
             group_name: "Secure Group".into(),
             creator_username: "alice".into(),
             initial_members: vec![],
+            invite_only: false,
         },
         alice_id,
     );
@@ -392,6 +596,7 @@ fn signed_message_passes_hub() {
             group_name: "Signed Group".into(),
             creator_username: "alice".into(),
             initial_members: vec![],
+            invite_only: false,
         },
         alice_id,
     );
@@ -439,6 +644,7 @@ fn tampered_signature_detected() {
             group_name: "Tamper Test".into(),
             creator_username: "alice".into(),
             initial_members: vec![],
+            invite_only: false,
         },
         alice_id,
     );
@@ -689,6 +895,7 @@ fn shadow_assigned_after_group_setup() {
             group_name: "Failover Test".into(),
             creator_username: "alice".into(),
             initial_members: vec![bob_id],
+            invite_only: false,
         },
         alice_id,
     );
@@ -735,6 +942,7 @@ fn hub_failover_shadow_promotes_on_primary_death() {
             group_name: "Failover E2E".into(),
             creator_username: "alice".into(),
             initial_members: vec![],
+            invite_only: false,
         },
         alice_id,
     );

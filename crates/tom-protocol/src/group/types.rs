@@ -121,6 +121,9 @@ pub struct GroupInfo {
     /// Current candidate node (next shadow).
     #[serde(default)]
     pub candidate_id: Option<NodeId>,
+    /// Whether this group requires invitations to join (R11.3).
+    #[serde(default)]
+    pub invite_only: bool,
 }
 
 impl GroupInfo {
@@ -185,6 +188,8 @@ pub enum GroupPayload {
         group_name: String,
         creator_username: String,
         initial_members: Vec<NodeId>,
+        #[serde(default)]
+        invite_only: bool,
     },
 
     /// Hub confirms group creation (hub → creator).
@@ -280,6 +285,34 @@ pub enum GroupPayload {
 
     /// Member reports hub unreachable (member -> shadow).
     HubUnreachable { group_id: GroupId },
+
+    // ── Admin controls (R11.3) ────────────────────────────────────────
+
+    /// Admin kicks a member (admin → hub).
+    KickMember {
+        group_id: GroupId,
+        target_id: NodeId,
+    },
+
+    /// Admin changes a member's role (admin → hub).
+    UpdateMemberRole {
+        group_id: GroupId,
+        target_id: NodeId,
+        new_role: GroupMemberRole,
+    },
+
+    /// Hub broadcasts a role change (hub → members).
+    MemberRoleChanged {
+        group_id: GroupId,
+        node_id: NodeId,
+        new_role: GroupMemberRole,
+    },
+
+    /// Admin invites a member after creation (admin → hub).
+    InviteMember {
+        group_id: GroupId,
+        target_id: NodeId,
+    },
 }
 
 // ── GroupMessage ──────────────────────────────────────────────────────────
@@ -535,6 +568,13 @@ pub enum GroupEvent {
         new_hub_id: NodeId,
     },
 
+    /// A member's role was changed by an admin.
+    MemberRoleChanged {
+        group_id: GroupId,
+        node_id: NodeId,
+        new_role: GroupMemberRole,
+    },
+
     /// Security violation detected (non-member or invalid signature).
     SecurityViolation {
         group_id: GroupId,
@@ -600,6 +640,7 @@ mod tests {
             max_members: MAX_GROUP_MEMBERS,
             shadow_id: None,
             candidate_id: None,
+            invite_only: false,
         }
     }
 
@@ -669,6 +710,7 @@ mod tests {
                 group_name: "Test".into(),
                 creator_username: "alice".into(),
                 initial_members: vec![node_id(2)],
+                invite_only: false,
             },
             GroupPayload::Join {
                 group_id: GroupId::from("grp-1".to_string()),
@@ -946,5 +988,43 @@ mod tests {
         let bytes = rmp_serde::to_vec(&payload).expect("serialize");
         let decoded: GroupPayload = rmp_serde::from_slice(&bytes).expect("deserialize");
         assert_eq!(payload, decoded);
+    }
+
+    // ── R11.3 admin controls roundtrip tests ──────────────────────────
+
+    #[test]
+    fn kick_member_roundtrip() {
+        let payload = GroupPayload::KickMember {
+            group_id: GroupId::from("grp-1".to_string()),
+            target_id: node_id(2),
+        };
+        let bytes = rmp_serde::to_vec(&payload).expect("serialize");
+        let decoded: GroupPayload = rmp_serde::from_slice(&bytes).expect("deserialize");
+        assert_eq!(payload, decoded);
+    }
+
+    #[test]
+    fn member_role_changed_roundtrip() {
+        let payloads = vec![
+            GroupPayload::UpdateMemberRole {
+                group_id: GroupId::from("grp-1".to_string()),
+                target_id: node_id(2),
+                new_role: GroupMemberRole::Admin,
+            },
+            GroupPayload::MemberRoleChanged {
+                group_id: GroupId::from("grp-1".to_string()),
+                node_id: node_id(2),
+                new_role: GroupMemberRole::Admin,
+            },
+            GroupPayload::InviteMember {
+                group_id: GroupId::from("grp-1".to_string()),
+                target_id: node_id(3),
+            },
+        ];
+        for payload in &payloads {
+            let bytes = rmp_serde::to_vec(payload).expect("serialize");
+            let decoded: GroupPayload = rmp_serde::from_slice(&bytes).expect("deserialize");
+            assert_eq!(*payload, decoded, "roundtrip failed for {:?}", payload);
+        }
     }
 }

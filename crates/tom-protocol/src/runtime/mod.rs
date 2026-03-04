@@ -109,6 +109,7 @@ pub enum RuntimeCommand {
         name: String,
         hub_relay_id: NodeId,
         initial_members: Vec<NodeId>,
+        invite_only: bool,
     },
     /// Accept a pending group invitation.
     AcceptInvite { group_id: GroupId },
@@ -122,6 +123,16 @@ pub enum RuntimeCommand {
     GetGroups {
         reply: oneshot::Sender<Vec<GroupInfo>>,
     },
+    /// Admin kicks a member from a group.
+    KickMember { group_id: GroupId, target_id: NodeId },
+    /// Admin changes a member's role.
+    UpdateMemberRole {
+        group_id: GroupId,
+        target_id: NodeId,
+        new_role: crate::group::GroupMemberRole,
+    },
+    /// Admin invites a member to an existing group.
+    InviteMember { group_id: GroupId, target_id: NodeId },
     /// Query: list pending invitations.
     GetPendingInvites {
         reply: oneshot::Sender<Vec<GroupInvite>>,
@@ -216,6 +227,12 @@ pub enum ProtocolEvent {
         group_id: GroupId,
         node_id: NodeId,
         reason: String,
+    },
+    /// A member's role was changed by an admin.
+    GroupMemberRoleChanged {
+        group_id: GroupId,
+        node_id: NodeId,
+        new_role: crate::group::GroupMemberRole,
     },
     /// Shadow promoted to primary hub for a group.
     GroupShadowPromoted {
@@ -391,6 +408,27 @@ impl RuntimeHandle {
                 name,
                 hub_relay_id,
                 initial_members,
+                invite_only: false,
+            })
+            .await
+            .map_err(|_| crate::TomProtocolError::InvalidEnvelope {
+                reason: "runtime shut down".into(),
+            })
+    }
+
+    /// Create an invite-only group. Only explicitly invited members can join.
+    pub async fn create_group_invite_only(
+        &self,
+        name: String,
+        hub_relay_id: NodeId,
+        initial_members: Vec<NodeId>,
+    ) -> Result<(), crate::TomProtocolError> {
+        self.cmd_tx
+            .send(RuntimeCommand::CreateGroup {
+                name,
+                hub_relay_id,
+                initial_members,
+                invite_only: true,
             })
             .await
             .map_err(|_| crate::TomProtocolError::InvalidEnvelope {
@@ -450,6 +488,53 @@ impl RuntimeHandle {
             .send(RuntimeCommand::GetGroups { reply: tx })
             .await;
         rx.await.unwrap_or_default()
+    }
+
+    /// Kick a member from a group (admin only).
+    pub async fn kick_member(
+        &self,
+        group_id: GroupId,
+        target_id: NodeId,
+    ) -> Result<(), crate::TomProtocolError> {
+        self.cmd_tx
+            .send(RuntimeCommand::KickMember { group_id, target_id })
+            .await
+            .map_err(|_| crate::TomProtocolError::InvalidEnvelope {
+                reason: "runtime shut down".into(),
+            })
+    }
+
+    /// Change a member's role in a group (admin only).
+    pub async fn update_member_role(
+        &self,
+        group_id: GroupId,
+        target_id: NodeId,
+        new_role: crate::group::GroupMemberRole,
+    ) -> Result<(), crate::TomProtocolError> {
+        self.cmd_tx
+            .send(RuntimeCommand::UpdateMemberRole {
+                group_id,
+                target_id,
+                new_role,
+            })
+            .await
+            .map_err(|_| crate::TomProtocolError::InvalidEnvelope {
+                reason: "runtime shut down".into(),
+            })
+    }
+
+    /// Invite a member to an existing group (admin only).
+    pub async fn invite_member(
+        &self,
+        group_id: GroupId,
+        target_id: NodeId,
+    ) -> Result<(), crate::TomProtocolError> {
+        self.cmd_tx
+            .send(RuntimeCommand::InviteMember { group_id, target_id })
+            .await
+            .map_err(|_| crate::TomProtocolError::InvalidEnvelope {
+                reason: "runtime shut down".into(),
+            })
     }
 
     /// Get pending group invitations.

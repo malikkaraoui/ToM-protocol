@@ -29,6 +29,11 @@ pub enum MessageType {
     GroupHubShadowSync,
     GroupCandidateAssigned,
     GroupHubUnreachable,
+    // Group admin controls (R11.3)
+    GroupKickMember,
+    GroupUpdateMemberRole,
+    GroupMemberRoleChanged,
+    GroupInviteMember,
     // Backup
     BackupStore,
     BackupDeliver,
@@ -90,6 +95,10 @@ mod tests {
             MessageType::GroupHubShadowSync,
             MessageType::GroupCandidateAssigned,
             MessageType::GroupHubUnreachable,
+            MessageType::GroupKickMember,
+            MessageType::GroupUpdateMemberRole,
+            MessageType::GroupMemberRoleChanged,
+            MessageType::GroupInviteMember,
             MessageType::BackupStore,
             MessageType::BackupDeliver,
             MessageType::BackupReplicate,

@@ -136,12 +136,33 @@ impl GroupManager {
         hub_relay_id: NodeId,
         initial_members: Vec<NodeId>,
     ) -> Vec<GroupAction> {
+        self.create_group_with_options(name, hub_relay_id, initial_members, false)
+    }
+
+    /// Initiate an invite-only group. Only explicitly invited members can join.
+    pub fn create_group_invite_only(
+        &self,
+        name: String,
+        hub_relay_id: NodeId,
+        initial_members: Vec<NodeId>,
+    ) -> Vec<GroupAction> {
+        self.create_group_with_options(name, hub_relay_id, initial_members, true)
+    }
+
+    pub fn create_group_with_options(
+        &self,
+        name: String,
+        hub_relay_id: NodeId,
+        initial_members: Vec<NodeId>,
+        invite_only: bool,
+    ) -> Vec<GroupAction> {
         vec![GroupAction::Send {
             to: hub_relay_id,
             payload: GroupPayload::Create {
                 group_name: name,
                 creator_username: self.local_username.clone(),
                 initial_members,
+                invite_only,
             },
         }]
     }
@@ -292,6 +313,8 @@ impl GroupManager {
     }
 
     /// Handle notification that a member left one of our groups.
+    ///
+    /// If we are the kicked member, remove the group entirely from local state.
     pub fn handle_member_left(
         &mut self,
         group_id: &GroupId,
@@ -299,6 +322,20 @@ impl GroupManager {
         username: String,
         reason: LeaveReason,
     ) -> Vec<GroupAction> {
+        // We were kicked — remove the group from local state entirely
+        if *node_id == self.local_id && reason == LeaveReason::Kicked {
+            self.groups.remove(group_id);
+            self.message_history.remove(group_id);
+            self.cleanup_group_keys(group_id);
+            self.shadow_state.remove(group_id);
+            return vec![GroupAction::Event(GroupEvent::MemberLeft {
+                group_id: group_id.clone(),
+                node_id: *node_id,
+                username,
+                reason,
+            })];
+        }
+
         let Some(group) = self.groups.get_mut(group_id) else {
             return vec![];
         };
@@ -319,6 +356,29 @@ impl GroupManager {
         })];
         actions.extend(self.rotate_sender_key(group_id));
         actions
+    }
+
+    /// Handle notification that a member's role was changed (R11.3).
+    pub fn handle_member_role_changed(
+        &mut self,
+        group_id: &GroupId,
+        node_id: &NodeId,
+        new_role: GroupMemberRole,
+    ) -> Vec<GroupAction> {
+        let Some(group) = self.groups.get_mut(group_id) else {
+            return vec![];
+        };
+
+        if let Some(member) = group.members.iter_mut().find(|m| m.node_id == *node_id) {
+            member.role = new_role;
+        }
+        group.last_activity_at = now_ms();
+
+        vec![GroupAction::Event(GroupEvent::MemberRoleChanged {
+            group_id: group_id.clone(),
+            node_id: *node_id,
+            new_role,
+        })]
     }
 
     /// Leave a group voluntarily. Returns actions to notify the hub.
@@ -769,6 +829,7 @@ mod tests {
             max_members: MAX_GROUP_MEMBERS,
             shadow_id: None,
             candidate_id: None,
+            invite_only: false,
         }
     }
 
@@ -1424,5 +1485,51 @@ mod tests {
         let alice = node_id(1);
         let mgr = GroupManager::new(alice, "alice".into());
         assert!(mgr.rejoin_groups().is_empty());
+    }
+
+    // ── R11.3 Admin Controls Tests ────────────────────────────────────
+
+    #[test]
+    fn handle_member_role_changed_updates_state() {
+        let alice = node_id(1);
+        let bob = node_id(2);
+        let hub = node_id(10);
+        let mut mgr = GroupManager::new(alice, "alice".into());
+
+        // Create a group and add bob as member
+        let gid = GroupId::from("grp-role".to_string());
+        let mut group = make_test_group(alice, hub);
+        group.group_id = gid.clone();
+        group.members.push(GroupMember {
+            node_id: bob,
+            username: "bob".into(),
+            joined_at: 1000,
+            role: GroupMemberRole::Member,
+        });
+        mgr.groups.insert(gid.clone(), group);
+
+        // Bob gets promoted
+        let actions = mgr.handle_member_role_changed(&gid, &bob, GroupMemberRole::Admin);
+        assert_eq!(actions.len(), 1);
+        assert!(matches!(
+            &actions[0],
+            GroupAction::Event(GroupEvent::MemberRoleChanged { node_id, new_role: GroupMemberRole::Admin, .. })
+                if *node_id == bob
+        ));
+
+        // Verify local state updated
+        let member = mgr.groups.get(&gid).unwrap().get_member(&bob).unwrap();
+        assert_eq!(member.role, GroupMemberRole::Admin);
+    }
+
+    #[test]
+    fn handle_member_role_changed_unknown_group() {
+        let alice = node_id(1);
+        let bob = node_id(2);
+        let mut mgr = GroupManager::new(alice, "alice".into());
+
+        let gid = GroupId::from("nonexistent".to_string());
+        let actions = mgr.handle_member_role_changed(&gid, &bob, GroupMemberRole::Admin);
+        assert!(actions.is_empty(), "unknown group should be silently ignored");
     }
 }
