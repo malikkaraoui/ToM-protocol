@@ -303,10 +303,11 @@ cargo zigbuild -p tom-stress --target aarch64-unknown-linux-musl --release
 ```
 
 ### Test Counts
-- 346 tests (tom-protocol)
+- 355 tests (tom-protocol) + 14 integration tests
 - 322 tests (tom-quinn-proto)
+- 76 tests (tom-connect)
 - 22 tests (tom-quinn)
-- 9 tests (tom-relay) + 12 tests (tom-gossip) + 4 tests (tom-metrics) + 2 tests (tom-base)
+- 9 tests (tom-relay) + 12 tests (tom-gossip) + 7 tests (tom-metrics) + 2 tests (tom-base)
 - 771 tests (TypeScript core, legacy)
 
 ## Deployment
@@ -363,6 +364,7 @@ TomNodeConfig::new().n0_discovery(false).bind().await?;
 | R8 | Production Hardening | ✅ Complete |
 | R9 | Consolidation (DHT, delivery reliability) | ✅ Complete |
 | R10 | Group Recovery (rejoin, tracker persistence, liveness reset) | ✅ Complete |
+| R11 | Security & Admin (antispam, nonce anti-replay, group admin controls) | ✅ Complete |
 
 ### Stress Test Results
 - Campaign V5: 250/250 Mac ↔ NAS (100% success)

@@ -21,6 +21,9 @@ use crate::types::{now_ms, NodeId};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GroupHubSnapshot {
     pub groups: HashMap<GroupId, GroupInfo>,
+    /// Invited sets per group (for invite-only groups). Restored on startup.
+    #[serde(default)]
+    pub invited_sets: HashMap<GroupId, HashSet<NodeId>>,
 }
 
 /// Maximum age of a group message before the hub rejects it (5 minutes).
@@ -956,19 +959,27 @@ impl GroupHub {
             groups: self.groups.iter().map(|(id, hg)| {
                 (id.clone(), hg.info.clone())
             }).collect(),
+            invited_sets: self.groups.iter()
+                .filter(|(_, hg)| !hg.invited_set.is_empty())
+                .map(|(id, hg)| (id.clone(), hg.invited_set.clone()))
+                .collect(),
         }
     }
 
     /// Restore persistent state from a snapshot.
     pub fn restore(&mut self, snapshot: GroupHubSnapshot) {
         for (group_id, info) in snapshot.groups {
+            let invited_set = snapshot.invited_sets
+                .get(&group_id)
+                .cloned()
+                .unwrap_or_default();
             let hub_group = HubGroup {
                 info,
                 message_history: VecDeque::new(),
                 rate_limits: HashMap::new(),
                 seen_message_ids: HashSet::new(),
                 seen_nonces: HashSet::new(),
-                invited_set: HashSet::new(),
+                invited_set,
             };
             self.groups.insert(group_id, hub_group);
         }

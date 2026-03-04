@@ -76,7 +76,7 @@ impl StateStore {
         }
 
         if let Some(ref hub) = snapshot.hub {
-            self.save_hub_groups_tx(&tx, &hub.groups)?;
+            self.save_hub_groups_tx(&tx, hub)?;
         }
 
         self.save_peers_tx(&tx, &snapshot.peers)?;
@@ -137,15 +137,20 @@ impl StateStore {
     fn save_hub_groups_tx(
         &self,
         tx: &rusqlite::Transaction,
-        groups: &HashMap<GroupId, GroupInfo>,
+        hub: &GroupHubSnapshot,
     ) -> Result<(), rusqlite::Error> {
         tx.execute("DELETE FROM hub_groups", [])?;
         let mut stmt = tx.prepare(
-            "INSERT INTO hub_groups (group_id, data) VALUES (?1, ?2)",
+            "INSERT INTO hub_groups (group_id, data, invited_set) VALUES (?1, ?2, ?3)",
         )?;
-        for (gid, info) in groups {
+        for (gid, info) in &hub.groups {
             let json = serde_json::to_string(info).unwrap_or_default();
-            stmt.execute(rusqlite::params![gid.to_string(), json])?;
+            let invited: Vec<String> = hub.invited_sets
+                .get(gid)
+                .map(|s| s.iter().map(|n| n.to_string()).collect())
+                .unwrap_or_default();
+            let invited_json = serde_json::to_string(&invited).unwrap_or_default();
+            stmt.execute(rusqlite::params![gid.to_string(), json, invited_json])?;
         }
         Ok(())
     }
@@ -224,7 +229,7 @@ impl StateStore {
         let conn = self.conn.lock().unwrap();
         let groups = Self::load_groups(&conn)?;
         let (local_keys, remote_keys) = Self::load_sender_keys(&conn)?;
-        let hub_groups = Self::load_hub_groups(&conn)?;
+        let (hub_groups, hub_invited_sets) = Self::load_hub_groups(&conn)?;
         let peers = Self::load_peers(&conn)?;
         let metrics = Self::load_metrics(&conn)?;
         let tracked_messages = Self::load_tracked_messages(&conn)?;
@@ -243,6 +248,7 @@ impl StateStore {
         let hub = if !hub_groups.is_empty() {
             Some(GroupHubSnapshot {
                 groups: hub_groups,
+                invited_sets: hub_invited_sets,
             })
         } else {
             None
@@ -314,21 +320,34 @@ impl StateStore {
         Ok((local_keys, remote_keys))
     }
 
-    fn load_hub_groups(conn: &Connection) -> Result<HashMap<GroupId, GroupInfo>, rusqlite::Error> {
-        let mut stmt = conn.prepare("SELECT group_id, data FROM hub_groups")?;
+    #[allow(clippy::type_complexity)]
+    fn load_hub_groups(conn: &Connection) -> Result<(HashMap<GroupId, GroupInfo>, HashMap<GroupId, std::collections::HashSet<NodeId>>), rusqlite::Error> {
+        let mut stmt = conn.prepare("SELECT group_id, data, invited_set FROM hub_groups")?;
         let mut groups = HashMap::new();
+        let mut invited_sets = HashMap::new();
         let rows = stmt.query_map([], |row| {
             let gid: String = row.get(0)?;
             let json: String = row.get(1)?;
-            Ok((gid, json))
+            let invited_json: String = row.get(2)?;
+            Ok((gid, json, invited_json))
         })?;
         for row in rows {
-            let (gid, json) = row?;
+            let (gid, json, invited_json) = row?;
+            let group_id = GroupId::from(gid);
             if let Ok(info) = serde_json::from_str::<GroupInfo>(&json) {
-                groups.insert(GroupId::from(gid), info);
+                groups.insert(group_id.clone(), info);
+            }
+            if let Ok(invited) = serde_json::from_str::<Vec<String>>(&invited_json) {
+                let set: std::collections::HashSet<NodeId> = invited
+                    .iter()
+                    .filter_map(|s| s.parse::<NodeId>().ok())
+                    .collect();
+                if !set.is_empty() {
+                    invited_sets.insert(group_id, set);
+                }
             }
         }
-        Ok(groups)
+        Ok((groups, invited_sets))
     }
 
     fn load_peers(conn: &Connection) -> Result<HashMap<NodeId, PeerInfo>, rusqlite::Error> {
@@ -590,7 +609,7 @@ mod tests {
         groups.insert(gid.clone(), info);
 
         let snapshot = StateSnapshot {
-            hub: Some(GroupHubSnapshot { groups }),
+            hub: Some(GroupHubSnapshot { groups, invited_sets: HashMap::new() }),
             ..Default::default()
         };
 
@@ -600,6 +619,43 @@ mod tests {
         let hub_snap = loaded.hub.unwrap();
         assert_eq!(hub_snap.groups.len(), 1);
         assert_eq!(hub_snap.groups[&gid].name, "Hub Group");
+    }
+
+    #[test]
+    fn roundtrip_hub_invited_sets() {
+        let store = StateStore::open_memory().unwrap();
+        let hub = node_id(10);
+        let alice = node_id(1);
+        let bob = node_id(2);
+        let charlie = node_id(3);
+
+        let mut info = make_group_info("Invite-Only", hub, alice);
+        info.invite_only = true;
+        let gid = info.group_id.clone();
+
+        let mut groups = HashMap::new();
+        groups.insert(gid.clone(), info);
+
+        let mut invited_sets = HashMap::new();
+        let mut set = std::collections::HashSet::new();
+        set.insert(bob);
+        set.insert(charlie);
+        invited_sets.insert(gid.clone(), set);
+
+        let snapshot = StateSnapshot {
+            hub: Some(GroupHubSnapshot { groups, invited_sets }),
+            ..Default::default()
+        };
+
+        store.save(&snapshot).unwrap();
+        let loaded = store.load().unwrap();
+
+        let hub_snap = loaded.hub.unwrap();
+        assert_eq!(hub_snap.groups.len(), 1);
+        assert!(hub_snap.groups[&gid].invite_only);
+        assert_eq!(hub_snap.invited_sets[&gid].len(), 2);
+        assert!(hub_snap.invited_sets[&gid].contains(&bob));
+        assert!(hub_snap.invited_sets[&gid].contains(&charlie));
     }
 
     #[test]
