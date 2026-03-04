@@ -6,7 +6,7 @@
 /// Scenario: Messages stored for offline recipient, replicated
 /// across nodes, delivered when recipient comes online, cleaned up.
 use tom_protocol::{
-    BackupAction, BackupCoordinator, BackupEvent, HostFactors, NodeId, ReplicationPayload,
+    BackupAction, BackupCoordinator, BackupEvent, HostFactors, NodeId,
 };
 
 fn node_id(seed: u8) -> NodeId {
