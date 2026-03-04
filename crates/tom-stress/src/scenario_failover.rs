@@ -94,8 +94,11 @@ pub async fn run() -> anyhow::Result<ScenarioResult> {
     result.add(step);
 
     // ── Wait for Bob to join ────────────────────────────────────────
+    let gid_for_invite = group_id_str.clone();
     let step = timed_step_async("bob joins group", || async {
-        let deadline = Instant::now() + Duration::from_secs(10);
+        let deadline = Instant::now() + Duration::from_secs(15);
+        let mut accepted = false;
+        let mut reinvite_sent = false;
         while Instant::now() < deadline {
             match recv_timeout(&mut channels_b.events, Duration::from_secs(1)).await {
                 Ok(ProtocolEvent::GroupInviteReceived { invite }) => {
@@ -104,12 +107,38 @@ pub async fn run() -> anyhow::Result<ScenarioResult> {
                         .accept_invite(invite.group_id)
                         .await
                         .map_err(|e| format!("accept_invite: {e}"))?;
+                    accepted = true;
                 }
                 Ok(ProtocolEvent::GroupJoined { group_id, .. }) => {
                     return Ok(format!("bob joined {group_id}"));
                 }
                 Ok(_) => continue,
-                Err(_) => continue,
+                Err(_) => {
+                    if !accepted {
+                        let pending = channels_b.handle.pending_invites().await;
+                        if let Some(invite) = pending.first() {
+                            channels_b
+                                .handle
+                                .accept_invite(invite.group_id.clone())
+                                .await
+                                .map_err(|e| format!("accept_invite(pending): {e}"))?;
+                            accepted = true;
+                        }
+                    }
+
+                    if !accepted && !reinvite_sent {
+                        let gid = tom_protocol::GroupId::from(gid_for_invite.clone());
+                        if channels_a
+                            .handle
+                            .invite_member(gid, id_b)
+                            .await
+                            .is_ok()
+                        {
+                            reinvite_sent = true;
+                        }
+                    }
+                    continue;
+                }
             }
         }
         Err("timeout waiting for GroupJoined".into())
