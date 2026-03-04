@@ -58,6 +58,7 @@ pub(super) async fn runtime_loop(
     let mut state_save = tokio::time::interval(std::time::Duration::from_secs(30));
     let mut dht_republish = tokio::time::interval(std::time::Duration::from_secs(30 * 60));
     let mut delivery_deadline = tokio::time::interval(std::time::Duration::from_secs(5));
+    let mut hub_cleanup = tokio::time::interval(std::time::Duration::from_secs(60));
 
     // Skip the immediate first tick
     cache_cleanup.tick().await;
@@ -72,6 +73,7 @@ pub(super) async fn runtime_loop(
     state_save.tick().await;
     dht_republish.tick().await;
     delivery_deadline.tick().await;
+    hub_cleanup.tick().await;
 
     // ── Gossip subscription ──────────────────────────────────────────
     let topic_id = tom_gossip::TopicId::from_bytes(TOM_GOSSIP_TOPIC);
@@ -194,6 +196,9 @@ pub(super) async fn runtime_loop(
 
             // ── 7b. Timer: shadow ping watchdog ──────────────────
             _ = shadow_ping.tick() => state.tick_shadow_ping(),
+
+            // ── 7c. Timer: hub message cleanup (24h TTL) ─────────
+            _ = hub_cleanup.tick() => state.tick_hub_cleanup(),
 
             // ── 8. Timer: backup maintenance ────────────────────
             _ = backup_tick.tick() => state.tick_backup(),

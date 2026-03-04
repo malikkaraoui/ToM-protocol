@@ -18,6 +18,8 @@ pub struct GroupManagerSnapshot {
     pub local_sender_keys: HashMap<GroupId, SenderKeyEntry>,
     pub sender_keys: HashMap<GroupId, HashMap<NodeId, SenderKeyEntry>>,
     pub message_history: HashMap<GroupId, Vec<GroupMessage>>,
+    /// Last received sequence number per group (for offline gap-fill).
+    pub last_seqs: HashMap<GroupId, u64>,
 }
 
 /// State for a group where we are the shadow.
@@ -60,6 +62,8 @@ pub struct GroupManager {
     sender_keys: HashMap<GroupId, HashMap<NodeId, SenderKeyEntry>>,
     /// Messages waiting for a sender key to decrypt.
     pending_decrypt: HashMap<GroupId, Vec<GroupMessage>>,
+    /// Last received sequence number per group (for offline gap-fill).
+    last_seqs: HashMap<GroupId, u64>,
     /// Groups where we are the shadow (group_id -> ShadowState).
     shadow_state: HashMap<GroupId, ShadowState>,
 }
@@ -77,6 +81,7 @@ impl GroupManager {
             local_sender_keys: HashMap::new(),
             sender_keys: HashMap::new(),
             pending_decrypt: HashMap::new(),
+            last_seqs: HashMap::new(),
             shadow_state: HashMap::new(),
         }
     }
@@ -234,12 +239,24 @@ impl GroupManager {
     pub fn rejoin_groups(&self) -> Vec<GroupAction> {
         self.groups
             .values()
-            .map(|group| GroupAction::Send {
-                to: group.hub_relay_id,
-                payload: GroupPayload::Join {
-                    group_id: group.group_id.clone(),
-                    username: self.local_username.clone(),
-                },
+            .flat_map(|group| {
+                let since_seq = self.last_seqs.get(&group.group_id).copied().unwrap_or(0);
+                vec![
+                    GroupAction::Send {
+                        to: group.hub_relay_id,
+                        payload: GroupPayload::Join {
+                            group_id: group.group_id.clone(),
+                            username: self.local_username.clone(),
+                        },
+                    },
+                    GroupAction::Send {
+                        to: group.hub_relay_id,
+                        payload: GroupPayload::SyncRequest {
+                            group_id: group.group_id.clone(),
+                            since_seq,
+                        },
+                    },
+                ]
             })
             .collect()
     }
@@ -617,6 +634,13 @@ impl GroupManager {
         if let Some(group) = self.groups.get_mut(group_id) {
             group.last_activity_at = now_ms();
         }
+        // Track last received sequence number for offline gap-fill (R13)
+        if message.seq > 0 {
+            let last = self.last_seqs.entry(group_id.clone()).or_insert(0);
+            if message.seq > *last {
+                *last = message.seq;
+            }
+        }
         let history = self.message_history.entry(group_id.clone()).or_default();
         history.push(message.clone());
         if history.len() > self.max_history_per_group {
@@ -780,6 +804,7 @@ impl GroupManager {
             local_sender_keys: self.local_sender_keys.clone(),
             sender_keys: self.sender_keys.clone(),
             message_history: self.message_history.clone(),
+            last_seqs: self.last_seqs.clone(),
         }
     }
 
@@ -789,10 +814,21 @@ impl GroupManager {
         self.local_sender_keys = snapshot.local_sender_keys;
         self.sender_keys = snapshot.sender_keys;
         self.message_history = snapshot.message_history;
+        self.last_seqs = snapshot.last_seqs;
         // Initialize message_history entries for any groups missing them
         for gid in self.groups.keys() {
             self.message_history.entry(gid.clone()).or_default();
         }
+    }
+
+    /// Get the last received sequence number for a group.
+    pub fn last_seq(&self, group_id: &GroupId) -> u64 {
+        self.last_seqs.get(group_id).copied().unwrap_or(0)
+    }
+
+    /// Set the last received sequence number for a group (used by SyncResponse).
+    pub fn set_last_seq(&mut self, group_id: &GroupId, seq: u64) {
+        self.last_seqs.insert(group_id.clone(), seq);
     }
 }
 
@@ -961,6 +997,7 @@ mod tests {
             encrypted: false,
             sent_at: 1000,
             sender_signature: Vec::new(),
+            seq: 0,
         };
 
         let actions = mgr.handle_group_sync(group, vec![msg]);
@@ -1092,6 +1129,7 @@ mod tests {
                 encrypted: false,
                 sent_at: 1000 + i as u64,
                 sender_signature: Vec::new(),
+                seq: i as u64,
             };
             mgr.handle_message(msg);
         }
@@ -1437,7 +1475,7 @@ mod tests {
     // ── R10.1: Rejoin tests ──────────────────────────────────────────
 
     #[test]
-    fn rejoin_groups_sends_join_to_each_hub() {
+    fn rejoin_groups_sends_join_and_sync_request_to_each_hub() {
         let alice = node_id(1);
         let hub1 = node_id(10);
         let hub2 = node_id(20);
@@ -1454,30 +1492,48 @@ mod tests {
         mgr.groups.insert(gid1.clone(), g1);
         mgr.groups.insert(gid2.clone(), g2);
 
-        let actions = mgr.rejoin_groups();
-        assert_eq!(actions.len(), 2);
+        // Set last_seq for grp-1 to simulate prior messages
+        mgr.last_seqs.insert(gid1.clone(), 5);
 
-        // Verify each action is a Join to the correct hub
+        let actions = mgr.rejoin_groups();
+        // 2 groups × (Join + SyncRequest) = 4 actions
+        assert_eq!(actions.len(), 4);
+
+        let mut joins = 0;
+        let mut sync_reqs = 0;
         for action in &actions {
             match action {
-                GroupAction::Send { to, payload } => {
-                    match payload {
-                        GroupPayload::Join { group_id, username } => {
-                            assert_eq!(username, "alice");
-                            if group_id == &gid1 {
-                                assert_eq!(*to, hub1);
-                            } else if group_id == &gid2 {
-                                assert_eq!(*to, hub2);
-                            } else {
-                                panic!("unexpected group_id: {group_id}");
-                            }
+                GroupAction::Send { to, payload } => match payload {
+                    GroupPayload::Join { group_id, username } => {
+                        assert_eq!(username, "alice");
+                        if group_id == &gid1 {
+                            assert_eq!(*to, hub1);
+                        } else if group_id == &gid2 {
+                            assert_eq!(*to, hub2);
+                        } else {
+                            panic!("unexpected group_id: {group_id}");
                         }
-                        other => panic!("expected Join, got: {other:?}"),
+                        joins += 1;
                     }
-                }
+                    GroupPayload::SyncRequest { group_id, since_seq } => {
+                        if group_id == &gid1 {
+                            assert_eq!(*to, hub1);
+                            assert_eq!(*since_seq, 5);
+                        } else if group_id == &gid2 {
+                            assert_eq!(*to, hub2);
+                            assert_eq!(*since_seq, 0); // no last_seq set
+                        } else {
+                            panic!("unexpected group_id: {group_id}");
+                        }
+                        sync_reqs += 1;
+                    }
+                    other => panic!("expected Join or SyncRequest, got: {other:?}"),
+                },
                 other => panic!("expected Send, got: {other:?}"),
             }
         }
+        assert_eq!(joins, 2);
+        assert_eq!(sync_reqs, 2);
     }
 
     #[test]
