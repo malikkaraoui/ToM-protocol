@@ -37,6 +37,8 @@
 #![recursion_limit = "256"]
 
 mod socket;
+#[cfg(test)]
+pub(crate) mod test_utils;
 mod tls;
 
 pub(crate) mod util;
