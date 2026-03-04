@@ -204,6 +204,38 @@ impl RuntimeState {
         }
     }
 
+    // ── Public accessors (for integration tests + consumers) ──────────
+
+    /// This node's identity.
+    pub fn local_id(&self) -> NodeId {
+        self.local_id
+    }
+
+    /// Access the group manager (member-side state).
+    pub fn group_manager(&self) -> &GroupManager {
+        &self.group_manager
+    }
+
+    /// Access the group hub (hub-side state).
+    pub fn group_hub(&self) -> &GroupHub {
+        &self.group_hub
+    }
+
+    /// Access the topology.
+    pub fn topology(&self) -> &Topology {
+        &self.topology
+    }
+
+    /// Access the role manager.
+    pub fn role_manager(&self) -> &RoleManager {
+        &self.role_manager
+    }
+
+    /// Access the message tracker.
+    pub fn tracker(&self) -> &MessageTracker {
+        &self.tracker
+    }
+
     /// Publish this node's address to the DHT (BEP-0044).
     ///
     /// Called at startup and periodically (every 30 min) to keep our

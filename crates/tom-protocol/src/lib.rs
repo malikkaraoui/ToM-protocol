@@ -37,7 +37,7 @@ pub use group::{
     GroupMessage, GroupMessageContent, GroupPayload, LeaveReason, SenderKeyEntry,
 };
 pub use relay::{PeerInfo, PeerRole, PeerStatus, RelaySelector, Topology};
-pub use roles::{ContributionMetrics, RoleAction, RoleManager, RoleMetrics};
+pub use roles::{AntiSpamConfig, ContributionMetrics, RoleAction, RoleManager, RoleMetrics};
 pub use router::{AckPayload, AckType, ReadReceiptPayload, Router, RoutingAction};
 pub use tracker::{MessageTracker, StatusChange};
 pub use runtime::{
