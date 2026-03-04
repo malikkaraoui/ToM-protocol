@@ -71,7 +71,7 @@ impl StateStore {
         let tx = conn.unchecked_transaction()?;
 
         if let Some(ref mgr) = snapshot.manager {
-            self.save_groups_tx(&tx, &mgr.groups)?;
+            self.save_groups_tx(&tx, &mgr.groups, &mgr.last_seqs)?;
             self.save_sender_keys_tx(&tx, &mgr.local_sender_keys, &mgr.sender_keys)?;
         }
 
@@ -91,14 +91,16 @@ impl StateStore {
         &self,
         tx: &rusqlite::Transaction,
         groups: &HashMap<GroupId, GroupInfo>,
+        last_seqs: &HashMap<GroupId, u64>,
     ) -> Result<(), rusqlite::Error> {
         tx.execute("DELETE FROM groups", [])?;
         let mut stmt = tx.prepare(
-            "INSERT INTO groups (group_id, data) VALUES (?1, ?2)",
+            "INSERT INTO groups (group_id, data, last_seq) VALUES (?1, ?2, ?3)",
         )?;
         for (gid, info) in groups {
             let json = serde_json::to_string(info).unwrap_or_default();
-            stmt.execute(rusqlite::params![gid.to_string(), json])?;
+            let last_seq = last_seqs.get(gid).copied().unwrap_or(0) as i64;
+            stmt.execute(rusqlite::params![gid.to_string(), json, last_seq])?;
         }
         Ok(())
     }
@@ -141,7 +143,7 @@ impl StateStore {
     ) -> Result<(), rusqlite::Error> {
         tx.execute("DELETE FROM hub_groups", [])?;
         let mut stmt = tx.prepare(
-            "INSERT INTO hub_groups (group_id, data, invited_set) VALUES (?1, ?2, ?3)",
+            "INSERT INTO hub_groups (group_id, data, invited_set, next_seq) VALUES (?1, ?2, ?3, ?4)",
         )?;
         for (gid, info) in &hub.groups {
             let json = serde_json::to_string(info).unwrap_or_default();
@@ -150,7 +152,8 @@ impl StateStore {
                 .map(|s| s.iter().map(|n| n.to_string()).collect())
                 .unwrap_or_default();
             let invited_json = serde_json::to_string(&invited).unwrap_or_default();
-            stmt.execute(rusqlite::params![gid.to_string(), json, invited_json])?;
+            let next_seq = hub.next_seqs.get(gid).copied().unwrap_or(0) as i64;
+            stmt.execute(rusqlite::params![gid.to_string(), json, invited_json, next_seq])?;
         }
         Ok(())
     }
@@ -222,14 +225,72 @@ impl StateStore {
         Ok(())
     }
 
+    // ── Hub message history (R13) ────────────────────────────────────
+
+    /// Save a single hub message to history (called after each handle_message).
+    pub fn save_hub_message(
+        &self,
+        group_id: &GroupId,
+        seq: u64,
+        message_data: &[u8],
+        stored_at: u64,
+    ) -> Result<(), rusqlite::Error> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT OR REPLACE INTO hub_message_history (group_id, seq, message_data, stored_at) \
+             VALUES (?1, ?2, ?3, ?4)",
+            rusqlite::params![group_id.to_string(), seq as i64, message_data, stored_at as i64],
+        )?;
+        Ok(())
+    }
+
+    /// Load hub messages for a group since a given sequence number.
+    /// Returns messages ordered by seq ascending, limited to `max_count`.
+    pub fn load_hub_messages_since(
+        &self,
+        group_id: &GroupId,
+        since_seq: u64,
+        max_count: usize,
+    ) -> Result<Vec<(u64, Vec<u8>)>, rusqlite::Error> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT seq, message_data FROM hub_message_history \
+             WHERE group_id = ?1 AND seq > ?2 \
+             ORDER BY seq ASC LIMIT ?3",
+        )?;
+        let rows = stmt.query_map(
+            rusqlite::params![group_id.to_string(), since_seq as i64, max_count as i64],
+            |row| {
+                let seq: i64 = row.get(0)?;
+                let data: Vec<u8> = row.get(1)?;
+                Ok((seq as u64, data))
+            },
+        )?;
+        let mut result = Vec::new();
+        for row in rows {
+            result.push(row?);
+        }
+        Ok(result)
+    }
+
+    /// Delete expired hub messages (TTL cleanup).
+    pub fn cleanup_hub_messages(&self, cutoff_ms: u64) -> Result<usize, rusqlite::Error> {
+        let conn = self.conn.lock().unwrap();
+        let deleted = conn.execute(
+            "DELETE FROM hub_message_history WHERE stored_at < ?1",
+            rusqlite::params![cutoff_ms as i64],
+        )?;
+        Ok(deleted)
+    }
+
     // ── Load methods ────────────────────────────────────────────────────
 
     /// Load all persistent state.
     pub fn load(&self) -> Result<StateSnapshot, rusqlite::Error> {
         let conn = self.conn.lock().unwrap();
-        let groups = Self::load_groups(&conn)?;
+        let (groups, member_last_seqs) = Self::load_groups(&conn)?;
         let (local_keys, remote_keys) = Self::load_sender_keys(&conn)?;
-        let (hub_groups, hub_invited_sets) = Self::load_hub_groups(&conn)?;
+        let (hub_groups, hub_invited_sets, hub_next_seqs) = Self::load_hub_groups(&conn)?;
         let peers = Self::load_peers(&conn)?;
         let metrics = Self::load_metrics(&conn)?;
         let tracked_messages = Self::load_tracked_messages(&conn)?;
@@ -240,6 +301,7 @@ impl StateStore {
                 local_sender_keys: local_keys,
                 sender_keys: remote_keys,
                 message_history: HashMap::new(), // Not persisted (rebuilt via hub sync)
+                last_seqs: member_last_seqs,
             })
         } else {
             None
@@ -249,6 +311,7 @@ impl StateStore {
             Some(GroupHubSnapshot {
                 groups: hub_groups,
                 invited_sets: hub_invited_sets,
+                next_seqs: hub_next_seqs,
             })
         } else {
             None
@@ -263,21 +326,28 @@ impl StateStore {
         })
     }
 
-    fn load_groups(conn: &Connection) -> Result<HashMap<GroupId, GroupInfo>, rusqlite::Error> {
-        let mut stmt = conn.prepare("SELECT group_id, data FROM groups")?;
+    #[allow(clippy::type_complexity)]
+    fn load_groups(conn: &Connection) -> Result<(HashMap<GroupId, GroupInfo>, HashMap<GroupId, u64>), rusqlite::Error> {
+        let mut stmt = conn.prepare("SELECT group_id, data, last_seq FROM groups")?;
         let mut groups = HashMap::new();
+        let mut last_seqs = HashMap::new();
         let rows = stmt.query_map([], |row| {
             let gid: String = row.get(0)?;
             let json: String = row.get(1)?;
-            Ok((gid, json))
+            let last_seq: i64 = row.get::<_, i64>(2).unwrap_or(0);
+            Ok((gid, json, last_seq))
         })?;
         for row in rows {
-            let (gid, json) = row?;
+            let (gid, json, last_seq) = row?;
+            let group_id = GroupId::from(gid);
             if let Ok(info) = serde_json::from_str::<GroupInfo>(&json) {
-                groups.insert(GroupId::from(gid), info);
+                groups.insert(group_id.clone(), info);
+            }
+            if last_seq > 0 {
+                last_seqs.insert(group_id, last_seq as u64);
             }
         }
-        Ok(groups)
+        Ok((groups, last_seqs))
     }
 
     #[allow(clippy::type_complexity)]
@@ -321,18 +391,20 @@ impl StateStore {
     }
 
     #[allow(clippy::type_complexity)]
-    fn load_hub_groups(conn: &Connection) -> Result<(HashMap<GroupId, GroupInfo>, HashMap<GroupId, std::collections::HashSet<NodeId>>), rusqlite::Error> {
-        let mut stmt = conn.prepare("SELECT group_id, data, invited_set FROM hub_groups")?;
+    fn load_hub_groups(conn: &Connection) -> Result<(HashMap<GroupId, GroupInfo>, HashMap<GroupId, std::collections::HashSet<NodeId>>, HashMap<GroupId, u64>), rusqlite::Error> {
+        let mut stmt = conn.prepare("SELECT group_id, data, invited_set, next_seq FROM hub_groups")?;
         let mut groups = HashMap::new();
         let mut invited_sets = HashMap::new();
+        let mut next_seqs = HashMap::new();
         let rows = stmt.query_map([], |row| {
             let gid: String = row.get(0)?;
             let json: String = row.get(1)?;
             let invited_json: String = row.get(2)?;
-            Ok((gid, json, invited_json))
+            let next_seq: i64 = row.get::<_, i64>(3).unwrap_or(0);
+            Ok((gid, json, invited_json, next_seq))
         })?;
         for row in rows {
-            let (gid, json, invited_json) = row?;
+            let (gid, json, invited_json, next_seq) = row?;
             let group_id = GroupId::from(gid);
             if let Ok(info) = serde_json::from_str::<GroupInfo>(&json) {
                 groups.insert(group_id.clone(), info);
@@ -343,11 +415,14 @@ impl StateStore {
                     .filter_map(|s| s.parse::<NodeId>().ok())
                     .collect();
                 if !set.is_empty() {
-                    invited_sets.insert(group_id, set);
+                    invited_sets.insert(group_id.clone(), set);
                 }
             }
+            if next_seq > 0 {
+                next_seqs.insert(group_id, next_seq as u64);
+            }
         }
-        Ok((groups, invited_sets))
+        Ok((groups, invited_sets, next_seqs))
     }
 
     fn load_peers(conn: &Connection) -> Result<HashMap<NodeId, PeerInfo>, rusqlite::Error> {
@@ -505,6 +580,7 @@ mod tests {
                 local_sender_keys: HashMap::new(),
                 sender_keys: HashMap::new(),
                 message_history: HashMap::new(),
+                last_seqs: HashMap::new(),
             }),
             ..Default::default()
         };
@@ -553,6 +629,7 @@ mod tests {
                 local_sender_keys: local_keys,
                 sender_keys: remote_keys,
                 message_history: HashMap::new(),
+                last_seqs: HashMap::new(),
             }),
             ..Default::default()
         };
@@ -609,7 +686,7 @@ mod tests {
         groups.insert(gid.clone(), info);
 
         let snapshot = StateSnapshot {
-            hub: Some(GroupHubSnapshot { groups, invited_sets: HashMap::new() }),
+            hub: Some(GroupHubSnapshot { groups, invited_sets: HashMap::new(), next_seqs: HashMap::new() }),
             ..Default::default()
         };
 
@@ -643,7 +720,7 @@ mod tests {
         invited_sets.insert(gid.clone(), set);
 
         let snapshot = StateSnapshot {
-            hub: Some(GroupHubSnapshot { groups, invited_sets }),
+            hub: Some(GroupHubSnapshot { groups, invited_sets, next_seqs: HashMap::new() }),
             ..Default::default()
         };
 
@@ -778,5 +855,123 @@ mod tests {
             assert_eq!(loaded.peers.len(), 1);
             assert_eq!(loaded.peers[&alice].last_seen, 42000);
         }
+    }
+
+    // ── R13.2: Hub message history persistence ────────────────────────
+
+    #[test]
+    fn hub_message_history_save_and_load() {
+        let store = StateStore::open_memory().unwrap();
+        let gid = GroupId::from("grp-hist".to_string());
+
+        // Save 3 messages
+        for seq in 0..3u64 {
+            let data = format!("message-{seq}").into_bytes();
+            store.save_hub_message(&gid, seq, &data, 1000 + seq).unwrap();
+        }
+
+        // Load all since seq -1 (effectively all)
+        let msgs = store.load_hub_messages_since(&gid, 0, 100).unwrap();
+        assert_eq!(msgs.len(), 2, "since_seq=0 should return seq>0, i.e. 1,2");
+        assert_eq!(msgs[0].0, 1);
+        assert_eq!(msgs[1].0, 2);
+
+        // Load all (since_seq=0 means >0, so use u64::MAX trick or just 0)
+        // Actually our API is "seq > since_seq", so to get seq=0 too we'd need since_seq < 0
+        // For gap-fill, member sends last_seq they have, so this is correct behavior
+    }
+
+    #[test]
+    fn hub_message_history_limit() {
+        let store = StateStore::open_memory().unwrap();
+        let gid = GroupId::from("grp-limit".to_string());
+
+        for seq in 0..100u64 {
+            store.save_hub_message(&gid, seq, b"data", 1000 + seq).unwrap();
+        }
+
+        // Load with limit 10
+        let msgs = store.load_hub_messages_since(&gid, 50, 10).unwrap();
+        assert_eq!(msgs.len(), 10);
+        assert_eq!(msgs[0].0, 51);
+        assert_eq!(msgs[9].0, 60);
+    }
+
+    #[test]
+    fn hub_message_cleanup_expired() {
+        let store = StateStore::open_memory().unwrap();
+        let gid = GroupId::from("grp-cleanup".to_string());
+
+        // Store messages with different timestamps
+        store.save_hub_message(&gid, 0, b"old", 1000).unwrap();
+        store.save_hub_message(&gid, 1, b"old", 2000).unwrap();
+        store.save_hub_message(&gid, 2, b"recent", 5000).unwrap();
+
+        // Cleanup messages older than 3000
+        let deleted = store.cleanup_hub_messages(3000).unwrap();
+        assert_eq!(deleted, 2);
+
+        // Only recent message remains
+        let msgs = store.load_hub_messages_since(&gid, 0, 100).unwrap();
+        assert_eq!(msgs.len(), 1);
+        assert_eq!(msgs[0].0, 2);
+    }
+
+    #[test]
+    fn hub_next_seq_persisted() {
+        let store = StateStore::open_memory().unwrap();
+        let alice = node_id(1);
+        let hub = node_id(10);
+
+        let info = make_group_info("SeqGroup", hub, alice);
+        let gid = info.group_id.clone();
+
+        let mut groups = HashMap::new();
+        groups.insert(gid.clone(), info);
+        let mut next_seqs = HashMap::new();
+        next_seqs.insert(gid.clone(), 42u64);
+
+        let snapshot = StateSnapshot {
+            hub: Some(GroupHubSnapshot { groups, invited_sets: HashMap::new(), next_seqs }),
+            ..Default::default()
+        };
+
+        store.save(&snapshot).unwrap();
+        let loaded = store.load().unwrap();
+
+        let hub_snap = loaded.hub.unwrap();
+        assert_eq!(hub_snap.next_seqs[&gid], 42);
+    }
+
+    #[test]
+    fn member_last_seq_persisted() {
+        let store = StateStore::open_memory().unwrap();
+        let alice = node_id(1);
+        let hub = node_id(10);
+
+        let info = make_group_info("SeqGroup", hub, alice);
+        let gid = info.group_id.clone();
+
+        let mut groups = HashMap::new();
+        groups.insert(gid.clone(), info);
+        let mut last_seqs = HashMap::new();
+        last_seqs.insert(gid.clone(), 17u64);
+
+        let snapshot = StateSnapshot {
+            manager: Some(GroupManagerSnapshot {
+                groups,
+                local_sender_keys: HashMap::new(),
+                sender_keys: HashMap::new(),
+                message_history: HashMap::new(),
+                last_seqs,
+            }),
+            ..Default::default()
+        };
+
+        store.save(&snapshot).unwrap();
+        let loaded = store.load().unwrap();
+
+        let mgr_snap = loaded.manager.unwrap();
+        assert_eq!(mgr_snap.last_seqs[&gid], 17);
     }
 }

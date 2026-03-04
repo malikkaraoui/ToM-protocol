@@ -313,6 +313,21 @@ pub enum GroupPayload {
         group_id: GroupId,
         target_id: NodeId,
     },
+
+    // ── Offline delivery gap-fill (R13) ─────────────────────────────
+
+    /// Member requests missed messages since a sequence number (member → hub).
+    SyncRequest {
+        group_id: GroupId,
+        since_seq: u64,
+    },
+
+    /// Hub responds with missed messages (hub → member).
+    SyncResponse {
+        group_id: GroupId,
+        messages: Vec<GroupMessage>,
+        latest_seq: u64,
+    },
 }
 
 // ── GroupMessage ──────────────────────────────────────────────────────────
@@ -341,6 +356,10 @@ pub struct GroupMessage {
     pub sent_at: u64,
     #[serde(default)]
     pub sender_signature: Vec<u8>,
+    /// Sequence number assigned by the hub (monotonically increasing per group).
+    /// 0 means not yet assigned (sender-side, before hub processing).
+    #[serde(default)]
+    pub seq: u64,
 }
 
 impl GroupMessage {
@@ -363,6 +382,7 @@ impl GroupMessage {
             encrypted: false,
             sent_at: now_ms(),
             sender_signature: Vec::new(),
+            seq: 0,
         }
     }
 
@@ -390,6 +410,7 @@ impl GroupMessage {
             encrypted: true,
             sent_at: now_ms(),
             sender_signature: Vec::new(),
+            seq: 0,
         }
     }
 

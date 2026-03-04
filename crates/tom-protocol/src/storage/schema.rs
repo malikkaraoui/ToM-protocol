@@ -4,7 +4,7 @@
 use rusqlite::Connection;
 
 #[cfg(test)]
-const CURRENT_VERSION: i64 = 3;
+const CURRENT_VERSION: i64 = 4;
 
 /// Initialize the database schema (create tables if not exist, run migrations).
 pub fn initialize(conn: &Connection) -> Result<(), rusqlite::Error> {
@@ -31,6 +31,9 @@ pub fn initialize(conn: &Connection) -> Result<(), rusqlite::Error> {
     }
     if version < 3 {
         migrate_v3(conn)?;
+    }
+    if version < 4 {
+        migrate_v4(conn)?;
     }
 
     Ok(())
@@ -106,6 +109,34 @@ fn migrate_v3(conn: &Connection) -> Result<(), rusqlite::Error> {
         ALTER TABLE hub_groups ADD COLUMN invited_set TEXT NOT NULL DEFAULT '[]';
 
         INSERT OR REPLACE INTO schema_version (version) VALUES (3);
+        ",
+    )?;
+    Ok(())
+}
+
+/// V4: Hub message history + sequence numbers (R13 offline delivery).
+fn migrate_v4(conn: &Connection) -> Result<(), rusqlite::Error> {
+    conn.execute_batch(
+        "
+        -- Hub message history (persisted for offline delivery gap-fill)
+        CREATE TABLE IF NOT EXISTS hub_message_history (
+            group_id TEXT NOT NULL,
+            seq INTEGER NOT NULL,
+            message_data BLOB NOT NULL,
+            stored_at INTEGER NOT NULL,
+            PRIMARY KEY (group_id, seq)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_hub_history_expire
+            ON hub_message_history (stored_at);
+
+        -- Add next_seq column to hub_groups
+        ALTER TABLE hub_groups ADD COLUMN next_seq INTEGER NOT NULL DEFAULT 0;
+
+        -- Add last_seq column to groups (member-side tracking)
+        ALTER TABLE groups ADD COLUMN last_seq INTEGER NOT NULL DEFAULT 0;
+
+        INSERT OR REPLACE INTO schema_version (version) VALUES (4);
         ",
     )?;
     Ok(())

@@ -24,6 +24,9 @@ pub struct GroupHubSnapshot {
     /// Invited sets per group (for invite-only groups). Restored on startup.
     #[serde(default)]
     pub invited_sets: HashMap<GroupId, HashSet<NodeId>>,
+    /// Next sequence number per group (for offline delivery gap-fill).
+    #[serde(default)]
+    pub next_seqs: HashMap<GroupId, u64>,
 }
 
 /// Maximum age of a group message before the hub rejects it (5 minutes).
@@ -37,6 +40,8 @@ struct HubGroup {
     info: GroupInfo,
     /// Recent messages (for sync to joining members).
     message_history: VecDeque<GroupMessage>,
+    /// Monotonically increasing sequence number for messages in this group.
+    next_seq: u64,
     /// Rate limiting: sender → (window_start, count).
     rate_limits: HashMap<NodeId, (Instant, u32)>,
     /// Dedup: seen message IDs (bounded).
@@ -89,6 +94,24 @@ impl GroupHub {
     /// Iterate over all hosted groups (group_id, group_info).
     pub fn groups(&self) -> impl Iterator<Item = (&GroupId, &GroupInfo)> {
         self.groups.iter().map(|(id, g)| (id, &g.info))
+    }
+
+    /// Get the in-memory message history for a group (R13 gap-fill).
+    pub fn message_history(&self, group_id: &GroupId) -> Option<&VecDeque<GroupMessage>> {
+        self.groups.get(group_id).map(|g| &g.message_history)
+    }
+
+    /// Remove messages older than `max_age_ms` from in-memory history.
+    /// Returns number of messages purged across all groups.
+    pub fn cleanup_expired_messages(&mut self, now_ms: u64, max_age_ms: u64) -> usize {
+        let cutoff = now_ms.saturating_sub(max_age_ms);
+        let mut total = 0;
+        for hub_group in self.groups.values_mut() {
+            let before = hub_group.message_history.len();
+            hub_group.message_history.retain(|msg| msg.sent_at >= cutoff);
+            total += before - hub_group.message_history.len();
+        }
+        total
     }
 
     /// Process an incoming group payload from a node.
@@ -158,7 +181,10 @@ impl GroupHub {
             | GroupPayload::HubPong { .. }
             | GroupPayload::HubShadowSync { .. }
             | GroupPayload::CandidateAssigned { .. }
-            | GroupPayload::HubUnreachable { .. } => vec![],
+            | GroupPayload::HubUnreachable { .. }
+            // SyncRequest/SyncResponse handled by runtime, not hub
+            | GroupPayload::SyncRequest { .. }
+            | GroupPayload::SyncResponse { .. } => vec![],
         }
     }
 
@@ -203,6 +229,7 @@ impl GroupHub {
         let hub_group = HubGroup {
             info: info.clone(),
             message_history: VecDeque::new(),
+            next_seq: 0,
             rate_limits: HashMap::new(),
             seen_message_ids: HashSet::new(),
             seen_nonces: HashSet::new(),
@@ -380,7 +407,7 @@ impl GroupHub {
 
     // ── Message Fanout ───────────────────────────────────────────────────
 
-    fn handle_message(&mut self, from: NodeId, msg: GroupMessage) -> Vec<GroupAction> {
+    fn handle_message(&mut self, from: NodeId, mut msg: GroupMessage) -> Vec<GroupAction> {
         let group_id = msg.group_id.clone();
         let message_id = msg.message_id.clone();
 
@@ -452,10 +479,14 @@ impl GroupHub {
             return vec![];
         }
 
-        // Store message and collect recipients
+        // Assign monotonic sequence number and store
         let recipients = {
             let hub_group = self.groups.get_mut(&group_id).unwrap();
             hub_group.info.last_activity_at = now_ms();
+
+            // Assign hub sequence number (immutable per group, monotonically increasing)
+            msg.seq = hub_group.next_seq;
+            hub_group.next_seq += 1;
 
             // Store in history
             hub_group.message_history.push_back(msg.clone());
@@ -650,9 +681,13 @@ impl GroupHub {
         let group_id = info.group_id.clone();
         let msg_count = messages.len();
 
+        // Derive next_seq from imported messages (continue from highest seq).
+        let next_seq = messages.iter().map(|m| m.seq).max().map_or(0, |s| s + 1);
+
         let hub_group = HubGroup {
             info,
             message_history: messages.into_iter().collect(),
+            next_seq,
             rate_limits: HashMap::new(),
             seen_message_ids: HashSet::new(),
             seen_nonces: HashSet::new(),
@@ -963,6 +998,9 @@ impl GroupHub {
                 .filter(|(_, hg)| !hg.invited_set.is_empty())
                 .map(|(id, hg)| (id.clone(), hg.invited_set.clone()))
                 .collect(),
+            next_seqs: self.groups.iter()
+                .map(|(id, hg)| (id.clone(), hg.next_seq))
+                .collect(),
         }
     }
 
@@ -973,9 +1011,14 @@ impl GroupHub {
                 .get(&group_id)
                 .cloned()
                 .unwrap_or_default();
+            let next_seq = snapshot.next_seqs
+                .get(&group_id)
+                .copied()
+                .unwrap_or(0);
             let hub_group = HubGroup {
                 info,
                 message_history: VecDeque::new(),
+                next_seq,
                 rate_limits: HashMap::new(),
                 seen_message_ids: HashSet::new(),
                 seen_nonces: HashSet::new(),
@@ -1312,6 +1355,7 @@ mod tests {
             encrypted: false,
             sent_at: now_ms(),
             sender_signature: Vec::new(),
+            seq: 0,
         };
         msg.sign(&alice_secret);
 
@@ -1825,6 +1869,7 @@ mod tests {
             encrypted: true,
             sent_at: now_ms(),
             sender_signature: Vec::new(),
+            seq: 0,
         };
         msg1.sign(&alice_secret);
         let actions = hub.handle_message(alice, msg1);
@@ -1843,6 +1888,7 @@ mod tests {
             encrypted: true,
             sent_at: now_ms(),
             sender_signature: Vec::new(),
+            seq: 0,
         };
         msg2.sign(&alice_secret);
         let actions = hub.handle_message(alice, msg2);
@@ -2101,5 +2147,205 @@ mod tests {
         let actions = hub.handle_join(charlie, &gid, "charlie".into());
         assert!(!actions.is_empty(), "invited charlie should join");
         assert_eq!(hub.get_group(&gid).unwrap().member_count(), 3);
+    }
+
+    // ── R13.1: Sequence number tests ──────────────────────────────────
+
+    #[test]
+    fn hub_assigns_monotonic_seq() {
+        let mut hub = make_hub();
+        let (alice, alice_secret) = keypair(1);
+        let bob = node_id(2);
+
+        hub.handle_payload(
+            GroupPayload::Create {
+                group_name: "SeqTest".into(),
+                creator_username: "alice".into(),
+                initial_members: vec![],
+                invite_only: false,
+            },
+            alice,
+        );
+        let gid = hub.groups.keys().next().unwrap().clone();
+        hub.handle_join(bob, &gid, "bob".into());
+
+        // Send 5 messages, check seq increments 0,1,2,3,4
+        for expected_seq in 0u64..5 {
+            let mut msg = GroupMessage::new(
+                gid.clone(), alice, "alice".into(), format!("msg-{expected_seq}"),
+            );
+            msg.sign(&alice_secret);
+            let actions = hub.handle_message(alice, msg);
+            assert_eq!(actions.len(), 1);
+
+            // Extract the broadcasted message and check seq
+            match &actions[0] {
+                GroupAction::Broadcast { payload: GroupPayload::Message(m), .. } => {
+                    assert_eq!(m.seq, expected_seq, "seq should be {expected_seq}");
+                }
+                other => panic!("expected Broadcast Message, got: {other:?}"),
+            }
+        }
+
+        // Verify next_seq counter
+        assert_eq!(hub.groups[&gid].next_seq, 5);
+    }
+
+    #[test]
+    fn seq_survives_snapshot_restore() {
+        let mut hub = make_hub();
+        let (alice, alice_secret) = keypair(1);
+        let bob = node_id(2);
+
+        hub.handle_payload(
+            GroupPayload::Create {
+                group_name: "PersistSeq".into(),
+                creator_username: "alice".into(),
+                initial_members: vec![],
+                invite_only: false,
+            },
+            alice,
+        );
+        let gid = hub.groups.keys().next().unwrap().clone();
+        hub.handle_join(bob, &gid, "bob".into());
+
+        // Send 3 messages (seq 0,1,2)
+        for _ in 0..3 {
+            let mut msg = GroupMessage::new(gid.clone(), alice, "alice".into(), "x".into());
+            msg.sign(&alice_secret);
+            hub.handle_message(alice, msg);
+        }
+        assert_eq!(hub.groups[&gid].next_seq, 3);
+
+        // Snapshot and restore
+        let snapshot = hub.snapshot();
+        assert_eq!(snapshot.next_seqs[&gid], 3);
+
+        let mut hub2 = GroupHub::new(alice);
+        hub2.restore(snapshot);
+        assert_eq!(hub2.groups[&gid].next_seq, 3);
+
+        // Next message should get seq 3
+        let mut msg = GroupMessage::new(gid.clone(), alice, "alice".into(), "after-restore".into());
+        msg.sign(&alice_secret);
+        let actions = hub2.handle_message(alice, msg);
+        match &actions[0] {
+            GroupAction::Broadcast { payload: GroupPayload::Message(m), .. } => {
+                assert_eq!(m.seq, 3);
+            }
+            other => panic!("expected Broadcast Message, got: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn import_group_derives_next_seq_from_history() {
+        let mut hub = GroupHub::new(node_id(1));
+
+        let info = GroupInfo {
+            group_id: GroupId::from("grp-import".to_string()),
+            name: "Imported".into(),
+            created_by: node_id(2),
+            created_at: 1000,
+            hub_relay_id: node_id(1),
+            backup_hub_id: None,
+            members: vec![],
+            max_members: 50,
+            last_activity_at: 2000,
+            shadow_id: None,
+            candidate_id: None,
+            invite_only: false,
+        };
+
+        let mut messages = vec![];
+        for i in 0..3 {
+            let mut m = GroupMessage::new(
+                info.group_id.clone(), node_id(2), "bob".into(), format!("imported-{i}"),
+            );
+            m.seq = i as u64 + 10; // simulate existing seq 10,11,12
+            messages.push(m);
+        }
+
+        hub.import_group(info, messages);
+        let gid = GroupId::from("grp-import".to_string());
+        assert_eq!(hub.groups[&gid].next_seq, 13, "next_seq should be max(10,11,12)+1 = 13");
+    }
+
+    #[test]
+    fn message_history_returns_correct_messages() {
+        let mut hub = make_hub();
+        let (alice, alice_secret) = keypair(1);
+        let bob = node_id(2);
+
+        hub.handle_payload(
+            GroupPayload::Create {
+                group_name: "HistTest".into(),
+                creator_username: "alice".into(),
+                initial_members: vec![],
+                invite_only: false,
+            },
+            alice,
+        );
+        let gid = hub.groups.keys().next().unwrap().clone();
+        hub.handle_join(bob, &gid, "bob".into());
+
+        // Send 5 signed messages through the hub
+        for i in 0..5 {
+            let mut msg = GroupMessage::new(
+                gid.clone(), alice, "alice".into(), format!("msg-{i}"),
+            );
+            msg.sign(&alice_secret);
+            let _ = hub.handle_message(alice, msg);
+        }
+
+        // Verify message_history contains 5 messages with seq 0..4
+        let history = hub.message_history(&gid).unwrap();
+        assert_eq!(history.len(), 5);
+        for (i, msg) in history.iter().enumerate() {
+            assert_eq!(msg.seq, i as u64);
+        }
+    }
+
+    #[test]
+    fn cleanup_expired_messages_removes_old() {
+        let mut hub = make_hub();
+        let (alice, _alice_secret) = keypair(1);
+
+        hub.handle_payload(
+            GroupPayload::Create {
+                group_name: "CleanupTest".into(),
+                creator_username: "alice".into(),
+                initial_members: vec![],
+                invite_only: false,
+            },
+            alice,
+        );
+        let gid = hub.groups.keys().next().unwrap().clone();
+
+        // Import messages with controlled sent_at timestamps
+        let mut messages = vec![];
+        for i in 0..5 {
+            let mut m = GroupMessage::new(
+                gid.clone(), alice, "alice".into(), format!("msg-{i}"),
+            );
+            m.seq = i as u64;
+            // First 3 messages are "old" (25h ago), last 2 are "recent" (1h ago)
+            if i < 3 {
+                m.sent_at = 1000; // very old
+            } else {
+                m.sent_at = 100_000_000; // recent
+            }
+            messages.push(m);
+        }
+
+        // Replace with known history
+        hub.groups.get_mut(&gid).unwrap().message_history = messages.into_iter().collect();
+        assert_eq!(hub.message_history(&gid).unwrap().len(), 5);
+
+        // Cleanup with cutoff that keeps only messages with sent_at >= 50_000_000
+        let now = 100_000_000 + 1000;
+        let max_age = 50_000_001; // cutoff = now - max_age = 50_000_999
+        let purged = hub.cleanup_expired_messages(now, max_age);
+        assert_eq!(purged, 3, "should purge 3 old messages");
+        assert_eq!(hub.message_history(&gid).unwrap().len(), 2);
     }
 }

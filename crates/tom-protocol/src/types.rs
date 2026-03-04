@@ -34,6 +34,9 @@ pub enum MessageType {
     GroupUpdateMemberRole,
     GroupMemberRoleChanged,
     GroupInviteMember,
+    // Offline delivery gap-fill (R13)
+    GroupSyncRequest,
+    GroupSyncResponse,
     // Backup
     BackupStore,
     BackupDeliver,
@@ -99,6 +102,8 @@ mod tests {
             MessageType::GroupUpdateMemberRole,
             MessageType::GroupMemberRoleChanged,
             MessageType::GroupInviteMember,
+            MessageType::GroupSyncRequest,
+            MessageType::GroupSyncResponse,
             MessageType::BackupStore,
             MessageType::BackupDeliver,
             MessageType::BackupReplicate,

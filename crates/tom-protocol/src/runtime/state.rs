@@ -5,7 +5,7 @@ use crate::discovery::{
 };
 use crate::envelope::{Envelope, EnvelopeBuilder};
 use crate::group::{
-    GroupAction, GroupEvent, GroupHub, GroupManager, GroupMessage, GroupPayload,
+    GroupAction, GroupEvent, GroupHub, GroupId, GroupManager, GroupMessage, GroupPayload,
 };
 use crate::relay::{PeerInfo, PeerRole, PeerStatus, RelaySelector, Topology};
 use crate::roles::{RoleAction, RoleManager};
@@ -54,6 +54,8 @@ fn group_payload_to_message_type(payload: &GroupPayload) -> MessageType {
         GroupPayload::UpdateMemberRole { .. } => MessageType::GroupUpdateMemberRole,
         GroupPayload::MemberRoleChanged { .. } => MessageType::GroupMemberRoleChanged,
         GroupPayload::InviteMember { .. } => MessageType::GroupInviteMember,
+        GroupPayload::SyncRequest { .. } => MessageType::GroupSyncRequest,
+        GroupPayload::SyncResponse { .. } => MessageType::GroupSyncResponse,
     }
 }
 
@@ -466,6 +468,31 @@ impl RuntimeState {
             effects.push(RuntimeEffect::SendEnvelope(envelope));
         }
         effects
+    }
+
+    /// Purge expired hub messages (in-memory + SQLite). 24h TTL.
+    pub fn tick_hub_cleanup(&mut self) -> Vec<RuntimeEffect> {
+        const TTL_MS: u64 = 24 * 60 * 60 * 1000; // 24 hours
+        let now = now_ms();
+
+        // In-memory cleanup
+        let mem_purged = self.group_hub.cleanup_expired_messages(now, TTL_MS);
+
+        // SQLite cleanup
+        let db_purged = if let Some(ref store) = self.store {
+            store.cleanup_hub_messages(TTL_MS).unwrap_or(0)
+        } else {
+            0
+        };
+
+        if mem_purged + db_purged > 0 {
+            tracing::info!(
+                "hub cleanup: purged {} in-memory + {} SQLite messages (>24h)",
+                mem_purged, db_purged
+            );
+        }
+
+        Vec::new() // no effects
     }
 
     // ── Gossip announce builder ──────────────────────────────────────────
@@ -897,6 +924,15 @@ impl RuntimeState {
                     )
                 }
             }
+
+            // ── R13: Offline delivery gap-fill ──────────────────────────
+            GroupPayload::SyncRequest { ref group_id, since_seq } => {
+                self.handle_sync_request(envelope.from, group_id, since_seq)
+            }
+
+            GroupPayload::SyncResponse { group_id, messages, latest_seq } => {
+                self.handle_sync_response(&group_id, messages, latest_seq)
+            }
         };
 
         // Intercept self-addressed group actions: when the hub sends to itself
@@ -904,6 +940,94 @@ impl RuntimeState {
         // process locally via GroupManager instead of network round-trip.
         let actions = self.intercept_self_group_actions(actions);
         self.group_actions_to_effects(&actions)
+    }
+
+    // ── R13: Offline delivery gap-fill ──────────────────────────────────
+
+    /// Handle SyncRequest from a member (hub-side).
+    /// Loads missed messages from SQLite and sends SyncResponse.
+    fn handle_sync_request(
+        &self,
+        from: NodeId,
+        group_id: &GroupId,
+        since_seq: u64,
+    ) -> Vec<GroupAction> {
+        // Only respond if we're the hub for this group
+        if self.group_hub.get_group(group_id).is_none() {
+            return vec![];
+        }
+
+        // Load missed messages from SQLite (if store is available)
+        let mut messages = Vec::new();
+        let mut latest_seq = since_seq;
+
+        if let Some(ref store) = self.store {
+            const MAX_SYNC_RESPONSE: usize = 500;
+            if let Ok(rows) = store.load_hub_messages_since(group_id, since_seq, MAX_SYNC_RESPONSE) {
+                for (seq, data) in rows {
+                    if let Ok(msg) = rmp_serde::from_slice::<GroupMessage>(&data) {
+                        if seq > latest_seq {
+                            latest_seq = seq;
+                        }
+                        messages.push(msg);
+                    }
+                }
+            }
+        }
+
+        // Also check in-memory history for any messages not yet in SQLite
+        // (messages received since last persist cycle)
+        if let Some(history) = self.group_hub.message_history(group_id) {
+            for msg in history {
+                if msg.seq > since_seq && !messages.iter().any(|m| m.message_id == msg.message_id) {
+                    if msg.seq > latest_seq {
+                        latest_seq = msg.seq;
+                    }
+                    messages.push(msg.clone());
+                }
+            }
+            // Sort by seq to ensure ordering
+            messages.sort_by_key(|m| m.seq);
+        }
+
+        if messages.is_empty() {
+            return vec![];
+        }
+
+        vec![GroupAction::Send {
+            to: from,
+            payload: GroupPayload::SyncResponse {
+                group_id: group_id.clone(),
+                messages,
+                latest_seq,
+            },
+        }]
+    }
+
+    /// Handle SyncResponse from hub (member-side).
+    /// Delivers missed messages and updates last_seq.
+    fn handle_sync_response(
+        &mut self,
+        group_id: &GroupId,
+        messages: Vec<GroupMessage>,
+        latest_seq: u64,
+    ) -> Vec<GroupAction> {
+        let mut actions = Vec::new();
+
+        for msg in messages {
+            // Deliver each missed message through the normal path
+            let msg_actions = self.group_manager.handle_message(msg);
+            actions.extend(msg_actions);
+        }
+
+        // Update last_seq to the latest from the response
+        let current = self.group_manager.last_seq(group_id);
+        if latest_seq > current {
+            // Directly update via a method we'll add
+            self.group_manager.set_last_seq(group_id, latest_seq);
+        }
+
+        actions
     }
 
     // ── Task 8: handle_incoming_backup ───────────────────────────────────
@@ -1127,7 +1251,9 @@ impl RuntimeState {
             | MessageType::GroupKickMember
             | MessageType::GroupUpdateMemberRole
             | MessageType::GroupMemberRoleChanged
-            | MessageType::GroupInviteMember => {
+            | MessageType::GroupInviteMember
+            | MessageType::GroupSyncRequest
+            | MessageType::GroupSyncResponse => {
                 self.handle_incoming_group(envelope)
             }
 
@@ -1940,6 +2066,16 @@ impl RuntimeState {
                     effects.push(RuntimeEffect::SendEnvelope(envelope));
                 }
                 GroupAction::Broadcast { to, payload } => {
+                    // R13: persist group messages to SQLite for offline gap-fill
+                    if let GroupPayload::Message(ref msg) = payload {
+                        if let Some(ref store) = self.store {
+                            let data = rmp_serde::to_vec(msg).unwrap_or_default();
+                            let _ = store.save_hub_message(
+                                &msg.group_id, msg.seq, &data, crate::types::now_ms(),
+                            );
+                        }
+                    }
+
                     let msg_type = group_payload_to_message_type(payload);
                     let payload_bytes =
                         rmp_serde::to_vec(payload).expect("group payload serialization");
