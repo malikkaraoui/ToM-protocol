@@ -11,12 +11,22 @@ use serde::{Deserialize, Serialize};
 use crate::group::types::*;
 use crate::types::{now_ms, NodeId};
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PreviousSenderKey {
+    entry: SenderKeyEntry,
+    grace_until_ms: u64,
+}
+
 /// Serializable snapshot of GroupManager's persistent state.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GroupManagerSnapshot {
     pub groups: HashMap<GroupId, GroupInfo>,
     pub local_sender_keys: HashMap<GroupId, SenderKeyEntry>,
     pub sender_keys: HashMap<GroupId, HashMap<NodeId, SenderKeyEntry>>,
+    #[serde(default)]
+    pub previous_sender_keys: HashMap<GroupId, HashMap<NodeId, PreviousSenderKey>>,
+    #[serde(default)]
+    pub local_sender_message_counts: HashMap<GroupId, u64>,
     pub message_history: HashMap<GroupId, Vec<GroupMessage>>,
     /// Last received sequence number per group (for offline gap-fill).
     pub last_seqs: HashMap<GroupId, u64>,
@@ -60,6 +70,10 @@ pub struct GroupManager {
     local_sender_keys: HashMap<GroupId, SenderKeyEntry>,
     /// Other members' sender keys per group (group_id → (sender_id → entry)).
     sender_keys: HashMap<GroupId, HashMap<NodeId, SenderKeyEntry>>,
+    /// Previous sender key per sender/group accepted only during grace period.
+    previous_sender_keys: HashMap<GroupId, HashMap<NodeId, PreviousSenderKey>>,
+    /// Number of locally sent messages since current local sender key epoch.
+    local_sender_message_counts: HashMap<GroupId, u64>,
     /// Messages waiting for a sender key to decrypt.
     pending_decrypt: HashMap<GroupId, Vec<GroupMessage>>,
     /// Last received sequence number per group (for offline gap-fill).
@@ -80,6 +94,8 @@ impl GroupManager {
             max_history_per_group: MAX_SYNC_MESSAGES,
             local_sender_keys: HashMap::new(),
             sender_keys: HashMap::new(),
+            previous_sender_keys: HashMap::new(),
+            local_sender_message_counts: HashMap::new(),
             pending_decrypt: HashMap::new(),
             last_seqs: HashMap::new(),
             shadow_state: HashMap::new(),
@@ -475,7 +491,46 @@ impl GroupManager {
         };
         self.local_sender_keys
             .insert(group_id.clone(), entry.clone());
+        self.local_sender_message_counts.insert(group_id.clone(), 0);
         entry
+    }
+
+    /// Current local sender key epoch for a group.
+    pub fn local_sender_epoch(&self, group_id: &GroupId) -> Option<u32> {
+        self.local_sender_keys.get(group_id).map(|k| k.epoch)
+    }
+
+    /// Increment local sender message count for dual-trigger key rotation.
+    pub fn note_local_message_sent(&mut self, group_id: &GroupId) {
+        let count = self
+            .local_sender_message_counts
+            .entry(group_id.clone())
+            .or_insert(0);
+        *count = count.saturating_add(1);
+    }
+
+    /// Rotate local sender key when one trigger is reached:
+    /// - 24h elapsed since current key creation, OR
+    /// - 10_000 local messages sent in current epoch.
+    ///
+    /// Returns distribution actions when rotation happened.
+    pub fn maybe_rotate_local_sender_key(&mut self, group_id: &GroupId) -> Vec<GroupAction> {
+        let Some(current) = self.local_sender_keys.get(group_id).cloned() else {
+            return vec![];
+        };
+        let now = now_ms();
+        let age_ms = now.saturating_sub(current.created_at);
+        let msg_count = self
+            .local_sender_message_counts
+            .get(group_id)
+            .copied()
+            .unwrap_or(0);
+
+        if age_ms >= SENDER_KEY_ROTATE_MAX_AGE_MS || msg_count >= SENDER_KEY_ROTATE_MAX_MESSAGES {
+            self.generate_local_sender_key(group_id);
+            return self.build_sender_key_distribution(group_id);
+        }
+        vec![]
     }
 
     /// Build SenderKeyDistribution actions to send our key to all members.
@@ -559,10 +614,29 @@ impl GroupManager {
             epoch,
             created_at: now_ms(),
         };
-        self.sender_keys
-            .entry(group_id.clone())
-            .or_default()
-            .insert(from, entry);
+        let now = now_ms();
+        let group_keys = self.sender_keys.entry(group_id.clone()).or_default();
+
+        if let Some(existing) = group_keys.get(&from).cloned() {
+            if epoch < existing.epoch {
+                // Stale distribution, ignore.
+                return vec![];
+            }
+            if epoch > existing.epoch {
+                self.previous_sender_keys
+                    .entry(group_id.clone())
+                    .or_default()
+                    .insert(
+                        from,
+                        PreviousSenderKey {
+                            entry: existing,
+                            grace_until_ms: now.saturating_add(SENDER_KEY_EPOCH_GRACE_MS),
+                        },
+                    );
+            }
+        }
+
+        group_keys.insert(from, entry);
 
         // Try to decrypt any pending messages from this sender.
         // Take the pending list out to avoid borrow conflict with deliver_decrypted_message.
@@ -571,7 +645,7 @@ impl GroupManager {
         let mut actions = Vec::new();
         for msg in pending_msgs {
             if msg.sender_id == from {
-                actions.extend(self.deliver_decrypted_message(msg, &key));
+                actions.extend(self.try_decrypt_and_deliver(msg));
             } else {
                 still_pending.push(msg);
             }
@@ -595,15 +669,49 @@ impl GroupManager {
             .get(group_id)
             .and_then(|keys| keys.get(sender_id))
         {
-            let key = sender_key.key;
-            self.deliver_decrypted_message(message, &key)
-        } else {
-            self.pending_decrypt
-                .entry(group_id.clone())
-                .or_default()
-                .push(message);
-            vec![]
+            if sender_key.epoch == message.key_epoch {
+                let key = sender_key.key;
+                return self.deliver_decrypted_message(message, &key);
+            }
+
+            if sender_key.epoch == message.key_epoch.saturating_add(1) {
+                let prev = self
+                    .previous_sender_keys
+                    .get(group_id)
+                    .and_then(|m| m.get(sender_id));
+                if let Some(prev) = prev {
+                    if prev.entry.epoch == message.key_epoch && now_ms() <= prev.grace_until_ms {
+                        let key = prev.entry.key;
+                        return self.deliver_decrypted_message(message, &key);
+                    }
+                }
+
+                // Grace expired (or no previous key): reject + force re-sync.
+                return self.build_epoch_resync_actions(group_id);
+            }
+
+            // Unknown epoch jump: force re-sync.
+            return self.build_epoch_resync_actions(group_id);
         }
+
+        self.pending_decrypt
+            .entry(group_id.clone())
+            .or_default()
+            .push(message);
+        vec![]
+    }
+
+    fn build_epoch_resync_actions(&self, group_id: &GroupId) -> Vec<GroupAction> {
+        let Some(group) = self.groups.get(group_id) else {
+            return vec![];
+        };
+        vec![GroupAction::Send {
+            to: group.hub_relay_id,
+            payload: GroupPayload::SyncRequest {
+                group_id: group_id.clone(),
+                since_seq: self.last_seq(group_id),
+            },
+        }]
     }
 
     /// Decrypt and deliver (internal helper).
@@ -662,8 +770,43 @@ impl GroupManager {
     /// Clean up sender keys when leaving a group.
     fn cleanup_group_keys(&mut self, group_id: &GroupId) {
         self.local_sender_keys.remove(group_id);
+        self.local_sender_message_counts.remove(group_id);
         self.sender_keys.remove(group_id);
+        self.previous_sender_keys.remove(group_id);
         self.pending_decrypt.remove(group_id);
+    }
+
+    /// Purge sender keys older than max age (default policy: >7 days).
+    /// Returns number of purged key entries.
+    pub fn purge_expired_sender_keys(&mut self, now_ms: u64, max_age_ms: u64) -> usize {
+        let cutoff = now_ms.saturating_sub(max_age_ms);
+        let mut purged = 0usize;
+
+        self.local_sender_keys.retain(|_, entry| {
+            let keep = entry.created_at >= cutoff;
+            if !keep {
+                purged += 1;
+            }
+            keep
+        });
+
+        for sender_map in self.sender_keys.values_mut() {
+            let before = sender_map.len();
+            sender_map.retain(|_, entry| entry.created_at >= cutoff);
+            purged += before.saturating_sub(sender_map.len());
+        }
+        self.sender_keys.retain(|_, m| !m.is_empty());
+
+        for sender_map in self.previous_sender_keys.values_mut() {
+            let before = sender_map.len();
+            sender_map.retain(|_, prev| {
+                prev.entry.created_at >= cutoff && now_ms <= prev.grace_until_ms
+            });
+            purged += before.saturating_sub(sender_map.len());
+        }
+        self.previous_sender_keys.retain(|_, m| !m.is_empty());
+
+        purged
     }
 
     // ── Shadow Role ──────────────────────────────────────────────────────
@@ -803,6 +946,8 @@ impl GroupManager {
             groups: self.groups.clone(),
             local_sender_keys: self.local_sender_keys.clone(),
             sender_keys: self.sender_keys.clone(),
+            previous_sender_keys: self.previous_sender_keys.clone(),
+            local_sender_message_counts: self.local_sender_message_counts.clone(),
             message_history: self.message_history.clone(),
             last_seqs: self.last_seqs.clone(),
         }
@@ -813,6 +958,8 @@ impl GroupManager {
         self.groups = snapshot.groups;
         self.local_sender_keys = snapshot.local_sender_keys;
         self.sender_keys = snapshot.sender_keys;
+        self.previous_sender_keys = snapshot.previous_sender_keys;
+        self.local_sender_message_counts = snapshot.local_sender_message_counts;
         self.message_history = snapshot.message_history;
         self.last_seqs = snapshot.last_seqs;
         // Initialize message_history entries for any groups missing them
@@ -1355,6 +1502,171 @@ mod tests {
         let new_key = mgr.local_sender_key(&gid).unwrap().key;
         assert_ne!(old_key, new_key);
         assert_eq!(mgr.local_sender_key(&gid).unwrap().epoch, 2);
+    }
+
+    #[test]
+    fn epoch_minus_one_accepted_within_grace() {
+        let alice_id = node_id(1);
+        let bob_id = node_id(2);
+        let bob_seed = secret_seed(2);
+        let hub = node_id(10);
+
+        let mut bob_mgr = GroupManager::new(bob_id, "bob".into());
+        let mut group = make_test_group(alice_id, hub);
+        group.members.push(GroupMember {
+            node_id: bob_id,
+            username: "bob".into(),
+            joined_at: 1000,
+            role: GroupMemberRole::Member,
+        });
+        let gid = group.group_id.clone();
+        bob_mgr.handle_group_created(group);
+
+        let key_v1 = [11u8; 32];
+        let key_v2 = [22u8; 32];
+
+        let enc_v1 = crate::crypto::encrypt(&key_v1, &bob_id.as_bytes()).unwrap();
+        let enc_v2 = crate::crypto::encrypt(&key_v2, &bob_id.as_bytes()).unwrap();
+
+        bob_mgr.handle_sender_key_distribution(
+            &gid,
+            alice_id,
+            1,
+            &[EncryptedSenderKey {
+                recipient_id: bob_id,
+                encrypted_key: enc_v1,
+            }],
+            &bob_seed,
+        );
+        bob_mgr.handle_sender_key_distribution(
+            &gid,
+            alice_id,
+            2,
+            &[EncryptedSenderKey {
+                recipient_id: bob_id,
+                encrypted_key: enc_v2,
+            }],
+            &bob_seed,
+        );
+
+        let msg = GroupMessage::new_encrypted(
+            gid.clone(),
+            alice_id,
+            "alice".into(),
+            "still valid during grace".into(),
+            &key_v1,
+            1,
+        );
+        let actions = bob_mgr.handle_message(msg);
+        assert_eq!(actions.len(), 1);
+        assert!(matches!(
+            &actions[0],
+            GroupAction::Event(GroupEvent::MessageReceived(_))
+        ));
+    }
+
+    #[test]
+    fn epoch_minus_one_after_grace_forces_resync() {
+        let alice_id = node_id(1);
+        let bob_id = node_id(2);
+        let bob_seed = secret_seed(2);
+        let hub = node_id(10);
+
+        let mut bob_mgr = GroupManager::new(bob_id, "bob".into());
+        let mut group = make_test_group(alice_id, hub);
+        group.members.push(GroupMember {
+            node_id: bob_id,
+            username: "bob".into(),
+            joined_at: 1000,
+            role: GroupMemberRole::Member,
+        });
+        let gid = group.group_id.clone();
+        bob_mgr.handle_group_created(group);
+
+        let key_v1 = [31u8; 32];
+        let key_v2 = [32u8; 32];
+        let enc_v1 = crate::crypto::encrypt(&key_v1, &bob_id.as_bytes()).unwrap();
+        let enc_v2 = crate::crypto::encrypt(&key_v2, &bob_id.as_bytes()).unwrap();
+
+        bob_mgr.handle_sender_key_distribution(
+            &gid,
+            alice_id,
+            1,
+            &[EncryptedSenderKey {
+                recipient_id: bob_id,
+                encrypted_key: enc_v1,
+            }],
+            &bob_seed,
+        );
+        bob_mgr.handle_sender_key_distribution(
+            &gid,
+            alice_id,
+            2,
+            &[EncryptedSenderKey {
+                recipient_id: bob_id,
+                encrypted_key: enc_v2,
+            }],
+            &bob_seed,
+        );
+
+        // Simulate grace expiration.
+        let future_now = crate::types::now_ms().saturating_add(SENDER_KEY_EPOCH_GRACE_MS + 1);
+        bob_mgr.purge_expired_sender_keys(future_now, u64::MAX);
+
+        let msg = GroupMessage::new_encrypted(
+            gid.clone(),
+            alice_id,
+            "alice".into(),
+            "too old epoch".into(),
+            &key_v1,
+            1,
+        );
+        let actions = bob_mgr.handle_message(msg);
+        assert_eq!(actions.len(), 1);
+        assert!(matches!(
+            &actions[0],
+            GroupAction::Send {
+                payload: GroupPayload::SyncRequest { .. },
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn local_sender_dual_trigger_rotates_on_message_count() {
+        let mut mgr = make_manager();
+        let hub = node_id(10);
+        let bob = node_id(2);
+        let mut group = make_test_group(node_id(1), hub);
+        group.members.push(GroupMember {
+            node_id: bob,
+            username: "bob".into(),
+            joined_at: 1000,
+            role: GroupMemberRole::Member,
+        });
+        let gid = group.group_id.clone();
+        mgr.handle_group_created(group);
+
+        for _ in 0..SENDER_KEY_ROTATE_MAX_MESSAGES {
+            mgr.note_local_message_sent(&gid);
+        }
+        let actions = mgr.maybe_rotate_local_sender_key(&gid);
+        assert!(!actions.is_empty(), "rotation should trigger at 10k messages");
+        assert_eq!(mgr.local_sender_key(&gid).unwrap().epoch, 2);
+    }
+
+    #[test]
+    fn purge_expired_sender_keys_removes_old_entries() {
+        let mut mgr = make_manager();
+        let hub = node_id(10);
+        let group = make_test_group(node_id(1), hub);
+        let gid = group.group_id.clone();
+        mgr.handle_group_created(group);
+
+        let future_now = crate::types::now_ms().saturating_add(SENDER_KEY_PURGE_MAX_AGE_MS + 1);
+        let purged = mgr.purge_expired_sender_keys(future_now, SENDER_KEY_PURGE_MAX_AGE_MS);
+        assert!(purged >= 1);
+        assert!(mgr.local_sender_key(&gid).is_none());
     }
 
     #[test]
