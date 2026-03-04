@@ -4,7 +4,7 @@
 use rusqlite::Connection;
 
 #[cfg(test)]
-const CURRENT_VERSION: i64 = 2;
+const CURRENT_VERSION: i64 = 3;
 
 /// Initialize the database schema (create tables if not exist, run migrations).
 pub fn initialize(conn: &Connection) -> Result<(), rusqlite::Error> {
@@ -28,6 +28,9 @@ pub fn initialize(conn: &Connection) -> Result<(), rusqlite::Error> {
     }
     if version < 2 {
         migrate_v2(conn)?;
+    }
+    if version < 3 {
+        migrate_v3(conn)?;
     }
 
     Ok(())
@@ -91,6 +94,18 @@ fn migrate_v2(conn: &Connection) -> Result<(), rusqlite::Error> {
         );
 
         INSERT OR REPLACE INTO schema_version (version) VALUES (2);
+        ",
+    )?;
+    Ok(())
+}
+
+/// V3: Hub invited_set persistence (R11.3 invite-only groups).
+fn migrate_v3(conn: &Connection) -> Result<(), rusqlite::Error> {
+    conn.execute_batch(
+        "
+        ALTER TABLE hub_groups ADD COLUMN invited_set TEXT NOT NULL DEFAULT '[]';
+
+        INSERT OR REPLACE INTO schema_version (version) VALUES (3);
         ",
     )?;
     Ok(())
