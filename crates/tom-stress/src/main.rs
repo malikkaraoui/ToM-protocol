@@ -284,6 +284,7 @@ async fn main() -> anyhow::Result<()> {
             let target = parse_node_id(connect)?;
             campaign::run(campaign::CampaignConfig {
                 target,
+                target_addr: cli.target_addr.clone(),
                 name: cli.name.clone(),
                 duration_s: *duration,
                 phase: phase.clone(),

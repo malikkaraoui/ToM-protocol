@@ -8,7 +8,7 @@ use serde::Serialize;
 use tom_protocol::{
     DeliveredMessage, GroupId, ProtocolEvent, ProtocolRuntime, RuntimeConfig,
 };
-use tom_transport::{NodeId, TomNode, TomNodeConfig};
+use tom_transport::{EndpointAddr, NodeId, TomNode, TomNodeConfig};
 use tokio::sync::mpsc;
 
 use crate::events::emit;
@@ -18,6 +18,8 @@ use crate::scenario_common::recv_timeout;
 
 pub struct CampaignConfig {
     pub target: NodeId,
+    /// Optional direct socket addr of target (ip:port) to bypass discovery.
+    pub target_addr: Option<String>,
     pub name: String,
     pub duration_s: u64,
     pub phase: Option<String>,
@@ -251,8 +253,23 @@ pub async fn run(config: CampaignConfig) -> anyhow::Result<()> {
         }
     });
 
-    // Register peer
-    handle.add_peer(config.target).await;
+    // Register peer: prefer direct address when provided, then fallback to NodeId discovery.
+    if let Some(addr_str) = config.target_addr.as_ref() {
+        match addr_str.parse::<std::net::SocketAddr>() {
+            Ok(sock_addr) => {
+                let endpoint_addr =
+                    EndpointAddr::new(*config.target.as_endpoint_id()).with_ip_addr(sock_addr);
+                handle.add_peer_addr(endpoint_addr).await;
+                eprintln!("Registered target addr for campaign: {sock_addr}");
+            }
+            Err(e) => {
+                eprintln!("Invalid target addr '{addr_str}': {e} (falling back to NodeId discovery)");
+                handle.add_peer(config.target).await;
+            }
+        }
+    } else {
+        handle.add_peer(config.target).await;
+    }
 
     emit(&CampaignStarted {
         event: "campaign_started",
