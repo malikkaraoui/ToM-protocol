@@ -1107,3 +1107,110 @@ fn key_rotation_forward_secrecy() {
         "old key should not decrypt new message"
     );
 }
+
+/// R14: transition d'epoch — un message epoch N puis epoch N+1 doivent être délivrés.
+#[test]
+fn epoch_transition_old_and_new_messages_delivered() {
+    let alice_id = node_id(1);
+    let bob_id = node_id(2);
+    let hub_id = node_id(10);
+    let alice_seed = secret_seed(1);
+    let bob_seed = secret_seed(2);
+
+    let mut alice = GroupManager::new(alice_id, "alice".into());
+    let mut bob = GroupManager::new(bob_id, "bob".into());
+    let mut hub = GroupHub::new(hub_id);
+
+    // Create + join
+    let create_actions = alice.create_group("R14 Transition".into(), hub_id, vec![bob_id]);
+    let GroupAction::Send { payload, .. } = &create_actions[0] else { panic!() };
+    let hub_actions = hub.handle_payload(payload.clone(), alice_id);
+    let GroupAction::Send { payload: GroupPayload::Created { group }, .. } = &hub_actions[0]
+    else { panic!() };
+    let gid = group.group_id.clone();
+    alice.handle_group_created(group.clone());
+
+    let GroupAction::Send {
+        payload: GroupPayload::Invite { group_id, group_name, inviter_id, inviter_username },
+        ..
+    } = &hub_actions[1]
+    else { panic!() };
+    bob.handle_invite(group_id.clone(), group_name.clone(), *inviter_id, inviter_username.clone(), hub_id);
+    let join = bob.accept_invite(&gid);
+    let GroupAction::Send { payload: join_payload, .. } = &join[0] else { panic!() };
+    let join_actions = hub.handle_payload(join_payload.clone(), bob_id);
+    let GroupAction::Send { payload: GroupPayload::Sync { group: sync_group, recent_messages }, .. } = &join_actions[0]
+    else { panic!() };
+    bob.handle_group_sync(sync_group.clone(), recent_messages.clone());
+    if let GroupAction::Broadcast { payload: GroupPayload::MemberJoined { member, .. }, .. } = &join_actions[1] {
+        alice.handle_member_joined(&gid, member.clone());
+    }
+
+    // Key exchange Alice -> Bob
+    let alice_dist = alice.build_sender_key_distribution(&gid);
+    let GroupAction::Send { payload: dist_payload, .. } = &alice_dist[0] else { panic!() };
+    let dist_actions = hub.handle_payload(dist_payload.clone(), alice_id);
+    for action in &dist_actions {
+        if let GroupAction::Send {
+            to,
+            payload: GroupPayload::SenderKeyDistribution { from, epoch, encrypted_keys, .. },
+        } = action
+        {
+            if *to == bob_id {
+                bob.handle_sender_key_distribution(&gid, *from, *epoch, encrypted_keys, &bob_seed);
+            }
+        }
+    }
+
+    // Message epoch N (current)
+    let k1 = alice.local_sender_key(&gid).unwrap().clone();
+    let mut msg1 = GroupMessage::new_encrypted(
+        gid.clone(),
+        alice_id,
+        "alice".into(),
+        "msg epoch N".into(),
+        &k1.key,
+        k1.epoch,
+    );
+    msg1.sign(&alice_seed);
+    let fanout1 = hub.handle_payload(GroupPayload::Message(msg1), alice_id);
+    let GroupAction::Broadcast { payload: GroupPayload::Message(m1), .. } = &fanout1[0] else { panic!() };
+    bob.handle_message(m1.clone());
+
+    // Rotation + distribution epoch N+1
+    let rotate_actions = alice.rotate_sender_key(&gid);
+    let GroupAction::Send { payload: rotate_payload, .. } = &rotate_actions[0] else { panic!() };
+    let rotate_fanout = hub.handle_payload(rotate_payload.clone(), alice_id);
+    for action in &rotate_fanout {
+        if let GroupAction::Send {
+            to,
+            payload: GroupPayload::SenderKeyDistribution { from, epoch, encrypted_keys, .. },
+        } = action
+        {
+            if *to == bob_id {
+                bob.handle_sender_key_distribution(&gid, *from, *epoch, encrypted_keys, &bob_seed);
+            }
+        }
+    }
+
+    // Message epoch N+1
+    let k2 = alice.local_sender_key(&gid).unwrap().clone();
+    assert!(k2.epoch > k1.epoch);
+    let mut msg2 = GroupMessage::new_encrypted(
+        gid.clone(),
+        alice_id,
+        "alice".into(),
+        "msg epoch N+1".into(),
+        &k2.key,
+        k2.epoch,
+    );
+    msg2.sign(&alice_seed);
+    let fanout2 = hub.handle_payload(GroupPayload::Message(msg2), alice_id);
+    let GroupAction::Broadcast { payload: GroupPayload::Message(m2), .. } = &fanout2[0] else { panic!() };
+    bob.handle_message(m2.clone());
+
+    let history = bob.message_history(&gid);
+    assert_eq!(history.len(), 2);
+    assert_eq!(history[0].text, "msg epoch N");
+    assert_eq!(history[1].text, "msg epoch N+1");
+}

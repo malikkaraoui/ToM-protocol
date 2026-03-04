@@ -42,6 +42,21 @@ pub const HUB_ACK_TIMEOUT_MS: u64 = 3_000;
 /// Candidate self-promotes after this timeout with no contact from primary or shadow.
 pub const CANDIDATE_ORPHAN_TIMEOUT_MS: u64 = 30_000;
 
+/// Sender key rotation trigger: max age per epoch (24h).
+pub const SENDER_KEY_ROTATE_MAX_AGE_MS: u64 = 24 * 60 * 60 * 1000;
+
+/// Sender key rotation trigger: max messages per epoch (10k).
+pub const SENDER_KEY_ROTATE_MAX_MESSAGES: u64 = 10_000;
+
+/// Grace period for accepting epoch-1 messages after rotation (5 min).
+pub const SENDER_KEY_EPOCH_GRACE_MS: u64 = 5 * 60 * 1000;
+
+/// Purge threshold for sender keys (7 days).
+pub const SENDER_KEY_PURGE_MAX_AGE_MS: u64 = 7 * 24 * 60 * 60 * 1000;
+
+/// Rotation anti-spam: max one rotation trigger per group per hour.
+pub const SENDER_KEY_ROTATE_RATE_LIMIT_MS: u64 = 60 * 60 * 1000;
+
 // ── GroupId ──────────────────────────────────────────────────────────────
 
 /// Unique group identifier (e.g., "grp-<uuid>").

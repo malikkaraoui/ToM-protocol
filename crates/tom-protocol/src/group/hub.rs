@@ -50,6 +50,26 @@ struct HubGroup {
     seen_nonces: HashSet<[u8; 24]>,
     /// Nodes that have been invited (for invite-only groups).
     invited_set: HashSet<NodeId>,
+    /// Latest sender key payload per sender (for proactive re-sync fanout).
+    latest_sender_keys: HashMap<NodeId, (u32, Vec<EncryptedSenderKey>)>,
+    /// Epoch state per sender.
+    sender_epoch_state: HashMap<NodeId, SenderEpochState>,
+    /// Group message counter since last rotation trigger.
+    group_msg_since_rotation: u64,
+    /// Last rotation trigger timestamp.
+    last_rotation_trigger_ms: u64,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct SenderEpochState {
+    current_epoch: u32,
+    previous_epoch: Option<u32>,
+    grace_until_ms: u64,
+}
+
+enum EpochDecision {
+    Accept,
+    Reject,
 }
 
 /// Hub-side fan-out engine for all groups managed by this relay.
@@ -146,9 +166,9 @@ impl GroupHub {
             GroupPayload::SenderKeyDistribution {
                 ref group_id,
                 from: _,
-                epoch: _,
+                epoch,
                 ref encrypted_keys,
-            } => self.handle_sender_key_distribution(from, group_id, encrypted_keys),
+            } => self.handle_sender_key_distribution(from, group_id, epoch, encrypted_keys),
 
             GroupPayload::HubPing { ref group_id } => self.handle_hub_ping(group_id, from),
 
@@ -234,6 +254,10 @@ impl GroupHub {
             seen_message_ids: HashSet::new(),
             seen_nonces: HashSet::new(),
             invited_set,
+            latest_sender_keys: HashMap::new(),
+            sender_epoch_state: HashMap::new(),
+            group_msg_since_rotation: 0,
+            last_rotation_trigger_ms: 0,
         };
 
         self.groups.insert(group_id.clone(), hub_group);
@@ -327,6 +351,21 @@ impl GroupHub {
                 recent_messages: recent,
             },
         });
+
+        // Proactive sender-key replay for rejoining member (R14 fallback support).
+        for (sender_id, (epoch, encrypted_keys)) in &hub_group.latest_sender_keys {
+            if let Some(ek) = encrypted_keys.iter().find(|ek| ek.recipient_id == joiner) {
+                actions.push(GroupAction::Send {
+                    to: joiner,
+                    payload: GroupPayload::SenderKeyDistribution {
+                        group_id: group_id.clone(),
+                        from: *sender_id,
+                        epoch: *epoch,
+                        encrypted_keys: vec![ek.clone()],
+                    },
+                });
+            }
+        }
 
         // Broadcast member joined to existing members (except new member)
         let existing: Vec<NodeId> = hub_group
@@ -469,6 +508,22 @@ impl GroupHub {
             })];
         }
 
+        // Epoch fallback policy (R14.2): accept epoch-1 during grace, reject after.
+        if msg.encrypted {
+            match self.check_epoch_policy(&group_id, &from, msg.key_epoch) {
+                EpochDecision::Accept => {}
+                EpochDecision::Reject => {
+                    let mut actions = vec![GroupAction::Event(GroupEvent::SecurityViolation {
+                        group_id: group_id.clone(),
+                        node_id: from,
+                        reason: "sender key epoch mismatch (grace expired), re-sync required".into(),
+                    })];
+                    actions.extend(self.build_proactive_sender_key_replay(&group_id, from));
+                    return actions;
+                }
+            }
+        }
+
         // Rate limit check (mutable borrow scoped)
         if !self.check_rate_limit(&group_id, &from) {
             return vec![];
@@ -513,14 +568,15 @@ impl GroupHub {
             self.trim_oldest_messages();
         }
 
-        if recipients.is_empty() {
-            return vec![];
+        let mut actions = Vec::new();
+        if !recipients.is_empty() {
+            actions.push(GroupAction::Broadcast {
+                to: recipients,
+                payload: GroupPayload::Message(msg),
+            });
         }
-
-        vec![GroupAction::Broadcast {
-            to: recipients,
-            payload: GroupPayload::Message(msg),
-        }]
+        actions.extend(self.maybe_trigger_rotation(&group_id));
+        actions
     }
 
     // ── Delivery ACK ─────────────────────────────────────────────────────
@@ -543,12 +599,13 @@ impl GroupHub {
     /// The hub cannot read the keys (they are encrypted per-recipient).
     /// It simply delivers each encrypted key to the intended recipient.
     fn handle_sender_key_distribution(
-        &self,
+        &mut self,
         from: NodeId,
         group_id: &GroupId,
+        epoch: u32,
         encrypted_keys: &[EncryptedSenderKey],
     ) -> Vec<GroupAction> {
-        let Some(hub_group) = self.groups.get(group_id) else {
+        let Some(hub_group) = self.groups.get_mut(group_id) else {
             return vec![];
         };
 
@@ -560,6 +617,27 @@ impl GroupHub {
             })];
         }
 
+        // Cache latest distribution + epoch transition state.
+        if let Some(state) = hub_group.sender_epoch_state.get_mut(&from) {
+            if epoch > state.current_epoch {
+                state.previous_epoch = Some(state.current_epoch);
+                state.current_epoch = epoch;
+                state.grace_until_ms = now_ms().saturating_add(SENDER_KEY_EPOCH_GRACE_MS);
+            }
+        } else {
+            hub_group.sender_epoch_state.insert(
+                from,
+                SenderEpochState {
+                    current_epoch: epoch,
+                    previous_epoch: None,
+                    grace_until_ms: 0,
+                },
+            );
+        }
+        hub_group
+            .latest_sender_keys
+            .insert(from, (epoch, encrypted_keys.to_vec()));
+
         let mut actions = Vec::new();
         for ek in encrypted_keys {
             if hub_group.info.is_member(&ek.recipient_id) {
@@ -568,13 +646,122 @@ impl GroupHub {
                     payload: GroupPayload::SenderKeyDistribution {
                         group_id: group_id.clone(),
                         from,
-                        epoch: 0,
+                        epoch,
                         encrypted_keys: vec![ek.clone()],
                     },
                 });
             }
         }
         actions
+    }
+
+    fn check_epoch_policy(
+        &self,
+        group_id: &GroupId,
+        sender: &NodeId,
+        msg_epoch: u32,
+    ) -> EpochDecision {
+        let Some(hub_group) = self.groups.get(group_id) else {
+            return EpochDecision::Reject;
+        };
+        let Some(state) = hub_group.sender_epoch_state.get(sender) else {
+            return EpochDecision::Accept;
+        };
+
+        if msg_epoch == state.current_epoch {
+            return EpochDecision::Accept;
+        }
+        if state.previous_epoch == Some(msg_epoch) && now_ms() <= state.grace_until_ms {
+            return EpochDecision::Accept;
+        }
+        EpochDecision::Reject
+    }
+
+    fn build_proactive_sender_key_replay(&self, group_id: &GroupId, target: NodeId) -> Vec<GroupAction> {
+        let Some(hub_group) = self.groups.get(group_id) else {
+            return vec![];
+        };
+
+        let mut actions = Vec::new();
+        for (sender_id, (epoch, encrypted_keys)) in &hub_group.latest_sender_keys {
+            if let Some(ek) = encrypted_keys.iter().find(|ek| ek.recipient_id == target) {
+                actions.push(GroupAction::Send {
+                    to: target,
+                    payload: GroupPayload::SenderKeyDistribution {
+                        group_id: group_id.clone(),
+                        from: *sender_id,
+                        epoch: *epoch,
+                        encrypted_keys: vec![ek.clone()],
+                    },
+                });
+            }
+        }
+        actions
+    }
+
+    fn maybe_trigger_rotation(&mut self, group_id: &GroupId) -> Vec<GroupAction> {
+        let Some(hub_group) = self.groups.get_mut(group_id) else {
+            return vec![];
+        };
+        if hub_group.last_rotation_trigger_ms == 0 {
+            hub_group.last_rotation_trigger_ms = now_ms();
+        }
+        hub_group.group_msg_since_rotation = hub_group.group_msg_since_rotation.saturating_add(1);
+        let now = now_ms();
+        let elapsed = now.saturating_sub(hub_group.last_rotation_trigger_ms);
+
+        let should_trigger = hub_group.group_msg_since_rotation >= SENDER_KEY_ROTATE_MAX_MESSAGES
+            || elapsed >= SENDER_KEY_ROTATE_MAX_AGE_MS;
+        if !should_trigger {
+            return vec![];
+        }
+
+        // Anti-spam: max one trigger per hour.
+        if hub_group.last_rotation_trigger_ms > 0 && elapsed < SENDER_KEY_ROTATE_RATE_LIMIT_MS {
+            return vec![];
+        }
+
+        hub_group.last_rotation_trigger_ms = now;
+        hub_group.group_msg_since_rotation = 0;
+
+        let group_members = hub_group.info.members.clone();
+        let latest_sender_keys = hub_group.latest_sender_keys.clone();
+
+        let mut actions = Vec::new();
+        for (sender_id, (epoch, encrypted_keys)) in latest_sender_keys {
+            for ek in encrypted_keys {
+                if group_members.iter().any(|m| m.node_id == ek.recipient_id) {
+                    actions.push(GroupAction::Send {
+                        to: ek.recipient_id,
+                        payload: GroupPayload::SenderKeyDistribution {
+                            group_id: group_id.clone(),
+                            from: sender_id,
+                            epoch,
+                            encrypted_keys: vec![ek],
+                        },
+                    });
+                }
+            }
+        }
+        actions
+    }
+
+    /// Purge sender key cache entries older than max age (e.g. >7 days).
+    /// Returns number of purged sender entries.
+    pub fn purge_expired_sender_keys(&mut self, now_ms: u64, max_age_ms: u64) -> usize {
+        let cutoff = now_ms.saturating_sub(max_age_ms);
+        let mut purged = 0usize;
+
+        for hub_group in self.groups.values_mut() {
+            let before_cache = hub_group.latest_sender_keys.len();
+            if hub_group.info.last_activity_at < cutoff {
+                hub_group.latest_sender_keys.clear();
+                hub_group.sender_epoch_state.clear();
+            }
+            purged += before_cache.saturating_sub(hub_group.latest_sender_keys.len());
+        }
+
+        purged
     }
 
     // ── Rate Limiting ────────────────────────────────────────────────────
@@ -692,6 +879,10 @@ impl GroupHub {
             seen_message_ids: HashSet::new(),
             seen_nonces: HashSet::new(),
             invited_set: HashSet::new(),
+            latest_sender_keys: HashMap::new(),
+            sender_epoch_state: HashMap::new(),
+            group_msg_since_rotation: 0,
+            last_rotation_trigger_ms: 0,
         };
 
         self.groups.insert(group_id, hub_group);
@@ -1023,6 +1214,10 @@ impl GroupHub {
                 seen_message_ids: HashSet::new(),
                 seen_nonces: HashSet::new(),
                 invited_set,
+                latest_sender_keys: HashMap::new(),
+                sender_epoch_state: HashMap::new(),
+                group_msg_since_rotation: 0,
+                last_rotation_trigger_ms: 0,
             };
             self.groups.insert(group_id, hub_group);
         }
@@ -1579,6 +1774,130 @@ mod tests {
         assert!(
             matches!(&actions[1], GroupAction::Send { to, .. } if *to == charlie)
         );
+
+        // Epoch should be forwarded as-is (no hardcoded 0).
+        for action in &actions {
+            let GroupAction::Send {
+                payload: GroupPayload::SenderKeyDistribution { epoch, .. },
+                ..
+            } = action
+            else {
+                panic!("expected SenderKeyDistribution action");
+            };
+            assert_eq!(*epoch, 1);
+        }
+    }
+
+    #[test]
+    fn epoch_mismatch_after_grace_rejected_and_replayed() {
+        let mut hub = make_hub();
+        let alice = node_id(1);
+        let bob = node_id(2);
+
+        hub.handle_payload(
+            GroupPayload::Create {
+                group_name: "R14".into(),
+                creator_username: "alice".into(),
+                initial_members: vec![],
+                invite_only: false,
+            },
+            alice,
+        );
+        let gid = hub.groups.keys().next().unwrap().clone();
+        hub.handle_join(bob, &gid, "bob".into());
+
+        // Cache epoch 1 then epoch 2 distribution for alice.
+        let _ = hub.handle_payload(
+            GroupPayload::SenderKeyDistribution {
+                group_id: gid.clone(),
+                from: alice,
+                epoch: 1,
+                encrypted_keys: vec![
+                    EncryptedSenderKey {
+                        recipient_id: bob,
+                        encrypted_key: crate::crypto::EncryptedPayload {
+                            ciphertext: vec![1],
+                            nonce: [0u8; 24],
+                            ephemeral_pk: [0u8; 32],
+                        },
+                    },
+                    EncryptedSenderKey {
+                        recipient_id: alice,
+                        encrypted_key: crate::crypto::EncryptedPayload {
+                            ciphertext: vec![9],
+                            nonce: [0u8; 24],
+                            ephemeral_pk: [0u8; 32],
+                        },
+                    },
+                ],
+            },
+            alice,
+        );
+        let _ = hub.handle_payload(
+            GroupPayload::SenderKeyDistribution {
+                group_id: gid.clone(),
+                from: alice,
+                epoch: 2,
+                encrypted_keys: vec![
+                    EncryptedSenderKey {
+                        recipient_id: bob,
+                        encrypted_key: crate::crypto::EncryptedPayload {
+                            ciphertext: vec![2],
+                            nonce: [0u8; 24],
+                            ephemeral_pk: [0u8; 32],
+                        },
+                    },
+                    EncryptedSenderKey {
+                        recipient_id: alice,
+                        encrypted_key: crate::crypto::EncryptedPayload {
+                            ciphertext: vec![8],
+                            nonce: [0u8; 24],
+                            ephemeral_pk: [0u8; 32],
+                        },
+                    },
+                ],
+            },
+            alice,
+        );
+
+        // Force grace expiry in internal state for deterministic test.
+        if let Some(g) = hub.groups.get_mut(&gid) {
+            if let Some(st) = g.sender_epoch_state.get_mut(&alice) {
+                st.grace_until_ms = 0;
+            }
+        }
+
+        let (_, alice_secret) = keypair(1);
+        let mut stale = GroupMessage::new_encrypted(
+            gid.clone(),
+            alice,
+            "alice".into(),
+            "stale epoch".into(),
+            &[7u8; 32],
+            1,
+        );
+        stale.sign(&alice_secret);
+
+        let actions = hub.handle_message(alice, stale);
+        assert!(!actions.is_empty());
+        let has_reject = actions.iter().any(|a| {
+            matches!(
+                a,
+                GroupAction::Event(GroupEvent::SecurityViolation { reason, .. })
+                if reason.contains("grace expired")
+            )
+        });
+        let has_replay = actions.iter().any(|a| {
+            matches!(
+                a,
+                GroupAction::Send {
+                    to,
+                    payload: GroupPayload::SenderKeyDistribution { .. }
+                } if *to == alice
+            )
+        });
+        assert!(has_reject, "expected epoch mismatch rejection");
+        assert!(has_replay, "expected proactive sender-key replay to sender");
     }
 
     // ── Hub Failover Tests ────────────────────────────────────────────

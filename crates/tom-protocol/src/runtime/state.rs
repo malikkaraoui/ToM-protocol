@@ -485,10 +485,21 @@ impl RuntimeState {
             0
         };
 
-        if mem_purged + db_purged > 0 {
+        // R14.3: purge expired sender keys (>7 days) on member + hub state.
+        let mgr_keys_purged = self
+            .group_manager
+            .purge_expired_sender_keys(now, crate::group::SENDER_KEY_PURGE_MAX_AGE_MS);
+        let hub_keys_purged = self
+            .group_hub
+            .purge_expired_sender_keys(now, crate::group::SENDER_KEY_PURGE_MAX_AGE_MS);
+
+        if mem_purged + db_purged + mgr_keys_purged + hub_keys_purged > 0 {
             tracing::info!(
-                "hub cleanup: purged {} in-memory + {} SQLite messages (>24h)",
-                mem_purged, db_purged
+                "hub cleanup: purged {} in-memory + {} SQLite messages (>24h), {} manager keys + {} hub key entries (>7d)",
+                mem_purged,
+                db_purged,
+                mgr_keys_purged,
+                hub_keys_purged
             );
         }
 
@@ -1355,6 +1366,15 @@ impl RuntimeState {
         group_id: crate::group::GroupId,
         text: String,
     ) -> Vec<RuntimeEffect> {
+        let mut pre_effects = Vec::new();
+
+        // R14.1 dual-trigger rotation before sending.
+        let rotation_actions = self.group_manager.maybe_rotate_local_sender_key(&group_id);
+        if !rotation_actions.is_empty() {
+            let rotation_actions = self.intercept_self_group_actions(rotation_actions);
+            pre_effects.extend(self.group_actions_to_effects(&rotation_actions));
+        }
+
         let Some(group) = self.group_manager.get_group(&group_id) else {
             return vec![RuntimeEffect::Emit(ProtocolEvent::Error {
                 description: format!("not a member of group {group_id}"),
@@ -1368,7 +1388,7 @@ impl RuntimeState {
             let key = sender_key.key;
             let epoch = sender_key.epoch;
             GroupMessage::new_encrypted(
-                group_id,
+                group_id.clone(),
                 self.local_id,
                 self.config.username.clone(),
                 text,
@@ -1377,7 +1397,7 @@ impl RuntimeState {
             )
         } else {
             GroupMessage::new(
-                group_id,
+                group_id.clone(),
                 self.local_id,
                 self.config.username.clone(),
                 text,
@@ -1385,13 +1405,16 @@ impl RuntimeState {
         };
 
         msg.sign(&self.secret_seed);
+        self.group_manager.note_local_message_sent(&group_id);
         let payload = GroupPayload::Message(msg);
 
         // If we ARE the hub, handle locally without network round-trip
         if hub_id == self.local_id {
             let actions = self.group_hub.handle_payload(payload, self.local_id);
             let actions = self.intercept_self_group_actions(actions);
-            return self.group_actions_to_effects(&actions);
+            let mut effects = pre_effects;
+            effects.extend(self.group_actions_to_effects(&actions));
+            return effects;
         }
 
         let payload_bytes =
@@ -1407,7 +1430,8 @@ impl RuntimeState {
         .via(via)
         .sign(&self.secret_seed);
 
-        vec![RuntimeEffect::SendEnvelope(envelope)]
+        pre_effects.push(RuntimeEffect::SendEnvelope(envelope));
+        pre_effects
     }
 
     // ── Task 9: handle_send_read_receipt ─────────────────────────────────
