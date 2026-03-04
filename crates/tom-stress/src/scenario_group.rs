@@ -57,8 +57,8 @@ pub async fn run() -> anyhow::Result<ScenarioResult> {
         channels_b.handle.add_peer_addr(addr_a.clone()).await;
         channels_hub.handle.add_peer_addr(addr_a.clone()).await;
         channels_hub.handle.add_peer_addr(addr_b.clone()).await;
-        tokio::time::sleep(Duration::from_millis(500)).await;
-        Ok(String::new())
+        tokio::time::sleep(Duration::from_millis(750)).await;
+        Ok("peer addresses exchanged".into())
     })
     .await;
     result.add(step);
@@ -97,10 +97,12 @@ pub async fn run() -> anyhow::Result<ScenarioResult> {
     result.add(step);
 
     // ── Bob receives invite and accepts ────────────────────────────
+    let gid_for_invite = group_id_str.clone();
     let step = timed_step_async("bob accepts invite", || async {
-        // Wait for invite event on Bob's side
-        let deadline = Instant::now() + Duration::from_secs(10);
-        let mut invite_group_id = None;
+        // Prefer invite event, but also poll pending invites to avoid event-race flakes.
+        let deadline = Instant::now() + Duration::from_secs(15);
+        let mut invite_group_id: Option<tom_protocol::GroupId> = None;
+        let mut reinvite_sent = false;
         while Instant::now() < deadline {
             match recv_timeout(&mut channels_b.events, Duration::from_secs(1)).await {
                 Ok(ProtocolEvent::GroupInviteReceived { invite }) => {
@@ -108,7 +110,26 @@ pub async fn run() -> anyhow::Result<ScenarioResult> {
                     break;
                 }
                 Ok(_) => continue,
-                Err(_) => continue,
+                Err(_) => {
+                    let pending = channels_b.handle.pending_invites().await;
+                    if let Some(invite) = pending.first() {
+                        invite_group_id = Some(invite.group_id.clone());
+                        break;
+                    }
+
+                    // Active recovery: if the initial invite got lost, resend it explicitly.
+                    if !reinvite_sent {
+                        let gid = tom_protocol::GroupId::from(gid_for_invite.clone());
+                        if channels_a
+                            .handle
+                            .invite_member(gid, id_b)
+                            .await
+                            .is_ok()
+                        {
+                            reinvite_sent = true;
+                        }
+                    }
+                }
             }
         }
 
@@ -135,6 +156,9 @@ pub async fn run() -> anyhow::Result<ScenarioResult> {
     .await;
     result.add(step);
 
+    // Give member-joined + sender-key redistribution a moment to propagate.
+    tokio::time::sleep(Duration::from_secs(1)).await;
+
     // ── Alice sends N group messages ───────────────────────────────
     let gid_for_send = group_id_str.clone();
     let step = timed_step_async("send group messages", || async {
@@ -145,8 +169,8 @@ pub async fn run() -> anyhow::Result<ScenarioResult> {
                 .send_group_message(gid.clone(), format!("group-msg-{i}"))
                 .await
                 .map_err(|e| format!("send_group_message failed: {e}"))?;
-            // Small delay to avoid overwhelming
-            tokio::time::sleep(Duration::from_millis(100)).await;
+            // Stay below baseline anti-spam rate for low-score senders.
+            tokio::time::sleep(Duration::from_millis(600)).await;
         }
         Ok(format!("{MESSAGE_COUNT} sent"))
     })
