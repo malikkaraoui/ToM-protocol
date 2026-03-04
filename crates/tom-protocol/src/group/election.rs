@@ -114,6 +114,7 @@ mod tests {
             max_members: MAX_GROUP_MEMBERS,
             shadow_id: None,
             candidate_id: None,
+            invite_only: false,
         }
     }
 

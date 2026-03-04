@@ -40,6 +40,8 @@ struct HubGroup {
     seen_message_ids: HashSet<String>,
     /// Anti-replay: seen nonces for encrypted messages (bounded).
     seen_nonces: HashSet<[u8; 24]>,
+    /// Nodes that have been invited (for invite-only groups).
+    invited_set: HashSet<NodeId>,
 }
 
 /// Hub-side fan-out engine for all groups managed by this relay.
@@ -99,7 +101,8 @@ impl GroupHub {
                 group_name,
                 creator_username,
                 initial_members,
-            } => self.handle_create(from, group_name, creator_username, initial_members),
+                invite_only,
+            } => self.handle_create(from, group_name, creator_username, initial_members, invite_only),
 
             GroupPayload::Join { group_id, username } => {
                 self.handle_join(from, &group_id, username)
@@ -123,12 +126,30 @@ impl GroupHub {
 
             GroupPayload::HubPing { ref group_id } => self.handle_hub_ping(group_id, from),
 
+            // Admin controls (R11.3)
+            GroupPayload::KickMember {
+                ref group_id,
+                target_id,
+            } => self.kick_member(group_id, &from, &target_id),
+
+            GroupPayload::UpdateMemberRole {
+                ref group_id,
+                target_id,
+                new_role,
+            } => self.update_member_role(group_id, &from, &target_id, new_role),
+
+            GroupPayload::InviteMember {
+                ref group_id,
+                target_id,
+            } => self.invite_member(group_id, &from, target_id),
+
             // Hub doesn't process these (they're outgoing from hub or failover-specific)
             GroupPayload::Created { .. }
             | GroupPayload::Invite { .. }
             | GroupPayload::Sync { .. }
             | GroupPayload::MemberJoined { .. }
             | GroupPayload::MemberLeft { .. }
+            | GroupPayload::MemberRoleChanged { .. }
             | GroupPayload::HubMigration { .. }
             | GroupPayload::HubHeartbeat { .. }
             | GroupPayload::HubPong { .. }
@@ -146,6 +167,7 @@ impl GroupHub {
         group_name: String,
         creator_username: String,
         initial_members: Vec<NodeId>,
+        invite_only: bool,
     ) -> Vec<GroupAction> {
         let group_id = GroupId::new();
         let now = now_ms();
@@ -169,7 +191,11 @@ impl GroupHub {
             max_members: MAX_GROUP_MEMBERS,
             shadow_id: None,
             candidate_id: None,
+            invite_only,
         };
+
+        // Build invited set from initial members (for invite-only enforcement)
+        let invited_set: HashSet<NodeId> = initial_members.iter().copied().collect();
 
         let hub_group = HubGroup {
             info: info.clone(),
@@ -177,6 +203,7 @@ impl GroupHub {
             rate_limits: HashMap::new(),
             seen_message_ids: HashSet::new(),
             seen_nonces: HashSet::new(),
+            invited_set,
         };
 
         self.groups.insert(group_id.clone(), hub_group);
@@ -234,6 +261,14 @@ impl GroupHub {
             }];
         }
 
+        // Invite-only: reject uninvited joiners (creator always allowed)
+        if hub_group.info.invite_only
+            && joiner != hub_group.info.created_by
+            && !hub_group.invited_set.contains(&joiner)
+        {
+            return vec![];
+        }
+
         // Group full?
         if hub_group.info.is_full() {
             return vec![];
@@ -249,6 +284,7 @@ impl GroupHub {
 
         hub_group.info.members.push(new_member.clone());
         hub_group.info.last_activity_at = now;
+        hub_group.invited_set.remove(&joiner);
 
         let mut actions = vec![];
 
@@ -617,6 +653,7 @@ impl GroupHub {
             rate_limits: HashMap::new(),
             seen_message_ids: HashSet::new(),
             seen_nonces: HashSet::new(),
+            invited_set: HashSet::new(),
         };
 
         self.groups.insert(group_id, hub_group);
@@ -695,6 +732,131 @@ impl GroupHub {
                 node_id: *target,
                 username,
                 reason: LeaveReason::Kicked,
+            },
+        }]
+    }
+
+    // ── Update Member Role (R11.3) ──────────────────────────────────────
+
+    /// Change a member's role (admin action).
+    ///
+    /// Last-admin protection: cannot demote the only admin.
+    pub fn update_member_role(
+        &mut self,
+        group_id: &GroupId,
+        admin: &NodeId,
+        target: &NodeId,
+        new_role: GroupMemberRole,
+    ) -> Vec<GroupAction> {
+        let Some(hub_group) = self.groups.get_mut(group_id) else {
+            return vec![];
+        };
+
+        // Only admins can change roles
+        if !hub_group.info.is_admin(admin) {
+            return vec![];
+        }
+
+        // Target must be a member
+        let Some(member) = hub_group.info.members.iter().find(|m| m.node_id == *target) else {
+            return vec![];
+        };
+
+        // No-op if already the target role
+        if member.role == new_role {
+            return vec![];
+        }
+
+        // Last-admin protection: can't demote the only admin
+        if new_role == GroupMemberRole::Member {
+            let admin_count = hub_group
+                .info
+                .members
+                .iter()
+                .filter(|m| m.role == GroupMemberRole::Admin)
+                .count();
+            if admin_count <= 1 {
+                return vec![];
+            }
+        }
+
+        // Apply the role change
+        if let Some(m) = hub_group.info.members.iter_mut().find(|m| m.node_id == *target) {
+            m.role = new_role;
+        }
+        hub_group.info.last_activity_at = now_ms();
+
+        // Broadcast to all members
+        let recipients: Vec<NodeId> = hub_group
+            .info
+            .members
+            .iter()
+            .map(|m| m.node_id)
+            .collect();
+
+        let mut actions = vec![GroupAction::Broadcast {
+            to: recipients,
+            payload: GroupPayload::MemberRoleChanged {
+                group_id: group_id.clone(),
+                node_id: *target,
+                new_role,
+            },
+        }];
+
+        // Sync shadow
+        let group_id_for_sync = group_id.clone();
+        if let Some((target_node, payload)) = self.build_shadow_sync(&group_id_for_sync) {
+            actions.push(GroupAction::Send { to: target_node, payload });
+        }
+
+        actions
+    }
+
+    // ── Invite Member (R11.3) ─────────────────────────────────────────
+
+    /// Admin invites a new member to an existing group.
+    pub fn invite_member(
+        &mut self,
+        group_id: &GroupId,
+        admin: &NodeId,
+        target: NodeId,
+    ) -> Vec<GroupAction> {
+        let Some(hub_group) = self.groups.get_mut(group_id) else {
+            return vec![];
+        };
+
+        // Only admins can invite
+        if !hub_group.info.is_admin(admin) {
+            return vec![];
+        }
+
+        // Already a member
+        if hub_group.info.is_member(&target) {
+            return vec![];
+        }
+
+        // Group full
+        if hub_group.info.is_full() {
+            return vec![];
+        }
+
+        // Track invitation (for invite-only enforcement)
+        hub_group.invited_set.insert(target);
+
+        // Get admin username for the invite
+        let admin_username = hub_group
+            .info
+            .get_member(admin)
+            .map(|m| m.username.clone())
+            .unwrap_or_default();
+
+        vec![GroupAction::Send {
+            to: target,
+            payload: GroupPayload::Invite {
+                group_id: group_id.clone(),
+                group_name: hub_group.info.name.clone(),
+                inviter_id: *admin,
+                inviter_username: admin_username,
             },
         }]
     }
@@ -806,6 +968,7 @@ impl GroupHub {
                 rate_limits: HashMap::new(),
                 seen_message_ids: HashSet::new(),
                 seen_nonces: HashSet::new(),
+                invited_set: HashSet::new(),
             };
             self.groups.insert(group_id, hub_group);
         }
@@ -851,6 +1014,7 @@ mod tests {
                 group_name: "Test".into(),
                 creator_username: "alice".into(),
                 initial_members: vec![bob],
+                invite_only: false,
             },
             alice,
         );
@@ -873,6 +1037,7 @@ mod tests {
                 group_name: "Solo".into(),
                 creator_username: "alice".into(),
                 initial_members: vec![alice], // invite self
+                invite_only: false,
             },
             alice,
         );
@@ -894,6 +1059,7 @@ mod tests {
                 group_name: "Test".into(),
                 creator_username: "alice".into(),
                 initial_members: vec![],
+                invite_only: false,
             },
             alice,
         );
@@ -922,6 +1088,7 @@ mod tests {
                 group_name: "Test".into(),
                 creator_username: "alice".into(),
                 initial_members: vec![],
+                invite_only: false,
             },
             alice,
         );
@@ -949,6 +1116,7 @@ mod tests {
                 group_name: "Tiny".into(),
                 creator_username: "alice".into(),
                 initial_members: vec![],
+                invite_only: false,
             },
             alice,
         );
@@ -973,6 +1141,7 @@ mod tests {
                 group_name: "Test".into(),
                 creator_username: "alice".into(),
                 initial_members: vec![],
+                invite_only: false,
             },
             alice,
         );
@@ -997,6 +1166,7 @@ mod tests {
                 group_name: "Solo".into(),
                 creator_username: "alice".into(),
                 initial_members: vec![],
+                invite_only: false,
             },
             alice,
         );
@@ -1019,6 +1189,7 @@ mod tests {
                 group_name: "Chat".into(),
                 creator_username: "alice".into(),
                 initial_members: vec![],
+                invite_only: false,
             },
             alice,
         );
@@ -1055,6 +1226,7 @@ mod tests {
                 group_name: "Test".into(),
                 creator_username: "alice".into(),
                 initial_members: vec![],
+                invite_only: false,
             },
             alice,
         );
@@ -1078,6 +1250,7 @@ mod tests {
                 group_name: "Test".into(),
                 creator_username: "alice".into(),
                 initial_members: vec![],
+                invite_only: false,
             },
             alice,
         );
@@ -1109,6 +1282,7 @@ mod tests {
                 group_name: "Test".into(),
                 creator_username: "alice".into(),
                 initial_members: vec![],
+                invite_only: false,
             },
             alice,
         );
@@ -1152,6 +1326,7 @@ mod tests {
                 group_name: "Test".into(),
                 creator_username: "alice".into(),
                 initial_members: vec![],
+                invite_only: false,
             },
             alice,
         );
@@ -1188,6 +1363,7 @@ mod tests {
                 group_name: "Test".into(),
                 creator_username: "alice".into(),
                 initial_members: vec![],
+                invite_only: false,
             },
             alice,
         );
@@ -1222,6 +1398,7 @@ mod tests {
                 group_name: "Test".into(),
                 creator_username: "alice".into(),
                 initial_members: vec![],
+                invite_only: false,
             },
             alice,
         );
@@ -1245,6 +1422,7 @@ mod tests {
                 group_name: "Test".into(),
                 creator_username: "alice".into(),
                 initial_members: vec![],
+                invite_only: false,
             },
             alice,
         );
@@ -1273,6 +1451,7 @@ mod tests {
                 group_name: "Migrate".into(),
                 creator_username: "alice".into(),
                 initial_members: vec![],
+                invite_only: false,
             },
             alice,
         );
@@ -1303,6 +1482,7 @@ mod tests {
                 group_name: "E2E".into(),
                 creator_username: "alice".into(),
                 initial_members: vec![],
+                invite_only: false,
             },
             alice,
         );
@@ -1360,6 +1540,7 @@ mod tests {
                 group_name: "Failover".into(),
                 creator_username: "alice".into(),
                 initial_members: vec![bob, charlie],
+                invite_only: false,
             },
             alice,
         );
@@ -1387,6 +1568,7 @@ mod tests {
                 group_name: "Pong".into(),
                 creator_username: "alice".into(),
                 initial_members: vec![],
+                invite_only: false,
             },
             alice,
         );
@@ -1412,6 +1594,7 @@ mod tests {
                 group_name: "Sync".into(),
                 creator_username: "alice".into(),
                 initial_members: vec![],
+                invite_only: false,
             },
             alice,
         );
@@ -1443,6 +1626,7 @@ mod tests {
                 group_name: "Secure".into(),
                 creator_username: "alice".into(),
                 initial_members: vec![],
+                invite_only: false,
             },
             alice,
         );
@@ -1478,6 +1662,7 @@ mod tests {
                 group_name: "Test".into(),
                 creator_username: "alice".into(),
                 initial_members: vec![],
+                invite_only: false,
             },
             alice,
         );
@@ -1508,6 +1693,7 @@ mod tests {
                 group_name: "Test".into(),
                 creator_username: "alice".into(),
                 initial_members: vec![],
+                invite_only: false,
             },
             alice,
         );
@@ -1538,6 +1724,7 @@ mod tests {
                 group_name: "Test".into(),
                 creator_username: "alice".into(),
                 initial_members: vec![],
+                invite_only: false,
             },
             alice,
         );
@@ -1571,6 +1758,7 @@ mod tests {
                 group_name: "Test".into(),
                 creator_username: "alice".into(),
                 initial_members: vec![],
+                invite_only: false,
             },
             alice,
         );
@@ -1604,6 +1792,7 @@ mod tests {
                 group_name: "Test".into(),
                 creator_username: "alice".into(),
                 initial_members: vec![],
+                invite_only: false,
             },
             alice,
         );
@@ -1668,6 +1857,7 @@ mod tests {
                 group_name: "Test".into(),
                 creator_username: "alice".into(),
                 initial_members: vec![],
+                invite_only: false,
             },
             alice,
         );
@@ -1697,5 +1887,208 @@ mod tests {
             "dedup set should retain recent entries: {}",
             hub_group.seen_message_ids.len()
         );
+    }
+
+    // ── R11.3 Admin Controls Tests ────────────────────────────────────
+
+    #[test]
+    fn kick_member_via_payload() {
+        let mut hub = make_hub();
+        let alice = node_id(1);
+        let bob = node_id(2);
+
+        hub.handle_payload(
+            GroupPayload::Create {
+                group_name: "Test".into(),
+                creator_username: "alice".into(),
+                initial_members: vec![],
+                invite_only: false,
+            },
+            alice,
+        );
+        let gid = hub.groups.keys().next().unwrap().clone();
+        hub.handle_join(bob, &gid, "bob".into());
+
+        // Kick via payload (wire protocol path)
+        let actions = hub.handle_payload(
+            GroupPayload::KickMember {
+                group_id: gid.clone(),
+                target_id: bob,
+            },
+            alice,
+        );
+
+        assert_eq!(actions.len(), 1);
+        assert!(matches!(
+            &actions[0],
+            GroupAction::Broadcast { payload: GroupPayload::MemberLeft { reason: LeaveReason::Kicked, .. }, .. }
+        ));
+        assert_eq!(hub.get_group(&gid).unwrap().member_count(), 1);
+    }
+
+    #[test]
+    fn update_member_role_promote() {
+        let mut hub = make_hub();
+        let alice = node_id(1);
+        let bob = node_id(2);
+
+        hub.handle_payload(
+            GroupPayload::Create {
+                group_name: "Test".into(),
+                creator_username: "alice".into(),
+                initial_members: vec![],
+                invite_only: false,
+            },
+            alice,
+        );
+        let gid = hub.groups.keys().next().unwrap().clone();
+        hub.handle_join(bob, &gid, "bob".into());
+
+        // Promote bob to Admin
+        let actions = hub.update_member_role(&gid, &alice, &bob, GroupMemberRole::Admin);
+
+        // Should broadcast MemberRoleChanged to all members
+        assert!(!actions.is_empty());
+        match &actions[0] {
+            GroupAction::Broadcast { to, payload } => {
+                assert!(to.contains(&alice));
+                assert!(to.contains(&bob));
+                assert!(matches!(
+                    payload,
+                    GroupPayload::MemberRoleChanged { new_role: GroupMemberRole::Admin, .. }
+                ));
+            }
+            _ => panic!("expected Broadcast"),
+        }
+
+        // Verify role changed
+        let group = hub.get_group(&gid).unwrap();
+        assert!(group.is_admin(&bob));
+    }
+
+    #[test]
+    fn update_member_role_demote() {
+        let mut hub = make_hub();
+        let alice = node_id(1);
+        let bob = node_id(2);
+
+        hub.handle_payload(
+            GroupPayload::Create {
+                group_name: "Test".into(),
+                creator_username: "alice".into(),
+                initial_members: vec![],
+                invite_only: false,
+            },
+            alice,
+        );
+        let gid = hub.groups.keys().next().unwrap().clone();
+        hub.handle_join(bob, &gid, "bob".into());
+
+        // First promote bob so we have 2 admins
+        hub.update_member_role(&gid, &alice, &bob, GroupMemberRole::Admin);
+        assert!(hub.get_group(&gid).unwrap().is_admin(&bob));
+
+        // Now demote bob back to Member
+        let actions = hub.update_member_role(&gid, &alice, &bob, GroupMemberRole::Member);
+        assert!(!actions.is_empty());
+        match &actions[0] {
+            GroupAction::Broadcast { payload, .. } => {
+                assert!(matches!(
+                    payload,
+                    GroupPayload::MemberRoleChanged { new_role: GroupMemberRole::Member, .. }
+                ));
+            }
+            _ => panic!("expected Broadcast"),
+        }
+        assert!(!hub.get_group(&gid).unwrap().is_admin(&bob));
+    }
+
+    #[test]
+    fn update_member_role_last_admin_rejected() {
+        let mut hub = make_hub();
+        let alice = node_id(1);
+
+        hub.handle_payload(
+            GroupPayload::Create {
+                group_name: "Test".into(),
+                creator_username: "alice".into(),
+                initial_members: vec![],
+                invite_only: false,
+            },
+            alice,
+        );
+        let gid = hub.groups.keys().next().unwrap().clone();
+
+        // Alice is the only admin — can't demote self
+        let actions = hub.update_member_role(&gid, &alice, &alice, GroupMemberRole::Member);
+        assert!(actions.is_empty(), "should reject demotion of last admin");
+        assert!(hub.get_group(&gid).unwrap().is_admin(&alice));
+    }
+
+    #[test]
+    fn invite_member_sends_invite() {
+        let mut hub = make_hub();
+        let alice = node_id(1);
+        let bob = node_id(2);
+
+        hub.handle_payload(
+            GroupPayload::Create {
+                group_name: "Test".into(),
+                creator_username: "alice".into(),
+                initial_members: vec![],
+                invite_only: false,
+            },
+            alice,
+        );
+        let gid = hub.groups.keys().next().unwrap().clone();
+
+        // Admin invites bob
+        let actions = hub.invite_member(&gid, &alice, bob);
+        assert_eq!(actions.len(), 1);
+        match &actions[0] {
+            GroupAction::Send { to, payload } => {
+                assert_eq!(*to, bob);
+                assert!(matches!(payload, GroupPayload::Invite { .. }));
+            }
+            _ => panic!("expected Send(Invite)"),
+        }
+
+        // Bob should be in invited_set
+        assert!(hub.groups.get(&gid).unwrap().invited_set.contains(&bob));
+    }
+
+    #[test]
+    fn invite_only_rejects_uninvited_join() {
+        let mut hub = make_hub();
+        let alice = node_id(1);
+        let bob = node_id(2);
+        let charlie = node_id(3);
+
+        hub.handle_payload(
+            GroupPayload::Create {
+                group_name: "Private".into(),
+                creator_username: "alice".into(),
+                initial_members: vec![bob],
+                invite_only: true,
+            },
+            alice,
+        );
+        let gid = hub.groups.keys().next().unwrap().clone();
+
+        // Bob was in initial_members → should be in invited_set → can join
+        let actions = hub.handle_join(bob, &gid, "bob".into());
+        assert!(!actions.is_empty(), "invited bob should join");
+        assert_eq!(hub.get_group(&gid).unwrap().member_count(), 2);
+
+        // Charlie was NOT invited → should be rejected
+        let actions = hub.handle_join(charlie, &gid, "charlie".into());
+        assert!(actions.is_empty(), "uninvited charlie should be rejected");
+        assert_eq!(hub.get_group(&gid).unwrap().member_count(), 2);
+
+        // Now invite charlie, then he can join
+        hub.invite_member(&gid, &alice, charlie);
+        let actions = hub.handle_join(charlie, &gid, "charlie".into());
+        assert!(!actions.is_empty(), "invited charlie should join");
+        assert_eq!(hub.get_group(&gid).unwrap().member_count(), 3);
     }
 }
