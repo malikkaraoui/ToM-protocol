@@ -3,5 +3,6 @@
     "ipconfig": true,
     "pnpm": true,
     "cargo check": true
-  }
+  },
+  "chat.mcp.autostart": "never"
 }
