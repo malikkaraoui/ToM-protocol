@@ -71,17 +71,19 @@ reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"
 cfg_aliases = "0.2"
 
 [dev-dependencies]
+axum = "0.8"
+n0-tracing-test = "0.3"
 postcard = { version = "1", default-features = false, features = ["alloc", "use-std"] }
 pretty_assertions = "1"
 rand_chacha = "0.9"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tokio = { version = "1", features = ["full", "test-util"] }
-tom-relay = { path = "../tom-relay", features = ["server"] }
+tom-relay = { path = "../tom-relay", features = ["server", "test-utils"] }
 
 [features]
 default = []
 metrics = ["tom-relay/metrics", "portmapper/metrics"]
-test-utils = ["tom-relay/server"]
+test-utils = ["tom-relay/server", "tom-relay/test-utils"]
 address-lookup-pkarr-dht = []
 address-lookup-mdns = []
 qlog = []
