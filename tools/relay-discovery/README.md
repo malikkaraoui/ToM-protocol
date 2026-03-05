@@ -72,3 +72,14 @@ Le relay est publié uniquement si une réponse healthy est obtenue.
 - TTL de publication (`ttl_seconds`)
 - état cache (âge, hits/misses, last refresh)
 - compteurs principaux
+
+## Smoke test (relay + discovery)
+
+Script prêt CI pour valider rapidement les endpoints d'observabilité :
+
+- relay: `/ready`, `/health`, `/healthz`
+- discovery: `/health`, `/relays`, `/metrics`, `/status`
+
+Exemple:
+
+- `RELAY_URL=http://127.0.0.1:3340 DISCOVERY_URL=http://127.0.0.1:8080 ./scripts/smoke-observability.sh`
