@@ -14,6 +14,7 @@ Fournir une observabilité minimale exploitable pour la flotte relay:
 
 - `deploy/monitoring/prometheus.yml`
 - `deploy/monitoring/alerts.yml`
+- `deploy/monitoring/grafana-dashboard-option-c.json`
 
 ## Principes de labels
 
@@ -34,6 +35,25 @@ Interdits (haute cardinalité):
 2. Copier `deploy/monitoring/alerts.yml` et référencer le fichier dans `rule_files`.
 3. Vérifier que chaque relay expose bien ses métriques sur `:9090/metrics`.
 4. Recharger Prometheus.
+5. Importer `deploy/monitoring/grafana-dashboard-option-c.json` dans Grafana.
+
+## Dashboard Grafana (C3.2)
+
+Le dashboard **ToM Option C — Relay Monitoring** inclut:
+
+- Relays UP (count)
+- Drop rate global (5m)
+- Scrape p95 (5m)
+- Trafic relay (bytes/s in/out)
+- Drop rate par relay
+- Churn de connexions (accepts/disconnects)
+- Paquets recv vs dropped
+- Top relays par throughput
+
+Variables:
+
+- `relay` (multi-select)
+- `region` (multi-select)
 
 ## Validation
 
