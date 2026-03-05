@@ -1,0 +1,40 @@
+groups:
+  - name: tom-relay-alerts
+    rules:
+      - alert: TomRelayDown
+        expr: up{job="tom-relay-metrics"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          service: tom-relay
+        annotations:
+          summary: "Relay down ({{ $labels.relay }})"
+          description: "Prometheus n'arrive plus à scrapper {{ $labels.instance }} depuis 2 minutes."
+
+      # Approximation p95: on utilise la durée de scrape, en attendant une métrique
+      # native de latence trafic relay (histogramme) côté serveur.
+      - alert: TomRelayScrapeP95High
+        expr: quantile_over_time(0.95, scrape_duration_seconds{job="tom-relay-metrics"}[5m]) > 0.5
+        for: 5m
+        labels:
+          severity: warning
+          service: tom-relay
+        annotations:
+          summary: "Scrape p95 élevé ({{ $labels.relay }})"
+          description: "La durée de scrape p95 dépasse 500ms sur 5 minutes."
+
+      # Taux d'erreur MVP: paquets relay dropped / paquets relay reçus.
+      - alert: TomRelayDropRateHigh
+        expr: |
+          (
+            sum by (relay, region) (increase(relay_relayserver_send_packets_dropped[5m]))
+            /
+            clamp_min(sum by (relay, region) (increase(relay_relayserver_send_packets_recv[5m])), 1)
+          ) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+          service: tom-relay
+        annotations:
+          summary: "Drop rate élevé sur relay ({{ $labels.relay }})"
+          description: "Le ratio dropped/recv dépasse 5% depuis 5 minutes."
