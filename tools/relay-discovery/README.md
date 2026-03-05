@@ -83,3 +83,6 @@ Script prêt CI pour valider rapidement les endpoints d'observabilité :
 Exemple:
 
 - `RELAY_URL=http://127.0.0.1:3340 DISCOVERY_URL=http://127.0.0.1:8080 ./scripts/smoke-observability.sh`
+- `RELAY_URL=http://127.0.0.1:3340 DISCOVERY_URL=http://127.0.0.1:8080 ./scripts/smoke-observability.sh --wait 30`
+
+L’option `--wait <sec>` réessaie les checks pendant la fenêtre donnée (pratique en CI au démarrage des services).

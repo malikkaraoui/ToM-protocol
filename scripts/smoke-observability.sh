@@ -3,6 +3,7 @@
 #
 # Usage:
 #   RELAY_URL=http://127.0.0.1:3340 DISCOVERY_URL=http://127.0.0.1:8080 ./scripts/smoke-observability.sh
+#   RELAY_URL=http://127.0.0.1:3340 DISCOVERY_URL=http://127.0.0.1:8080 ./scripts/smoke-observability.sh --wait 30
 #
 # Exit codes:
 #   0 = tout est healthy
@@ -13,6 +14,7 @@ set -euo pipefail
 RELAY_URL="${RELAY_URL:-http://127.0.0.1:3340}"
 DISCOVERY_URL="${DISCOVERY_URL:-http://127.0.0.1:8080}"
 CURL_TIMEOUT="${CURL_TIMEOUT:-5}"
+WAIT_SECONDS=0
 
 GREEN='\033[0;32m'
 RED='\033[0;31m'
@@ -20,6 +22,19 @@ BLUE='\033[0;34m'
 NC='\033[0m'
 
 FAILURES=0
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --wait)
+      WAIT_SECONDS="${2:-0}"
+      shift 2
+      ;;
+    *)
+      echo "Unknown argument: $1" >&2
+      exit 1
+      ;;
+  esac
+done
 
 ok() {
   echo -e "${GREEN}✓${NC} $1"
@@ -52,23 +67,30 @@ check_endpoint() {
   local name="$1"
   local url="$2"
   local expr="$3"
+  local deadline=$((SECONDS + WAIT_SECONDS))
 
-  local payload
-  if ! payload="$(fetch_json "$url" 2>/dev/null)"; then
-    ko "$name unreachable ($url)"
-    return
-  fi
+  while true; do
+    local payload
+    if payload="$(fetch_json "$url" 2>/dev/null)"; then
+      if assert_json_expr "$payload" "$expr"; then
+        ok "$name ok"
+        return
+      fi
+    fi
 
-  if assert_json_expr "$payload" "$expr"; then
-    ok "$name ok"
-  else
-    ko "$name invalid payload ($url)"
-  fi
+    if [ "$SECONDS" -ge "$deadline" ]; then
+      ko "$name failed ($url)"
+      return
+    fi
+
+    sleep 1
+  done
 }
 
 echo -e "${BLUE}ToM observability smoke${NC}"
 echo "relay     = $RELAY_URL"
 echo "discovery = $DISCOVERY_URL"
+echo "wait      = ${WAIT_SECONDS}s"
 echo
 
 # Relay endpoints
