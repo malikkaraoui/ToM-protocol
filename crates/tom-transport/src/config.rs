@@ -29,8 +29,9 @@ pub struct TomNodeConfig {
     /// Relay discovery endpoint URL.
     ///
     /// When set, TomNode will fetch `GET <relay_discovery_url>/relays` at bind
-    /// time and merge discovered relay URLs into the local relay priority list.
-    /// Failed fetches are non-fatal and fallback to static relay configuration.
+    /// time and periodically refresh discovered relay URLs into the local
+    /// relay priority list. Failed fetches are non-fatal and fallback to
+    /// static relay configuration.
     pub(crate) relay_discovery_url: Option<String>,
     /// Enable n0-computer address discovery (Pkarr/DNS).
     ///
@@ -160,7 +161,7 @@ impl TomNodeConfig {
 
     /// Configure relay discovery service URL.
     ///
-    /// TomNode will query `<url>/relays` at bind time.
+    /// TomNode will query `<url>/relays` at bind time and periodically refresh.
     pub fn relay_discovery_url(mut self, url: impl Into<String>) -> Self {
         self.relay_discovery_url = Some(url.into());
         self
