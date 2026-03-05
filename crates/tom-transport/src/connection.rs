@@ -12,20 +12,24 @@ pub(crate) struct ConnectionPool {
     connections: Mutex<HashMap<NodeId, Connection>>,
     addresses: Mutex<HashMap<NodeId, EndpointAddr>>,
     alpn: Vec<u8>,
-    /// Default relay URL to include when no address is stored for a peer.
-    /// Used when n0 discovery is disabled — tells the endpoint to route
-    /// through our relay instead of relying on Pkarr/DNS resolution.
-    default_relay_url: Option<tom_connect::RelayUrl>,
+    /// Default relay URLs to include when no address is stored for a peer.
+    /// Used when n0 discovery is disabled — the pool will try each relay in
+    /// order before failing the connection attempt.
+    default_relay_urls: Vec<tom_connect::RelayUrl>,
 }
 
 impl ConnectionPool {
-    pub fn new(endpoint: Endpoint, alpn: Vec<u8>, default_relay_url: Option<tom_connect::RelayUrl>) -> Self {
+    pub fn new(
+        endpoint: Endpoint,
+        alpn: Vec<u8>,
+        default_relay_urls: Vec<tom_connect::RelayUrl>,
+    ) -> Self {
         Self {
             endpoint,
             connections: Mutex::new(HashMap::new()),
             addresses: Mutex::new(HashMap::new()),
             alpn,
-            default_relay_url,
+            default_relay_urls,
         }
     }
 
@@ -51,27 +55,49 @@ impl ConnectionPool {
             conns.remove(&target);
         }
 
-        // Create new connection — use stored address or fall back to discovery.
-        // When n0 discovery is disabled, we hint the relay URL so the endpoint
-        // knows to route through our relay instead of querying Pkarr/DNS.
-        let addr = {
+        // Create new connection candidates — use stored address first, or
+        // fallback to configured relay list (when n0 discovery is disabled).
+        let stored_addr = {
             let addrs = self.addresses.lock().await;
-            addrs.get(&target).cloned().unwrap_or_else(|| {
-                let mut addr = EndpointAddr::new(*target.as_endpoint_id());
-                if let Some(relay_url) = &self.default_relay_url {
-                    addr = addr.with_relay_url(relay_url.clone());
-                }
-                addr
-            })
+            addrs.get(&target).cloned()
         };
-        let conn = self
-            .endpoint
-            .connect(addr, &self.alpn)
-            .await
-            .map_err(|e| TomTransportError::Connect {
+
+        let candidates: Vec<EndpointAddr> = if let Some(addr) = stored_addr {
+            vec![addr]
+        } else if !self.default_relay_urls.is_empty() {
+            self.default_relay_urls
+                .iter()
+                .cloned()
+                .map(|relay| EndpointAddr::new(*target.as_endpoint_id()).with_relay_url(relay))
+                .collect()
+        } else {
+            vec![EndpointAddr::new(*target.as_endpoint_id())]
+        };
+
+        let mut last_err = None;
+        let mut established = None;
+        for addr in candidates {
+            match self.endpoint.connect(addr, &self.alpn).await {
+                Ok(conn) => {
+                    established = Some(conn);
+                    break;
+                }
+                Err(err) => {
+                    last_err = Some(err);
+                }
+            }
+        }
+
+        let conn = if let Some(conn) = established {
+            conn
+        } else {
+            return Err(TomTransportError::Connect {
                 node_id: target,
-                source: e.into(),
-            })?;
+                source: last_err
+                    .expect("at least one connect attempt should have been made")
+                    .into(),
+            });
+        };
 
         conns.insert(target, conn.clone());
         Ok(conn)

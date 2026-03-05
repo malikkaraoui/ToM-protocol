@@ -2,14 +2,21 @@
 Description=ToM Relay Server
 After=network-online.target
 Wants=network-online.target
+StartLimitIntervalSec=60
+StartLimitBurst=10
 
 [Service]
 Type=simple
 ExecStart=/usr/local/bin/tom-relay --dev
-Restart=always
+Restart=on-failure
 RestartSec=3
 Environment=RUST_LOG=info
 LimitNOFILE=65536
+
+# Graceful shutdown: let the relay drain before force-kill
+KillSignal=SIGTERM
+TimeoutStopSec=35
+SuccessExitStatus=143
 
 # Logging to journald (view with: journalctl -u tom-relay -f)
 StandardOutput=journal
