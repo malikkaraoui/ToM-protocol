@@ -33,7 +33,8 @@
       "_bmad-output",
       "_bmad",
       "target",
-      "experiments/**/target"
+      "experiments/**/target",
+      "apps/relay-tvos/**/Assets.xcassets/**"
     ]
   }
 }
