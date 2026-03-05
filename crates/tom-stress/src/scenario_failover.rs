@@ -98,43 +98,53 @@ pub async fn run() -> anyhow::Result<ScenarioResult> {
     let step = timed_step_async("bob joins group", || async {
         let deadline = Instant::now() + Duration::from_secs(15);
         let mut accepted = false;
-        let mut reinvite_sent = false;
+        let mut last_reinvite_at = Instant::now() - Duration::from_secs(10);
+        let mut accepted_gid: Option<tom_protocol::GroupId> = None;
         while Instant::now() < deadline {
+            // 1) Proactive pending invite polling.
+            if !accepted {
+                let pending = channels_b.handle.pending_invites().await;
+                if let Some(invite) = pending.first() {
+                    channels_b
+                        .handle
+                        .accept_invite(invite.group_id.clone())
+                        .await
+                        .map_err(|e| format!("accept_invite(pending): {e}"))?;
+                    accepted = true;
+                    accepted_gid = Some(invite.group_id.clone());
+                }
+            }
+
+            // 2) Periodic active recovery while not accepted yet.
+            if !accepted && last_reinvite_at.elapsed() >= Duration::from_secs(3) {
+                let gid = tom_protocol::GroupId::from(gid_for_invite.clone());
+                let _ = channels_a.handle.invite_member(gid, id_b).await;
+                last_reinvite_at = Instant::now();
+            }
+
+            // 3) Consume events.
             match recv_timeout(&mut channels_b.events, Duration::from_secs(1)).await {
                 Ok(ProtocolEvent::GroupInviteReceived { invite }) => {
                     channels_b
                         .handle
-                        .accept_invite(invite.group_id)
+                        .accept_invite(invite.group_id.clone())
                         .await
                         .map_err(|e| format!("accept_invite: {e}"))?;
                     accepted = true;
+                    accepted_gid = Some(invite.group_id);
                 }
                 Ok(ProtocolEvent::GroupJoined { group_id, .. }) => {
                     return Ok(format!("bob joined {group_id}"));
                 }
                 Ok(_) => continue,
                 Err(_) => {
-                    if !accepted {
-                        let pending = channels_b.handle.pending_invites().await;
-                        if let Some(invite) = pending.first() {
-                            channels_b
-                                .handle
-                                .accept_invite(invite.group_id.clone())
-                                .await
-                                .map_err(|e| format!("accept_invite(pending): {e}"))?;
-                            accepted = true;
-                        }
-                    }
-
-                    if !accepted && !reinvite_sent {
-                        let gid = tom_protocol::GroupId::from(gid_for_invite.clone());
-                        if channels_a
-                            .handle
-                            .invite_member(gid, id_b)
-                            .await
-                            .is_ok()
-                        {
-                            reinvite_sent = true;
+                    if accepted {
+                        // Fallback if GroupJoined event was dropped.
+                        if let Some(gid) = accepted_gid.as_ref() {
+                            let groups = channels_b.handle.groups().await;
+                            if groups.iter().any(|g| g.group_id == *gid) {
+                                return Ok(format!("bob joined {gid} (confirmed via groups())"));
+                            }
                         }
                     }
                     continue;
@@ -181,6 +191,35 @@ pub async fn run() -> anyhow::Result<ScenarioResult> {
     let step = timed_step_async("group messaging works", || async {
         let gid = tom_protocol::GroupId::from(gid_for_send);
         let mut received = 0u32;
+
+        // Warmup: ensure sender-key / membership propagation is effectively live.
+        let mut warmup_ok = false;
+        for attempt in 1..=4u32 {
+            channels_a
+                .handle
+                .send_group_message(gid.clone(), format!("failover-warmup-{attempt}"))
+                .await
+                .map_err(|e| format!("warmup send_group_message: {e}"))?;
+
+            let deadline = Instant::now() + Duration::from_secs(3);
+            while Instant::now() < deadline {
+                match recv_timeout(&mut channels_b.events, Duration::from_secs(1)).await {
+                    Ok(ProtocolEvent::GroupMessageReceived { .. }) => {
+                        warmup_ok = true;
+                        break;
+                    }
+                    Ok(_) => continue,
+                    Err(_) => continue,
+                }
+            }
+            if warmup_ok {
+                break;
+            }
+        }
+
+        if !warmup_ok {
+            return Err("warmup failed: no group message delivered before measurement".into());
+        }
 
         for i in 0..3u32 {
             channels_a
