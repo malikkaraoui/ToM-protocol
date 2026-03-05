@@ -26,6 +26,12 @@ pub struct TomNodeConfig {
     /// When non-empty, this list is preferred over `relay_url` for endpoint setup.
     /// The first relay is used as fallback hint when n0 discovery is disabled.
     pub(crate) relay_urls: Vec<tom_connect::RelayUrl>,
+    /// Relay discovery endpoint URL.
+    ///
+    /// When set, TomNode will fetch `GET <relay_discovery_url>/relays` at bind
+    /// time and merge discovered relay URLs into the local relay priority list.
+    /// Failed fetches are non-fatal and fallback to static relay configuration.
+    pub(crate) relay_discovery_url: Option<String>,
     /// Enable n0-computer address discovery (Pkarr/DNS).
     ///
     /// When `true` (default), the node publishes and resolves addresses via
@@ -83,12 +89,15 @@ impl TomNodeConfig {
             .ok()
             .map(PathBuf::from);
 
+        let relay_discovery_url = std::env::var("TOM_RELAY_DISCOVERY_URL").ok();
+
         Self {
             alpn: crate::TOM_ALPN.to_vec(),
             max_message_size: 1024 * 1024, // 1 MB
             recv_buffer: 256,
             relay_url,
             relay_urls,
+            relay_discovery_url,
             n0_discovery: true,
             identity_path,
         }
@@ -146,6 +155,14 @@ impl TomNodeConfig {
         if !self.relay_urls.contains(&url) {
             self.relay_urls.push(url);
         }
+        self
+    }
+
+    /// Configure relay discovery service URL.
+    ///
+    /// TomNode will query `<url>/relays` at bind time.
+    pub fn relay_discovery_url(mut self, url: impl Into<String>) -> Self {
+        self.relay_discovery_url = Some(url.into());
         self
     }
 
@@ -222,5 +239,14 @@ mod tests {
 
         assert_eq!(cfg.relay_url, Some(r1.clone()));
         assert_eq!(cfg.relay_urls, vec![r1, r2]);
+    }
+
+    #[test]
+    fn relay_discovery_url_sets_value() {
+        let cfg = TomNodeConfig::new().relay_discovery_url("http://127.0.0.1:8080");
+        assert_eq!(
+            cfg.relay_discovery_url.as_deref(),
+            Some("http://127.0.0.1:8080")
+        );
     }
 }

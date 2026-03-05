@@ -9,9 +9,64 @@ use tom_base::SecretKey;
 use tom_connect::protocol::Router;
 use tom_connect::{Endpoint, RelayMode};
 use tom_gossip::Gossip;
+use serde::Deserialize;
 use std::path::Path;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::{broadcast, mpsc};
+
+#[derive(Debug, Deserialize)]
+struct DiscoveryRelay {
+    url: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct DiscoveryResponse {
+    relays: Vec<DiscoveryRelay>,
+}
+
+fn normalize_discovery_relays(relays: Vec<DiscoveryRelay>) -> Vec<tom_connect::RelayUrl> {
+    relays
+        .into_iter()
+        .filter_map(|relay| relay.url.parse::<tom_connect::RelayUrl>().ok())
+        .collect()
+}
+
+fn merge_relay_lists(
+    mut configured: Vec<tom_connect::RelayUrl>,
+    discovered: Vec<tom_connect::RelayUrl>,
+) -> Vec<tom_connect::RelayUrl> {
+    for relay in discovered {
+        if !configured.contains(&relay) {
+            configured.push(relay);
+        }
+    }
+    configured
+}
+
+async fn fetch_discovery_relays(
+    discovery_base_url: &str,
+) -> Result<Vec<tom_connect::RelayUrl>, TomTransportError> {
+    let base = discovery_base_url.trim_end_matches('/');
+    let url = format!("{base}/relays");
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(3))
+        .build()
+        .map_err(|e| TomTransportError::Config(format!("invalid discovery client: {e}")))?;
+
+    let payload = client
+        .get(url)
+        .send()
+        .await
+        .map_err(|e| TomTransportError::Config(format!("relay discovery request failed: {e}")))?
+        .error_for_status()
+        .map_err(|e| TomTransportError::Config(format!("relay discovery bad response: {e}")))?
+        .json::<DiscoveryResponse>()
+        .await
+        .map_err(|e| TomTransportError::Config(format!("relay discovery invalid json: {e}")))?;
+
+    Ok(normalize_discovery_relays(payload.relays))
+}
 
 /// A ToM transport node — bind, send, receive, monitor paths.
 ///
@@ -41,11 +96,26 @@ impl TomNode {
             None => None,
         };
 
-        let configured_relays = if !config.relay_urls.is_empty() {
+        let mut configured_relays = if !config.relay_urls.is_empty() {
             config.relay_urls.clone()
         } else {
             config.relay_url.clone().into_iter().collect()
         };
+
+        if let Some(discovery_url) = config.relay_discovery_url.as_deref() {
+            match fetch_discovery_relays(discovery_url).await {
+                Ok(discovered) => {
+                    configured_relays = merge_relay_lists(configured_relays, discovered);
+                }
+                Err(err) => {
+                    tracing::warn!(
+                        discovery_url = %discovery_url,
+                        error = %err,
+                        "relay discovery failed, falling back to static relay configuration"
+                    );
+                }
+            }
+        }
 
         let mut builder = match (configured_relays.is_empty(), config.n0_discovery) {
             (false, false) => {
@@ -396,5 +466,33 @@ mod tests {
         node2.shutdown().await.unwrap();
 
         assert_ne!(id1, id2, "No identity path should produce different NodeIds");
+    }
+
+    #[test]
+    fn normalize_discovery_relays_filters_invalid_urls() {
+        let relays = vec![
+            DiscoveryRelay {
+                url: "http://127.0.0.1:3340".to_string(),
+            },
+            DiscoveryRelay {
+                url: "not-a-url".to_string(),
+            },
+            DiscoveryRelay {
+                url: "https://relay.example.org".to_string(),
+            },
+        ];
+
+        let normalized = normalize_discovery_relays(relays);
+        assert_eq!(normalized.len(), 2);
+    }
+
+    #[test]
+    fn merge_relay_lists_preserves_order_and_deduplicates() {
+        let a: tom_connect::RelayUrl = "http://127.0.0.1:3340".parse().unwrap();
+        let b: tom_connect::RelayUrl = "http://127.0.0.1:3341".parse().unwrap();
+        let c: tom_connect::RelayUrl = "http://127.0.0.1:3342".parse().unwrap();
+
+        let merged = merge_relay_lists(vec![a.clone(), b.clone()], vec![b, c.clone()]);
+        assert_eq!(merged, vec![a, "http://127.0.0.1:3341".parse().unwrap(), c]);
     }
 }
