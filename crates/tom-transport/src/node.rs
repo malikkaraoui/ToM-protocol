@@ -126,6 +126,11 @@ impl TomNode {
         if let Some(discovery_url) = config.relay_discovery_url.as_deref() {
             match fetch_discovery_relays(discovery_url).await {
                 Ok(snapshot) => {
+                    tracing::info!(
+                        discovery_url = %discovery_url,
+                        relays = snapshot.relays.len(),
+                        "relay discovery fetched relays"
+                    );
                     discovery_refresh_delay = next_discovery_refresh_delay(snapshot.ttl_seconds);
                     configured_relays = merge_relay_lists(configured_relays, snapshot.relays);
                 }
@@ -133,10 +138,26 @@ impl TomNode {
                     tracing::warn!(
                         discovery_url = %discovery_url,
                         error = %err,
-                        "relay discovery failed, falling back to static relay configuration"
+                        "relay discovery failed"
                     );
+
+                    if configured_relays.is_empty() {
+                        configured_relays = crate::config::fallback_relay_urls();
+                        tracing::info!(
+                            relays = configured_relays.len(),
+                            "using fallback relay list after discovery failure"
+                        );
+                    }
                 }
             }
+        }
+
+        if configured_relays.is_empty() {
+            configured_relays = crate::config::fallback_relay_urls();
+            tracing::info!(
+                relays = configured_relays.len(),
+                "no relay configured, using fallback relay list"
+            );
         }
 
         let mut builder = match (configured_relays.is_empty(), config.n0_discovery) {
@@ -668,6 +689,52 @@ mod tests {
             );
             tokio::time::sleep(Duration::from_millis(250)).await;
         }
+
+        node.shutdown().await.unwrap();
+        let _ = shutdown_tx.send(());
+    }
+
+    #[tokio::test]
+    async fn fallback_relays_used_when_discovery_fails() {
+        let config = TomNodeConfig::new()
+            .n0_discovery(false)
+            .relay_discovery_url("http://127.0.0.1:9");
+
+        let node = TomNode::bind(config).await.unwrap();
+        let relays = node.pool.default_relay_urls().await;
+
+        let eu: tom_connect::RelayUrl = "https://relay-eu.tom-protocol.org".parse().unwrap();
+        let us: tom_connect::RelayUrl = "https://relay-us.tom-protocol.org".parse().unwrap();
+        let asia: tom_connect::RelayUrl = "https://relay-asia.tom-protocol.org".parse().unwrap();
+
+        assert_eq!(relays.len(), 3);
+        assert!(relays.contains(&eu));
+        assert!(relays.contains(&us));
+        assert!(relays.contains(&asia));
+
+        node.shutdown().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn fallback_not_used_when_discovery_succeeds() {
+        let body = Arc::new(Mutex::new(
+            r#"{"relays":[{"url":"http://127.0.0.1:3340"}],"ttl_seconds":30}"#
+                .to_string(),
+        ));
+        let (base_url, shutdown_tx) = spawn_discovery_test_server(body).await;
+
+        let config = TomNodeConfig::new()
+            .n0_discovery(false)
+            .relay_discovery_url(base_url);
+        let node = TomNode::bind(config).await.unwrap();
+        let relays = node.pool.default_relay_urls().await;
+
+        let discovered: tom_connect::RelayUrl = "http://127.0.0.1:3340".parse().unwrap();
+        let fallback_eu: tom_connect::RelayUrl =
+            "https://relay-eu.tom-protocol.org".parse().unwrap();
+
+        assert!(relays.contains(&discovered));
+        assert!(!relays.contains(&fallback_eu));
 
         node.shutdown().await.unwrap();
         let _ = shutdown_tx.send(());

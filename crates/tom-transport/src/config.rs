@@ -1,5 +1,20 @@
 use std::path::PathBuf;
 
+/// Fallback relay list (public relays) used when discovery fails
+/// and no static relay is configured.
+pub const DEFAULT_RELAY_URLS: &[&str] = &[
+    "https://relay-eu.tom-protocol.org",
+    "https://relay-us.tom-protocol.org",
+    "https://relay-asia.tom-protocol.org",
+];
+
+pub(crate) fn fallback_relay_urls() -> Vec<tom_connect::RelayUrl> {
+    DEFAULT_RELAY_URLS
+        .iter()
+        .filter_map(|url| url.parse::<tom_connect::RelayUrl>().ok())
+        .collect()
+}
+
 /// Configuration for a [`TomNode`](crate::TomNode).
 ///
 /// All fields have sensible defaults. Use the builder pattern:
@@ -207,7 +222,7 @@ impl TomNodeConfig {
 
 #[cfg(test)]
 mod tests {
-    use super::TomNodeConfig;
+    use super::{DEFAULT_RELAY_URLS, TomNodeConfig, fallback_relay_urls};
 
     #[test]
     fn relay_url_sets_single_priority_list() {
@@ -249,5 +264,11 @@ mod tests {
             cfg.relay_discovery_url.as_deref(),
             Some("http://127.0.0.1:8080")
         );
+    }
+
+    #[test]
+    fn fallback_relay_urls_contains_default_public_relays() {
+        let parsed = fallback_relay_urls();
+        assert_eq!(parsed.len(), DEFAULT_RELAY_URLS.len());
     }
 }
