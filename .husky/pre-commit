@@ -1,1 +1,2 @@
 pnpm lint
+bash -n scripts/smoke-observability.sh
