@@ -1,0 +1,22 @@
+{
+  "relays": [
+    {
+      "url": "http://127.0.0.1:3340",
+      "region": "local",
+      "load": 0.0,
+      "latency_hint_ms": 1
+    },
+    {
+      "url": "https://relay-eu.tom-protocol.org",
+      "region": "eu-west",
+      "load": 0.3,
+      "latency_hint_ms": 50
+    },
+    {
+      "url": "https://relay-us.tom-protocol.org",
+      "region": "us-east",
+      "load": 0.5,
+      "latency_hint_ms": 120
+    }
+  ]
+}

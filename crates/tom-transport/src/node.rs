@@ -41,21 +41,27 @@ impl TomNode {
             None => None,
         };
 
-        let mut builder = match (&config.relay_url, config.n0_discovery) {
-            (Some(url), false) => {
+        let configured_relays = if !config.relay_urls.is_empty() {
+            config.relay_urls.clone()
+        } else {
+            config.relay_url.clone().into_iter().collect()
+        };
+
+        let mut builder = match (configured_relays.is_empty(), config.n0_discovery) {
+            (false, false) => {
                 // Own relay, no n0 discovery — fully independent
-                Endpoint::empty_builder(RelayMode::custom([url.clone()]))
+                Endpoint::empty_builder(RelayMode::custom(configured_relays.clone()))
             }
-            (Some(url), true) => {
+            (false, true) => {
                 // Own relay + n0 discovery (transition mode)
                 Endpoint::builder()
-                    .relay_mode(RelayMode::custom([url.clone()]))
+                    .relay_mode(RelayMode::custom(configured_relays.clone()))
             }
-            (None, false) => {
+            (true, false) => {
                 // No relay, no discovery — local-only mode (tests, scenarios)
                 Endpoint::empty_builder(RelayMode::Disabled)
             }
-            (None, true) => {
+            (true, true) => {
                 // Default: n0 presets (Pkarr/DNS + default relays)
                 Endpoint::builder()
             }
@@ -92,14 +98,15 @@ impl TomNode {
             .accept(tom_gossip::ALPN, gossip.clone())
             .spawn();
 
-        // When n0 discovery is off, pass our relay URL to the pool so it can
-        // hint the relay in fallback EndpointAddr (no Pkarr/DNS to resolve it).
-        let default_relay = if !config.n0_discovery {
-            config.relay_url.clone()
+        // When n0 discovery is off, pass relay URLs to the pool so it can
+        // attempt fallback connections across relays (ordered by priority)
+        // when no peer address is known.
+        let default_relays = if !config.n0_discovery {
+            configured_relays.clone()
         } else {
-            None
+            Vec::new()
         };
-        let pool = Arc::new(ConnectionPool::new(endpoint.clone(), config.alpn, default_relay));
+        let pool = Arc::new(ConnectionPool::new(endpoint.clone(), config.alpn, default_relays));
 
         Ok(Self {
             id,
