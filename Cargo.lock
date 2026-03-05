@@ -5019,6 +5019,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "tokio-test"
+version = "0.4.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3f6d24790a10a7af737693a3e8f1d03faef7e6ca0cc99aae5066f533766de545"
+dependencies = [
+ "futures-core",
+ "tokio",
+ "tokio-stream",
+]
+
+[[package]]
 name = "tokio-util"
 version = "0.7.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5189,6 +5200,19 @@ dependencies = [
  "tom-connect",
  "tom-metrics",
  "tracing",
+]
+
+[[package]]
+name = "tom-integration-tests"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "tokio",
+ "tokio-test",
+ "tom-protocol",
+ "tom-transport",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]
@@ -5369,6 +5393,17 @@ dependencies = [
  "vergen-gitcl",
  "webpki-roots",
  "z32",
+]
+
+[[package]]
+name = "tom-relay-ffi"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "tokio",
+ "tom-relay",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]
