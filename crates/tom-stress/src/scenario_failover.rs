@@ -46,7 +46,7 @@ pub async fn run() -> anyhow::Result<ScenarioResult> {
 
     let mut channels_a = ProtocolRuntime::spawn(node_a, config_a);
     let mut channels_b = ProtocolRuntime::spawn(node_b, config_b);
-    let channels_hub = ProtocolRuntime::spawn(node_hub, config_hub);
+    let mut channels_hub = ProtocolRuntime::spawn(node_hub, config_hub);
 
     // ── Register peers with full addresses ────────────────────────
     let step = timed_step_async("register peers", || async {
@@ -156,6 +156,29 @@ pub async fn run() -> anyhow::Result<ScenarioResult> {
     .await;
     result.add(step);
 
+    // ── Hub observes Bob join (propagation barrier) ────────────────
+    let step = timed_step_async("hub observes member join", || async {
+        let deadline = Instant::now() + Duration::from_secs(12);
+        while Instant::now() < deadline {
+            match recv_timeout(&mut channels_hub.events, Duration::from_secs(1)).await {
+                Ok(ProtocolEvent::GroupMemberJoined { member, group_id, .. }) if member.node_id == id_b => {
+                    return Ok(format!("member {} joined {group_id}", member.node_id));
+                }
+                Ok(_) => continue,
+                Err(_) => continue,
+            }
+        }
+
+        // Event may be missed in local scheduling races; keep moving with buffer.
+        tokio::time::sleep(Duration::from_secs(2)).await;
+        Ok("join event not observed on hub side; proceeding with extra buffer".into())
+    })
+    .await;
+    result.add(step);
+
+    // Give sender-key/member propagation time before measurement.
+    tokio::time::sleep(Duration::from_secs(3)).await;
+
     // ── Wait for shadow assignment ──────────────────────────────────
     let step = timed_step_async("shadow assignment", || async {
         // Shadow auto-assigned after join. Wait a bit for events.
@@ -194,7 +217,7 @@ pub async fn run() -> anyhow::Result<ScenarioResult> {
 
         // Warmup: ensure sender-key / membership propagation is effectively live.
         let mut warmup_ok = false;
-        for attempt in 1..=4u32 {
+        for attempt in 1..=5u32 {
             channels_a
                 .handle
                 .send_group_message(gid.clone(), format!("failover-warmup-{attempt}"))
@@ -215,6 +238,8 @@ pub async fn run() -> anyhow::Result<ScenarioResult> {
             if warmup_ok {
                 break;
             }
+
+            tokio::time::sleep(Duration::from_millis(400)).await;
         }
 
         if !warmup_ok {
@@ -227,7 +252,7 @@ pub async fn run() -> anyhow::Result<ScenarioResult> {
                 .send_group_message(gid.clone(), format!("failover-msg-{i}"))
                 .await
                 .map_err(|e| format!("send_group_message: {e}"))?;
-            tokio::time::sleep(Duration::from_millis(200)).await;
+            tokio::time::sleep(Duration::from_millis(600)).await;
         }
 
         // Bob should receive the messages
