@@ -46,6 +46,7 @@ TomNodeConfig::new()
 
 1. Relays statiques fournis via `relay_urls` / `TOM_RELAY_URLS`
 2. Relays discovery (`relay_discovery_url`)
-3. Fallback hardcodé si la liste reste vide
+3. DNS TXT fallback (`TOM_RELAY_DNS_FALLBACK_DOMAIN` ou `_relay._tcp.tom-protocol.org`)
+4. Fallback hardcodé si la liste reste vide
 
 Le fallback est donc un filet de sécurité pour éviter un blocage total quand discovery est indisponible.
