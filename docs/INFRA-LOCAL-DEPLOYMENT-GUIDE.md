@@ -70,11 +70,38 @@ chmod +x scripts/install-mac-air-relay.sh
 AIR_HOST=<ip-ou-hostname-mac-air> AIR_USER=<user-mac-air> ./scripts/install-mac-air-relay.sh
 ```
 
-Option : copier aussi `tom-stress` sur le Mac Air :
+Par défaut, le bundle USB inclut aussi `tom-stress`.
+
+Option si tu veux désactiver `tom-stress` et ne garder que `tom-relay` :
 
 ```bash
-AIR_HOST=<ip-ou-hostname-mac-air> AIR_USER=<user-mac-air> AIR_COPY_STRESS=1 ./scripts/install-mac-air-relay.sh
+AIR_COPY_STRESS=0 ./scripts/prepare-usb-mac-air-relay.sh
 ```
+
+### Option sans réseau : installation via clé USB
+
+Préparer le bundle sur le MacBook Pro :
+
+```bash
+chmod +x scripts/prepare-usb-mac-air-relay.sh
+./scripts/prepare-usb-mac-air-relay.sh
+```
+
+`AIR_USER` est optionnel en mode USB (détecté automatiquement au moment de l'installation sur le MacBook Air).
+
+Puis copier `deploy/macos/usb-mac-air-relay/` sur la clé USB, la brancher sur le MacBook Air et lancer sur le MacBook Air :
+
+```bash
+./install-on-air.sh
+```
+
+Le bundle est généré par défaut dans : `target/usb-mac-air-relay-bundle/`.
+
+Artefacts USB associés :
+
+- `scripts/prepare-usb-mac-air-relay.sh`
+- `deploy/macos/usb-mac-air-relay/install-on-air.sh`
+- `deploy/macos/usb-mac-air-relay/README.md`
 
 #### Critère GO Phase 1
 
@@ -109,8 +136,14 @@ Quickstart :
 ```bash
 chmod +x scripts/apple-tv-preflight.sh scripts/build-apple-tv-relay.sh
 ./scripts/apple-tv-preflight.sh
+# 1) Validation rapide en simulateur (recommandé en premier)
+TVOS_TARGET=aarch64-apple-tvos-sim ./scripts/build-apple-tv-relay.sh
+
+# 2) Puis build cible Apple TV physique
 ./scripts/build-apple-tv-relay.sh
 ```
+
+Si `xcrun devicectl list devices` retourne `No devices found`, appairer d'abord l'Apple TV dans Xcode avant le déploiement physique.
 
 #### Critère GO Phase 2
 
