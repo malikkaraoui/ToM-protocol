@@ -8,6 +8,11 @@ pub const DEFAULT_RELAY_URLS: &[&str] = &[
     "https://relay-asia.tom-protocol.org",
 ];
 
+/// DNS TXT fallback domain queried when discovery HTTP is unavailable.
+///
+/// TXT records should contain one or more relay URLs.
+pub const DEFAULT_DNS_FALLBACK_DOMAIN: &str = "_relay._tcp.tom-protocol.org";
+
 pub(crate) fn fallback_relay_urls() -> Vec<tom_connect::RelayUrl> {
     DEFAULT_RELAY_URLS
         .iter()
@@ -48,6 +53,11 @@ pub struct TomNodeConfig {
     /// relay priority list. Failed fetches are non-fatal and fallback to
     /// static relay configuration.
     pub(crate) relay_discovery_url: Option<String>,
+    /// Optional DNS TXT fallback domain for relay discovery.
+    ///
+    /// If set (or if default is used), the transport can query TXT records
+    /// to obtain relay URLs when HTTP discovery is unavailable.
+    pub(crate) relay_dns_fallback_domain: Option<String>,
     /// Enable n0-computer address discovery (Pkarr/DNS).
     ///
     /// When `true` (default), the node publishes and resolves addresses via
@@ -106,6 +116,7 @@ impl TomNodeConfig {
             .map(PathBuf::from);
 
         let relay_discovery_url = std::env::var("TOM_RELAY_DISCOVERY_URL").ok();
+        let relay_dns_fallback_domain = std::env::var("TOM_RELAY_DNS_FALLBACK_DOMAIN").ok();
 
         Self {
             alpn: crate::TOM_ALPN.to_vec(),
@@ -114,6 +125,7 @@ impl TomNodeConfig {
             relay_url,
             relay_urls,
             relay_discovery_url,
+            relay_dns_fallback_domain,
             n0_discovery: true,
             identity_path,
         }
@@ -179,6 +191,12 @@ impl TomNodeConfig {
     /// TomNode will query `<url>/relays` at bind time and periodically refresh.
     pub fn relay_discovery_url(mut self, url: impl Into<String>) -> Self {
         self.relay_discovery_url = Some(url.into());
+        self
+    }
+
+    /// Configure DNS TXT fallback domain for relay discovery.
+    pub fn relay_dns_fallback_domain(mut self, domain: impl Into<String>) -> Self {
+        self.relay_dns_fallback_domain = Some(domain.into());
         self
     }
 
@@ -263,6 +281,15 @@ mod tests {
         assert_eq!(
             cfg.relay_discovery_url.as_deref(),
             Some("http://127.0.0.1:8080")
+        );
+    }
+
+    #[test]
+    fn relay_dns_fallback_domain_sets_value() {
+        let cfg = TomNodeConfig::new().relay_dns_fallback_domain("_relay._tcp.example.org");
+        assert_eq!(
+            cfg.relay_dns_fallback_domain.as_deref(),
+            Some("_relay._tcp.example.org")
         );
     }
 

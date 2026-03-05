@@ -53,6 +53,37 @@ fn merge_relay_lists(
     configured
 }
 
+fn parse_dns_txt_relays(records: &[String]) -> Vec<tom_connect::RelayUrl> {
+    records
+        .iter()
+        .flat_map(|line| line.split(|c: char| c == ',' || c.is_whitespace()))
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .filter_map(|s| s.parse::<tom_connect::RelayUrl>().ok())
+        .collect()
+}
+
+async fn fetch_dns_fallback_relays(
+    domain: &str,
+) -> Result<Vec<tom_connect::RelayUrl>, TomTransportError> {
+    let resolver = hickory_resolver::TokioAsyncResolver::tokio_from_system_conf()
+        .map_err(|e| TomTransportError::Config(format!("dns resolver init failed: {e}")))?;
+
+    let lookup = resolver
+        .txt_lookup(domain)
+        .await
+        .map_err(|e| TomTransportError::Config(format!("dns txt lookup failed: {e}")))?;
+
+    let lines: Vec<String> = lookup
+        .iter()
+        .flat_map(|txt| txt.txt_data().iter())
+        .filter_map(|bytes| std::str::from_utf8(bytes).ok())
+        .map(ToOwned::to_owned)
+        .collect();
+
+    Ok(parse_dns_txt_relays(&lines))
+}
+
 async fn fetch_discovery_relays(
     discovery_base_url: &str,
 ) -> Result<DiscoverySnapshot, TomTransportError> {
@@ -148,6 +179,37 @@ impl TomNode {
                             "using fallback relay list after discovery failure"
                         );
                     }
+                }
+            }
+        }
+
+        if configured_relays.is_empty() {
+            let dns_domain = config
+                .relay_dns_fallback_domain
+                .as_deref()
+                .unwrap_or(crate::config::DEFAULT_DNS_FALLBACK_DOMAIN);
+
+            match fetch_dns_fallback_relays(dns_domain).await {
+                Ok(relays) if !relays.is_empty() => {
+                    tracing::info!(
+                        dns_domain = %dns_domain,
+                        relays = relays.len(),
+                        "using DNS TXT relay fallback"
+                    );
+                    configured_relays = merge_relay_lists(configured_relays, relays);
+                }
+                Ok(_) => {
+                    tracing::warn!(
+                        dns_domain = %dns_domain,
+                        "dns relay fallback returned no relay URLs"
+                    );
+                }
+                Err(err) => {
+                    tracing::warn!(
+                        dns_domain = %dns_domain,
+                        error = %err,
+                        "dns relay fallback failed"
+                    );
                 }
             }
         }
@@ -629,6 +691,18 @@ mod tests {
 
         let merged = merge_relay_lists(vec![a.clone(), b.clone()], vec![b.clone(), c.clone()]);
         assert_eq!(merged, vec![a, b, c]);
+    }
+
+    #[test]
+    fn parse_dns_txt_relays_accepts_commas_and_spaces() {
+        let records = vec![
+            "https://relay-eu.tom-protocol.org,https://relay-us.tom-protocol.org".to_string(),
+            "https://relay-asia.tom-protocol.org".to_string(),
+            "invalid-url".to_string(),
+        ];
+
+        let relays = parse_dns_txt_relays(&records);
+        assert_eq!(relays.len(), 3);
     }
 
     #[test]
