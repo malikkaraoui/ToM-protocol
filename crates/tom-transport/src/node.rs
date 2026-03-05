@@ -446,6 +446,50 @@ fn load_or_create_identity(path: &Path) -> Result<SecretKey, TomTransportError> 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::{Arc, Mutex};
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpListener;
+    use tokio::sync::oneshot;
+
+    async fn spawn_discovery_test_server(
+        body: Arc<Mutex<String>>,
+    ) -> (String, oneshot::Sender<()>) {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let (shutdown_tx, mut shutdown_rx) = oneshot::channel::<()>();
+
+        tokio::spawn(async move {
+            loop {
+                tokio::select! {
+                    _ = &mut shutdown_rx => {
+                        break;
+                    }
+                    accept = listener.accept() => {
+                        let (mut socket, _) = match accept {
+                            Ok(value) => value,
+                            Err(_) => continue,
+                        };
+
+                        let payload = body.lock().unwrap().clone();
+                        tokio::spawn(async move {
+                            let mut buf = [0u8; 2048];
+                            let _ = tokio::time::timeout(Duration::from_millis(500), socket.read(&mut buf)).await;
+
+                            let response = format!(
+                                "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+                                payload.len(),
+                                payload
+                            );
+                            let _ = socket.write_all(response.as_bytes()).await;
+                            let _ = socket.shutdown().await;
+                        });
+                    }
+                }
+            }
+        });
+
+        (format!("http://{}", addr), shutdown_tx)
+    }
 
     #[test]
     fn identity_create_and_reload() {
@@ -572,5 +616,60 @@ mod tests {
         assert_eq!(next_discovery_refresh_delay(Some(1)), Duration::from_secs(5));
         assert_eq!(next_discovery_refresh_delay(Some(20)), Duration::from_secs(20));
         assert_eq!(next_discovery_refresh_delay(Some(999)), Duration::from_secs(300));
+    }
+
+    #[tokio::test]
+    async fn fetch_discovery_relays_reads_relays_and_ttl() {
+        let body = Arc::new(Mutex::new(
+            r#"{"relays":[{"url":"http://127.0.0.1:3340"}],"ttl_seconds":7}"#
+                .to_string(),
+        ));
+        let (base_url, shutdown_tx) = spawn_discovery_test_server(body).await;
+
+        let snapshot = fetch_discovery_relays(&base_url).await.unwrap();
+        assert_eq!(snapshot.relays.len(), 1);
+        assert_eq!(snapshot.ttl_seconds, Some(7));
+
+        let _ = shutdown_tx.send(());
+    }
+
+    #[tokio::test]
+    async fn periodic_discovery_refresh_updates_pool_relays() {
+        let body = Arc::new(Mutex::new(
+            r#"{"relays":[{"url":"http://127.0.0.1:3340"}],"ttl_seconds":5}"#
+                .to_string(),
+        ));
+        let (base_url, shutdown_tx) = spawn_discovery_test_server(Arc::clone(&body)).await;
+
+        let config = TomNodeConfig::new()
+            .n0_discovery(false)
+            .relay_discovery_url(base_url);
+        let node = TomNode::bind(config).await.unwrap();
+
+        let relay_3340: tom_connect::RelayUrl = "http://127.0.0.1:3340".parse().unwrap();
+        let relay_3341: tom_connect::RelayUrl = "http://127.0.0.1:3341".parse().unwrap();
+
+        let initial = node.pool.default_relay_urls().await;
+        assert!(initial.contains(&relay_3340));
+
+        *body.lock().unwrap() =
+            r#"{"relays":[{"url":"http://127.0.0.1:3341"}],"ttl_seconds":5}"#.to_string();
+
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(12);
+        loop {
+            let relays = node.pool.default_relay_urls().await;
+            if relays.contains(&relay_3341) {
+                break;
+            }
+
+            assert!(
+                tokio::time::Instant::now() < deadline,
+                "timed out waiting for periodic discovery refresh"
+            );
+            tokio::time::sleep(Duration::from_millis(250)).await;
+        }
+
+        node.shutdown().await.unwrap();
+        let _ = shutdown_tx.send(());
     }
 }
