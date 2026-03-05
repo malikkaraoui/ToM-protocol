@@ -5317,6 +5317,7 @@ dependencies = [
  "n0-future",
  "n0-watcher",
  "rand",
+ "reqwest",
  "serde",
  "serde_json",
  "tempfile",
