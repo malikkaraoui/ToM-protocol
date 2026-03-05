@@ -33,6 +33,43 @@ Le dossier `TomRelay/` contient un squelette Swift prêt à être collé dans un
 5. Lier la lib Rust dans Xcode (Build Phases > Link Binary With Libraries)
 6. Lancer sur Apple TV
 
+## Pas à pas (débutant)
+
+### A. Préflight outils
+
+```bash
+./scripts/apple-tv-preflight.sh
+```
+
+### B. Build en simulateur d'abord (recommandé)
+
+```bash
+TVOS_TARGET=aarch64-apple-tvos-sim ./scripts/build-apple-tv-relay.sh
+```
+
+Artefact attendu : `apps/relay-tvos/build/tom-relay-aarch64-apple-tvos-sim`
+
+### C. Appairer l'Apple TV physique
+
+1. Apple TV → **Settings** → **Remotes and Devices** → **Remote App and Devices**
+2. Sur Mac : ouvrir Xcode
+3. **Window** → **Devices and Simulators**
+4. Sélectionner l'Apple TV et valider le code de pairing
+
+Validation CLI :
+
+```bash
+xcrun devicectl list devices
+```
+
+### D. Build cible Apple TV physique
+
+```bash
+./scripts/build-apple-tv-relay.sh
+```
+
+> Si le build device échoue mais le simulateur passe, continuer l'intégration UI et pairing ; le point bloquant est côté linkage binaire tvOS, pas côté Swift/Xcode.
+
 ## Scripts repo
 
 - `scripts/apple-tv-preflight.sh` : vérifie l'environnement Xcode/Rust tvOS
