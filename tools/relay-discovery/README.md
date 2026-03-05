@@ -6,6 +6,7 @@ Service HTTP minimal pour Option C.
 
 - `GET /health` → état du service discovery
 - `GET /relays` → liste des relays healthy au format:
+- `GET /metrics` → compteurs opérationnels (JSON)
 
 ```json
 {
@@ -50,3 +51,13 @@ Le service teste chaque relay via:
 2. fallback `GET <relay>/healthz`
 
 Le relay est publié uniquement si une réponse healthy est obtenue.
+
+## Métriques discovery
+
+`GET /metrics` expose un JSON léger pour supervision locale:
+
+- volume de requêtes (`requests_total`, `health_requests`, `relays_requests`)
+- checks de santé relay (`relay_checks_total`)
+- efficacité cache (`cache_hits`, `cache_misses`)
+- état cache courant (`cached_relays`, `last_refresh_at`)
+- dernière erreur (`last_error`)
