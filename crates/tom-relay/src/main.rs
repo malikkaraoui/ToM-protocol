@@ -4,6 +4,7 @@
 //! [`tom_relay::server`].
 
 use std::{
+    collections::HashMap,
     net::{Ipv6Addr, SocketAddr},
     num::NonZeroU32,
     path::{Path, PathBuf},
@@ -23,7 +24,7 @@ use n0_error::{Result, StdResultExt, bail_any};
 use n0_future::FutureExt;
 use serde::{Deserialize, Serialize};
 use tokio_rustls_acme::{AcmeConfig, caches::DirCache};
-use tracing::{debug, warn};
+use tracing::{debug, info, warn};
 use tracing_subscriber::{EnvFilter, prelude::*};
 use url::Url;
 use webpki_types::{CertificateDer, PrivateKeyDer, pem::PemObject};
@@ -291,6 +292,113 @@ impl Config {
     }
 }
 
+fn validate_startup_config(cfg: &Config, cli: &Cli) -> Result<()> {
+    if !cfg.enable_relay && !cfg.enable_quic_addr_discovery && !cfg.enable_metrics {
+        bail_any!(
+            "No services enabled: set at least one of enable_relay, enable_quic_addr_discovery or enable_metrics"
+        );
+    }
+
+    if cfg.enable_quic_addr_discovery && cfg.tls.is_none() {
+        bail_any!("TLS must be configured in order to spawn a QUIC endpoint");
+    }
+
+    if !cli.dev && cfg.enable_relay && cfg.tls.is_none() {
+        warn!(
+            "relay is configured without TLS; this is insecure for production (enable [tls] in config)"
+        );
+    }
+
+    let mut listeners: Vec<(&'static str, SocketAddr)> = Vec::new();
+
+    if cfg.enable_relay {
+        listeners.push(("relay-http", cfg.http_bind_addr()));
+    }
+
+    if let Some(tls) = cfg.tls.as_ref() {
+        if tls.dangerous_http_only && !cli.dev {
+            bail_any!(
+                "tls.dangerous_http_only=true is reserved for --dev mode and must not be set in production"
+            );
+        }
+
+        if !tls.dangerous_http_only {
+            match tls.cert_mode {
+                CertMode::Manual => {
+                    let cert = tls.cert_path();
+                    let key = tls.key_path();
+                    if !cert.is_file() {
+                        bail_any!("manual TLS certificate file not found: {}", cert.display());
+                    }
+                    if !key.is_file() {
+                        bail_any!("manual TLS key file not found: {}", key.display());
+                    }
+                }
+                CertMode::LetsEncrypt => {
+                    let hostname_ok = tls
+                        .hostname
+                        .as_deref()
+                        .is_some_and(|v| !v.trim().is_empty());
+                    let contact_ok = tls
+                        .contact
+                        .as_deref()
+                        .is_some_and(|v| !v.trim().is_empty());
+                    if !hostname_ok {
+                        bail_any!("LetsEncrypt requires tls.hostname");
+                    }
+                    if !contact_ok {
+                        bail_any!("LetsEncrypt requires tls.contact");
+                    }
+                }
+                #[cfg(feature = "server")]
+                CertMode::Reloading => {
+                    let cert = tls.cert_path();
+                    let key = tls.key_path();
+                    if !cert.is_file() {
+                        bail_any!(
+                            "reloading TLS certificate file not found: {}",
+                            cert.display()
+                        );
+                    }
+                    if !key.is_file() {
+                        bail_any!("reloading TLS key file not found: {}", key.display());
+                    }
+                }
+            }
+
+            if cfg.enable_relay {
+                listeners.push(("relay-https", tls.https_bind_addr(cfg)));
+            }
+        }
+
+        if cfg.enable_quic_addr_discovery {
+            listeners.push(("relay-quic", tls.quic_bind_addr(cfg)));
+        }
+    }
+
+    if cfg.enable_metrics {
+        listeners.push(("metrics", cfg.metrics_bind_addr()));
+    }
+
+    let mut seen: HashMap<SocketAddr, &'static str> = HashMap::new();
+    for (name, addr) in listeners {
+        if let Some(prev) = seen.insert(addr, name) {
+            bail_any!(
+                "listener address conflict: {prev} and {name} are both configured on {addr}"
+            );
+        }
+    }
+
+    info!(
+        relay = cfg.enable_relay,
+        quic = cfg.enable_quic_addr_discovery,
+        metrics = cfg.enable_metrics,
+        dev = cli.dev,
+        "relay startup configuration validated"
+    );
+    Ok(())
+}
+
 impl Default for Config {
     fn default() -> Self {
         Self {
@@ -498,9 +606,6 @@ async fn main() -> Result<()> {
 
     let cli = Cli::parse();
     let mut cfg = Config::load(&cli).await?;
-    if cfg.enable_quic_addr_discovery && cfg.tls.is_none() {
-        bail_any!("TLS must be configured in order to spawn a QUIC endpoint");
-    }
     if cli.dev {
         // When in `--dev` mode, do not use https, even when tls is configured.
         if let Some(ref mut tls) = cfg.tls {
@@ -510,9 +615,9 @@ async fn main() -> Result<()> {
             cfg.http_bind_addr = Some((Ipv6Addr::UNSPECIFIED, DEV_MODE_HTTP_PORT).into());
         }
     }
-    if cfg.tls.is_none() && cfg.enable_quic_addr_discovery {
-        bail_any!("If QUIC address discovery is enabled, TLS must also be configured");
-    };
+
+    validate_startup_config(&cfg, &cli)?;
+
     let relay_config = build_relay_config(cfg).await?;
     debug!("{relay_config:#?}");
 
@@ -698,7 +803,12 @@ async fn build_relay_config(cfg: Config) -> Result<relay::ServerConfig<std::io::
 
 #[cfg(test)]
 mod tests {
-    use std::num::NonZeroU32;
+    use std::{
+        fs,
+        num::NonZeroU32,
+        path::PathBuf,
+        time::{SystemTime, UNIX_EPOCH},
+    };
 
     use tom_base::SecretKey;
     use n0_error::Result;
@@ -706,6 +816,23 @@ mod tests {
     use rand_chacha::ChaCha8Rng;
 
     use super::*;
+
+    fn test_cli(dev: bool) -> Cli {
+        Cli {
+            dev,
+            config_path: None,
+        }
+    }
+
+    fn unique_tmp_dir(prefix: &str) -> PathBuf {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!("{prefix}-{}-{nanos}", std::process::id()));
+        fs::create_dir_all(&dir).expect("mkdir");
+        dir
+    }
 
     #[tokio::test]
     async fn test_rate_limit_config() -> Result {
@@ -838,5 +965,99 @@ mod tests {
         assert!(relay_config.relay.is_some());
 
         Ok(())
+    }
+
+    #[test]
+    fn test_validate_startup_no_services_enabled() {
+        let cfg = Config {
+            enable_relay: false,
+            enable_quic_addr_discovery: false,
+            enable_metrics: false,
+            ..Default::default()
+        };
+        let err = validate_startup_config(&cfg, &test_cli(false)).unwrap_err();
+        let msg = format!("{err:#}");
+        assert!(msg.contains("No services enabled"));
+    }
+
+    #[test]
+    fn test_validate_startup_manual_tls_missing_files() {
+        let cert_dir = unique_tmp_dir("tom-relay-missing-manual-tls");
+        let cfg = Config::from_str(&format!(
+            r#"
+                [tls]
+                cert_mode = "Manual"
+                cert_dir = "{}"
+            "#,
+            cert_dir.display()
+        ))
+        .unwrap();
+
+        let err = validate_startup_config(&cfg, &test_cli(false)).unwrap_err();
+        let msg = format!("{err:#}");
+        assert!(msg.contains("manual TLS certificate file not found"));
+    }
+
+    #[test]
+    fn test_validate_startup_letsencrypt_missing_contact_or_hostname() {
+        let cfg_missing_contact = Config::from_str(
+            r#"
+                [tls]
+                cert_mode = "LetsEncrypt"
+                hostname = "relay.example.org"
+            "#,
+        )
+        .unwrap();
+        let err = validate_startup_config(&cfg_missing_contact, &test_cli(false)).unwrap_err();
+        let msg = format!("{err:#}");
+        assert!(msg.contains("LetsEncrypt requires tls.contact"));
+
+        let cfg_missing_hostname = Config::from_str(
+            r#"
+                [tls]
+                cert_mode = "LetsEncrypt"
+                contact = "ops@example.org"
+            "#,
+        )
+        .unwrap();
+        let err = validate_startup_config(&cfg_missing_hostname, &test_cli(false)).unwrap_err();
+        let msg = format!("{err:#}");
+        assert!(msg.contains("LetsEncrypt requires tls.hostname"));
+    }
+
+    #[test]
+    fn test_validate_startup_detects_listener_conflict() {
+        let cfg = Config::from_str(
+            r#"
+                http_bind_addr = "127.0.0.1:3340"
+                metrics_bind_addr = "127.0.0.1:3340"
+            "#,
+        )
+        .unwrap();
+
+        let err = validate_startup_config(&cfg, &test_cli(false)).unwrap_err();
+        let msg = format!("{err:#}");
+        assert!(msg.contains("listener address conflict"));
+    }
+
+    #[test]
+    fn test_validate_startup_dev_skips_tls_artifacts_checks() {
+        let cert_dir = unique_tmp_dir("tom-relay-dev-tls-ignore");
+        let mut cfg = Config::from_str(&format!(
+            r#"
+                [tls]
+                cert_mode = "Manual"
+                cert_dir = "{}"
+            "#,
+            cert_dir.display()
+        ))
+        .unwrap();
+
+        // Simule le comportement de main() en mode --dev
+        if let Some(tls) = cfg.tls.as_mut() {
+            tls.dangerous_http_only = true;
+        }
+
+        validate_startup_config(&cfg, &test_cli(true)).expect("dev config should validate");
     }
 }
