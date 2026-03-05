@@ -7,6 +7,7 @@ Service HTTP minimal pour Option C.
 - `GET /health` → état du service discovery
 - `GET /relays` → liste des relays healthy au format:
 - `GET /metrics` → compteurs opérationnels (JSON)
+- `GET /status` → snapshot agrégé (relays + cache + compteurs)
 
 ```json
 {
@@ -61,3 +62,13 @@ Le relay est publié uniquement si une réponse healthy est obtenue.
 - efficacité cache (`cache_hits`, `cache_misses`)
 - état cache courant (`cached_relays`, `last_refresh_at`)
 - dernière erreur (`last_error`)
+
+## Snapshot agrégé
+
+`GET /status` renvoie une vue unique prête pour dashboard minimal :
+
+- liste des relays healthy actuels
+- `relay_count`
+- TTL de publication (`ttl_seconds`)
+- état cache (âge, hits/misses, last refresh)
+- compteurs principaux

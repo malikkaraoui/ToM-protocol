@@ -157,9 +157,42 @@ const server = createServer(async (req, res) => {
     });
   }
 
+  if (req.method === 'GET' && req.url === '/status') {
+    try {
+      const relays = await computeHealthyRelays();
+      return json(res, 200, {
+        status: 'ok',
+        service: 'relay-discovery',
+        relays,
+        relay_count: relays.length,
+        ttl_seconds: RESPONSE_TTL_SECONDS,
+        cache: {
+          ttl_ms: CACHE_TTL_MS,
+          cache_age_ms: healthyCache ? Date.now() - healthyCache.at : null,
+          last_refresh_at: stats.lastRefreshAt,
+          hits: stats.cacheHits,
+          misses: stats.cacheMisses,
+        },
+        counters: {
+          requests_total: stats.requestsTotal,
+          relay_checks_total: stats.relayChecksTotal,
+        },
+        last_error: stats.lastError,
+      });
+    } catch (err) {
+      stats.lastError = String(err?.message ?? err);
+      return json(res, 500, {
+        status: 'error',
+        service: 'relay-discovery',
+        error: 'failed to build status snapshot',
+        detail: stats.lastError,
+      });
+    }
+  }
+
   return json(res, 404, {
     error: 'not found',
-    endpoints: ['GET /health', 'GET /relays', 'GET /metrics'],
+    endpoints: ['GET /health', 'GET /relays', 'GET /metrics', 'GET /status'],
   });
 });
 
