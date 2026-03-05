@@ -28,6 +28,30 @@ jobs:
 
       - run: pnpm lint
 
+  observability-smoke:
+    name: Observability smoke (relay + discovery)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install smoke dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y lsof
+
+      - name: Run observability smoke
+        run: |
+          chmod +x scripts/run-observability-smoke-local.sh
+          ./scripts/run-observability-smoke-local.sh
+
   rust-protocol:
     name: Rust protocol (build + test + clippy)
     runs-on: ubuntu-latest
