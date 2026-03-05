@@ -382,6 +382,7 @@ impl Server {
                     .request_handler(Method::GET, "/index.html", Box::new(root_handler))
                     .request_handler(Method::GET, RELAY_PROBE_PATH, Box::new(probe_handler))
                     .request_handler(Method::GET, "/robots.txt", Box::new(robots_handler))
+                    .request_handler(Method::GET, "/ready", Box::new(healthz_handler))
                     .request_handler(Method::GET, "/health", Box::new(healthz_handler))
                     .request_handler(Method::GET, "/healthz", Box::new(healthz_handler));
                 if let Some(cfg) = relay_config.limits.client_rx {
@@ -938,6 +939,21 @@ mod tests {
     async fn test_health_alias_endpoint() {
         let server = spawn_local_relay().await.unwrap();
         let url = format!("http://{}/health", server.http_addr().unwrap());
+
+        let client = reqwest::Client::builder().use_rustls_tls().build().unwrap();
+        let response = client.get(&url).send().await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let body = response.text().await.unwrap();
+        let json: serde_json::Value = serde_json::from_str(&body).unwrap();
+        assert_eq!(json.get("status").and_then(|v| v.as_str()), Some("ok"));
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn test_ready_endpoint() {
+        let server = spawn_local_relay().await.unwrap();
+        let url = format!("http://{}/ready", server.http_addr().unwrap());
 
         let client = reqwest::Client::builder().use_rustls_tls().build().unwrap();
         let response = client.get(&url).send().await.unwrap();
