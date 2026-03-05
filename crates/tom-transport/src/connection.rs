@@ -15,7 +15,7 @@ pub(crate) struct ConnectionPool {
     /// Default relay URLs to include when no address is stored for a peer.
     /// Used when n0 discovery is disabled — the pool will try each relay in
     /// order before failing the connection attempt.
-    default_relay_urls: Vec<tom_connect::RelayUrl>,
+    default_relay_urls: Mutex<Vec<tom_connect::RelayUrl>>,
 }
 
 impl ConnectionPool {
@@ -29,8 +29,18 @@ impl ConnectionPool {
             connections: Mutex::new(HashMap::new()),
             addresses: Mutex::new(HashMap::new()),
             alpn,
-            default_relay_urls,
+            default_relay_urls: Mutex::new(default_relay_urls),
         }
+    }
+
+    /// Replace default relay URL candidates used when no peer address is known.
+    pub async fn set_default_relay_urls(&self, relays: Vec<tom_connect::RelayUrl>) {
+        *self.default_relay_urls.lock().await = relays;
+    }
+
+    /// Return current default relay URL candidates.
+    pub async fn default_relay_urls(&self) -> Vec<tom_connect::RelayUrl> {
+        self.default_relay_urls.lock().await.clone()
     }
 
     /// Store a known address for a peer.
@@ -62,10 +72,12 @@ impl ConnectionPool {
             addrs.get(&target).cloned()
         };
 
+        let default_relay_urls = self.default_relay_urls.lock().await.clone();
+
         let candidates: Vec<EndpointAddr> = if let Some(addr) = stored_addr {
             vec![addr]
-        } else if !self.default_relay_urls.is_empty() {
-            self.default_relay_urls
+        } else if !default_relay_urls.is_empty() {
+            default_relay_urls
                 .iter()
                 .cloned()
                 .map(|relay| EndpointAddr::new(*target.as_endpoint_id()).with_relay_url(relay))

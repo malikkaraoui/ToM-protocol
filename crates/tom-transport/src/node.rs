@@ -13,7 +13,8 @@ use serde::Deserialize;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::{broadcast, mpsc};
+use tokio::sync::{broadcast, mpsc, oneshot};
+use tokio::task::JoinHandle;
 
 #[derive(Debug, Deserialize)]
 struct DiscoveryRelay {
@@ -23,6 +24,14 @@ struct DiscoveryRelay {
 #[derive(Debug, Deserialize)]
 struct DiscoveryResponse {
     relays: Vec<DiscoveryRelay>,
+    #[serde(default)]
+    ttl_seconds: Option<u64>,
+}
+
+#[derive(Debug)]
+struct DiscoverySnapshot {
+    relays: Vec<tom_connect::RelayUrl>,
+    ttl_seconds: Option<u64>,
 }
 
 fn normalize_discovery_relays(relays: Vec<DiscoveryRelay>) -> Vec<tom_connect::RelayUrl> {
@@ -46,7 +55,7 @@ fn merge_relay_lists(
 
 async fn fetch_discovery_relays(
     discovery_base_url: &str,
-) -> Result<Vec<tom_connect::RelayUrl>, TomTransportError> {
+) -> Result<DiscoverySnapshot, TomTransportError> {
     let base = discovery_base_url.trim_end_matches('/');
     let url = format!("{base}/relays");
     let client = reqwest::Client::builder()
@@ -65,7 +74,16 @@ async fn fetch_discovery_relays(
         .await
         .map_err(|e| TomTransportError::Config(format!("relay discovery invalid json: {e}")))?;
 
-    Ok(normalize_discovery_relays(payload.relays))
+    Ok(DiscoverySnapshot {
+        relays: normalize_discovery_relays(payload.relays),
+        ttl_seconds: payload.ttl_seconds,
+    })
+}
+
+fn next_discovery_refresh_delay(ttl_seconds: Option<u64>) -> Duration {
+    // Clamp TTL to avoid over-polling and avoid stale lists for too long.
+    let seconds = ttl_seconds.unwrap_or(30).clamp(5, 300);
+    Duration::from_secs(seconds)
 }
 
 /// A ToM transport node — bind, send, receive, monitor paths.
@@ -82,6 +100,8 @@ pub struct TomNode {
     endpoint: Endpoint,
     gossip: Gossip,
     max_message_size: usize,
+    discovery_refresh_stop_tx: Option<oneshot::Sender<()>>,
+    discovery_refresh_task: Option<JoinHandle<()>>,
 }
 
 impl TomNode {
@@ -102,10 +122,12 @@ impl TomNode {
             config.relay_url.clone().into_iter().collect()
         };
 
+        let mut discovery_refresh_delay = next_discovery_refresh_delay(None);
         if let Some(discovery_url) = config.relay_discovery_url.as_deref() {
             match fetch_discovery_relays(discovery_url).await {
-                Ok(discovered) => {
-                    configured_relays = merge_relay_lists(configured_relays, discovered);
+                Ok(snapshot) => {
+                    discovery_refresh_delay = next_discovery_refresh_delay(snapshot.ttl_seconds);
+                    configured_relays = merge_relay_lists(configured_relays, snapshot.relays);
                 }
                 Err(err) => {
                     tracing::warn!(
@@ -178,6 +200,46 @@ impl TomNode {
         };
         let pool = Arc::new(ConnectionPool::new(endpoint.clone(), config.alpn, default_relays));
 
+        let (discovery_refresh_stop_tx, discovery_refresh_task) =
+            if let Some(discovery_url) = config.relay_discovery_url.clone() {
+                let pool = Arc::clone(&pool);
+                let n0_discovery_enabled = config.n0_discovery;
+                let (stop_tx, mut stop_rx) = oneshot::channel::<()>();
+                let task = tokio::spawn(async move {
+                    let mut delay = discovery_refresh_delay;
+                    loop {
+                        tokio::select! {
+                            _ = &mut stop_rx => {
+                                break;
+                            }
+                            _ = tokio::time::sleep(delay) => {
+                                match fetch_discovery_relays(&discovery_url).await {
+                                    Ok(snapshot) => {
+                                        delay = next_discovery_refresh_delay(snapshot.ttl_seconds);
+                                        if !n0_discovery_enabled {
+                                            let current = pool.default_relay_urls().await;
+                                            let merged = merge_relay_lists(current, snapshot.relays);
+                                            pool.set_default_relay_urls(merged).await;
+                                        }
+                                    }
+                                    Err(err) => {
+                                        tracing::warn!(
+                                            discovery_url = %discovery_url,
+                                            error = %err,
+                                            "periodic relay discovery refresh failed"
+                                        );
+                                        delay = next_discovery_refresh_delay(None);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                });
+                (Some(stop_tx), Some(task))
+            } else {
+                (None, None)
+            };
+
         Ok(Self {
             id,
             pool,
@@ -188,6 +250,8 @@ impl TomNode {
             endpoint,
             gossip,
             max_message_size: config.max_message_size,
+            discovery_refresh_stop_tx,
+            discovery_refresh_task,
         })
     }
 
@@ -320,7 +384,13 @@ impl TomNode {
     }
 
     /// Graceful shutdown.
-    pub async fn shutdown(self) -> Result<(), TomTransportError> {
+    pub async fn shutdown(mut self) -> Result<(), TomTransportError> {
+        if let Some(stop_tx) = self.discovery_refresh_stop_tx.take() {
+            let _ = stop_tx.send(());
+        }
+        if let Some(task) = self.discovery_refresh_task.take() {
+            let _ = task.await;
+        }
         self.endpoint.close().await;
         Ok(())
     }
@@ -492,7 +562,15 @@ mod tests {
         let b: tom_connect::RelayUrl = "http://127.0.0.1:3341".parse().unwrap();
         let c: tom_connect::RelayUrl = "http://127.0.0.1:3342".parse().unwrap();
 
-        let merged = merge_relay_lists(vec![a.clone(), b.clone()], vec![b, c.clone()]);
-        assert_eq!(merged, vec![a, "http://127.0.0.1:3341".parse().unwrap(), c]);
+        let merged = merge_relay_lists(vec![a.clone(), b.clone()], vec![b.clone(), c.clone()]);
+        assert_eq!(merged, vec![a, b, c]);
+    }
+
+    #[test]
+    fn next_discovery_refresh_delay_clamps_bounds() {
+        assert_eq!(next_discovery_refresh_delay(None), Duration::from_secs(30));
+        assert_eq!(next_discovery_refresh_delay(Some(1)), Duration::from_secs(5));
+        assert_eq!(next_discovery_refresh_delay(Some(20)), Duration::from_secs(20));
+        assert_eq!(next_discovery_refresh_delay(Some(999)), Duration::from_secs(300));
     }
 }
