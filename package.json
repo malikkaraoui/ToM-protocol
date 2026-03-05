@@ -9,6 +9,8 @@
     "test:e2e:headed": "playwright test --config=scripts/e2e/playwright.config.ts --headed",
     "test:e2e:ui": "playwright test --config=scripts/e2e/playwright.config.ts --ui",
     "test:e2e:report": "playwright show-report scripts/e2e/reports/html",
+    "smoke:observability": "./scripts/smoke-observability.sh",
+    "smoke:observability:wait": "./scripts/smoke-observability.sh --wait 30",
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
     "clean": "pnpm -r run clean",
