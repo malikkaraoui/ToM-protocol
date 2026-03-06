@@ -111,6 +111,26 @@ char* tom_node_status(const TomNodeHandle handle);
 /// Caller must free returned string with tom_node_free_string()
 char* tom_node_last_error(const TomNodeHandle handle);
 
+/// Add a peer address (so this node can connect to it)
+///
+/// Example peer addr JSON:
+/// {
+///   "node_id": "<hex_node_id>",
+///   "relay_url": "http://82.67.95.8:3340",
+///   "direct_addrs": ["192.168.0.83:3340"]
+/// }
+///
+/// Only node_id is required. relay_url and direct_addrs are optional.
+///
+/// Returns: 0 on success, -1 on failure
+int32_t tom_node_add_peer_addr(const TomNodeHandle handle, const char* peer_addr_json);
+
+/// Get connected peers
+///
+/// Returns: JSON array of Node ID hex strings: ["<hex_id_1>", "<hex_id_2>", ...]
+/// Caller must free returned string with tom_node_free_string()
+char* tom_node_connected_peers(const TomNodeHandle handle);
+
 /// Free a string returned by FFI functions
 void tom_node_free_string(char* s);
 

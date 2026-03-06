@@ -45,6 +45,7 @@ struct MessagesView: View {
                 SendMessageSheet(
                     targetPeerId: $targetPeerId,
                     messageText: $messageText,
+                    connectedPeers: nodeService.connectedPeers,
                     onSend: {
                         nodeService.sendMessage(to: targetPeerId, text: messageText)
                         messageText = ""
@@ -92,15 +93,37 @@ struct MessageRow: View {
 struct SendMessageSheet: View {
     @Binding var targetPeerId: String
     @Binding var messageText: String
+    let connectedPeers: [NodeId]
     let onSend: () -> Void
 
     var body: some View {
         NavigationStack {
             Form {
-                Section("Recipient") {
+                // Peer picker — select from connected peers
+                if !connectedPeers.isEmpty {
+                    Section("Connected Peers") {
+                        ForEach(connectedPeers, id: \.self) { peer in
+                            Button(action: { targetPeerId = peer }) {
+                                HStack {
+                                    Text(String(peer.prefix(8)) + "..." + String(peer.suffix(4)))
+                                        .font(.system(.body, design: .monospaced))
+                                    Spacer()
+                                    if targetPeerId == peer {
+                                        Image(systemName: "checkmark.circle.fill")
+                                            .foregroundColor(.green)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Manual entry fallback
+                Section("Or enter manually") {
                     TextField("Peer Node ID (hex)", text: $targetPeerId)
                         .font(.system(.body, design: .monospaced))
                 }
+
                 Section("Message") {
                     TextField("Type your message...", text: $messageText)
                 }

@@ -156,6 +156,43 @@ actor TomNodeWrapper {
         }
     }
 
+    func addPeerAddr(nodeId: NodeId, relayUrl: String? = nil, directAddrs: [String]? = nil) throws {
+        guard let h = handle else {
+            throw TomError.notStarted
+        }
+
+        var config: [String: Any] = ["node_id": nodeId]
+        if let relay = relayUrl { config["relay_url"] = relay }
+        if let addrs = directAddrs { config["direct_addrs"] = addrs }
+
+        let jsonData = try JSONSerialization.data(withJSONObject: config)
+        guard let jsonStr = String(data: jsonData, encoding: .utf8) else {
+            throw TomError.jsonParseFailed("Failed to encode peer addr")
+        }
+
+        let result = jsonStr.withCString { tom_node_add_peer_addr(h, $0) }
+        if result != 0 {
+            throw TomError.sendFailed("tom_node_add_peer_addr returned \(result)")
+        }
+    }
+
+    func connectedPeers() -> [NodeId] {
+        guard let h = handle else { return [] }
+
+        guard let cStr = tom_node_connected_peers(h) else { return [] }
+        let jsonStr = String(cString: cStr)
+        tom_node_free_string(cStr)
+
+        guard let data = jsonStr.data(using: .utf8) else { return [] }
+
+        do {
+            return try JSONDecoder().decode([NodeId].self, from: data)
+        } catch {
+            log.error("Failed to decode peers: \(error.localizedDescription)")
+            return []
+        }
+    }
+
     func receiveMessages() -> [TomMessage] {
         guard let h = handle else { return [] }
 
