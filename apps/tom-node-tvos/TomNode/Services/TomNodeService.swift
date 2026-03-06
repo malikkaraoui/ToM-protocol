@@ -1,0 +1,157 @@
+import Foundation
+import os.log
+import Combine
+
+@MainActor
+final class TomNodeService: ObservableObject {
+    static let shared = TomNodeService()
+
+    private let log = Logger(subsystem: "org.tom-protocol.tom-node", category: "TomNodeService")
+    private let node = TomNodeWrapper()
+    private var pollTask: Task<Void, Never>?
+
+    @Published var state: TomNodeState = .stopped
+    @Published var nodeId: String = ""
+    @Published var peersCount: Int = 0
+    @Published var groupsCount: Int = 0
+    @Published var messages: [TomMessage] = []
+    @Published var errorMessage: String?
+
+    // Config
+    @Published var relayUrl: String = "http://82.67.95.8:3340"
+    @Published var username: String = "AppleTV"
+    @Published var encryption: Bool = true
+    @Published var enableDht: Bool = false
+    @Published var n0Discovery: Bool = false
+
+    private init() {}
+
+    func start() {
+        guard state == .stopped || state == .error else { return }
+        state = .starting
+        errorMessage = nil
+
+        Task {
+            do {
+                try await node.create(
+                    relayUrl: relayUrl,
+                    identityPath: identityPath,
+                    n0Discovery: n0Discovery
+                )
+
+                try await node.start(
+                    username: username,
+                    encryption: encryption,
+                    enableDht: enableDht,
+                    relayUrl: relayUrl,
+                    identityPath: identityPath,
+                    n0Discovery: n0Discovery,
+                    dataDir: dataDir
+                )
+
+                state = .running
+                startPolling()
+                log.info("Node started successfully")
+            } catch {
+                log.error("Failed to start node: \(error.localizedDescription)")
+                state = .error
+                errorMessage = error.localizedDescription
+            }
+        }
+    }
+
+    func stop() {
+        guard state == .running else { return }
+        state = .stopping
+        pollTask?.cancel()
+        pollTask = nil
+
+        Task {
+            await node.stop()
+            state = .stopped
+            nodeId = ""
+            peersCount = 0
+            groupsCount = 0
+            log.info("Node stopped")
+        }
+    }
+
+    func sendMessage(to target: NodeId, text: String) {
+        guard state == .running else { return }
+        Task {
+            do {
+                guard let data = text.data(using: .utf8) else { return }
+                try await node.sendMessage(to: target, payload: data)
+                log.info("Message sent to \(target.prefix(8))...")
+            } catch {
+                log.error("Send failed: \(error.localizedDescription)")
+                errorMessage = error.localizedDescription
+            }
+        }
+    }
+
+    func createGroup(name: String, members: [NodeId]) {
+        guard state == .running else { return }
+        Task {
+            do {
+                try await node.createGroup(name: name, members: members, inviteOnly: false)
+                log.info("Group create command sent: \(name)")
+            } catch {
+                log.error("Group create failed: \(error.localizedDescription)")
+                errorMessage = error.localizedDescription
+            }
+        }
+    }
+
+    func sendGroupMessage(groupId: GroupId, text: String) {
+        guard state == .running else { return }
+        Task {
+            do {
+                try await node.sendGroupMessage(groupId: groupId, text: text)
+                log.info("Group message sent to \(groupId.prefix(8))...")
+            } catch {
+                log.error("Group send failed: \(error.localizedDescription)")
+                errorMessage = error.localizedDescription
+            }
+        }
+    }
+
+    // MARK: - Private
+
+    private var identityPath: String? {
+        let dir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
+        return dir?.appendingPathComponent("tom_identity.key").path
+    }
+
+    private var dataDir: String? {
+        let dir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
+        return dir?.appendingPathComponent("tom_data").path
+    }
+
+    private func startPolling() {
+        pollTask = Task { [weak self] in
+            while !Task.isCancelled {
+                guard let self = self else { break }
+
+                // Poll messages
+                let newMessages = await self.node.receiveMessages()
+                if !newMessages.isEmpty {
+                    self.messages.append(contentsOf: newMessages)
+                    // Keep last 500 messages
+                    if self.messages.count > 500 {
+                        self.messages = Array(self.messages.suffix(500))
+                    }
+                }
+
+                // Poll status
+                if let status = await self.node.status() {
+                    self.nodeId = status.nodeId
+                    self.peersCount = status.peersCount
+                    self.groupsCount = status.groupsCount
+                }
+
+                try? await Task.sleep(nanoseconds: 500_000_000) // 500ms
+            }
+        }
+    }
+}
