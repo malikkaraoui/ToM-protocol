@@ -54,6 +54,7 @@ pub(crate) struct HandlerState {
     pub incoming_raw_tx: mpsc::Sender<(NodeId, Vec<u8>)>,
     pub path_event_tx: broadcast::Sender<PathEvent>,
     pub max_message_size: usize,
+    pub pool: Arc<crate::connection::ConnectionPool>,
 }
 
 /// Protocol handler that accepts incoming ToM connections.
@@ -72,6 +73,12 @@ impl tom_connect::protocol::ProtocolHandler for TomProtocolHandler {
     async fn accept(&self, connection: Connection) -> Result<(), AcceptError> {
         let remote = NodeId::from_endpoint_id(connection.remote_id());
         let state = self.state.clone();
+
+        // Store incoming connection in pool for bidirectional communication.
+        // This allows the receiver to reply without explicit address discovery.
+        tracing::debug!("Storing incoming connection from {}", remote);
+        self.state.pool.store_incoming(remote, connection.clone()).await;
+        tracing::debug!("Stored incoming connection from {}", remote);
 
         // Spawn path watcher for this connection
         spawn_path_watcher(&connection, remote, state.path_event_tx.clone());

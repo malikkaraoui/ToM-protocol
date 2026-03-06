@@ -59,10 +59,14 @@ impl ConnectionPool {
         if let Some(conn) = conns.get(&target) {
             // connection.close_reason() returns Some if closed
             if conn.close_reason().is_none() {
+                tracing::debug!("Reusing existing connection for {}", target);
                 return Ok(conn.clone());
             }
             // Connection is dead, remove it
+            tracing::debug!("Connection for {} is dead, removing", target);
             conns.remove(&target);
+        } else {
+            tracing::debug!("No cached connection for {}, will create new", target);
         }
 
         // Create new connection candidates — use stored address first, or
@@ -118,6 +122,27 @@ impl ConnectionPool {
     /// Remove a connection from the cache (e.g., after send failure).
     pub async fn remove(&self, target: &NodeId) {
         self.connections.lock().await.remove(target);
+    }
+
+    /// Store an incoming connection in the pool.
+    ///
+    /// This enables bidirectional communication: when we receive a connection
+    /// from a peer, we can reply without needing explicit address discovery.
+    pub async fn store_incoming(&self, peer: NodeId, conn: Connection) {
+        let mut conns = self.connections.lock().await;
+        // Only store if we don't already have a connection or if the existing one is dead
+        if let Some(existing) = conns.get(&peer) {
+            if existing.close_reason().is_none() {
+                // Already have a live connection, keep it
+                tracing::debug!("Already have live connection for {}, keeping it", peer);
+                return;
+            } else {
+                tracing::debug!("Existing connection for {} is dead, replacing", peer);
+            }
+        } else {
+            tracing::debug!("New incoming connection for {}, storing", peer);
+        }
+        conns.insert(peer, conn);
     }
 
     /// List all cached (connected) peers.
