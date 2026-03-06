@@ -904,6 +904,12 @@ impl<T: ConnectionState> Connection<T> {
         self.inner.stats()
     }
 
+    /// Returns the peer's UDP address.
+    #[inline]
+    pub fn remote_address(&self) -> SocketAddr {
+        self.inner.remote_address()
+    }
+
     /// Current state of the congestion control algorithm, for debugging purposes.
     #[inline]
     pub fn congestion_state(&self, path_id: PathId) -> Option<Box<dyn Controller>> {

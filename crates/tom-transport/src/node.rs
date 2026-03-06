@@ -399,7 +399,7 @@ impl TomNode {
 
         let conn = self.pool.get_or_connect(to).await?;
 
-        let (mut send, mut recv) = match conn.open_bi().await {
+        let (mut send, recv) = match conn.open_bi().await {
             Ok(pair) => pair,
             Err(e) => {
                 // Connection is dead (e.g. NAT rebinding) — evict from pool
@@ -421,8 +421,12 @@ impl TomNode {
             });
         }
 
-        // Wait for the receiver to acknowledge (they close their send stream)
-        let _ = recv.read_to_end(0).await;
+        // QUIC guarantees transport-level delivery (retransmissions, flow control).
+        // Protocol-level ACK envelopes handle application-level confirmation.
+        // Do NOT wait for recv.read_to_end(0) — it deadlocks when the remote
+        // opens a bi-stream on a stored incoming connection (the initiator has
+        // no accept_bi() loop for its outgoing connections).
+        drop(recv);
 
         Ok(())
     }

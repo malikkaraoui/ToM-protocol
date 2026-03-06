@@ -1,0 +1,45 @@
+#!/bin/bash
+set -euo pipefail
+
+# Get the directory where this script is located
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+APP_DIR="$(dirname "$(dirname "$SCRIPT_DIR")")"
+
+# Relay binary location
+RELAY_BIN="$SCRIPT_DIR/tom-relay"
+
+# Log files
+LOG_DIR="$HOME/Library/Logs/TomRelay"
+mkdir -p "$LOG_DIR"
+STDOUT_LOG="$LOG_DIR/tom-relay.log"
+STDERR_LOG="$LOG_DIR/tom-relay-error.log"
+
+# PID file
+PID_FILE="$HOME/Library/Application Support/TomRelay/relay.pid"
+mkdir -p "$(dirname "$PID_FILE")"
+
+# Check if already running
+if [ -f "$PID_FILE" ]; then
+    OLD_PID=$(cat "$PID_FILE")
+    if ps -p "$OLD_PID" > /dev/null 2>&1; then
+        echo "ToM Relay is already running (PID: $OLD_PID)"
+        exit 0
+    fi
+fi
+
+# Launch the relay
+echo "Starting ToM Relay..."
+echo "Logs: $LOG_DIR"
+
+"$RELAY_BIN" --dev \
+    >> "$STDOUT_LOG" 2>> "$STDERR_LOG" &
+
+RELAY_PID=$!
+echo "$RELAY_PID" > "$PID_FILE"
+
+echo "ToM Relay started (PID: $RELAY_PID)"
+echo "Health check: http://127.0.0.1:3340/health"
+echo "Metrics: http://127.0.0.1:9090/metrics"
+
+# Keep the app running (optional - comment out if you want it to exit after launch)
+wait "$RELAY_PID"

@@ -1,0 +1,19 @@
+#!/bin/bash
+set -euo pipefail
+
+# Get the directory where this script is located
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Node binary location
+NODE_BIN="$SCRIPT_DIR/tom-chat"
+
+# Get username (hostname without .local)
+DEFAULT_USER=$(hostname | sed 's/\.local$//' | tr '[:upper:]' '[:lower:]' | tr ' ' '-')
+
+# Open Terminal and run tom-chat
+osascript <<EOF
+tell application "Terminal"
+    activate
+    do script "cd '$SCRIPT_DIR' && ./tom-chat --username '$DEFAULT_USER'; exit"
+end tell
+EOF

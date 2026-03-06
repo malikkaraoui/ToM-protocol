@@ -11,3 +11,10 @@ target/
 
 # Secrets
 .env
+apps/relay-tvos/TomRelay/TomRelay/
+
+# Build artifacts (binaries)
+apps/relay-tvos/build/*.a
+apps/relay-tvos/build/tom-relay-*
+deploy/macos/*/Contents/MacOS/tom-*
+deploy/macos/usb-mac-air-relay/bin/

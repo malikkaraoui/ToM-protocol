@@ -124,27 +124,6 @@ impl ConnectionPool {
         self.connections.lock().await.remove(target);
     }
 
-    /// Store an incoming connection in the pool.
-    ///
-    /// This enables bidirectional communication: when we receive a connection
-    /// from a peer, we can reply without needing explicit address discovery.
-    pub async fn store_incoming(&self, peer: NodeId, conn: Connection) {
-        let mut conns = self.connections.lock().await;
-        // Only store if we don't already have a connection or if the existing one is dead
-        if let Some(existing) = conns.get(&peer) {
-            if existing.close_reason().is_none() {
-                // Already have a live connection, keep it
-                tracing::debug!("Already have live connection for {}, keeping it", peer);
-                return;
-            } else {
-                tracing::debug!("Existing connection for {} is dead, replacing", peer);
-            }
-        } else {
-            tracing::debug!("New incoming connection for {}, storing", peer);
-        }
-        conns.insert(peer, conn);
-    }
-
     /// List all cached (connected) peers.
     pub async fn connected_peers(&self) -> Vec<NodeId> {
         let conns = self.connections.lock().await;
