@@ -1,0 +1,15 @@
+{
+  "editor.formatOnSave": true,
+  "editor.tabSize": 4,
+  "files.exclude": {
+    "**/.git": true,
+    "**/.build": true,
+    "**/DerivedData": true,
+    "**/*.xcuserstate": true
+  },
+  "search.exclude": {
+    "**/.build": true,
+    "**/DerivedData": true,
+    "**/build/*.a": true
+  }
+}

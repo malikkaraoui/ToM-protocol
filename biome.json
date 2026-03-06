@@ -34,7 +34,10 @@
       "_bmad",
       "target",
       "experiments/**/target",
-      "apps/relay-tvos/**/Assets.xcassets/**"
+      "apps/relay-tvos/**/Assets.xcassets/**",
+      "apps/tom-node-tvos/**/Assets.xcassets/**",
+      "apps/tom-node-tvos/.build/**",
+      "patches/**"
     ]
   }
 }

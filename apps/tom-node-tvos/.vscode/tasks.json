@@ -1,0 +1,65 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Build tvOS Simulator",
+      "type": "shell",
+      "command": "make tvsim",
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Run tvOS Simulator",
+      "type": "shell",
+      "command": "make tvrun",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Run Tests",
+      "type": "shell",
+      "command": "make tvtest",
+      "group": "test",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Build Rust FFI (Simulator)",
+      "type": "shell",
+      "command": "make ffi",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Doctor",
+      "type": "shell",
+      "command": "make doctor"
+    },
+    {
+      "label": "Clean",
+      "type": "shell",
+      "command": "make clean"
+    },
+    {
+      "label": "List Devices",
+      "type": "shell",
+      "command": "make devices"
+    }
+  ]
+}
