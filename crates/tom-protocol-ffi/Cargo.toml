@@ -20,6 +20,12 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 [dev-dependencies]
 tokio-test = "0.4"
 
-# Target-specific settings for tvOS
-[target.'cfg(target_os = "tvos")'.dependencies]
-# None needed (all deps are cross-platform)
+# netdev 0.40.1 bug: code gated by cfg(target_vendor="apple", !macos)
+# but block2/dispatch2/objc2 deps only listed for target_os="ios"
+# Local patch adds tvOS to all Apple-mobile cfg gates
+# netdev/netwatch tvOS bug: cfg gates use target_os="ios" but tvOS is "tvos"
+# Local patches add tvOS to all Apple-mobile cfg gates
+[patch.crates-io]
+netdev = { path = "../../patches/netdev-0.40.1" }
+netwatch = { path = "../../patches/netwatch-0.14.0" }
+portmapper = { path = "../../patches/portmapper-0.13.0" }

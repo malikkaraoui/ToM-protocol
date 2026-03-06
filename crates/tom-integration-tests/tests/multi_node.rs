@@ -11,7 +11,7 @@
 
 use std::time::Duration;
 use tokio::time::timeout;
-use tom_protocol::{ProtocolRuntime, RuntimeConfig};
+use tom_protocol::{AntiSpamConfig, ProtocolRuntime, RuntimeConfig};
 use tom_transport::{TomNode, TomNodeConfig};
 
 /// Résultat du setup: ID, handle, receiver de messages, et l'adresse réseau.
@@ -24,18 +24,29 @@ struct TestNode {
 /// Setup: lance 2 nodes en mode local pur (pas de DHT/Pkarr/DNS).
 /// Échange les adresses pour permettre la connexion directe.
 async fn setup_two_nodes() -> anyhow::Result<(TestNode, TestNode)> {
+    // Permissive anti-spam for tests (default min_rate=2 msg/sec, burst=4 is too restrictive)
+    let antispam = AntiSpamConfig { min_rate: 1000.0, ..AntiSpamConfig::default() };
+
     // Node A — local only, no external discovery
     let node_a = TomNode::bind(TomNodeConfig::new().n0_discovery(false)).await?;
     let id_a = node_a.id();
     let addr_a = node_a.addr();
-    let config_a = RuntimeConfig::default();
+    let config_a = RuntimeConfig {
+        enable_dht: false,
+        antispam_config: antispam.clone(),
+        ..RuntimeConfig::default()
+    };
     let channels_a = ProtocolRuntime::spawn(node_a, config_a);
 
     // Node B — local only, no external discovery
     let node_b = TomNode::bind(TomNodeConfig::new().n0_discovery(false)).await?;
     let id_b = node_b.id();
     let addr_b = node_b.addr();
-    let config_b = RuntimeConfig::default();
+    let config_b = RuntimeConfig {
+        enable_dht: false,
+        antispam_config: antispam.clone(),
+        ..RuntimeConfig::default()
+    };
     let channels_b = ProtocolRuntime::spawn(node_b, config_b);
 
     eprintln!("Node A: {} (addrs: {})", id_a, addr_a.addrs.len());
@@ -103,7 +114,11 @@ async fn alice_sends_bob_replies() -> anyhow::Result<()> {
 #[tokio::test]
 async fn ping_pong_10_exchanges() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
-        .with_env_filter("tom_protocol=info,tom_transport=info")
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::from_default_env()
+                .add_directive("tom_transport=trace".parse().unwrap())
+                .add_directive("tom_protocol=info".parse().unwrap()),
+        )
         .try_init()
         .ok();
 
@@ -146,7 +161,7 @@ async fn ping_pong_10_exchanges() -> anyhow::Result<()> {
 #[tokio::test]
 async fn burst_20_messages() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
-        .with_env_filter("tom_protocol=info")
+        .with_env_filter("tom_protocol::runtime=trace,tom_transport=debug")
         .try_init()
         .ok();
 
@@ -295,6 +310,66 @@ async fn stability_2min() -> anyhow::Result<()> {
 //
 // Le bug #1 : les nodes ne se découvrent pas automatiquement.
 // ═══════════════════════════════════════════════════════════════════════
+
+/// Raw transport test — bypass ProtocolRuntime, test QUIC directly.
+/// If this passes but ping_pong fails, the issue is in the runtime.
+#[tokio::test]
+async fn raw_transport_10_messages() -> anyhow::Result<()> {
+    tracing_subscriber::fmt()
+        .with_env_filter("tom_transport=debug")
+        .try_init()
+        .ok();
+
+    let mut node_a = TomNode::bind(TomNodeConfig::new().n0_discovery(false)).await?;
+    let mut node_b = TomNode::bind(TomNodeConfig::new().n0_discovery(false)).await?;
+
+    let addr_a = node_a.addr();
+    let addr_b = node_b.addr();
+
+    // Échange d'adresses
+    node_a.add_peer_addr(addr_b).await;
+    node_b.add_peer_addr(addr_a).await;
+
+    let id_b = node_b.id();
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
+    // Spawn receiver
+    let recv_handle = tokio::spawn(async move {
+        let mut received = 0;
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+        while received < 10 {
+            let remaining = deadline - tokio::time::Instant::now();
+            match timeout(remaining, node_b.recv_raw()).await {
+                Ok(Ok((_from, data))) => {
+                    received += 1;
+                    eprintln!("B received msg {} ({} bytes)", received, data.len());
+                }
+                Ok(Err(e)) => {
+                    eprintln!("B recv error: {}", e);
+                    break;
+                }
+                Err(_) => {
+                    eprintln!("B recv timeout after {} messages", received);
+                    break;
+                }
+            }
+        }
+        received
+    });
+
+    // Send 10 messages
+    for i in 0..10 {
+        let payload = format!("raw-msg-{}", i).into_bytes();
+        node_a.send_raw(id_b, &payload).await?;
+        eprintln!("A sent msg {}", i);
+    }
+
+    let received = recv_handle.await?;
+    assert_eq!(received, 10, "Should receive all 10 raw messages, got {}", received);
+    eprintln!("All 10 raw messages received");
+
+    Ok(())
+}
 
 #[tokio::test]
 #[ignore] // Fix gossip discovery first

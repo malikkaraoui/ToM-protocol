@@ -268,7 +268,6 @@ impl TomNode {
             incoming_raw_tx,
             path_event_tx: path_event_tx.clone(),
             max_message_size: config.max_message_size,
-            pool: Arc::clone(&pool),
         });
 
         let handler = TomProtocolHandler {
@@ -399,6 +398,7 @@ impl TomNode {
 
         let conn = self.pool.get_or_connect(to).await?;
 
+        tracing::trace!("send_raw: opening bi-stream to {}", to);
         let (mut send, recv) = match conn.open_bi().await {
             Ok(pair) => pair,
             Err(e) => {
@@ -412,6 +412,7 @@ impl TomNode {
             }
         };
 
+        tracing::trace!("send_raw: bi-stream opened to {}, writing {} bytes", to, data.len());
         if let Err(e) = protocol::write_framed(&mut send, data).await {
             // Connection may be dead, remove from pool
             self.pool.remove(&to).await;

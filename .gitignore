@@ -16,5 +16,23 @@ apps/relay-tvos/TomRelay/TomRelay/
 # Build artifacts (binaries)
 apps/relay-tvos/build/*.a
 apps/relay-tvos/build/tom-relay-*
+apps/tom-node-tvos/build/*.a
+apps/tom-node-tvos/build/.build/
 deploy/macos/*/Contents/MacOS/tom-*
 deploy/macos/usb-mac-air-relay/bin/
+
+# Xcode
+*.xcuserstate
+xcuserdata/
+DerivedData/
+.build/xcode/
+.build/logs/
+.build/archive/
+
+# Cargo lock for excluded crates (each has own target dir)
+crates/tom-protocol-ffi/target/
+crates/tom-relay-ffi/target/
+
+# Patch crate metadata (not needed in VCS)
+patches/*/.cargo-ok
+patches/*/.cargo_vcs_info.json

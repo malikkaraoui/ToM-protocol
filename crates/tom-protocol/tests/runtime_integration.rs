@@ -711,10 +711,10 @@ fn antispam_throttles_rapid_sender() {
     .sign(&spam_secret);
     let raw = env.to_bytes().unwrap();
 
-    // Rapid burst — score=0, min_rate=2, capacity=4
-    // First 4 should pass (token bucket starts full), rest should be throttled
+    // Rapid burst — score=0, min_rate=10, capacity=20
+    // First 20 should pass (token bucket starts full), rest should be throttled
     let mut throttled = 0;
-    for _ in 0..10 {
+    for _ in 0..30 {
         let effects = bob.handle_incoming(&raw);
         if effects.iter().any(|e| {
             matches!(
@@ -728,6 +728,6 @@ fn antispam_throttles_rapid_sender() {
 
     assert!(
         throttled >= 5,
-        "Spammer should be throttled after burst capacity, got {throttled}/10"
+        "Spammer should be throttled after burst capacity, got {throttled}/30"
     );
 }

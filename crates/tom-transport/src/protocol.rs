@@ -54,7 +54,6 @@ pub(crate) struct HandlerState {
     pub incoming_raw_tx: mpsc::Sender<(NodeId, Vec<u8>)>,
     pub path_event_tx: broadcast::Sender<PathEvent>,
     pub max_message_size: usize,
-    pub pool: Arc<crate::connection::ConnectionPool>,
 }
 
 /// Protocol handler that accepts incoming ToM connections.
@@ -74,17 +73,14 @@ impl tom_connect::protocol::ProtocolHandler for TomProtocolHandler {
         let remote = NodeId::from_endpoint_id(connection.remote_id());
         let state = self.state.clone();
 
-        // Learn the remote peer's address from the incoming connection.
-        // This enables bidirectional communication: when we later need to send
-        // to this peer, we can establish our OWN outgoing connection (which
-        // properly triggers the remote's accept_bi() loop).
-        let remote_addr = connection.remote_address();
-        let endpoint_addr = tom_connect::EndpointAddr::from_parts(
-            connection.remote_id(),
-            vec![tom_connect::TransportAddr::Ip(remote_addr)],
-        );
-        self.state.pool.add_addr(remote, endpoint_addr).await;
-        tracing::debug!("Learned address for {} from incoming connection: {}", remote, remote_addr);
+        // Notify pool of the remote peer's endpoint ID. We do NOT store the
+        // connection's remote_address() because in MagicSock it is an internal
+        // address (not directly connectable). The real address should be
+        // exchanged out-of-band (add_peer_addr / DHT / Pkarr).
+        // The endpoint layer already knows about the peer from the incoming
+        // QUIC handshake, so outgoing connections via get_or_connect will work
+        // when the peer's address has been provided through add_peer_addr.
+        tracing::debug!("Accepted connection from {}", remote);
 
         // Spawn path watcher for this connection
         spawn_path_watcher(&connection, remote, state.path_event_tx.clone());
