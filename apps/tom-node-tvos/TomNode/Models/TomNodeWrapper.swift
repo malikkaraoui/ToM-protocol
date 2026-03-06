@@ -93,8 +93,10 @@ actor TomNodeWrapper {
         log.info("Node stopped")
     }
 
-    func free() {
+    /// Drop the handle without graceful shutdown (safe after OS suspend)
+    func forceReset() {
         guard let h = handle else { return }
+        log.warning("Force-resetting node handle (post-sleep cleanup)")
         tom_node_free(h)
         handle = nil
     }
