@@ -1,30 +1,51 @@
 import SwiftUI
 
+struct SettingsRow: View {
+    let label: String
+    let value: String
+    var monospaced: Bool = false
+    var valueColor: Color = .primary
+
+    var body: some View {
+        Button(action: {}) {
+            HStack {
+                Text(label)
+                    .foregroundColor(.secondary)
+                Spacer()
+                Text(value)
+                    .foregroundColor(valueColor)
+                    .font(monospaced ? .system(.body, design: .monospaced) : .body)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+            .padding(.vertical, 4)
+        }
+    }
+}
+
 struct SettingsView: View {
     @EnvironmentObject var nodeService: TomNodeService
 
     var body: some View {
-        NavigationStack {
-            Form {
+        VStack(alignment: .leading, spacing: 0) {
+            Text("Settings")
+                .font(.title2)
+                .fontWeight(.bold)
+                .padding(.horizontal, 48)
+                .padding(.top, 20)
+                .padding(.bottom, 10)
+
+            List {
                 Section("Node Identity") {
                     if !nodeService.nodeId.isEmpty {
-                        LabeledContent("Node ID") {
-                            Text(nodeService.nodeId)
-                                .font(.system(.caption2, design: .monospaced))
-                                .lineLimit(1)
-                                .truncationMode(.middle)
-                        }
+                        SettingsRow(label: "Node ID", value: nodeService.nodeId, monospaced: true)
                     } else {
-                        Text("Node not started")
-                            .foregroundColor(.secondary)
+                        SettingsRow(label: "Node ID", value: "Not started", valueColor: .secondary)
                     }
                 }
 
                 Section("Network") {
-                    LabeledContent("Relay URL") {
-                        Text(nodeService.relayUrl)
-                            .font(.system(.body, design: .monospaced))
-                    }
+                    SettingsRow(label: "Relay URL", value: nodeService.relayUrl, monospaced: true)
 
                     Toggle("N0 Discovery", isOn: Binding(
                         get: { nodeService.n0Discovery },
@@ -46,28 +67,16 @@ struct SettingsView: View {
                 }
 
                 Section("Profile") {
-                    LabeledContent("Username") {
-                        Text(nodeService.username)
-                    }
+                    SettingsRow(label: "Username", value: nodeService.username)
                 }
 
                 Section("Info") {
-                    LabeledContent("Status") {
-                        Text(nodeService.state.rawValue)
-                            .foregroundColor(stateColor)
-                    }
-                    LabeledContent("Peers") {
-                        Text("\(nodeService.peersCount)")
-                    }
-                    LabeledContent("Groups") {
-                        Text("\(nodeService.groupsCount)")
-                    }
-                    LabeledContent("Messages") {
-                        Text("\(nodeService.messages.count)")
-                    }
+                    SettingsRow(label: "Status", value: nodeService.state.rawValue, valueColor: stateColor)
+                    SettingsRow(label: "Peers", value: "\(nodeService.peersCount)")
+                    SettingsRow(label: "Groups", value: "\(nodeService.groupsCount)")
+                    SettingsRow(label: "Messages", value: "\(nodeService.messages.count)")
                 }
             }
-            .navigationTitle("Settings")
         }
     }
 
