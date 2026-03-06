@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.tom.relay.air</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/REPLACE_USER/tom-protocol/target/release/tom-relay</string>
+        <string>--http-addr</string>
+        <string>0.0.0.0:3341</string>
+        <string>--metrics-addr</string>
+        <string>0.0.0.0:9091</string>
+    </array>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>KeepAlive</key>
+    <true/>
+
+    <key>StandardOutPath</key>
+    <string>/tmp/tom-relay-air.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/tmp/tom-relay-air-error.log</string>
+</dict>
+</plist>

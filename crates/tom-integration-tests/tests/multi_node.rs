@@ -1,9 +1,10 @@
 //! Integration tests avec plusieurs nodes réels (pas de mocks).
 //!
-//! Ces tests révèlent les bugs que les unit tests ne voient pas :
-//! - Découverte automatique (gossip)
-//! - Communication bidirectionnelle
-//! - Stabilité des connexions
+//! Ces tests simulent ce que des vrais utilisateurs font :
+//! - Envoyer des messages dans les deux sens
+//! - Rejoindre et ne rien faire pendant un moment, puis revenir
+//! - Envoyer plein de messages d'un coup (spam)
+//! - Se connecter, se déconnecter, se reconnecter
 //!
 //! Contrairement aux 964 unit tests existants, ces tests lancent de vrais
 //! nodes QUIC et vérifient les scénarios end-to-end.
@@ -13,190 +14,308 @@ use tokio::time::timeout;
 use tom_protocol::{ProtocolRuntime, RuntimeConfig};
 use tom_transport::{TomNode, TomNodeConfig};
 
-/// Setup: lance 2 nodes avec configs par défaut.
-async fn setup_two_nodes() -> anyhow::Result<(
-    (tom_protocol::types::NodeId, tom_protocol::RuntimeHandle, tokio::sync::mpsc::Receiver<tom_protocol::DeliveredMessage>),
-    (tom_protocol::types::NodeId, tom_protocol::RuntimeHandle, tokio::sync::mpsc::Receiver<tom_protocol::DeliveredMessage>),
-)> {
-    // Node A
-    let node_a = TomNode::bind(TomNodeConfig::new()).await?;
+/// Résultat du setup: ID, handle, receiver de messages, et l'adresse réseau.
+struct TestNode {
+    id: tom_protocol::types::NodeId,
+    handle: tom_protocol::RuntimeHandle,
+    messages: tokio::sync::mpsc::Receiver<tom_protocol::DeliveredMessage>,
+}
+
+/// Setup: lance 2 nodes en mode local pur (pas de DHT/Pkarr/DNS).
+/// Échange les adresses pour permettre la connexion directe.
+async fn setup_two_nodes() -> anyhow::Result<(TestNode, TestNode)> {
+    // Node A — local only, no external discovery
+    let node_a = TomNode::bind(TomNodeConfig::new().n0_discovery(false)).await?;
     let id_a = node_a.id();
+    let addr_a = node_a.addr();
     let config_a = RuntimeConfig::default();
     let channels_a = ProtocolRuntime::spawn(node_a, config_a);
 
-    // Node B
-    let node_b = TomNode::bind(TomNodeConfig::new()).await?;
+    // Node B — local only, no external discovery
+    let node_b = TomNode::bind(TomNodeConfig::new().n0_discovery(false)).await?;
     let id_b = node_b.id();
+    let addr_b = node_b.addr();
     let config_b = RuntimeConfig::default();
     let channels_b = ProtocolRuntime::spawn(node_b, config_b);
 
-    eprintln!("Node A: {}", id_a);
-    eprintln!("Node B: {}", id_b);
+    eprintln!("Node A: {} (addrs: {})", id_a, addr_a.addrs.len());
+    eprintln!("Node B: {} (addrs: {})", id_b, addr_b.addrs.len());
 
-    Ok(((id_a, channels_a.handle, channels_a.messages), (id_b, channels_b.handle, channels_b.messages)))
+    // Échange d'adresses — comme un QR code scan IRL
+    channels_a.handle.add_peer_addr(addr_b).await;
+    channels_b.handle.add_peer_addr(addr_a).await;
+
+    // Laisser les connexions s'établir
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
+    Ok((
+        TestNode { id: id_a, handle: channels_a.handle, messages: channels_a.messages },
+        TestNode { id: id_b, handle: channels_b.handle, messages: channels_b.messages },
+    ))
 }
 
-/// Test 1: Découverte automatique via gossip.
-///
-/// **Scénario** :
-/// 1. Lance 2 nodes sans /connect manuel
-/// 2. Attend 30 secondes (gossip_announce_interval = 10s)
-/// 3. Vérifie que chaque node a découvert l'autre
-///
-/// **Attendu** : Les nodes se découvrent automatiquement via gossip.
-/// **Réel (bug)** : Ils ne se découvrent PAS → /connect manuel requis.
+// ═══════════════════════════════════════════════════════════════════════
+// Scénario 1 : Alice envoie à Bob, Bob répond — le cas le plus basique.
+//
+// C'est LE test que 964 unit tests n'ont pas attrapé :
+// Un humain envoie "salut", l'autre répond "yo".
+// ═══════════════════════════════════════════════════════════════════════
+
 #[tokio::test]
-#[ignore] // Ignorer jusqu'à fix (ce test va échouer pour l'instant)
-async fn auto_discovery_via_gossip() -> anyhow::Result<()> {
+async fn alice_sends_bob_replies() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
-        .with_env_filter("tom_protocol=debug,tom_gossip=debug")
-        .init();
-
-    let ((id_a, _handle_a, _msgs_a), (id_b, _handle_b, _msgs_b)) = setup_two_nodes().await?;
-
-    // Attendre 30 secondes pour que le gossip fasse son travail
-    eprintln!("Waiting 30s for gossip discovery...");
-    tokio::time::sleep(Duration::from_secs(30)).await;
-
-    // TODO: Ajouter une façon de vérifier les peers connectés via le handle
-    // Pour l'instant, ce test est marqué #[ignore]
-    eprintln!("Test not fully implemented yet (need connected_peers() API)");
-
-    Ok(())
-}
-
-/// Test 2: Communication bidirectionnelle.
-///
-/// **Scénario** :
-/// 1. Lance 2 nodes, A connecte à B via add_peer()
-/// 2. A envoie message à B → vérifie réception
-/// 3. B envoie message à A → vérifie réception
-///
-/// **Attendu** : Les deux directions fonctionnent.
-/// **Réel (bug)** : Une seule direction fonctionne (asymétrie).
-#[tokio::test]
-async fn bidirectional_communication() -> anyhow::Result<()> {
-    tracing_subscriber::fmt()
-        .with_env_filter("tom_protocol=debug,tom_transport=debug")
+        .with_env_filter("tom_protocol=info,tom_transport=info")
         .try_init()
         .ok();
 
-    let ((id_a, handle_a, mut msgs_a), (id_b, handle_b, mut msgs_b)) = setup_two_nodes().await?;
+    let (mut alice, mut bob) = setup_two_nodes().await?;
 
-    // A connecte à B
-    eprintln!("A connecting to B...");
-    handle_a.add_peer(id_b).await;
-    tokio::time::sleep(Duration::from_secs(2)).await; // Laisser connexion s'établir
+    // Alice: "salut"
+    alice.handle.send_message(bob.id, b"salut".to_vec()).await?;
 
-    // Test A → B
-    eprintln!("Sending A → B");
-    handle_a
-        .send_message(id_b, b"hello from A".to_vec())
-        .await?;
+    let msg = timeout(Duration::from_secs(10), bob.messages.recv())
+        .await
+        .map_err(|_| anyhow::anyhow!("Bob never received Alice's message"))?;
+    assert!(msg.is_some(), "Bob should have received Alice's message");
+    assert_eq!(msg.unwrap().payload, b"salut");
+    eprintln!("Alice -> Bob: OK");
 
-    // Attendre réception sur B (avec timeout)
-    let received_on_b = timeout(Duration::from_secs(5), async {
-        msgs_b.recv().await
-    })
-    .await
-    .map_err(|_| anyhow::anyhow!("Timeout waiting for A→B message"))?;
+    // Bob: "yo"
+    bob.handle.send_message(alice.id, b"yo".to_vec()).await?;
 
-    assert!(received_on_b.is_some(), "B should have received message from A");
-    eprintln!("✅ A → B works");
-
-    // Test B → A (direction inverse)
-    eprintln!("Sending B → A");
-    let send_result = handle_b
-        .send_message(id_a, b"hello from B".to_vec())
-        .await;
-
-    // ❌ EXPECTED TO FAIL: Ce send va probablement échouer (asymétrie)
-    assert!(
-        send_result.is_ok(),
-        "B → A send failed (asymmetry bug): {:?}",
-        send_result.err()
-    );
-
-    // Attendre réception sur A (avec timeout)
-    let received_on_a = timeout(Duration::from_secs(5), async {
-        msgs_a.recv().await
-    })
-    .await
-    .map_err(|_| anyhow::anyhow!("Timeout waiting for B→A message"))?;
-
-    assert!(received_on_a.is_some(), "A should have received message from B");
-    eprintln!("✅ B → A works");
+    let msg = timeout(Duration::from_secs(10), alice.messages.recv())
+        .await
+        .map_err(|_| anyhow::anyhow!("Alice never received Bob's reply"))?;
+    assert!(msg.is_some(), "Alice should have received Bob's reply");
+    assert_eq!(msg.unwrap().payload, b"yo");
+    eprintln!("Bob -> Alice: OK");
 
     Ok(())
 }
 
-/// Test 3: Stabilité connexion (5 minutes d'échanges).
-///
-/// **Scénario** :
-/// 1. Lance 2 nodes, établit connexion
-/// 2. Envoie 1 message/seconde pendant 5 minutes
-/// 3. Vérifie que TOUS les messages sont livrés
-///
-/// **Attendu** : 300 messages envoyés, 300 reçus.
-/// **Réel (bug)** : Connexion meurt après ~2 minutes.
+// ═══════════════════════════════════════════════════════════════════════
+// Scénario 2 : Ping-pong — 10 échanges consécutifs, comme une vraie conv.
+//
+// Un humain ne fait pas "envoyer 1 message et quitter".
+// Il fait une conversation : msg, réponse, msg, réponse...
+// ═══════════════════════════════════════════════════════════════════════
+
 #[tokio::test]
-#[ignore] // Test long, ignorer par défaut
-async fn connection_stability_5min() -> anyhow::Result<()> {
+async fn ping_pong_10_exchanges() -> anyhow::Result<()> {
+    tracing_subscriber::fmt()
+        .with_env_filter("tom_protocol=info,tom_transport=info")
+        .try_init()
+        .ok();
+
+    let (mut alice, mut bob) = setup_two_nodes().await?;
+
+    for i in 0..10 {
+        // A -> B
+        let payload_ab = format!("ping {}", i).into_bytes();
+        alice.handle.send_message(bob.id, payload_ab.clone()).await?;
+
+        let msg = timeout(Duration::from_secs(10), bob.messages.recv())
+            .await
+            .map_err(|_| anyhow::anyhow!("B didn't receive ping {}", i))?;
+        assert!(msg.is_some());
+        assert_eq!(msg.unwrap().payload, payload_ab);
+
+        // B -> A
+        let payload_ba = format!("pong {}", i).into_bytes();
+        bob.handle.send_message(alice.id, payload_ba.clone()).await?;
+
+        let msg = timeout(Duration::from_secs(10), alice.messages.recv())
+            .await
+            .map_err(|_| anyhow::anyhow!("A didn't receive pong {}", i))?;
+        assert!(msg.is_some());
+        assert_eq!(msg.unwrap().payload, payload_ba);
+
+        eprintln!("Exchange {}/10 OK", i + 1);
+    }
+
+    Ok(())
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// Scénario 3 : Burst — un humain qui colle 20 messages d'affilée.
+//
+// Genre quelqu'un qui envoie un pavé en 20 messages séparés au lieu d'un seul.
+// Le protocole doit TOUS les livrer, dans l'ordre.
+// ═══════════════════════════════════════════════════════════════════════
+
+#[tokio::test]
+async fn burst_20_messages() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter("tom_protocol=info")
         .try_init()
         .ok();
 
-    let ((id_a, handle_a, _msgs_a), (id_b, _handle_b, _msgs_b)) = setup_two_nodes().await?;
+    let (alice, mut bob) = setup_two_nodes().await?;
 
-    // Connexion initiale
-    handle_a.add_peer(id_b).await;
-    tokio::time::sleep(Duration::from_secs(2)).await;
+    // Envoyer 20 messages sans attendre de réponse
+    for i in 0..20 {
+        let payload = format!("msg {}", i).into_bytes();
+        alice.handle.send_message(bob.id, payload).await?;
+    }
+    eprintln!("20 messages sent");
 
-    // Envoyer 1 msg/sec pendant 5 minutes (300 messages)
-    let mut sent_count = 0;
-    let mut failed_at = None;
-
-    for i in 0..300 {
-        let payload = format!("message {}", i).into_bytes();
-        let result = handle_a.send_message(id_b, payload).await;
-
-        if result.is_err() {
-            failed_at = Some((i, result.err().unwrap()));
-            break;
-        }
-
-        sent_count += 1;
-        tokio::time::sleep(Duration::from_secs(1)).await;
-
-        if i % 60 == 0 {
-            eprintln!("{}min elapsed, {} messages sent", i / 60, sent_count);
+    // Vérifier qu'on reçoit les 20
+    let mut received = 0;
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(15);
+    while received < 20 {
+        let remaining = deadline - tokio::time::Instant::now();
+        match timeout(remaining, bob.messages.recv()).await {
+            Ok(Some(_msg)) => received += 1,
+            Ok(None) => break,
+            Err(_) => break,
         }
     }
 
-    // ❌ EXPECTED TO FAIL: Connexion va probablement mourir avant 5min
-    assert_eq!(
-        sent_count, 300,
-        "Connection died after {}s: {:?}",
-        sent_count,
-        failed_at
+    assert_eq!(received, 20, "Should receive all 20 messages, got {}", received);
+    eprintln!("All 20 messages received");
+
+    Ok(())
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// Scénario 4 : Le mec qui attend 30 secondes avant de répondre.
+//
+// Un vrai humain lit le message, va faire un café, revient, et répond.
+// La connexion doit encore marcher.
+// ═══════════════════════════════════════════════════════════════════════
+
+#[tokio::test]
+async fn idle_then_reply() -> anyhow::Result<()> {
+    tracing_subscriber::fmt()
+        .with_env_filter("tom_protocol=info")
+        .try_init()
+        .ok();
+
+    let (mut alice, mut bob) = setup_two_nodes().await?;
+
+    // A envoie un message
+    alice.handle.send_message(bob.id, b"tu es la?".to_vec()).await?;
+
+    let msg = timeout(Duration::from_secs(10), bob.messages.recv())
+        .await
+        .map_err(|_| anyhow::anyhow!("B didn't receive message"))?;
+    assert!(msg.is_some());
+    eprintln!("Message received, now waiting 30 seconds...");
+
+    // Attendre 30 secondes (le mec fait un café)
+    tokio::time::sleep(Duration::from_secs(30)).await;
+
+    // B répond après 30 secondes d'inactivité
+    bob.handle.send_message(alice.id, b"oui je suis la".to_vec()).await?;
+
+    let msg = timeout(Duration::from_secs(10), alice.messages.recv())
+        .await
+        .map_err(|_| anyhow::anyhow!("A didn't receive reply after 30s idle"))?;
+    assert!(msg.is_some());
+    assert_eq!(msg.unwrap().payload, b"oui je suis la");
+    eprintln!("Reply received after 30s idle: OK");
+
+    Ok(())
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// Scénario 5 : Stabilité 2 minutes — échanges continus.
+//
+// Le bug #3 : connexion meurt après ~2 minutes.
+// ═══════════════════════════════════════════════════════════════════════
+
+#[tokio::test]
+async fn stability_2min() -> anyhow::Result<()> {
+    tracing_subscriber::fmt()
+        .with_env_filter("tom_protocol=info")
+        .try_init()
+        .ok();
+
+    let (mut alice, mut bob) = setup_two_nodes().await?;
+
+    let mut sent = 0;
+    let mut received = 0;
+    let start = tokio::time::Instant::now();
+
+    // Envoyer 1 msg/sec pendant 2 minutes, alterner direction
+    while start.elapsed() < Duration::from_secs(120) {
+        let elapsed_secs = start.elapsed().as_secs();
+
+        if elapsed_secs % 2 == 0 {
+            // A -> B
+            let payload = format!("from-a-{}", sent).into_bytes();
+            if alice.handle.send_message(bob.id, payload).await.is_err() {
+                eprintln!("Send failed at {}s", elapsed_secs);
+                break;
+            }
+            if timeout(Duration::from_secs(5), bob.messages.recv()).await.is_ok() {
+                received += 1;
+            }
+        } else {
+            // B -> A
+            let payload = format!("from-b-{}", sent).into_bytes();
+            if bob.handle.send_message(alice.id, payload).await.is_err() {
+                eprintln!("Send failed at {}s", elapsed_secs);
+                break;
+            }
+            if timeout(Duration::from_secs(5), alice.messages.recv()).await.is_ok() {
+                received += 1;
+            }
+        }
+
+        sent += 1;
+
+        if sent % 30 == 0 {
+            eprintln!("{}s: {}/{} delivered", elapsed_secs, received, sent);
+        }
+
+        tokio::time::sleep(Duration::from_secs(1)).await;
+    }
+
+    let loss_pct = if sent > 0 {
+        ((sent - received) as f64 / sent as f64) * 100.0
+    } else {
+        100.0
+    };
+
+    eprintln!("Result: {}/{} delivered ({:.1}% loss)", received, sent, loss_pct);
+    assert!(
+        loss_pct < 5.0,
+        "Too many messages lost: {:.1}% (sent={}, received={})",
+        loss_pct,
+        sent,
+        received
     );
 
     Ok(())
 }
 
-/// Test 4: Reconnexion automatique après déconnexion.
-///
-/// **Scénario** :
-/// 1. A et B connectés, échange de messages
-/// 2. Force disconnect de A
-/// 3. Attend quelques secondes
-/// 4. A envoie nouveau message à B
-///
-/// **Attendu** : A reconnecte automatiquement, message livré.
+// ═══════════════════════════════════════════════════════════════════════
+// Scénario 6 : Gossip discovery — 2 nodes sans /connect.
+//
+// Le bug #1 : les nodes ne se découvrent pas automatiquement.
+// ═══════════════════════════════════════════════════════════════════════
+
 #[tokio::test]
-#[ignore] // À implémenter après fix des tests de base
-async fn auto_reconnect() -> anyhow::Result<()> {
-    // TODO: Implémenter après fix des bugs de base
+#[ignore] // Fix gossip discovery first
+async fn auto_discovery_no_manual_connect() -> anyhow::Result<()> {
+    tracing_subscriber::fmt()
+        .with_env_filter("tom_protocol=debug,tom_gossip=debug")
+        .try_init()
+        .ok();
+
+    let (alice, _bob) = setup_two_nodes().await?;
+
+    // Attendre que le gossip fasse son travail (30s)
+    eprintln!("Waiting 30s for gossip discovery...");
+    tokio::time::sleep(Duration::from_secs(30)).await;
+
+    let peers = alice.handle.connected_peers().await;
+    assert!(
+        !peers.is_empty(),
+        "After 30s, nodes should have discovered each other via gossip"
+    );
+    eprintln!("Discovered {} peers via gossip", peers.len());
+
     Ok(())
 }

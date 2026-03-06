@@ -74,11 +74,17 @@ impl tom_connect::protocol::ProtocolHandler for TomProtocolHandler {
         let remote = NodeId::from_endpoint_id(connection.remote_id());
         let state = self.state.clone();
 
-        // Store incoming connection in pool for bidirectional communication.
-        // This allows the receiver to reply without explicit address discovery.
-        tracing::debug!("Storing incoming connection from {}", remote);
-        self.state.pool.store_incoming(remote, connection.clone()).await;
-        tracing::debug!("Stored incoming connection from {}", remote);
+        // Learn the remote peer's address from the incoming connection.
+        // This enables bidirectional communication: when we later need to send
+        // to this peer, we can establish our OWN outgoing connection (which
+        // properly triggers the remote's accept_bi() loop).
+        let remote_addr = connection.remote_address();
+        let endpoint_addr = tom_connect::EndpointAddr::from_parts(
+            connection.remote_id(),
+            vec![tom_connect::TransportAddr::Ip(remote_addr)],
+        );
+        self.state.pool.add_addr(remote, endpoint_addr).await;
+        tracing::debug!("Learned address for {} from incoming connection: {}", remote, remote_addr);
 
         // Spawn path watcher for this connection
         spawn_path_watcher(&connection, remote, state.path_event_tx.clone());

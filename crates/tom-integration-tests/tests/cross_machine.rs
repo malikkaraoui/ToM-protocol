@@ -61,8 +61,10 @@ async fn manual_connect_like_tui() -> anyhow::Result<()> {
         .await?;
 
     let mut msgs_b = channels_b.messages;
-    let received_on_b = timeout(Duration::from_secs(5), msgs_b.recv()).await??;
-    assert!(received_on_b.is_some());
+    let received_on_b = timeout(Duration::from_secs(5), msgs_b.recv())
+        .await
+        .map_err(|_| anyhow::anyhow!("Timeout waiting for A→B message"))?;
+    assert!(received_on_b.is_some(), "B should have received message from A");
     eprintln!("✅ A → B works");
 
     // B → A (va probablement échouer : B n'a pas l'adresse de A)
