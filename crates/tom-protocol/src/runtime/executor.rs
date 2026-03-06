@@ -35,13 +35,19 @@ pub(super) async fn execute_effects<T: Transport>(
     event_tx: &mpsc::Sender<ProtocolEvent>,
     metrics: &ProtocolMetrics,
 ) {
-    for effect in effects {
+    tracing::trace!("execute_effects: {} effects to process", effects.len());
+    for (i, effect) in effects.into_iter().enumerate() {
         match effect {
-            RuntimeEffect::SendEnvelope(envelope) => {
-                send_envelope(transport, &envelope, event_tx, metrics).await;
+            RuntimeEffect::SendEnvelope(ref envelope) => {
+                let target = envelope.via.first().copied().unwrap_or(envelope.to);
+                tracing::trace!("  effect[{}]: SendEnvelope to {}", i, target);
+                send_envelope(transport, envelope, event_tx, metrics).await;
+                tracing::trace!("  effect[{}]: SendEnvelope done", i);
             }
-            RuntimeEffect::SendEnvelopeTo { target, envelope } => {
-                send_envelope_to(transport, target, &envelope, event_tx, metrics).await;
+            RuntimeEffect::SendEnvelopeTo { target, ref envelope } => {
+                tracing::trace!("  effect[{}]: SendEnvelopeTo {}", i, target);
+                send_envelope_to(transport, target, envelope, event_tx, metrics).await;
+                tracing::trace!("  effect[{}]: SendEnvelopeTo done", i);
             }
             RuntimeEffect::DeliverMessage(msg) => {
                 // try_send: never block runtime, even with large buffer (4096)
@@ -65,11 +71,12 @@ pub(super) async fn execute_effects<T: Transport>(
                 );
             }
             RuntimeEffect::SendWithBackupFallback {
-                envelope,
+                ref envelope,
                 on_success,
                 on_failure,
             } => {
                 let target = envelope.via.first().copied().unwrap_or(envelope.to);
+                tracing::trace!("  effect[{}]: SendWithBackupFallback to {}", i, target);
                 let sent_ok = match envelope.to_bytes() {
                     Ok(bytes) => send_with_retry(transport, target, &bytes).await,
                     Err(_) => false,
@@ -131,9 +138,13 @@ async fn send_envelope_to<T: Transport>(
     let mut last_err = match transport.send_raw(target, &bytes).await {
         Ok(()) => {
             metrics.inc_messages_sent();
+            tracing::trace!("send_envelope_to {}: OK (first attempt)", target);
             return;
         }
-        Err(e) => e,
+        Err(e) => {
+            tracing::warn!("send_envelope_to {}: first attempt FAILED: {}", target, e);
+            e
+        }
     };
 
     // Retry attempts with backoff

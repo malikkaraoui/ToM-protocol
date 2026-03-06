@@ -3795,7 +3795,7 @@ mod tests {
     fn antispam_handle_incoming_throttles_spammer() {
         let mut state = default_state(1);
         let (sender_id, sender_secret) = keypair(42);
-        // Spammer has score=0 → min_rate=2, burst=4
+        // Spammer has score=0 → min_rate=10, burst=20
 
         let env = crate::envelope::EnvelopeBuilder::new(
             sender_id,
@@ -3806,9 +3806,9 @@ mod tests {
         .sign(&sender_secret);
         let raw = env.to_bytes().expect("serialize");
 
-        // Send rapid burst — first 4 should pass (burst), rest throttled
+        // Send rapid burst — first 20 should pass (burst), rest throttled
         let mut throttled = 0;
-        for _ in 0..10 {
+        for _ in 0..30 {
             let effects = state.handle_incoming(raw.as_slice());
             if effects.iter().any(|e| {
                 matches!(e, RuntimeEffect::Emit(ProtocolEvent::SenderThrottled { .. }))
@@ -3818,7 +3818,7 @@ mod tests {
         }
 
         assert!(throttled > 0, "spammer should be throttled after burst");
-        assert!(throttled >= 6, "expected ~6 throttled, got {throttled}");
+        assert!(throttled >= 10, "expected ~10 throttled, got {throttled}");
     }
 
     #[test]

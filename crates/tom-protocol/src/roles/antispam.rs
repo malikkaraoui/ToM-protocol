@@ -6,7 +6,7 @@
 //! Rate formula (smooth S-curve):
 //!   effective_rate = min_rate + (max_rate - min_rate) * score / (score + midpoint)
 //!
-//! At score=0: 2 msg/sec (never blocked). At score=10: 26 msg/sec. At score=50: 43 msg/sec.
+//! At score=0: 10 msg/sec (never blocked). At score=10: 30 msg/sec. At score=50: 43 msg/sec.
 
 use std::num::NonZeroUsize;
 
@@ -37,7 +37,7 @@ pub struct AntiSpamConfig {
 impl Default for AntiSpamConfig {
     fn default() -> Self {
         Self {
-            min_rate: 2.0,
+            min_rate: 10.0,
             max_rate: 50.0,
             midpoint_score: 10.0,
             max_envelope_size: MAX_ENVELOPE_SIZE,
@@ -227,10 +227,10 @@ mod tests {
         let antispam = AntiSpam::new(AntiSpamConfig::default());
 
         let r0 = antispam.compute_rate(0.0);
-        assert!((r0 - 2.0).abs() < f64::EPSILON, "score=0 → min_rate, got {r0}");
+        assert!((r0 - 10.0).abs() < f64::EPSILON, "score=0 → min_rate, got {r0}");
 
         let r10 = antispam.compute_rate(10.0);
-        assert!(r10 > 25.0 && r10 < 27.0, "score=10 → ~26, got {r10}");
+        assert!((r10 - 30.0).abs() < f64::EPSILON, "score=10 → 30, got {r10}");
 
         let r100 = antispam.compute_rate(100.0);
         assert!(r100 > 45.0 && r100 <= 50.0, "score=100 → near max, got {r100}");
@@ -263,14 +263,14 @@ mod tests {
     fn check_rate_throttles_low_score() {
         let mut antispam = AntiSpam::new(AntiSpamConfig::default());
         let spammer = test_node_id(2);
-        // score=0 → rate=2, burst=4
+        // score=0 → rate=10, burst=20
         let mut allowed = 0u32;
-        for _ in 0..10 {
+        for _ in 0..30 {
             if antispam.check_rate(spammer, 0.0, 0).is_ok() {
                 allowed += 1;
             }
         }
-        assert_eq!(allowed, 4, "score=0 burst should be 4");
+        assert_eq!(allowed, 20, "score=0 burst should be 20");
     }
 
     #[test]

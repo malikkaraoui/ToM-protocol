@@ -69,7 +69,7 @@ pub unsafe extern "C" fn tom_node_create(config_json: *const c_char) -> *mut Tom
         }
     };
 
-    let config: NodeConfigFFI = match serde_json::from_str(config_str) {
+    let _config: NodeConfigFFI = match serde_json::from_str(config_str) {
         Ok(c) => c,
         Err(e) => {
             tracing::error!("Invalid JSON config: {}", e);
@@ -176,7 +176,7 @@ pub unsafe extern "C" fn tom_node_start(
         tracing::info!("Binding TomNode...");
 
         // Bind transport
-        let node = match transport_config.bind().await {
+        let node = match tom_transport::TomNode::bind(transport_config).await {
             Ok(n) => {
                 let id = n.id().to_string();
                 tracing::info!("TomNode bound successfully: {}", id);
@@ -329,63 +329,72 @@ pub unsafe extern "C" fn tom_node_send_message(
 /// * `group_config_json` - JSON with name, hub_relay_id, initial_members, invite_only
 ///
 /// # Returns
-/// * JSON string with group_id on success
-/// * NULL on failure
+/// * 0 on success (command sent to runtime)
+/// * -1 on failure
+///
+/// # Note
+/// * The group_id will be available via the `GroupCreated` event (poll events)
 ///
 /// # Safety
-/// * Caller must free returned string with `tom_node_free_string()`
+/// * All pointers must be valid
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn tom_node_create_group(
     handle: *const TomNodeHandle,
     group_config_json: *const c_char,
-) -> *mut c_char {
+) -> i32 {
     if handle.is_null() {
-        return std::ptr::null_mut();
+        return -1;
     }
 
     let handle_ref = unsafe { &*handle };
 
     let config_str = match unsafe { CStr::from_ptr(group_config_json) }.to_str() {
         Ok(s) => s,
-        Err(_) => return std::ptr::null_mut(),
+        Err(_) => return -1,
     };
 
     let group_config: GroupConfigFFI = match serde_json::from_str(config_str) {
         Ok(c) => c,
         Err(e) => {
             tracing::error!("Invalid group config JSON: {}", e);
-            return std::ptr::null_mut();
+            return -1;
         }
     };
 
     let result = handle_ref.runtime.block_on(async {
         if let Some(runtime_handle) = handle_ref.handle.lock().await.as_ref() {
-            runtime_handle
-                .create_group(
-                    group_config.name,
-                    group_config.hub_relay_id,
-                    group_config.initial_members,
-                    group_config.invite_only,
-                )
-                .await
+            if group_config.invite_only {
+                runtime_handle
+                    .create_group_invite_only(
+                        group_config.name,
+                        group_config.hub_relay_id,
+                        group_config.initial_members,
+                    )
+                    .await
+            } else {
+                runtime_handle
+                    .create_group(
+                        group_config.name,
+                        group_config.hub_relay_id,
+                        group_config.initial_members,
+                    )
+                    .await
+            }
         } else {
-            Err(tom_protocol::TomProtocolError::InternalError(
-                "Node not started".into(),
-            ))
+            Err(tom_protocol::TomProtocolError::InvalidEnvelope {
+                reason: "Node not started".into(),
+            })
         }
     });
 
     match result {
-        Ok(group_id) => {
-            let json = format!(r#"{{"group_id":"{}"}}"#, group_id);
-            match CString::new(json) {
-                Ok(c_str) => c_str.into_raw(),
-                Err(_) => std::ptr::null_mut(),
-            }
+        Ok(_) => {
+            tracing::debug!("Group creation command sent");
+            0
         }
         Err(e) => {
             tracing::error!("Failed to create group: {}", e);
-            std::ptr::null_mut()
+            -1
         }
     }
 }
@@ -425,13 +434,8 @@ pub unsafe extern "C" fn tom_node_send_group_message(
         Err(_) => return -1,
     };
 
-    let group_id_parsed = match group_id_str.parse() {
-        Ok(id) => id,
-        Err(e) => {
-            tracing::error!("Invalid GroupId: {}", e);
-            return -1;
-        }
-    };
+    // GroupId is a newtype wrapper around String
+    let group_id_parsed = tom_protocol::group::GroupId(group_id_str.to_string());
 
     handle_ref.runtime.block_on(async {
         if let Some(runtime_handle) = handle_ref.handle.lock().await.as_ref() {
