@@ -1,0 +1,21 @@
+[package]
+name = "tom-relay-ffi"
+version = "0.1.0"
+edition = "2024"
+description = "FFI wrapper for tom-relay — exposes C API for Swift/tvOS"
+license = "MIT"
+rust-version = "1.89"
+
+[lib]
+crate-type = ["staticlib", "cdylib"]
+
+[dependencies]
+tom-relay = { path = "../tom-relay", default-features = false, features = ["server"] }
+tokio = { version = "1", features = ["rt-multi-thread", "sync", "macros"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+anyhow = "1"
+
+[features]
+default = ["metrics"]
+metrics = ["tom-relay/metrics"]
