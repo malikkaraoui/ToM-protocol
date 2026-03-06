@@ -50,16 +50,22 @@ pub(super) async fn execute_effects<T: Transport>(
                 tracing::trace!("  effect[{}]: SendEnvelopeTo done", i);
             }
             RuntimeEffect::DeliverMessage(msg) => {
-                // try_send: never block runtime, even with large buffer (4096)
+                // try_send: never block runtime, even with large buffer (16384)
                 // Consumer is responsible for draining fast enough
-                let _ = msg_tx.try_send(msg);
+                if msg_tx.try_send(msg).is_err() {
+                    metrics.inc_messages_dropped();
+                }
             }
             RuntimeEffect::StatusChange(change) => {
-                let _ = status_tx.try_send(change);
+                if status_tx.try_send(change).is_err() {
+                    // Status changes are less critical
+                }
             }
             RuntimeEffect::Emit(event) => {
                 // try_send even for critical events: large buffer + fast consumer = reliable
-                let _ = event_tx.try_send(event);
+                if event_tx.try_send(event).is_err() {
+                    // Events dropped, but don't count as delivered message loss
+                }
             }
             RuntimeEffect::BroadcastRoleChange(announce) => {
                 // Handled in the runtime loop (needs gossip sender).

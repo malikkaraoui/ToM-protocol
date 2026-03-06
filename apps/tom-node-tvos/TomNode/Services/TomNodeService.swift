@@ -15,6 +15,7 @@ final class TomNodeService: ObservableObject {
     @Published var peersCount: Int = 0
     @Published var groupsCount: Int = 0
     @Published var messages: [TomMessage] = []
+    @Published var connectedPeers: [NodeId] = []
     @Published var errorMessage: String?
 
     // Config
@@ -23,6 +24,7 @@ final class TomNodeService: ObservableObject {
     @Published var encryption: Bool = true
     @Published var enableDht: Bool = false
     @Published var n0Discovery: Bool = false
+    @Published var nasPeerNodeId: String = ""  // Set in Settings tab
 
     /// Track if the node was running before the app went to background
     private var wasRunningBeforeSleep = false
@@ -55,6 +57,9 @@ final class TomNodeService: ObservableObject {
                 state = .running
                 startPolling()
                 log.info("Node started successfully")
+
+                // Auto-add NAS responder peer via relay
+                await addNasPeer()
             } catch {
                 log.error("Failed to start node: \(error.localizedDescription)")
                 state = .error
@@ -119,6 +124,37 @@ final class TomNodeService: ObservableObject {
         }
     }
 
+    func addPeer(nodeId: NodeId, relayUrl: String? = nil) {
+        guard state == .running else { return }
+        Task {
+            do {
+                try await node.addPeerAddr(nodeId: nodeId, relayUrl: relayUrl)
+                log.info("Added peer: \(nodeId.prefix(8))...")
+            } catch {
+                log.error("Add peer failed: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    /// Auto-add NAS responder (Freebox) via the relay
+    private func addNasPeer() async {
+        // NAS responder node ID — set by tom-stress on NAS
+        // This is populated dynamically; check Settings for the current value
+        guard !nasPeerNodeId.isEmpty else {
+            log.info("No NAS peer configured — skipping auto-add")
+            return
+        }
+        do {
+            try await node.addPeerAddr(
+                nodeId: nasPeerNodeId,
+                relayUrl: relayUrl
+            )
+            log.info("Auto-added NAS peer: \(nasPeerNodeId.prefix(8))...")
+        } catch {
+            log.error("Failed to add NAS peer: \(error.localizedDescription)")
+        }
+    }
+
     // MARK: - Lifecycle
 
     /// Called when the app returns to foreground (after tvOS sleep).
@@ -169,12 +205,13 @@ final class TomNodeService: ObservableObject {
                     }
                 }
 
-                // Poll status
+                // Poll status + peers
                 if let status = await self.node.status() {
                     self.nodeId = status.nodeId
                     self.peersCount = status.peersCount
                     self.groupsCount = status.groupsCount
                 }
+                self.connectedPeers = await self.node.connectedPeers()
 
                 try? await Task.sleep(nanoseconds: 500_000_000) // 500ms
             }

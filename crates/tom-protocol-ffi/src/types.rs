@@ -27,6 +27,21 @@ impl From<tom_protocol::DeliveredMessage> for DeliveredMessageFFI {
     }
 }
 
+/// Peer address for add_peer_addr FFI
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PeerAddrFFI {
+    /// Node ID (hex string)
+    pub node_id: String,
+
+    /// Relay URL (optional)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub relay_url: Option<String>,
+
+    /// Direct socket addresses (optional, e.g. ["192.168.0.83:3340"])
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub direct_addrs: Option<Vec<String>>,
+}
+
 /// Node configuration (transport layer)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NodeConfigFFI {

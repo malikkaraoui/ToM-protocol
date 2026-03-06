@@ -66,6 +66,26 @@ struct SettingsView: View {
                     .disabled(nodeService.state == .running)
                 }
 
+                Section("Peers") {
+                    TextField("NAS Peer Node ID", text: Binding(
+                        get: { nodeService.nasPeerNodeId },
+                        set: { nodeService.nasPeerNodeId = $0 }
+                    ))
+                    .font(.system(.body, design: .monospaced))
+                    .disabled(nodeService.state == .running)
+
+                    if !nodeService.connectedPeers.isEmpty {
+                        ForEach(nodeService.connectedPeers, id: \.self) { peer in
+                            SettingsRow(
+                                label: "Connected",
+                                value: String(peer.prefix(8)) + "..." + String(peer.suffix(4)),
+                                monospaced: true,
+                                valueColor: .green
+                            )
+                        }
+                    }
+                }
+
                 Section("Profile") {
                     SettingsRow(label: "Username", value: nodeService.username)
                 }

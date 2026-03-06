@@ -11,6 +11,7 @@ pub struct MetricsSnapshot {
     pub messages_sent: u64,
     pub messages_received: u64,
     pub messages_failed: u64,
+    pub messages_dropped: u64,  // Messages lost due to full buffer
     pub groups_count: u64,
     pub peers_known: u64,
     pub uptime_seconds: u64,
@@ -28,6 +29,7 @@ struct Inner {
     messages_sent: Counter,
     messages_received: Counter,
     messages_failed: Counter,
+    messages_dropped: Counter,
     groups_count: Gauge,
     peers_known: Gauge,
     start_time: std::time::Instant,
@@ -40,6 +42,7 @@ impl ProtocolMetrics {
                 messages_sent: Counter::new(),
                 messages_received: Counter::new(),
                 messages_failed: Counter::new(),
+                messages_dropped: Counter::new(),
                 groups_count: Gauge::new(),
                 peers_known: Gauge::new(),
                 start_time: std::time::Instant::now(),
@@ -61,6 +64,10 @@ impl ProtocolMetrics {
         self.inner.messages_failed.inc();
     }
 
+    pub fn inc_messages_dropped(&self) {
+        self.inner.messages_dropped.inc();
+    }
+
     pub fn set_groups_count(&self, n: u64) {
         self.inner.groups_count.set(n);
     }
@@ -77,6 +84,7 @@ impl ProtocolMetrics {
             messages_sent: self.inner.messages_sent.get(),
             messages_received: self.inner.messages_received.get(),
             messages_failed: self.inner.messages_failed.get(),
+            messages_dropped: self.inner.messages_dropped.get(),
             groups_count: self.inner.groups_count.get(),
             peers_known: self.inner.peers_known.get(),
             uptime_seconds: self.inner.start_time.elapsed().as_secs(),
@@ -116,6 +124,7 @@ mod tests {
         assert_eq!(snap.messages_sent, 2);
         assert_eq!(snap.messages_received, 1);
         assert_eq!(snap.messages_failed, 1);
+        assert_eq!(snap.messages_dropped, 0);
         assert_eq!(snap.groups_count, 3);
         assert_eq!(snap.peers_known, 7);
     }

@@ -22,7 +22,7 @@ use tom_protocol::{DeliveredMessage, ProtocolEvent, ProtocolRuntime, RuntimeChan
 use tom_transport::TomNodeConfig;
 
 mod types;
-use types::{DeliveredMessageFFI, GroupConfigFFI, NodeConfigFFI, RuntimeConfigFFI};
+use types::{DeliveredMessageFFI, GroupConfigFFI, NodeConfigFFI, PeerAddrFFI, RuntimeConfigFFI};
 
 /// Opaque handle to the TOM protocol node (passed to/from Swift as void*)
 pub struct TomNodeHandle {
@@ -573,6 +573,113 @@ pub unsafe extern "C" fn tom_node_last_error(handle: *const TomNodeHandle) -> *m
             Err(_) => std::ptr::null_mut(),
         },
         None => std::ptr::null_mut(),
+    }
+}
+
+/// Add a peer address (so this node can connect to it)
+///
+/// # Arguments
+/// * `handle` - Opaque handle
+/// * `peer_addr_json` - JSON with node_id, relay_url, direct_addrs
+///   Example: {"node_id":"<hex>","relay_url":"http://82.67.95.8:3340","direct_addrs":["192.168.0.83:3340"]}
+///   Only node_id is required. relay_url and direct_addrs are optional.
+///
+/// # Returns
+/// * 0 on success, -1 on failure
+///
+/// # Safety
+/// * All pointers must be valid
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn tom_node_add_peer_addr(
+    handle: *const TomNodeHandle,
+    peer_addr_json: *const c_char,
+) -> i32 {
+    if handle.is_null() {
+        return -1;
+    }
+
+    let handle_ref = unsafe { &*handle };
+
+    let json_str = match unsafe { CStr::from_ptr(peer_addr_json) }.to_str() {
+        Ok(s) => s,
+        Err(_) => return -1,
+    };
+
+    let addr_ffi: PeerAddrFFI = match serde_json::from_str(json_str) {
+        Ok(a) => a,
+        Err(e) => {
+            tracing::error!("Invalid peer addr JSON: {}", e);
+            return -1;
+        }
+    };
+
+    let node_id: tom_protocol::types::NodeId = match addr_ffi.node_id.parse() {
+        Ok(id) => id,
+        Err(e) => {
+            tracing::error!("Invalid node_id: {}", e);
+            return -1;
+        }
+    };
+
+    let mut endpoint_addr = tom_connect::EndpointAddr::new(*node_id.as_endpoint_id());
+
+    if let Some(relay_url) = &addr_ffi.relay_url {
+        if let Ok(url) = relay_url.parse() {
+            endpoint_addr = endpoint_addr.with_relay_url(url);
+        }
+    }
+
+    if let Some(addrs) = &addr_ffi.direct_addrs {
+        for addr_str in addrs {
+            if let Ok(addr) = addr_str.parse() {
+                endpoint_addr = endpoint_addr.with_ip_addr(addr);
+            }
+        }
+    }
+
+    handle_ref.runtime.block_on(async {
+        if let Some(runtime_handle) = handle_ref.handle.lock().await.as_ref() {
+            runtime_handle.add_peer_addr(endpoint_addr).await;
+            tracing::info!("Added peer addr for {}", addr_ffi.node_id);
+            0
+        } else {
+            tracing::error!("Node not started");
+            -1
+        }
+    })
+}
+
+/// Get connected peers as JSON array of Node IDs
+///
+/// # Returns
+/// * JSON array: ["<hex_id_1>", "<hex_id_2>", ...]
+/// * Empty array "[]" if no peers
+///
+/// # Safety
+/// * Caller must free returned string with `tom_node_free_string()`
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn tom_node_connected_peers(
+    handle: *const TomNodeHandle,
+) -> *mut c_char {
+    if handle.is_null() {
+        return std::ptr::null_mut();
+    }
+
+    let handle_ref = unsafe { &*handle };
+
+    let peers_json = handle_ref.runtime.block_on(async {
+        if let Some(runtime_handle) = handle_ref.handle.lock().await.as_ref() {
+            let peers = runtime_handle.connected_peers().await;
+            let peer_strings: Vec<String> = peers.iter().map(|p| p.to_string()).collect();
+            serde_json::to_string(&peer_strings).unwrap_or_else(|_| "[]".to_string())
+        } else {
+            "[]".to_string()
+        }
+    });
+
+    match CString::new(peers_json) {
+        Ok(c_str) => c_str.into_raw(),
+        Err(_) => std::ptr::null_mut(),
     }
 }
 
