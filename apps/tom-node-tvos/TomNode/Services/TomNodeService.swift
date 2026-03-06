@@ -24,6 +24,9 @@ final class TomNodeService: ObservableObject {
     @Published var enableDht: Bool = false
     @Published var n0Discovery: Bool = false
 
+    /// Track if the node was running before the app went to background
+    private var wasRunningBeforeSleep = false
+
     private init() {}
 
     func start() {
@@ -113,6 +116,29 @@ final class TomNodeService: ObservableObject {
                 log.error("Group send failed: \(error.localizedDescription)")
                 errorMessage = error.localizedDescription
             }
+        }
+    }
+
+    // MARK: - Lifecycle
+
+    /// Called when the app returns to foreground (after tvOS sleep).
+    /// The old tokio runtime is dead — force-reset and auto-restart if needed.
+    func handleReturnToForeground() {
+        guard state == .running else { return }
+
+        log.info("Returning to foreground — restarting node (connections lost during sleep)")
+        pollTask?.cancel()
+        pollTask = nil
+
+        Task {
+            await node.forceReset()
+            state = .stopped
+            nodeId = ""
+            peersCount = 0
+            groupsCount = 0
+
+            // Auto-restart
+            start()
         }
     }
 
