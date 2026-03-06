@@ -77,7 +77,7 @@ async fn auto_discovery_via_gossip() -> anyhow::Result<()> {
 #[tokio::test]
 async fn bidirectional_communication() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
-        .with_env_filter("tom_protocol=debug")
+        .with_env_filter("tom_protocol=debug,tom_transport=debug")
         .try_init()
         .ok();
 

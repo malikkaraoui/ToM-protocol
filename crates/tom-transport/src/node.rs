@@ -255,11 +255,20 @@ impl TomNode {
         let (incoming_raw_tx, incoming_raw_rx) = mpsc::channel(config.recv_buffer);
         let (path_event_tx, _) = broadcast::channel(64);
 
+        // Create pool first so we can share it with the handler
+        let default_relays = if !config.n0_discovery {
+            configured_relays.clone()
+        } else {
+            Vec::new()
+        };
+        let pool = Arc::new(ConnectionPool::new(endpoint.clone(), config.alpn.clone(), default_relays));
+
         let handler_state = Arc::new(HandlerState {
             incoming_tx,
             incoming_raw_tx,
             path_event_tx: path_event_tx.clone(),
             max_message_size: config.max_message_size,
+            pool: Arc::clone(&pool),
         });
 
         let handler = TomProtocolHandler {
@@ -272,16 +281,6 @@ impl TomNode {
             .accept(config.alpn.clone(), Arc::new(handler))
             .accept(tom_gossip::ALPN, gossip.clone())
             .spawn();
-
-        // When n0 discovery is off, pass relay URLs to the pool so it can
-        // attempt fallback connections across relays (ordered by priority)
-        // when no peer address is known.
-        let default_relays = if !config.n0_discovery {
-            configured_relays.clone()
-        } else {
-            Vec::new()
-        };
-        let pool = Arc::new(ConnectionPool::new(endpoint.clone(), config.alpn, default_relays));
 
         let (discovery_refresh_stop_tx, discovery_refresh_task) =
             if let Some(discovery_url) = config.relay_discovery_url.clone() {
