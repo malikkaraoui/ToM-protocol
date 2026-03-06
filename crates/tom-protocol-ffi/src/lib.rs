@@ -34,6 +34,8 @@ pub struct TomNodeHandle {
     event_queue: Arc<Mutex<VecDeque<ProtocolEvent>>>,
     /// Node ID (cached after bind)
     node_id: Arc<Mutex<Option<String>>>,
+    /// Last error message (retrievable by Swift after a -1 return)
+    last_error: Arc<std::sync::Mutex<Option<String>>>,
 }
 
 /// Initialize tracing (logs) for the node
@@ -95,6 +97,7 @@ pub unsafe extern "C" fn tom_node_create(config_json: *const c_char) -> *mut Tom
         message_queue: Arc::new(Mutex::new(VecDeque::new())),
         event_queue: Arc::new(Mutex::new(VecDeque::new())),
         node_id: Arc::new(Mutex::new(None)),
+        last_error: Arc::new(std::sync::Mutex::new(None)),
     }))
 }
 
@@ -170,9 +173,13 @@ pub unsafe extern "C" fn tom_node_start(
     let msg_queue = handle_ref.message_queue.clone();
     let event_queue = handle_ref.event_queue.clone();
     let node_id_arc = handle_ref.node_id.clone();
+    let last_error_arc = handle_ref.last_error.clone();
 
-    // Start node in background
-    handle_ref.runtime.spawn(async move {
+    // Clear previous error
+    *last_error_arc.lock().unwrap() = None;
+
+    // Block until bind + runtime spawn completes (not fire-and-forget)
+    let result = handle_ref.runtime.block_on(async move {
         tracing::info!("Binding TomNode...");
 
         // Bind transport
@@ -184,8 +191,10 @@ pub unsafe extern "C" fn tom_node_start(
                 n
             }
             Err(e) => {
-                tracing::error!("Failed to bind TomNode: {}", e);
-                return;
+                let err_msg = format!("Failed to bind TomNode: {}", e);
+                tracing::error!("{}", err_msg);
+                *last_error_arc.lock().unwrap() = Some(err_msg);
+                return -1i32;
             }
         };
 
@@ -215,9 +224,11 @@ pub unsafe extern "C" fn tom_node_start(
             }
             tracing::warn!("Message/event pump stopped");
         });
+
+        0i32
     });
 
-    0
+    result
 }
 
 /// Stop the node and free all resources
@@ -515,23 +526,53 @@ pub unsafe extern "C" fn tom_node_status(handle: *const TomNodeHandle) -> *mut c
 
     let status_json = handle_ref.runtime.block_on(async {
         let node_id = handle_ref.node_id.lock().await.clone();
-        let is_running = handle_ref.handle.lock().await.is_some();
+        let guard = handle_ref.handle.lock().await;
 
-        let status = if is_running { "Running" } else { "Stopped" };
+        let (status, peers_count, groups_count) = if let Some(rh) = guard.as_ref() {
+            let m = rh.metrics();
+            ("Running", m.peers_known, m.groups_count)
+        } else {
+            ("Stopped", 0, 0)
+        };
 
-        // TODO: Query actual metrics from runtime
-        let json = format!(
-            r#"{{"node_id":"{}","status":"{}","peers_count":0,"groups_count":0}}"#,
+        format!(
+            r#"{{"node_id":"{}","status":"{}","peers_count":{},"groups_count":{}}}"#,
             node_id.unwrap_or_else(|| "unknown".to_string()),
-            status
-        );
-
-        json
+            status,
+            peers_count,
+            groups_count
+        )
     });
 
     match CString::new(status_json) {
         Ok(c_str) => c_str.into_raw(),
         Err(_) => std::ptr::null_mut(),
+    }
+}
+
+/// Get the last error message (after a function returned -1)
+///
+/// # Returns
+/// * Error message as C string (caller must free with `tom_node_free_string()`)
+/// * NULL if no error
+///
+/// # Safety
+/// * `handle` must be a valid pointer returned by `tom_node_create()`
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn tom_node_last_error(handle: *const TomNodeHandle) -> *mut c_char {
+    if handle.is_null() {
+        return std::ptr::null_mut();
+    }
+
+    let handle_ref = unsafe { &*handle };
+    let error = handle_ref.last_error.lock().unwrap().clone();
+
+    match error {
+        Some(msg) => match CString::new(msg) {
+            Ok(c_str) => c_str.into_raw(),
+            Err(_) => std::ptr::null_mut(),
+        },
+        None => std::ptr::null_mut(),
     }
 }
 
