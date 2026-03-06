@@ -35,7 +35,7 @@ final class TomNodeService: ObservableObject {
             do {
                 try await node.create(
                     relayUrl: relayUrl,
-                    identityPath: identityPath,
+                    identityPath: nil,
                     n0Discovery: n0Discovery
                 )
 
@@ -44,9 +44,9 @@ final class TomNodeService: ObservableObject {
                     encryption: encryption,
                     enableDht: enableDht,
                     relayUrl: relayUrl,
-                    identityPath: identityPath,
+                    identityPath: nil,
                     n0Discovery: n0Discovery,
-                    dataDir: dataDir
+                    dataDir: nil
                 )
 
                 state = .running

@@ -105,6 +105,12 @@ char* tom_node_receive_messages(const TomNodeHandle handle);
 /// Caller must free returned string with tom_node_free_string()
 char* tom_node_status(const TomNodeHandle handle);
 
+/// Get the last error message (after a function returned -1)
+///
+/// Returns: error message string, or NULL if no error
+/// Caller must free returned string with tom_node_free_string()
+char* tom_node_last_error(const TomNodeHandle handle);
+
 /// Free a string returned by FFI functions
 void tom_node_free_string(char* s);
 

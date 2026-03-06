@@ -73,7 +73,13 @@ actor TomNodeWrapper {
 
         let result = jsonStr.withCString { tom_node_start(h, $0) }
         if result != 0 {
-            throw TomError.unknown("tom_node_start returned \(result)")
+            var errorDetail = "tom_node_start returned \(result)"
+            if let errPtr = tom_node_last_error(h) {
+                errorDetail = String(cString: errPtr)
+                tom_node_free_string(errPtr)
+            }
+            log.error("Start failed: \(errorDetail)")
+            throw TomError.unknown(errorDetail)
         }
 
         log.info("Node runtime started")
