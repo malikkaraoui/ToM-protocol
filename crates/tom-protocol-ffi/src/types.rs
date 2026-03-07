@@ -109,6 +109,15 @@ pub struct GroupConfigFFI {
     pub invite_only: bool,
 }
 
+/// A peer discovered via gossip/DHT/direct announce
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DiscoveredPeerFFI {
+    pub node_id: String,
+    pub username: String,
+    pub source: String,
+    pub discovered_at: u64,
+}
+
 fn deserialize_node_id<'de, D>(deserializer: D) -> Result<NodeId, D::Error>
 where
     D: serde::Deserializer<'de>,

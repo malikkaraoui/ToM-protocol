@@ -1,1 +1,27 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Skip manually when needed (example: SKIP_OBSERVABILITY_SMOKE=1 git push)
+if [ "${SKIP_OBSERVABILITY_SMOKE:-0}" = "1" ]; then
+	echo "[pre-push] observability smoke skipped (SKIP_OBSERVABILITY_SMOKE=1)"
+	exit 0
+fi
+
+# Run smoke only when push contains relay/discovery/observability changes.
+# This avoids blocking unrelated pushes (e.g. Xcode scheme/UI-only commits).
+UPSTREAM="$(git rev-parse --abbrev-ref --symbolic-full-name @{upstream} 2>/dev/null || true)"
+if [ -n "$UPSTREAM" ]; then
+	CHANGED_FILES="$(git diff --name-only "$UPSTREAM...HEAD" 2>/dev/null || true)"
+else
+	# Fallback for branches without upstream configured.
+	CHANGED_FILES="$(git diff --name-only HEAD~1...HEAD 2>/dev/null || true)"
+fi
+
+if [ "${FORCE_OBSERVABILITY_SMOKE:-0}" != "1" ]; then
+	if ! echo "$CHANGED_FILES" | grep -Eq '^(crates/tom-relay/|tools/relay-discovery/|scripts/(run-observability-smoke-local|smoke-observability)\.sh|deploy/monitoring/|docs/monitoring/|apps/infra-web-client/|crates/tom-gateway/)' ; then
+		echo "[pre-push] observability smoke skipped (aucun changement relay/discovery/monitoring)"
+		exit 0
+	fi
+fi
+
 ./scripts/run-observability-smoke-local.sh

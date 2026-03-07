@@ -6,14 +6,10 @@ struct MessagesView: View {
     @State private var targetPeerId = ""
     @State private var messageText = ""
 
-    /// All known peers: connected + hardcoded NAS peer (deduplicated)
-    private var knownPeers: [NodeId] {
-        var peers = nodeService.connectedPeers
-        let nas = nodeService.nasPeerNodeId
-        if !nas.isEmpty && !peers.contains(nas) {
-            peers.insert(nas, at: 0)
-        }
-        return peers
+    /// Resolve a NodeId to a display name from discovered peers
+    private func displayName(for nodeId: NodeId) -> String {
+        nodeService.discoveredPeers.first(where: { $0.nodeId == nodeId })?.displayName
+            ?? (String(nodeId.prefix(8)) + "...")
     }
 
     var body: some View {
@@ -39,7 +35,7 @@ struct MessagesView: View {
                     }
                 } else {
                     List(nodeService.messages.reversed()) { message in
-                        MessageRow(message: message)
+                        MessageRow(message: message, senderName: displayName(for: message.from))
                     }
                 }
             }
@@ -55,7 +51,7 @@ struct MessagesView: View {
                 SendMessageSheet(
                     targetPeerId: $targetPeerId,
                     messageText: $messageText,
-                    knownPeers: knownPeers,
+                    discoveredPeers: nodeService.discoveredPeers,
                     onSend: {
                         nodeService.sendMessage(to: targetPeerId, text: messageText)
                         messageText = ""
@@ -69,11 +65,12 @@ struct MessagesView: View {
 
 struct MessageRow: View {
     let message: TomMessage
+    var senderName: String = ""
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
-                Text(message.senderShortId)
+                Text(senderName.isEmpty ? message.senderShortId : senderName)
                     .font(.system(.caption, design: .monospaced))
                     .foregroundColor(.accentColor)
                 Spacer()
@@ -103,22 +100,27 @@ struct MessageRow: View {
 struct SendMessageSheet: View {
     @Binding var targetPeerId: String
     @Binding var messageText: String
-    let knownPeers: [NodeId]
+    let discoveredPeers: [TomPeer]
     let onSend: () -> Void
 
     var body: some View {
         NavigationStack {
             Form {
-                // Peer picker — select from connected peers
-                if !knownPeers.isEmpty {
-                    Section("Peers") {
-                        ForEach(knownPeers, id: \.self) { peer in
-                            Button(action: { targetPeerId = peer }) {
+                // Peer picker — select from discovered peers (with username)
+                if !discoveredPeers.isEmpty {
+                    Section("Discovered Peers") {
+                        ForEach(discoveredPeers) { peer in
+                            Button(action: { targetPeerId = peer.nodeId }) {
                                 HStack {
-                                    Text(String(peer.prefix(8)) + "..." + String(peer.suffix(4)))
-                                        .font(.system(.body, design: .monospaced))
+                                    VStack(alignment: .leading) {
+                                        Text(peer.displayName)
+                                            .font(.body)
+                                        Text(peer.shortId)
+                                            .font(.system(.caption2, design: .monospaced))
+                                            .foregroundColor(.secondary)
+                                    }
                                     Spacer()
-                                    if targetPeerId == peer {
+                                    if targetPeerId == peer.nodeId {
                                         Image(systemName: "checkmark.circle.fill")
                                             .foregroundColor(.green)
                                     }

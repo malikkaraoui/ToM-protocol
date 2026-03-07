@@ -193,6 +193,26 @@ actor TomNodeWrapper {
         }
     }
 
+    func discoveredPeers() -> [TomPeer] {
+        guard let h = handle else { return [] }
+
+        guard let cStr = tom_node_discovered_peers(h) else { return [] }
+        let jsonStr = String(cString: cStr)
+        tom_node_free_string(cStr)
+
+        guard jsonStr != "[]",
+              let data = jsonStr.data(using: .utf8) else {
+            return []
+        }
+
+        do {
+            return try JSONDecoder().decode([TomPeer].self, from: data)
+        } catch {
+            log.error("Failed to decode discovered peers: \(error.localizedDescription)")
+            return []
+        }
+    }
+
     func receiveMessages() -> [TomMessage] {
         guard let h = handle else { return [] }
 

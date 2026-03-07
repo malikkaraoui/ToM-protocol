@@ -9,7 +9,7 @@
 //!
 //! All async operations are managed by an internal tokio runtime.
 
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::ffi::{CStr, CString};
 use std::os::raw::c_char;
 use std::sync::Arc;
@@ -22,7 +22,11 @@ use tom_protocol::{DeliveredMessage, ProtocolEvent, ProtocolRuntime, RuntimeChan
 use tom_transport::TomNodeConfig;
 
 mod types;
-use types::{DeliveredMessageFFI, GroupConfigFFI, NodeConfigFFI, PeerAddrFFI, RuntimeConfigFFI};
+use types::{DeliveredMessageFFI, DiscoveredPeerFFI, GroupConfigFFI, NodeConfigFFI, PeerAddrFFI, RuntimeConfigFFI};
+
+/// Hard cap for discovered peer cache exposed over FFI.
+/// Prevents unbounded growth on long-running tvOS sessions.
+const MAX_DISCOVERED_PEERS: usize = 2048;
 
 /// Opaque handle to the TOM protocol node (passed to/from Swift as void*)
 pub struct TomNodeHandle {
@@ -32,6 +36,8 @@ pub struct TomNodeHandle {
     message_queue: Arc<Mutex<VecDeque<DeliveredMessage>>>,
     /// Buffered events from runtime (for status/debug)
     event_queue: Arc<Mutex<VecDeque<ProtocolEvent>>>,
+    /// Peers discovered via gossip/DHT (cached from PeerDiscovered events)
+    discovered_peers: Arc<Mutex<HashMap<String, DiscoveredPeerFFI>>>,
     /// Node ID (cached after bind)
     node_id: Arc<Mutex<Option<String>>>,
     /// Last error message (retrievable by Swift after a -1 return)
@@ -96,6 +102,7 @@ pub unsafe extern "C" fn tom_node_create(config_json: *const c_char) -> *mut Tom
         handle: Arc::new(Mutex::new(None)),
         message_queue: Arc::new(Mutex::new(VecDeque::new())),
         event_queue: Arc::new(Mutex::new(VecDeque::new())),
+        discovered_peers: Arc::new(Mutex::new(HashMap::new())),
         node_id: Arc::new(Mutex::new(None)),
         last_error: Arc::new(std::sync::Mutex::new(None)),
     }))
@@ -207,6 +214,7 @@ pub unsafe extern "C" fn tom_node_start(
         // Background task: drain messages + events into queues
         let msg_queue_clone = msg_queue.clone();
         let event_queue_clone = event_queue.clone();
+        let discovered_peers_clone = handle_ref.discovered_peers.clone();
         let mut messages_rx = channels.messages;
         let mut events_rx = channels.events;
 
@@ -217,6 +225,53 @@ pub unsafe extern "C" fn tom_node_start(
                         msg_queue_clone.lock().await.push_back(msg);
                     }
                     Some(event) = events_rx.recv() => {
+                        // Cache discovered peers from gossip/DHT
+                        if let ProtocolEvent::PeerDiscovered { ref node_id, ref username, ref source } = event {
+                            let incoming = DiscoveredPeerFFI {
+                                node_id: node_id.to_string(),
+                                username: username.clone(),
+                                source: format!("{:?}", source),
+                                discovered_at: std::time::SystemTime::now()
+                                    .duration_since(std::time::UNIX_EPOCH)
+                                    .unwrap_or_default()
+                                    .as_millis() as u64,
+                            };
+                            tracing::info!("Peer discovered: {} ({})", username, node_id);
+
+                            let mut peers = discovered_peers_clone.lock().await;
+
+                            // Merge with existing entry if present. Preserve a non-empty username
+                            // when incoming value is empty (best-effort against sparse events).
+                            let merged = if let Some(existing) = peers.get(&incoming.node_id) {
+                                DiscoveredPeerFFI {
+                                    node_id: incoming.node_id.clone(),
+                                    username: if incoming.username.is_empty() {
+                                        existing.username.clone()
+                                    } else {
+                                        incoming.username.clone()
+                                    },
+                                    source: incoming.source.clone(),
+                                    discovered_at: incoming.discovered_at,
+                                }
+                            } else {
+                                incoming
+                            };
+
+                            peers.insert(node_id.to_string(), merged);
+
+                            // Enforce bounded cache size (evict oldest discovered entries first).
+                            while peers.len() > MAX_DISCOVERED_PEERS {
+                                if let Some(oldest_key) = peers
+                                    .iter()
+                                    .min_by_key(|(_, p)| p.discovered_at)
+                                    .map(|(k, _)| k.clone())
+                                {
+                                    peers.remove(&oldest_key);
+                                } else {
+                                    break;
+                                }
+                            }
+                        }
                         event_queue_clone.lock().await.push_back(event);
                     }
                     else => break,
@@ -675,6 +730,48 @@ pub unsafe extern "C" fn tom_node_connected_peers(
         } else {
             "[]".to_string()
         }
+    });
+
+    match CString::new(peers_json) {
+        Ok(c_str) => c_str.into_raw(),
+        Err(_) => std::ptr::null_mut(),
+    }
+}
+
+/// Get peers discovered via gossip/DHT as JSON array
+///
+/// # Returns
+/// * JSON array: [{"node_id":"...","username":"...","source":"...","discovered_at":123}, ...]
+/// * Empty array "[]" if no peers discovered yet
+///
+/// # Safety
+/// * Caller must free returned string with `tom_node_free_string()`
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn tom_node_discovered_peers(
+    handle: *const TomNodeHandle,
+) -> *mut c_char {
+    if handle.is_null() {
+        return std::ptr::null_mut();
+    }
+
+    let handle_ref = unsafe { &*handle };
+
+    let peers_json = handle_ref.runtime.block_on(async {
+        // Clone under lock, then sort + serialize outside lock to reduce contention
+        // with the background pump task.
+        let mut peer_list: Vec<DiscoveredPeerFFI> = {
+            let peers = handle_ref.discovered_peers.lock().await;
+            peers.values().cloned().collect()
+        };
+
+        // Stable UX: most recently discovered peers first, deterministic tie-break.
+        peer_list.sort_by(|a, b| {
+            b.discovered_at
+                .cmp(&a.discovered_at)
+                .then_with(|| a.node_id.cmp(&b.node_id))
+        });
+
+        serde_json::to_string(&peer_list).unwrap_or_else(|_| "[]".to_string())
     });
 
     match CString::new(peers_json) {

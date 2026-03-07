@@ -9,6 +9,8 @@ cd "$ROOT_DIR"
 RELAY_URL="${RELAY_URL:-http://127.0.0.1:3340}"
 DISCOVERY_URL="${DISCOVERY_URL:-http://127.0.0.1:8080}"
 WAIT_SECONDS="${WAIT_SECONDS:-30}"
+RELAY_START_TIMEOUT="${RELAY_START_TIMEOUT:-240}"
+DISCOVERY_START_TIMEOUT="${DISCOVERY_START_TIMEOUT:-30}"
 
 RELAY_PID=""
 DISCOVERY_PID=""
@@ -47,8 +49,11 @@ if ! lsof -iTCP:3340 -sTCP:LISTEN >/dev/null 2>&1; then
   RELAY_PID=$!
 fi
 
-if ! wait_for_http "${RELAY_URL%/}/health" 120; then
+if ! wait_for_http "${RELAY_URL%/}/health" "$RELAY_START_TIMEOUT"; then
   echo "[pre-push] relay health check failed (${RELAY_URL%/}/health)"
+  if [ -n "$RELAY_PID" ] && ! kill -0 "$RELAY_PID" 2>/dev/null; then
+    echo "[pre-push] relay process exited before becoming healthy"
+  fi
   tail -n 60 /tmp/tom-relay-prepush.log 2>/dev/null || true
   exit 1
 fi
@@ -71,8 +76,9 @@ JSON
   DISCOVERY_PID=$!
 fi
 
-if ! wait_for_http "${DISCOVERY_URL%/}/health" 20; then
+if ! wait_for_http "${DISCOVERY_URL%/}/health" "$DISCOVERY_START_TIMEOUT"; then
   echo "[pre-push] discovery health check failed (${DISCOVERY_URL%/}/health)"
+  tail -n 60 /tmp/tom-discovery-prepush.log 2>/dev/null || true
   exit 1
 fi
 

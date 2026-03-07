@@ -16,6 +16,7 @@ final class TomNodeService: ObservableObject {
     @Published var groupsCount: Int = 0
     @Published var messages: [TomMessage] = []
     @Published var connectedPeers: [NodeId] = []
+    @Published var discoveredPeers: [TomPeer] = []
     @Published var errorMessage: String?
 
     // Config
@@ -231,6 +232,7 @@ final class TomNodeService: ObservableObject {
                     self.groupsCount = status.groupsCount
                 }
                 self.connectedPeers = await self.node.connectedPeers()
+                self.discoveredPeers = await self.node.discoveredPeers()
 
                 try? await Task.sleep(nanoseconds: 500_000_000) // 500ms
             }
