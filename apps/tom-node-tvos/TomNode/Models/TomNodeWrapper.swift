@@ -44,7 +44,8 @@ actor TomNodeWrapper {
         relayUrl: String,
         identityPath: String?,
         n0Discovery: Bool,
-        dataDir: String?
+        dataDir: String?,
+        gossipBootstrapPeers: [String] = []
     ) throws {
         guard let h = handle else {
             throw TomError.notStarted
@@ -62,6 +63,9 @@ actor TomNodeWrapper {
         }
         if let dir = dataDir {
             config["data_dir"] = dir
+        }
+        if !gossipBootstrapPeers.isEmpty {
+            config["gossip_bootstrap_peers"] = gossipBootstrapPeers
         }
 
         let jsonData = try JSONSerialization.data(withJSONObject: config)
