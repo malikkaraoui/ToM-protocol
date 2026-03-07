@@ -55,14 +55,14 @@ use self::{
 };
 #[cfg(not(wasm_browser))]
 use crate::dns::DnsResolver;
-#[cfg(not(wasm_browser))]
-use crate::net_report::QuicConfig;
+type PeerPresentReceiver = mpsc::Receiver<(EndpointId, RelayUrl)>;
+type SharedPeerPresentReceiver = Arc<Mutex<Option<PeerPresentReceiver>>>;
 use crate::{
     address_lookup::{self, AddressLookup, EndpointData, Error as AddressLookupError, UserData},
     defaults::timeouts::NET_REPORT_TIMEOUT,
     endpoint::hooks::EndpointHooksList,
     metrics::EndpointMetrics,
-    net_report::{self, IfStateDetails, Report},
+    net_report::{self, IfStateDetails, QuicConfig, Report},
     socket::{
         concurrent_read_map::ReadOnlyMap,
         remote_map::{MappedAddrs, PathsWatcher, RemoteInfo},
@@ -162,7 +162,7 @@ pub(crate) struct Handle {
     // quinn endpoint
     endpoint: quinn::Endpoint,
     /// Receiver for PeerPresent events from relay servers.
-    peer_present_rx: Arc<Mutex<Option<mpsc::Receiver<(EndpointId, RelayUrl)>>>>,
+    peer_present_rx: SharedPeerPresentReceiver,
 }
 
 #[derive(Debug)]
@@ -908,7 +908,7 @@ impl Handle {
     /// Takes the PeerPresent receiver. Can only be called once.
     pub(crate) fn take_peer_present_rx(
         &self,
-    ) -> Option<mpsc::Receiver<(EndpointId, RelayUrl)>> {
+    ) -> Option<PeerPresentReceiver> {
         self.peer_present_rx.lock().unwrap().take()
     }
 
