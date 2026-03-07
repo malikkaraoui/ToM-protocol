@@ -135,6 +135,8 @@ pub struct TomNode {
     max_message_size: usize,
     discovery_refresh_stop_tx: Option<oneshot::Sender<()>>,
     discovery_refresh_task: Option<JoinHandle<()>>,
+    /// Receiver for PeerPresent events from relay servers.
+    peer_present_rx: Option<mpsc::Receiver<(tom_connect::EndpointId, tom_connect::RelayUrl)>>,
 }
 
 impl TomNode {
@@ -328,6 +330,8 @@ impl TomNode {
                 (None, None)
             };
 
+        let peer_present_rx = endpoint.take_peer_present_rx();
+
         Ok(Self {
             id,
             pool,
@@ -341,6 +345,7 @@ impl TomNode {
             max_message_size: config.max_message_size,
             discovery_refresh_stop_tx,
             discovery_refresh_task,
+            peer_present_rx,
         })
     }
 
@@ -362,6 +367,16 @@ impl TomNode {
     /// Share this with other nodes so they can connect to you.
     pub fn addr(&self) -> tom_connect::EndpointAddr {
         self.endpoint.addr()
+    }
+
+    /// Takes the receiver for PeerPresent events from relay servers.
+    ///
+    /// Returns `None` if already taken. Yields `(EndpointId, RelayUrl)` tuples
+    /// when the relay announces a peer is present.
+    pub fn take_peer_present_rx(
+        &mut self,
+    ) -> Option<mpsc::Receiver<(tom_connect::EndpointId, tom_connect::RelayUrl)>> {
+        self.peer_present_rx.take()
     }
 
     /// Access the gossip handle.

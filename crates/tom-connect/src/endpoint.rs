@@ -930,6 +930,16 @@ impl Endpoint {
         self.static_config.tls_config.secret_key.public()
     }
 
+    /// Takes the receiver for PeerPresent events from relay servers.
+    ///
+    /// Returns `None` if already taken. The receiver yields `(EndpointId, RelayUrl)`
+    /// tuples when the relay server announces a peer is present.
+    pub fn take_peer_present_rx(
+        &self,
+    ) -> Option<tokio::sync::mpsc::Receiver<(EndpointId, RelayUrl)>> {
+        self.sock.take_peer_present_rx()
+    }
+
     /// Returns the current [`EndpointAddr`].
     /// As long as the endpoint was able to bind to a network interface, some
     /// local addresses will be available.

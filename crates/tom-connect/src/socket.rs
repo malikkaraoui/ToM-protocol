@@ -161,6 +161,8 @@ pub(crate) struct Handle {
     actor_sender: mpsc::Sender<ActorMessage>,
     // quinn endpoint
     endpoint: quinn::Endpoint,
+    /// Receiver for PeerPresent events from relay servers.
+    peer_present_rx: Arc<Mutex<Option<mpsc::Receiver<(EndpointId, RelayUrl)>>>>,
 }
 
 #[derive(Debug)]
@@ -723,7 +725,7 @@ impl Handle {
         let shutdown_state = ShutdownState::default();
         let shutdown_token = shutdown_state.at_endpoint_closed.child_token();
 
-        let transports = Transports::bind(
+        let mut transports = Transports::bind(
             &transport_configs,
             relay_actor_config,
             &metrics,
@@ -798,6 +800,7 @@ impl Handle {
         // the packet if grease_quic_bit is set to false.
         endpoint_config.grease_quic_bit(false);
 
+        let peer_present_rx = transports.take_peer_present_rx();
         let local_addrs_watch = transports.local_addrs_watch();
         let network_change_sender = transports.create_network_change_sender();
 
@@ -893,12 +896,20 @@ impl Handle {
             actor_sender,
             actor_task,
             endpoint,
+            peer_present_rx: Arc::new(Mutex::new(peer_present_rx)),
         })
     }
 
     /// The underlying [`quinn::Endpoint`]
     pub fn endpoint(&self) -> &quinn::Endpoint {
         &self.endpoint
+    }
+
+    /// Takes the PeerPresent receiver. Can only be called once.
+    pub(crate) fn take_peer_present_rx(
+        &self,
+    ) -> Option<mpsc::Receiver<(EndpointId, RelayUrl)>> {
+        self.peer_present_rx.lock().unwrap().take()
     }
 
     /// Closes the connection.

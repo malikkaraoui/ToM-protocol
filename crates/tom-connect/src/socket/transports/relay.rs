@@ -38,7 +38,11 @@ pub(crate) struct RelayTransport {
 }
 
 impl RelayTransport {
-    pub(crate) fn new(config: RelayActorConfig, cancel_token: CancellationToken) -> Self {
+    pub(crate) fn new(
+        config: RelayActorConfig,
+        cancel_token: CancellationToken,
+        peer_present_tx: mpsc::Sender<(EndpointId, RelayUrl)>,
+    ) -> Self {
         let (relay_datagram_send_tx, relay_datagram_send_rx) = mpsc::channel(256);
 
         let (relay_datagram_recv_tx, relay_datagram_recv_rx) = mpsc::channel(512);
@@ -48,7 +52,8 @@ impl RelayTransport {
         let my_endpoint_id = config.secret_key.public();
         let my_relay = config.my_relay.clone();
 
-        let relay_actor = RelayActor::new(config, relay_datagram_recv_tx, cancel_token);
+        let relay_actor =
+            RelayActor::new(config, relay_datagram_recv_tx, cancel_token, peer_present_tx);
 
         let actor_handle = AbortOnDropHandle::new(task::spawn(
             async move {

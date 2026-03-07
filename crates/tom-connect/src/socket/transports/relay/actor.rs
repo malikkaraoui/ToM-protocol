@@ -151,6 +151,8 @@ struct ActiveRelayActor {
     /// Token indicating the [`ActiveRelayActor`] should stop.
     stop_token: CancellationToken,
     metrics: Arc<SocketMetrics>,
+    /// Channel to notify about peers present on this relay server.
+    peer_present_tx: mpsc::Sender<(EndpointId, RelayUrl)>,
 }
 
 #[derive(Debug)]
@@ -194,6 +196,7 @@ struct ActiveRelayActorOptions {
     connection_opts: RelayConnectionOptions,
     stop_token: CancellationToken,
     metrics: Arc<SocketMetrics>,
+    peer_present_tx: mpsc::Sender<(EndpointId, RelayUrl)>,
 }
 
 /// Configuration needed to create a connection to a relay server.
@@ -265,6 +268,7 @@ impl ActiveRelayActor {
             connection_opts,
             stop_token,
             metrics,
+            peer_present_tx,
         } = opts;
         let relay_client_builder = Self::create_relay_builder(url.clone(), connection_opts);
         ActiveRelayActor {
@@ -278,6 +282,7 @@ impl ActiveRelayActor {
             inactive_timeout: Box::pin(time::sleep(RELAY_INACTIVE_CLEANUP_TIME)),
             stop_token,
             metrics,
+            peer_present_tx,
         }
     }
 
@@ -669,6 +674,12 @@ impl ActiveRelayActor {
             RelayToClientMsg::EndpointGone(endpoint_id) => {
                 state.endpoints_present.remove(&endpoint_id);
             }
+            RelayToClientMsg::PeerPresent(endpoint_id) => {
+                state.endpoints_present.insert(endpoint_id);
+                if let Err(err) = self.peer_present_tx.try_send((endpoint_id, self.url.clone())) {
+                    warn!("PeerPresent hint dropped: {err:#}");
+                }
+            }
             RelayToClientMsg::Ping(data) => state.pong_pending = Some(data),
             RelayToClientMsg::Pong(data) => {
                 #[cfg(test)]
@@ -827,6 +838,8 @@ pub(super) struct RelayActor {
     /// The tasks for the [`ActiveRelayActor`]s in `active_relays` above.
     active_relay_tasks: JoinSet<()>,
     cancel_token: CancellationToken,
+    /// Channel to notify about peers present on relay servers.
+    peer_present_tx: mpsc::Sender<(EndpointId, RelayUrl)>,
 }
 
 #[derive(Debug, Clone)]
@@ -849,6 +862,7 @@ impl RelayActor {
         config: Config,
         relay_datagram_recv_queue: mpsc::Sender<RelayRecvDatagram>,
         cancel_token: CancellationToken,
+        peer_present_tx: mpsc::Sender<(EndpointId, RelayUrl)>,
     ) -> Self {
         Self {
             config,
@@ -856,6 +870,7 @@ impl RelayActor {
             active_relays: Default::default(),
             active_relay_tasks: JoinSet::new(),
             cancel_token,
+            peer_present_tx,
         }
     }
 
@@ -1098,6 +1113,7 @@ impl RelayActor {
             connection_opts,
             stop_token: self.cancel_token.child_token(),
             metrics: self.config.metrics.clone(),
+            peer_present_tx: self.peer_present_tx.clone(),
         };
         let actor = ActiveRelayActor::new(opts);
         self.active_relay_tasks.spawn(
@@ -1241,6 +1257,7 @@ mod tests {
         relay_datagrams_recv: mpsc::Sender<RelayRecvDatagram>,
         span: tracing::Span,
     ) -> AbortOnDropHandle<()> {
+        let (peer_present_tx, _peer_present_rx) = mpsc::channel(16);
         let opts = ActiveRelayActorOptions {
             url,
             prio_inbox_: prio_inbox_rx,
@@ -1256,6 +1273,7 @@ mod tests {
             },
             stop_token,
             metrics: Default::default(),
+            peer_present_tx,
         };
         let task = tokio::spawn(ActiveRelayActor::new(opts).run().instrument(span));
         AbortOnDropHandle::new(task)
