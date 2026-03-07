@@ -1,13 +1,15 @@
 //! FFI-safe types for JSON serialization/deserialization
 
+use base64::Engine;
 use serde::{Deserialize, Serialize};
 use tom_protocol::types::NodeId;
 
 /// Serializable version of DeliveredMessage for FFI
+/// Note: payload is base64-encoded for Swift Data compatibility
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DeliveredMessageFFI {
     pub from: String,
-    pub payload: Vec<u8>,
+    pub payload: String,
     pub envelope_id: String,
     pub timestamp: u64,
     pub signature_valid: bool,
@@ -18,7 +20,7 @@ impl From<tom_protocol::DeliveredMessage> for DeliveredMessageFFI {
     fn from(msg: tom_protocol::DeliveredMessage) -> Self {
         Self {
             from: msg.from.to_string(),
-            payload: msg.payload,
+            payload: base64::engine::general_purpose::STANDARD.encode(&msg.payload),
             envelope_id: msg.envelope_id,
             timestamp: msg.timestamp,
             signature_valid: msg.signature_valid,

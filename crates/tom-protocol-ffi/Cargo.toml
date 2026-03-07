@@ -14,6 +14,7 @@ tom-connect = { path = "../tom-connect" }
 tokio = { version = "1.45", features = ["rt", "rt-multi-thread", "sync", "time", "macros"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+base64 = "0.22"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 

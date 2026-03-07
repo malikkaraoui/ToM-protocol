@@ -24,7 +24,7 @@ final class TomNodeService: ObservableObject {
     @Published var encryption: Bool = true
     @Published var enableDht: Bool = true
     @Published var n0Discovery: Bool = true
-    @Published var nasPeerNodeId: String = ""  // Set in Settings tab
+    @Published var nasPeerNodeId: String = "90cbf4dee5d41a524107b7fa6980590b92bd2d6586900f722b95e51c7eb60ec6"
 
     /// Track if the node was running before the app went to background
     private var wasRunningBeforeSleep = false
@@ -91,6 +91,17 @@ final class TomNodeService: ObservableObject {
                 guard let data = text.data(using: .utf8) else { return }
                 try await node.sendMessage(to: target, payload: data)
                 log.info("Message sent to \(target.prefix(8))...")
+
+                // Add sent message to local list
+                let sent = TomMessage(
+                    id: UUID().uuidString,
+                    from: nodeId,
+                    payload: data.base64EncodedString(),
+                    timestamp: UInt64(Date().timeIntervalSince1970 * 1000),
+                    signatureValid: true,
+                    wasEncrypted: true
+                )
+                messages.append(sent)
             } catch {
                 log.error("Send failed: \(error.localizedDescription)")
                 errorMessage = error.localizedDescription
@@ -146,10 +157,10 @@ final class TomNodeService: ObservableObject {
         }
         do {
             try await node.addPeerAddr(
-                nodeId: nasPeerNodeId,
-                relayUrl: relayUrl
+                nodeId: self.nasPeerNodeId,
+                relayUrl: self.relayUrl
             )
-            log.info("Auto-added NAS peer: \(nasPeerNodeId.prefix(8))...")
+            log.info("Auto-added NAS peer: \(self.nasPeerNodeId.prefix(8))...")
         } catch {
             log.error("Failed to add NAS peer: \(error.localizedDescription)")
         }

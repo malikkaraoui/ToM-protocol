@@ -17,14 +17,18 @@ struct TomPeer: Identifiable, Codable {
 struct TomMessage: Identifiable, Codable {
     let id: String // envelope_id
     let from: NodeId
-    let payload: Data
+    let payload: String // base64-encoded from FFI
     let timestamp: UInt64
     let signatureValid: Bool
     let wasEncrypted: Bool
     var groupId: GroupId?
 
+    var payloadData: Data {
+        Data(base64Encoded: payload) ?? Data()
+    }
+
     var text: String {
-        String(data: payload, encoding: .utf8) ?? "<binary \(payload.count) bytes>"
+        String(data: payloadData, encoding: .utf8) ?? "<binary \(payloadData.count) bytes>"
     }
 
     var date: Date {
