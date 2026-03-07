@@ -53,6 +53,14 @@ pub enum FrameType {
     /// Payload is two big endian u32 durations in milliseconds: when to reconnect,
     /// and how long to try total.
     Restarting = 12,
+
+    /// Sent from server to client to notify that another peer has connected to this relay.
+    ///
+    /// This is a relay-observed presence hint (non-exhaustive, best effort).
+    /// The relay samples at most k=8 peers per new connection to bound diffusion.
+    ///
+    /// 32B pub key of peer that's present
+    PeerPresent = 13,
 }
 
 #[stack_error(derive, add_meta)]

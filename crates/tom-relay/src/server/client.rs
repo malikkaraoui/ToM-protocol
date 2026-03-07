@@ -60,6 +60,8 @@ pub(super) struct Client {
     send_queue: mpsc::Sender<Packet>,
     /// Channel to notify the client that a previous sender has disconnected.
     peer_gone: mpsc::Sender<EndpointId>,
+    /// Channel to notify the client that a peer is present on the relay.
+    peer_present: mpsc::Sender<EndpointId>,
 }
 
 impl Client {
@@ -83,12 +85,14 @@ impl Client {
         let (send_queue_s, send_queue_r) = mpsc::channel(channel_capacity);
 
         let (peer_gone_s, peer_gone_r) = mpsc::channel(channel_capacity);
+        let (peer_present_s, peer_present_r) = mpsc::channel(channel_capacity);
 
         let actor = Actor {
             stream,
             timeout: write_timeout,
             send_queue: send_queue_r,
             endpoint_gone: peer_gone_r,
+            peer_present: peer_present_r,
             endpoint_id,
             connection_id,
             clients: clients.clone(),
@@ -112,6 +116,7 @@ impl Client {
             done,
             send_queue: send_queue_s,
             peer_gone: peer_gone_s,
+            peer_present: peer_present_s,
         }
     }
 
@@ -150,6 +155,13 @@ impl Client {
         key: EndpointId,
     ) -> Result<(), TrySendError<EndpointId>> {
         self.peer_gone.try_send(key)
+    }
+
+    pub(super) fn try_send_peer_present(
+        &self,
+        key: EndpointId,
+    ) -> Result<(), TrySendError<EndpointId>> {
+        self.peer_present.try_send(key)
     }
 }
 
@@ -207,6 +219,10 @@ pub enum RunError {
     EndpointGoneDrop {},
     #[error("EndpointGone write frame failed")]
     EndpointGoneWriteFrame { source: WriteFrameError },
+    #[error("Server.peer_present dropped")]
+    PeerPresentDrop {},
+    #[error("PeerPresent write frame failed")]
+    PeerPresentWriteFrame { source: WriteFrameError },
     #[error("Keep alive write frame failed")]
     KeepAliveWriteFrame { source: WriteFrameError },
     #[error("Tick flush")]
@@ -240,6 +256,8 @@ struct Actor {
     send_queue: mpsc::Receiver<Packet>,
     /// Notify the client that a previous sender has disconnected
     endpoint_gone: mpsc::Receiver<EndpointId>,
+    /// Notify the client that a peer is present on the relay
+    peer_present: mpsc::Receiver<EndpointId>,
     /// [`EndpointId`] of this client
     endpoint_id: EndpointId,
     /// Connection identifier.
@@ -318,6 +336,13 @@ impl Actor {
                     self.write_frame(RelayToClientMsg::EndpointGone(endpoint_id))
                         .await
                         .map_err(|err| e!(RunError::EndpointGoneWriteFrame, err))?;
+                }
+                endpoint_id = self.peer_present.recv() => {
+                    let endpoint_id = endpoint_id.ok_or_else(|| e!(RunError::PeerPresentDrop))?;
+                    trace!(peer = %endpoint_id.fmt_short(), "peer present");
+                    self.write_frame(RelayToClientMsg::PeerPresent(endpoint_id))
+                        .await
+                        .map_err(|err| e!(RunError::PeerPresentWriteFrame, err))?;
                 }
                 _ = self.ping_tracker.timeout() => {
                     trace!("pong timed out");
@@ -518,6 +543,7 @@ mod tests {
 
         let (send_queue_s, send_queue_r) = mpsc::channel(10);
         let (peer_gone_s, peer_gone_r) = mpsc::channel(10);
+        let (_peer_present_s, peer_present_r) = mpsc::channel(10);
 
         let endpoint_id = SecretKey::generate(&mut rng).public();
         let (io, io_rw) = tokio::io::duplex(1024);
@@ -531,6 +557,7 @@ mod tests {
             timeout: Duration::from_secs(1),
             send_queue: send_queue_r,
             endpoint_gone: peer_gone_r,
+            peer_present: peer_present_r,
             connection_id: 0,
             endpoint_id,
             clients: clients.clone(),

@@ -921,12 +921,12 @@ mod tests {
 
         info!("ping a");
         client_a.send(ClientToRelayMsg::Ping([1u8; 8])).await?;
-        let pong = client_a.next().await.expect("eos")?;
+        let pong = recv_data_client(&mut client_a).await?;
         assert!(matches!(pong, RelayToClientMsg::Pong { .. }));
 
         info!("ping b");
         client_b.send(ClientToRelayMsg::Ping([2u8; 8])).await?;
-        let pong = client_b.next().await.expect("eos")?;
+        let pong = recv_data_client(&mut client_b).await?;
         assert!(matches!(pong, RelayToClientMsg::Pong { .. }));
 
         info!("sending message from a to b");
@@ -938,8 +938,9 @@ mod tests {
             })
             .await?;
         info!("waiting for message from a on b");
+        let frame = recv_data_client(&mut client_b).await?;
         let (got_key, got_msg) =
-            process_msg(client_b.next().await).expect("expected message from client_a");
+            process_msg(Some(Ok(frame))).expect("expected message from client_a");
         assert_eq!(a_key, got_key);
         assert_eq!(msg, got_msg);
 
@@ -952,8 +953,9 @@ mod tests {
             })
             .await?;
         info!("waiting for message b on a");
+        let frame = recv_data_client(&mut client_a).await?;
         let (got_key, got_msg) =
-            process_msg(client_a.next().await).expect("expected message from client_b");
+            process_msg(Some(Ok(frame))).expect("expected message from client_b");
         assert_eq!(b_key, got_key);
         assert_eq!(msg, got_msg);
 
@@ -1043,12 +1045,12 @@ mod tests {
 
         info!("ping a");
         client_a.send(ClientToRelayMsg::Ping([1u8; 8])).await?;
-        let pong = client_a.next().await.expect("eos")?;
+        let pong = recv_data_client(&mut client_a).await?;
         assert!(matches!(pong, RelayToClientMsg::Pong { .. }));
 
         info!("ping b");
         client_b.send(ClientToRelayMsg::Ping([2u8; 8])).await?;
-        let pong = client_b.next().await.expect("eos")?;
+        let pong = recv_data_client(&mut client_b).await?;
         assert!(matches!(pong, RelayToClientMsg::Pong { .. }));
 
         info!("sending message from a to b");
@@ -1060,8 +1062,9 @@ mod tests {
             })
             .await?;
         info!("waiting for message from a on b");
+        let frame = recv_data_client(&mut client_b).await?;
         let (got_key, got_msg) =
-            process_msg(client_b.next().await).expect("expected message from client_a");
+            process_msg(Some(Ok(frame))).expect("expected message from client_a");
         assert_eq!(a_key, got_key);
         assert_eq!(msg, got_msg);
 
@@ -1074,8 +1077,9 @@ mod tests {
             })
             .await?;
         info!("waiting for message b on a");
+        let frame = recv_data_client(&mut client_a).await?;
         let (got_key, got_msg) =
-            process_msg(client_a.next().await).expect("expected message from client_b");
+            process_msg(Some(Ok(frame))).expect("expected message from client_b");
         assert_eq!(b_key, got_key);
         assert_eq!(msg, got_msg);
 
@@ -1093,6 +1097,26 @@ mod tests {
         let client = tokio_websockets::ClientBuilder::new().take_over(client);
         let client = Conn::new(client, KeyCache::test(), key).await?;
         Ok(client)
+    }
+
+    /// Receives the next non-PeerPresent frame from a Conn, skipping any PeerPresent hints.
+    async fn recv_data_frame(conn: &mut Conn) -> Result<RelayToClientMsg> {
+        loop {
+            let msg = conn.next().await.expect("unexpected eos")?;
+            if !matches!(msg, RelayToClientMsg::PeerPresent(_)) {
+                return Ok(msg);
+            }
+        }
+    }
+
+    /// Receives the next non-PeerPresent frame from a Client, skipping any PeerPresent hints.
+    async fn recv_data_client(client: &mut Client) -> Result<RelayToClientMsg> {
+        loop {
+            let msg = client.next().await.expect("unexpected eos")?;
+            if !matches!(msg, RelayToClientMsg::PeerPresent(_)) {
+                return Ok(msg);
+            }
+        }
     }
 
     #[tokio::test]
@@ -1114,7 +1138,7 @@ mod tests {
         info!("Create client A and connect it to the server.");
         let key_a = SecretKey::generate(&mut rng);
         let public_key_a = key_a.public();
-        let (client_a, rw_a) = tokio::io::duplex(10);
+        let (client_a, rw_a) = tokio::io::duplex(1024);
         let s = service.clone();
         let handler_task =
             tokio::spawn(async move { s.0.accept(MaybeTlsStream::Test(rw_a), None).await });
@@ -1124,7 +1148,7 @@ mod tests {
         info!("Create client B and connect it to the server.");
         let key_b = SecretKey::generate(&mut rng);
         let public_key_b = key_b.public();
-        let (client_b, rw_b) = tokio::io::duplex(10);
+        let (client_b, rw_b) = tokio::io::duplex(1024);
         let s = service.clone();
         let handler_task =
             tokio::spawn(async move { s.0.accept(MaybeTlsStream::Test(rw_b), None).await });
@@ -1139,7 +1163,7 @@ mod tests {
                 datagrams: msg.clone(),
             })
             .await?;
-        match client_b.next().await.unwrap()? {
+        match recv_data_frame(&mut client_b).await? {
             RelayToClientMsg::Datagrams {
                 remote_endpoint_id,
                 datagrams,
@@ -1160,7 +1184,7 @@ mod tests {
                 datagrams: msg.clone(),
             })
             .await?;
-        match client_a.next().await.unwrap()? {
+        match recv_data_frame(&mut client_a).await? {
             RelayToClientMsg::Datagrams {
                 remote_endpoint_id,
                 datagrams,
@@ -1185,7 +1209,14 @@ mod tests {
             })
             .await;
         assert!(res.is_err());
-        assert!(client_b.next().await.is_none());
+        // Drain any remaining PeerPresent hints before checking for stream end
+        loop {
+            match client_b.next().await {
+                Some(Ok(RelayToClientMsg::PeerPresent(_))) => continue,
+                Some(Ok(msg)) => panic!("unexpected message after shutdown: {msg:?}"),
+                Some(Err(_)) | None => break,
+            }
+        }
 
         drop(client_a);
         drop(client_b);
@@ -1214,7 +1245,7 @@ mod tests {
         info!("Create client A and connect it to the server.");
         let key_a = SecretKey::generate(&mut rng);
         let public_key_a = key_a.public();
-        let (client_a, rw_a) = tokio::io::duplex(10);
+        let (client_a, rw_a) = tokio::io::duplex(1024);
         let s = service.clone();
         let handler_task =
             tokio::spawn(async move { s.0.accept(MaybeTlsStream::Test(rw_a), None).await });
@@ -1224,7 +1255,7 @@ mod tests {
         info!("Create client B and connect it to the server.");
         let key_b = SecretKey::generate(&mut rng);
         let public_key_b = key_b.public();
-        let (client_b, rw_b) = tokio::io::duplex(10);
+        let (client_b, rw_b) = tokio::io::duplex(1024);
         let s = service.clone();
         let handler_task =
             tokio::spawn(async move { s.0.accept(MaybeTlsStream::Test(rw_b), None).await });
@@ -1239,7 +1270,7 @@ mod tests {
                 datagrams: msg.clone(),
             })
             .await?;
-        match client_b.next().await.expect("eos")? {
+        match recv_data_frame(&mut client_b).await? {
             RelayToClientMsg::Datagrams {
                 remote_endpoint_id,
                 datagrams,
@@ -1260,7 +1291,7 @@ mod tests {
                 datagrams: msg.clone(),
             })
             .await?;
-        match client_a.next().await.expect("eos")? {
+        match recv_data_frame(&mut client_a).await? {
             RelayToClientMsg::Datagrams {
                 remote_endpoint_id,
                 datagrams,
@@ -1274,7 +1305,7 @@ mod tests {
         }
 
         info!("Create client B and connect it to the server");
-        let (new_client_b, new_rw_b) = tokio::io::duplex(10);
+        let (new_client_b, new_rw_b) = tokio::io::duplex(1024);
         let s = service.clone();
         let handler_task =
             tokio::spawn(async move { s.0.accept(MaybeTlsStream::Test(new_rw_b), None).await });
@@ -1291,7 +1322,7 @@ mod tests {
                 datagrams: msg.clone(),
             })
             .await?;
-        match new_client_b.next().await.expect("eos")? {
+        match recv_data_frame(&mut new_client_b).await? {
             RelayToClientMsg::Datagrams {
                 remote_endpoint_id,
                 datagrams,
@@ -1312,7 +1343,7 @@ mod tests {
                 datagrams: msg.clone(),
             })
             .await?;
-        match client_a.next().await.expect("eos")? {
+        match recv_data_frame(&mut client_a).await? {
             RelayToClientMsg::Datagrams {
                 remote_endpoint_id,
                 datagrams,
@@ -1336,7 +1367,14 @@ mod tests {
             })
             .await;
         assert!(res.is_err());
-        assert!(new_client_b.next().await.is_none());
+        // Drain any remaining PeerPresent hints before checking for stream end
+        loop {
+            match new_client_b.next().await {
+                Some(Ok(RelayToClientMsg::PeerPresent(_))) => continue,
+                Some(Ok(msg)) => panic!("unexpected message after shutdown: {msg:?}"),
+                Some(Err(_)) | None => break,
+            }
+        }
         Ok(())
     }
 }
