@@ -67,13 +67,6 @@ struct SettingsView: View {
                 }
 
                 Section("Peers") {
-                    TextField("NAS Peer Node ID", text: Binding(
-                        get: { nodeService.nasPeerNodeId },
-                        set: { nodeService.nasPeerNodeId = $0 }
-                    ))
-                    .font(.system(.body, design: .monospaced))
-                    .disabled(nodeService.state == .running)
-
                     if !nodeService.connectedPeers.isEmpty {
                         ForEach(nodeService.connectedPeers, id: \.self) { peer in
                             SettingsRow(
@@ -83,6 +76,18 @@ struct SettingsView: View {
                                 valueColor: .green
                             )
                         }
+                    }
+                    if !nodeService.discoveredPeers.isEmpty {
+                        ForEach(nodeService.discoveredPeers) { peer in
+                            SettingsRow(
+                                label: "Discovered",
+                                value: peer.displayName,
+                                valueColor: .blue
+                            )
+                        }
+                    }
+                    if nodeService.connectedPeers.isEmpty && nodeService.discoveredPeers.isEmpty {
+                        SettingsRow(label: "Peers", value: "None yet", valueColor: .secondary)
                     }
                 }
 
