@@ -13,6 +13,7 @@ use tom_base::{EndpointId, RelayUrl, TransportAddr};
 use tom_relay::RelayMap;
 use n0_watcher::Watcher;
 use relay::{RelayNetworkChangeSender, RelaySender};
+use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, instrument, trace, warn};
 
@@ -39,6 +40,8 @@ pub(crate) struct Transports {
     poll_recv_counter: usize,
     /// Cache for source addrs, to speed up access
     source_addrs: [Addr; quinn_udp::BATCH_SIZE],
+    /// Receiver for PeerPresent events from relay servers.
+    peer_present_rx: Option<mpsc::Receiver<(EndpointId, RelayUrl)>>,
 }
 
 #[cfg(not(wasm_browser))]
@@ -190,10 +193,18 @@ impl Transports {
         #[cfg(not(wasm_browser))]
         let ip = IpTransports::bind(ip_configs.into_iter(), metrics)?;
 
+        let (peer_present_tx, peer_present_rx) = mpsc::channel(128);
+
         let relay = configs
             .iter()
             .filter(|t| matches!(t, TransportConfig::Relay { .. }))
-            .map(|_c| RelayTransport::new(relay_actor_config.clone(), shutdown_token.child_token()))
+            .map(|_c| {
+                RelayTransport::new(
+                    relay_actor_config.clone(),
+                    shutdown_token.child_token(),
+                    peer_present_tx.clone(),
+                )
+            })
             .collect();
 
         Ok(Self {
@@ -202,6 +213,7 @@ impl Transports {
             relay,
             poll_recv_counter: Default::default(),
             source_addrs: Default::default(),
+            peer_present_rx: Some(peer_present_rx),
         })
     }
 
@@ -361,6 +373,13 @@ impl Transports {
             relay,
             max_transmit_segments,
         }
+    }
+
+    /// Takes the PeerPresent receiver, can only be called once.
+    pub(crate) fn take_peer_present_rx(
+        &mut self,
+    ) -> Option<mpsc::Receiver<(EndpointId, RelayUrl)>> {
+        self.peer_present_rx.take()
     }
 
     /// Handles potential changes to the underlying network conditions.

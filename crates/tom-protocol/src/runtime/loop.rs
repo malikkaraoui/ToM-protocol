@@ -106,6 +106,9 @@ pub(super) async fn runtime_loop(
         state.publish_to_dht(&secret_seed, relay_urls, direct_addrs).await;
     }
 
+    // ── PeerPresent receiver from relay ────────────────────────────────
+    let mut peer_present_rx = node.take_peer_present_rx();
+
     // ── Rejoin groups after restart (one-shot) ────────────────────────
     let rejoin_effects = state.build_rejoin_effects();
     if !rejoin_effects.is_empty() {
@@ -187,6 +190,30 @@ pub(super) async fn runtime_loop(
             // ── 3. Path events from transport ───────────────────
             Ok(event) = path_rx.recv() => {
                 vec![RuntimeEffect::Emit(ProtocolEvent::PathChanged { event })]
+            }
+
+            // ── 3b. Relay PeerPresent: auto-discovery ──────────
+            event = async {
+                match peer_present_rx.as_mut() {
+                    Some(rx) => rx.recv().await,
+                    None => std::future::pending().await,
+                }
+            } => {
+                if let Some((endpoint_id, relay_url)) = event {
+                    let node_id = NodeId::from_endpoint_id(endpoint_id);
+                    tracing::info!(peer = %node_id, relay = %relay_url, "relay PeerPresent -> gossip join");
+                    // 1. Inject address (MemoryLookup + Pool)
+                    let addr = tom_connect::EndpointAddr::new(endpoint_id).with_relay_url(relay_url);
+                    node.add_peer_addr(addr).await;
+                    // 2. Tell gossip to dial (AFTER address injection)
+                    if let Some(ref sender) = gossip_sender {
+                        let _ = sender.join_peers(vec![endpoint_id]).await;
+                    }
+                    // 3. Enrich protocol topology
+                    state.handle_command(RuntimeCommand::AddPeer { node_id })
+                } else {
+                    Vec::new()
+                }
             }
 
             // ── 4. Timer: cache cleanup ─────────────────────────
