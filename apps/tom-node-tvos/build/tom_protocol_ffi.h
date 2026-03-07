@@ -131,6 +131,13 @@ int32_t tom_node_add_peer_addr(const TomNodeHandle handle, const char* peer_addr
 /// Caller must free returned string with tom_node_free_string()
 char* tom_node_connected_peers(const TomNodeHandle handle);
 
+/// Get peers discovered via gossip/DHT
+///
+/// Returns: JSON array of discovered peers with usernames:
+/// [{"node_id":"<hex>","username":"alice","source":"Announce","discovered_at":1234567890}, ...]
+/// Caller must free returned string with tom_node_free_string()
+char* tom_node_discovered_peers(const TomNodeHandle handle);
+
 /// Free a string returned by FFI functions
 void tom_node_free_string(char* s);
 

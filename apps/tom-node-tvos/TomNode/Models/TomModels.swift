@@ -5,12 +5,26 @@ typealias GroupId = String
 typealias MessageId = String
 
 struct TomPeer: Identifiable, Codable {
-    let id: NodeId
-    var isOnline: Bool = false
-    var lastSeen: Date?
+    let nodeId: NodeId
+    var username: String = ""
+    var source: String = ""
+    var discoveredAt: UInt64 = 0
+
+    var id: NodeId { nodeId }
+
+    var displayName: String {
+        username.isEmpty ? shortId : username
+    }
 
     var shortId: String {
-        String(id.prefix(8)) + "..." + String(id.suffix(4))
+        String(nodeId.prefix(8)) + "..." + String(nodeId.suffix(4))
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case nodeId = "node_id"
+        case username
+        case source
+        case discoveredAt = "discovered_at"
     }
 }
 

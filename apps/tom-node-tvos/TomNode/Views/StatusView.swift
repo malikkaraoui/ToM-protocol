@@ -39,9 +39,38 @@ struct StatusView: View {
 
                 // Stats
                 HStack(spacing: 40) {
-                    StatBox(title: "Peers", value: "\(nodeService.peersCount)", icon: "person.2")
+                    StatBox(title: "Peers", value: "\(nodeService.discoveredPeers.count)", icon: "person.2")
                     StatBox(title: "Groups", value: "\(nodeService.groupsCount)", icon: "person.3")
                     StatBox(title: "Messages", value: "\(nodeService.messages.count)", icon: "message")
+                }
+
+                // Discovered Peers
+                if !nodeService.discoveredPeers.isEmpty {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Discovered Peers")
+                            .font(.headline)
+                        ForEach(nodeService.discoveredPeers) { peer in
+                            HStack {
+                                Circle()
+                                    .fill(.green)
+                                    .frame(width: 10, height: 10)
+                                Text(peer.displayName)
+                                    .font(.body)
+                                    .fontWeight(.medium)
+                                Text(peer.shortId)
+                                    .font(.system(.caption2, design: .monospaced))
+                                    .foregroundColor(.secondary)
+                                Spacer()
+                                Text(peer.source)
+                                    .font(.caption2)
+                                    .foregroundColor(.secondary)
+                            }
+                            .padding(.vertical, 4)
+                        }
+                    }
+                    .padding()
+                    .background(Color.secondary.opacity(0.1))
+                    .cornerRadius(12)
                 }
 
                 // Control buttons
