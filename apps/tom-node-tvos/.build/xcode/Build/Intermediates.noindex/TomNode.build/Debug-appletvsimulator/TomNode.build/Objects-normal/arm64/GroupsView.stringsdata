@@ -1,0 +1,104 @@
+{
+  "source": "/Users/malik/Documents/tom-protocol/apps/tom-node-tvos/TomNode/Views/GroupsView.swift",
+  "tables": {
+    "Localizable": [
+      {
+        "comment": "",
+        "key": "Groups",
+        "location": {
+          "startingColumn": 30,
+          "startingLine": 46
+        }
+      },
+      {
+        "comment": "",
+        "key": "No groups yet",
+        "location": {
+          "startingColumn": 30,
+          "startingLine": 22
+        }
+      },
+      {
+        "comment": "",
+        "key": "Create a group or wait for an invitation",
+        "location": {
+          "startingColumn": 34,
+          "startingLine": 26
+        }
+      },
+      {
+        "comment": "",
+        "key": "%lld messages",
+        "location": {
+          "startingColumn": 22,
+          "startingLine": 84
+        }
+      },
+      {
+        "comment": "",
+        "key": "Message...",
+        "location": {
+          "startingColumn": 27,
+          "startingLine": 105
+        }
+      },
+      {
+        "comment": "",
+        "key": "Send",
+        "location": {
+          "startingColumn": 24,
+          "startingLine": 106
+        }
+      },
+      {
+        "comment": "",
+        "key": "Create Group",
+        "location": {
+          "startingColumn": 30,
+          "startingLine": 134
+        }
+      },
+      {
+        "comment": "",
+        "key": "Group Name",
+        "location": {
+          "startingColumn": 25,
+          "startingLine": 126
+        }
+      },
+      {
+        "comment": "",
+        "key": "Members (comma-separated Node IDs)",
+        "location": {
+          "startingColumn": 25,
+          "startingLine": 129
+        }
+      },
+      {
+        "comment": "",
+        "key": "My Group",
+        "location": {
+          "startingColumn": 31,
+          "startingLine": 127
+        }
+      },
+      {
+        "comment": "",
+        "key": "abc123..., def456...",
+        "location": {
+          "startingColumn": 31,
+          "startingLine": 130
+        }
+      },
+      {
+        "comment": "",
+        "key": "Create",
+        "location": {
+          "startingColumn": 28,
+          "startingLine": 137
+        }
+      }
+    ]
+  },
+  "version": 1
+}

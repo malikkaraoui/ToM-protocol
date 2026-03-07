@@ -1,0 +1,88 @@
+{
+  "source": "/Users/malik/Documents/tom-protocol/apps/tom-node-tvos/TomNode/Views/SettingsView.swift",
+  "tables": {
+    "Localizable": [
+      {
+        "comment": "",
+        "key": "Settings",
+        "location": {
+          "startingColumn": 18,
+          "startingLine": 31
+        }
+      },
+      {
+        "comment": "",
+        "key": "Node Identity",
+        "location": {
+          "startingColumn": 25,
+          "startingLine": 39
+        }
+      },
+      {
+        "comment": "",
+        "key": "Network",
+        "location": {
+          "startingColumn": 25,
+          "startingLine": 47
+        }
+      },
+      {
+        "comment": "",
+        "key": "Peers",
+        "location": {
+          "startingColumn": 25,
+          "startingLine": 69
+        }
+      },
+      {
+        "comment": "",
+        "key": "Profile",
+        "location": {
+          "startingColumn": 25,
+          "startingLine": 89
+        }
+      },
+      {
+        "comment": "",
+        "key": "Info",
+        "location": {
+          "startingColumn": 25,
+          "startingLine": 93
+        }
+      },
+      {
+        "comment": "",
+        "key": "N0 Discovery",
+        "location": {
+          "startingColumn": 28,
+          "startingLine": 50
+        }
+      },
+      {
+        "comment": "",
+        "key": "DHT",
+        "location": {
+          "startingColumn": 28,
+          "startingLine": 56
+        }
+      },
+      {
+        "comment": "",
+        "key": "Encryption",
+        "location": {
+          "startingColumn": 28,
+          "startingLine": 62
+        }
+      },
+      {
+        "comment": "",
+        "key": "NAS Peer Node ID",
+        "location": {
+          "startingColumn": 31,
+          "startingLine": 70
+        }
+      }
+    ]
+  },
+  "version": 1
+}
