@@ -1,0 +1,70 @@
+{
+  "buildCommand" : {
+    "command" : "build",
+    "skipDependencies" : false,
+    "style" : "buildOnly"
+  },
+  "configuredTargets" : [
+    {
+      "guid" : "7a30f63dee5193764d0ba9c32c5a1cca21dade476309153ff43e9a4257df0bf7"
+    }
+  ],
+  "containerPath" : "/Users/malik/Documents/tom-protocol/apps/tom-node-tvos/TomNode.xcodeproj",
+  "continueBuildingAfterErrors" : false,
+  "dependencyScope" : "workspace",
+  "enableIndexBuildArena" : false,
+  "hideShellScriptEnvironment" : false,
+  "parameters" : {
+    "action" : "build",
+    "activeArchitecture" : "arm64",
+    "activeRunDestination" : {
+      "disableOnlyActiveArch" : false,
+      "platform" : "appletvsimulator",
+      "sdk" : "appletvsimulator26.2",
+      "sdkVariant" : "appletvsimulator",
+      "supportedArchitectures" : [
+        "arm64"
+      ],
+      "targetArchitecture" : "arm64"
+    },
+    "arenaInfo" : {
+      "buildIntermediatesPath" : "/Users/malik/Documents/tom-protocol/apps/tom-node-tvos/.build/xcode/Build/Intermediates.noindex",
+      "buildProductsPath" : "/Users/malik/Documents/tom-protocol/apps/tom-node-tvos/.build/xcode/Build/Products",
+      "derivedDataPath" : "/Users/malik/Documents/tom-protocol/apps/tom-node-tvos/.build/xcode",
+      "indexDataStoreFolderPath" : "/Users/malik/Documents/tom-protocol/apps/tom-node-tvos/.build/xcode/Index.noindex/DataStore",
+      "indexEnableDataStore" : true,
+      "indexPCHPath" : "/Users/malik/Documents/tom-protocol/apps/tom-node-tvos/.build/xcode/Index.noindex/PrecompiledHeaders",
+      "pchPath" : "/Users/malik/Documents/tom-protocol/apps/tom-node-tvos/.build/xcode/Build/Intermediates.noindex/PrecompiledHeaders"
+    },
+    "configurationName" : "Debug",
+    "overrides" : {
+      "commandLine" : {
+        "table" : {
+          "CODE_SIGNING_ALLOWED" : "NO"
+        }
+      },
+      "synthesized" : {
+        "table" : {
+          "ACTION" : "build",
+          "ASSETCATALOG_FILTER_FOR_DEVICE_MODEL" : "AppleTV14,1",
+          "ASSETCATALOG_FILTER_FOR_DEVICE_OS_VERSION" : "26.2",
+          "ASSETCATALOG_FILTER_FOR_THINNING_DEVICE_CONFIGURATION" : "AppleTV14,1",
+          "BUILD_ACTIVE_RESOURCES_ONLY" : "YES",
+          "ENABLE_PREVIEWS" : "NO",
+          "ENABLE_XOJIT_PREVIEWS" : "YES",
+          "ONLY_ACTIVE_ARCH" : "YES",
+          "TARGET_DEVICE_IDENTIFIER" : "1C3CCE15-26E3-48AB-8A49-57E194E6439C",
+          "TARGET_DEVICE_MODEL" : "AppleTV14,1",
+          "TARGET_DEVICE_OS_VERSION" : "26.2",
+          "TARGET_DEVICE_PLATFORM_NAME" : "appletvsimulator"
+        }
+      }
+    }
+  },
+  "schemeCommand" : "launch",
+  "showNonLoggedProgress" : true,
+  "useDryRun" : false,
+  "useImplicitDependencies" : true,
+  "useLegacyBuildLocations" : false,
+  "useParallelTargets" : true
+}

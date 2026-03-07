@@ -22,8 +22,8 @@ final class TomNodeService: ObservableObject {
     @Published var relayUrl: String = "http://82.67.95.8:3340"
     @Published var username: String = "AppleTV"
     @Published var encryption: Bool = true
-    @Published var enableDht: Bool = false
-    @Published var n0Discovery: Bool = false
+    @Published var enableDht: Bool = true
+    @Published var n0Discovery: Bool = true
     @Published var nasPeerNodeId: String = ""  // Set in Settings tab
 
     /// Track if the node was running before the app went to background

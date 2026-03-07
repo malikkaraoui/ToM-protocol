@@ -1,0 +1,40 @@
+{
+  "source": "/Users/malik/Documents/tom-protocol/apps/tom-node-tvos/TomNode/Views/StatusView.swift",
+  "tables": {
+    "Localizable": [
+      {
+        "comment": "",
+        "key": "ToM Node",
+        "location": {
+          "startingColumn": 22,
+          "startingLine": 10
+        }
+      },
+      {
+        "comment": "",
+        "key": "Node ID",
+        "location": {
+          "startingColumn": 30,
+          "startingLine": 27
+        }
+      },
+      {
+        "comment": "",
+        "key": "Start",
+        "location": {
+          "startingColumn": 35,
+          "startingLine": 51
+        }
+      },
+      {
+        "comment": "",
+        "key": "Stop",
+        "location": {
+          "startingColumn": 35,
+          "startingLine": 60
+        }
+      }
+    ]
+  },
+  "version": 1
+}

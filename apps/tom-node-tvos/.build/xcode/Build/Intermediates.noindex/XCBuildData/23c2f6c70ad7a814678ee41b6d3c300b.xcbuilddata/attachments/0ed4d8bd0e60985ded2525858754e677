@@ -1,0 +1,119 @@
+{
+  "" : {
+    "diagnostics" : "/Users/malik/Documents/tom-protocol/apps/tom-node-tvos/.build/xcode/Build/Intermediates.noindex/TomNode.build/Debug-appletvsimulator/TomNode.build/Objects-normal/arm64/TomNode-primary.dia",
+    "emit-module-dependencies" : "/Users/malik/Documents/tom-protocol/apps/tom-node-tvos/.build/xcode/Build/Intermediates.noindex/TomNode.build/Debug-appletvsimulator/TomNode.build/Objects-normal/arm64/TomNode-primary-emit-module.d",
+    "emit-module-diagnostics" : "/Users/malik/Documents/tom-protocol/apps/tom-node-tvos/.build/xcode/Build/Intermediates.noindex/TomNode.build/Debug-appletvsimulator/TomNode.build/Objects-normal/arm64/TomNode-primary-emit-module.dia",
+    "pch" : "/Users/malik/Documents/tom-protocol/apps/tom-node-tvos/.build/xcode/Build/Intermediates.noindex/TomNode.build/Debug-appletvsimulator/TomNode.build/Objects-normal/arm64/TomNode-primary-Bridging-header.pch",
+    "swift-dependencies" : "/Users/malik/Documents/tom-protocol/apps/tom-node-tvos/.build/xcode/Build/Intermediates.noindex/TomNode.build/Debug-appletvsimulator/TomNode.build/Objects-normal/arm64/TomNode-primary.swiftdeps"
+  },
+  "/Users/malik/Documents/tom-protocol/apps/tom-node-tvos/.build/xcode/Build/Intermediates.noindex/TomNode.build/Debug-appletvsimulator/TomNode.build/DerivedSources/GeneratedAssetSymbols.swift" : {
+    "const-values" : "/Users/malik/Documents/tom-protocol/apps/tom-node-tvos/.build/xcode/Build/Intermediates.noindex/TomNode.build/Debug-appletvsimulator/TomNode.build/Objects-normal/arm64/GeneratedAssetSymbols.swiftconstvalues",
+    "dependencies" : "/Users/malik/Documents/tom-protocol/apps/tom-node-tvos/.build/xcode/Build/Intermediates.noindex/TomNode.build/Debug-appletvsimulator/TomNode.build/Objects-normal/arm64/GeneratedAssetSymbols.d",
+    "diagnostics" : "/Users/malik/Documents/tom-protocol/apps/tom-node-tvos/.build/xcode/Build/Intermediates.noindex/TomNode.build/Debug-appletvsimulator/TomNode.build/Objects-normal/arm64/GeneratedAssetSymbols.dia",
+    "index-unit-output-path" : "/TomNode.build/Debug-appletvsimulator/TomNode.build/Objects-normal/arm64/GeneratedAssetSymbols.o",
+    "llvm-bc" : "/Users/malik/Documents/tom-protocol/apps/tom-node-tvos/.build/xcode/Build/Intermediates.noindex/TomNode.build/Debug-appletvsimulator/TomNode.build/Objects-normal/arm64/GeneratedAssetSymbols.bc",
+    "object" : "/Users/malik/Documents/tom-protocol/apps/tom-node-tvos/.build/xcode/Build/Intermediates.noindex/TomNode.build/Debug-appletvsimulator/TomNode.build/Objects-normal/arm64/GeneratedAssetSymbols.o",
+    "swift-dependencies" : "/Users/malik/Documents/tom-protocol/apps/tom-node-tvos/.build/xcode/Build/Intermediates.noindex/TomNode.build/Debug-appletvsimulator/TomNode.build/Objects-normal/arm64/GeneratedAssetSymbols.swiftdeps",
+    "swiftmodule" : "/Users/malik/Documents/tom-protocol/apps/tom-node-tvos/.build/xcode/Build/Intermediates.noindex/TomNode.build/Debug-appletvsimulator/TomNode.build/Objects-normal/arm64/GeneratedAssetSymbols~partial.swiftmodule"
+  },
+  "/Users/malik/Documents/tom-protocol/apps/tom-node-tvos/TomNode/Models/TomError.swift" : {
+    "const-values" : "/Users/malik/Documents/tom-protocol/apps/tom-node-tvos/.build/xcode/Build/Intermediates.noindex/TomNode.build/Debug-appletvsimulator/TomNode.build/Objects-normal/arm64/TomError.swiftconstvalues",
+    "dependencies" : "/Users/malik/Documents/tom-protocol/apps/tom-node-tvos/.build/xcode/Build/Intermediates.noindex/TomNode.build/Debug-appletvsimulator/TomNode.build/Objects-normal/arm64/TomError.d",
+    "diagnostics" : "/Users/malik/Documents/tom-protocol/apps/tom-node-tvos/.build/xcode/Build/Intermediates.noindex/TomNode.build/Debug-appletvsimulator/TomNode.build/Objects-normal/arm64/TomError.dia",
+    "index-unit-output-path" : "/TomNode.build/Debug-appletvsimulator/TomNode.build/Objects-normal/arm64/TomError.o",
+    "llvm-bc" : "/Users/malik/Documents/tom-protocol/apps/tom-node-tvos/.build/xcode/Build/Intermediates.noindex/TomNode.build/Debug-appletvsimulator/TomNode.build/Objects-normal/arm64/TomError.bc",
+    "object" : "/Users/malik/Documents/tom-protocol/apps/tom-node-tvos/.build/xcode/Build/Intermediates.noindex/TomNode.build/Debug-appletvsimulator/TomNode.build/Objects-normal/arm64/TomError.o",
+    "swift-dependencies" : "/Users/malik/Documents/tom-protocol/apps/tom-node-tvos/.build/xcode/Build/Intermediates.noindex/TomNode.build/Debug-appletvsimulator/TomNode.build/Objects-normal/arm64/TomError.swiftdeps",
+    "swiftmodule" : "/Users/malik/Documents/tom-protocol/apps/tom-node-tvos/.build/xcode/Build/Intermediates.noindex/TomNode.build/Debug-appletvsimulator/TomNode.build/Objects-normal/arm64/TomError~partial.swiftmodule"
+  },
+  "/Users/malik/Documents/tom-protocol/apps/tom-node-tvos/TomNode/Models/TomModels.swift" : {
+    "const-values" : "/Users/malik/Documents/tom-protocol/apps/tom-node-tvos/.build/xcode/Build/Intermediates.noindex/TomNode.build/Debug-appletvsimulator/TomNode.build/Objects-normal/arm64/TomModels.swiftconstvalues",
+    "dependencies" : "/Users/malik/Documents/tom-protocol/apps/tom-node-tvos/.build/xcode/Build/Intermediates.noindex/TomNode.build/Debug-appletvsimulator/TomNode.build/Objects-normal/arm64/TomModels.d",
+    "diagnostics" : "/Users/malik/Documents/tom-protocol/apps/tom-node-tvos/.build/xcode/Build/Intermediates.noindex/TomNode.build/Debug-appletvsimulator/TomNode.build/Objects-normal/arm64/TomModels.dia",
+    "index-unit-output-path" : "/TomNode.build/Debug-appletvsimulator/TomNode.build/Objects-normal/arm64/TomModels.o",
+    "llvm-bc" : "/Users/malik/Documents/tom-protocol/apps/tom-node-tvos/.build/xcode/Build/Intermediates.noindex/TomNode.build/Debug-appletvsimulator/TomNode.build/Objects-normal/arm64/TomModels.bc",
+    "object" : "/Users/malik/Documents/tom-protocol/apps/tom-node-tvos/.build/xcode/Build/Intermediates.noindex/TomNode.build/Debug-appletvsimulator/TomNode.build/Objects-normal/arm64/TomModels.o",
+    "swift-dependencies" : "/Users/malik/Documents/tom-protocol/apps/tom-node-tvos/.build/xcode/Build/Intermediates.noindex/TomNode.build/Debug-appletvsimulator/TomNode.build/Objects-normal/arm64/TomModels.swiftdeps",
+    "swiftmodule" : "/Users/malik/Documents/tom-protocol/apps/tom-node-tvos/.build/xcode/Build/Intermediates.noindex/TomNode.build/Debug-appletvsimulator/TomNode.build/Objects-normal/arm64/TomModels~partial.swiftmodule"
+  },
+  "/Users/malik/Documents/tom-protocol/apps/tom-node-tvos/TomNode/Models/TomNodeWrapper.swift" : {
+    "const-values" : "/Users/malik/Documents/tom-protocol/apps/tom-node-tvos/.build/xcode/Build/Intermediates.noindex/TomNode.build/Debug-appletvsimulator/TomNode.build/Objects-normal/arm64/TomNodeWrapper.swiftconstvalues",
+    "dependencies" : "/Users/malik/Documents/tom-protocol/apps/tom-node-tvos/.build/xcode/Build/Intermediates.noindex/TomNode.build/Debug-appletvsimulator/TomNode.build/Objects-normal/arm64/TomNodeWrapper.d",
+    "diagnostics" : "/Users/malik/Documents/tom-protocol/apps/tom-node-tvos/.build/xcode/Build/Intermediates.noindex/TomNode.build/Debug-appletvsimulator/TomNode.build/Objects-normal/arm64/TomNodeWrapper.dia",
+    "index-unit-output-path" : "/TomNode.build/Debug-appletvsimulator/TomNode.build/Objects-normal/arm64/TomNodeWrapper.o",
+    "llvm-bc" : "/Users/malik/Documents/tom-protocol/apps/tom-node-tvos/.build/xcode/Build/Intermediates.noindex/TomNode.build/Debug-appletvsimulator/TomNode.build/Objects-normal/arm64/TomNodeWrapper.bc",
+    "object" : "/Users/malik/Documents/tom-protocol/apps/tom-node-tvos/.build/xcode/Build/Intermediates.noindex/TomNode.build/Debug-appletvsimulator/TomNode.build/Objects-normal/arm64/TomNodeWrapper.o",
+    "swift-dependencies" : "/Users/malik/Documents/tom-protocol/apps/tom-node-tvos/.build/xcode/Build/Intermediates.noindex/TomNode.build/Debug-appletvsimulator/TomNode.build/Objects-normal/arm64/TomNodeWrapper.swiftdeps",
+    "swiftmodule" : "/Users/malik/Documents/tom-protocol/apps/tom-node-tvos/.build/xcode/Build/Intermediates.noindex/TomNode.build/Debug-appletvsimulator/TomNode.build/Objects-normal/arm64/TomNodeWrapper~partial.swiftmodule"
+  },
+  "/Users/malik/Documents/tom-protocol/apps/tom-node-tvos/TomNode/Services/TomNodeService.swift" : {
+    "const-values" : "/Users/malik/Documents/tom-protocol/apps/tom-node-tvos/.build/xcode/Build/Intermediates.noindex/TomNode.build/Debug-appletvsimulator/TomNode.build/Objects-normal/arm64/TomNodeService.swiftconstvalues",
+    "dependencies" : "/Users/malik/Documents/tom-protocol/apps/tom-node-tvos/.build/xcode/Build/Intermediates.noindex/TomNode.build/Debug-appletvsimulator/TomNode.build/Objects-normal/arm64/TomNodeService.d",
+    "diagnostics" : "/Users/malik/Documents/tom-protocol/apps/tom-node-tvos/.build/xcode/Build/Intermediates.noindex/TomNode.build/Debug-appletvsimulator/TomNode.build/Objects-normal/arm64/TomNodeService.dia",
+    "index-unit-output-path" : "/TomNode.build/Debug-appletvsimulator/TomNode.build/Objects-normal/arm64/TomNodeService.o",
+    "llvm-bc" : "/Users/malik/Documents/tom-protocol/apps/tom-node-tvos/.build/xcode/Build/Intermediates.noindex/TomNode.build/Debug-appletvsimulator/TomNode.build/Objects-normal/arm64/TomNodeService.bc",
+    "object" : "/Users/malik/Documents/tom-protocol/apps/tom-node-tvos/.build/xcode/Build/Intermediates.noindex/TomNode.build/Debug-appletvsimulator/TomNode.build/Objects-normal/arm64/TomNodeService.o",
+    "swift-dependencies" : "/Users/malik/Documents/tom-protocol/apps/tom-node-tvos/.build/xcode/Build/Intermediates.noindex/TomNode.build/Debug-appletvsimulator/TomNode.build/Objects-normal/arm64/TomNodeService.swiftdeps",
+    "swiftmodule" : "/Users/malik/Documents/tom-protocol/apps/tom-node-tvos/.build/xcode/Build/Intermediates.noindex/TomNode.build/Debug-appletvsimulator/TomNode.build/Objects-normal/arm64/TomNodeService~partial.swiftmodule"
+  },
+  "/Users/malik/Documents/tom-protocol/apps/tom-node-tvos/TomNode/TomNodeApp.swift" : {
+    "const-values" : "/Users/malik/Documents/tom-protocol/apps/tom-node-tvos/.build/xcode/Build/Intermediates.noindex/TomNode.build/Debug-appletvsimulator/TomNode.build/Objects-normal/arm64/TomNodeApp.swiftconstvalues",
+    "dependencies" : "/Users/malik/Documents/tom-protocol/apps/tom-node-tvos/.build/xcode/Build/Intermediates.noindex/TomNode.build/Debug-appletvsimulator/TomNode.build/Objects-normal/arm64/TomNodeApp.d",
+    "diagnostics" : "/Users/malik/Documents/tom-protocol/apps/tom-node-tvos/.build/xcode/Build/Intermediates.noindex/TomNode.build/Debug-appletvsimulator/TomNode.build/Objects-normal/arm64/TomNodeApp.dia",
+    "index-unit-output-path" : "/TomNode.build/Debug-appletvsimulator/TomNode.build/Objects-normal/arm64/TomNodeApp.o",
+    "llvm-bc" : "/Users/malik/Documents/tom-protocol/apps/tom-node-tvos/.build/xcode/Build/Intermediates.noindex/TomNode.build/Debug-appletvsimulator/TomNode.build/Objects-normal/arm64/TomNodeApp.bc",
+    "object" : "/Users/malik/Documents/tom-protocol/apps/tom-node-tvos/.build/xcode/Build/Intermediates.noindex/TomNode.build/Debug-appletvsimulator/TomNode.build/Objects-normal/arm64/TomNodeApp.o",
+    "swift-dependencies" : "/Users/malik/Documents/tom-protocol/apps/tom-node-tvos/.build/xcode/Build/Intermediates.noindex/TomNode.build/Debug-appletvsimulator/TomNode.build/Objects-normal/arm64/TomNodeApp.swiftdeps",
+    "swiftmodule" : "/Users/malik/Documents/tom-protocol/apps/tom-node-tvos/.build/xcode/Build/Intermediates.noindex/TomNode.build/Debug-appletvsimulator/TomNode.build/Objects-normal/arm64/TomNodeApp~partial.swiftmodule"
+  },
+  "/Users/malik/Documents/tom-protocol/apps/tom-node-tvos/TomNode/Views/ContentView.swift" : {
+    "const-values" : "/Users/malik/Documents/tom-protocol/apps/tom-node-tvos/.build/xcode/Build/Intermediates.noindex/TomNode.build/Debug-appletvsimulator/TomNode.build/Objects-normal/arm64/ContentView.swiftconstvalues",
+    "dependencies" : "/Users/malik/Documents/tom-protocol/apps/tom-node-tvos/.build/xcode/Build/Intermediates.noindex/TomNode.build/Debug-appletvsimulator/TomNode.build/Objects-normal/arm64/ContentView.d",
+    "diagnostics" : "/Users/malik/Documents/tom-protocol/apps/tom-node-tvos/.build/xcode/Build/Intermediates.noindex/TomNode.build/Debug-appletvsimulator/TomNode.build/Objects-normal/arm64/ContentView.dia",
+    "index-unit-output-path" : "/TomNode.build/Debug-appletvsimulator/TomNode.build/Objects-normal/arm64/ContentView.o",
+    "llvm-bc" : "/Users/malik/Documents/tom-protocol/apps/tom-node-tvos/.build/xcode/Build/Intermediates.noindex/TomNode.build/Debug-appletvsimulator/TomNode.build/Objects-normal/arm64/ContentView.bc",
+    "object" : "/Users/malik/Documents/tom-protocol/apps/tom-node-tvos/.build/xcode/Build/Intermediates.noindex/TomNode.build/Debug-appletvsimulator/TomNode.build/Objects-normal/arm64/ContentView.o",
+    "swift-dependencies" : "/Users/malik/Documents/tom-protocol/apps/tom-node-tvos/.build/xcode/Build/Intermediates.noindex/TomNode.build/Debug-appletvsimulator/TomNode.build/Objects-normal/arm64/ContentView.swiftdeps",
+    "swiftmodule" : "/Users/malik/Documents/tom-protocol/apps/tom-node-tvos/.build/xcode/Build/Intermediates.noindex/TomNode.build/Debug-appletvsimulator/TomNode.build/Objects-normal/arm64/ContentView~partial.swiftmodule"
+  },
+  "/Users/malik/Documents/tom-protocol/apps/tom-node-tvos/TomNode/Views/GroupsView.swift" : {
+    "const-values" : "/Users/malik/Documents/tom-protocol/apps/tom-node-tvos/.build/xcode/Build/Intermediates.noindex/TomNode.build/Debug-appletvsimulator/TomNode.build/Objects-normal/arm64/GroupsView.swiftconstvalues",
+    "dependencies" : "/Users/malik/Documents/tom-protocol/apps/tom-node-tvos/.build/xcode/Build/Intermediates.noindex/TomNode.build/Debug-appletvsimulator/TomNode.build/Objects-normal/arm64/GroupsView.d",
+    "diagnostics" : "/Users/malik/Documents/tom-protocol/apps/tom-node-tvos/.build/xcode/Build/Intermediates.noindex/TomNode.build/Debug-appletvsimulator/TomNode.build/Objects-normal/arm64/GroupsView.dia",
+    "index-unit-output-path" : "/TomNode.build/Debug-appletvsimulator/TomNode.build/Objects-normal/arm64/GroupsView.o",
+    "llvm-bc" : "/Users/malik/Documents/tom-protocol/apps/tom-node-tvos/.build/xcode/Build/Intermediates.noindex/TomNode.build/Debug-appletvsimulator/TomNode.build/Objects-normal/arm64/GroupsView.bc",
+    "object" : "/Users/malik/Documents/tom-protocol/apps/tom-node-tvos/.build/xcode/Build/Intermediates.noindex/TomNode.build/Debug-appletvsimulator/TomNode.build/Objects-normal/arm64/GroupsView.o",
+    "swift-dependencies" : "/Users/malik/Documents/tom-protocol/apps/tom-node-tvos/.build/xcode/Build/Intermediates.noindex/TomNode.build/Debug-appletvsimulator/TomNode.build/Objects-normal/arm64/GroupsView.swiftdeps",
+    "swiftmodule" : "/Users/malik/Documents/tom-protocol/apps/tom-node-tvos/.build/xcode/Build/Intermediates.noindex/TomNode.build/Debug-appletvsimulator/TomNode.build/Objects-normal/arm64/GroupsView~partial.swiftmodule"
+  },
+  "/Users/malik/Documents/tom-protocol/apps/tom-node-tvos/TomNode/Views/MessagesView.swift" : {
+    "const-values" : "/Users/malik/Documents/tom-protocol/apps/tom-node-tvos/.build/xcode/Build/Intermediates.noindex/TomNode.build/Debug-appletvsimulator/TomNode.build/Objects-normal/arm64/MessagesView.swiftconstvalues",
+    "dependencies" : "/Users/malik/Documents/tom-protocol/apps/tom-node-tvos/.build/xcode/Build/Intermediates.noindex/TomNode.build/Debug-appletvsimulator/TomNode.build/Objects-normal/arm64/MessagesView.d",
+    "diagnostics" : "/Users/malik/Documents/tom-protocol/apps/tom-node-tvos/.build/xcode/Build/Intermediates.noindex/TomNode.build/Debug-appletvsimulator/TomNode.build/Objects-normal/arm64/MessagesView.dia",
+    "index-unit-output-path" : "/TomNode.build/Debug-appletvsimulator/TomNode.build/Objects-normal/arm64/MessagesView.o",
+    "llvm-bc" : "/Users/malik/Documents/tom-protocol/apps/tom-node-tvos/.build/xcode/Build/Intermediates.noindex/TomNode.build/Debug-appletvsimulator/TomNode.build/Objects-normal/arm64/MessagesView.bc",
+    "object" : "/Users/malik/Documents/tom-protocol/apps/tom-node-tvos/.build/xcode/Build/Intermediates.noindex/TomNode.build/Debug-appletvsimulator/TomNode.build/Objects-normal/arm64/MessagesView.o",
+    "swift-dependencies" : "/Users/malik/Documents/tom-protocol/apps/tom-node-tvos/.build/xcode/Build/Intermediates.noindex/TomNode.build/Debug-appletvsimulator/TomNode.build/Objects-normal/arm64/MessagesView.swiftdeps",
+    "swiftmodule" : "/Users/malik/Documents/tom-protocol/apps/tom-node-tvos/.build/xcode/Build/Intermediates.noindex/TomNode.build/Debug-appletvsimulator/TomNode.build/Objects-normal/arm64/MessagesView~partial.swiftmodule"
+  },
+  "/Users/malik/Documents/tom-protocol/apps/tom-node-tvos/TomNode/Views/SettingsView.swift" : {
+    "const-values" : "/Users/malik/Documents/tom-protocol/apps/tom-node-tvos/.build/xcode/Build/Intermediates.noindex/TomNode.build/Debug-appletvsimulator/TomNode.build/Objects-normal/arm64/SettingsView.swiftconstvalues",
+    "dependencies" : "/Users/malik/Documents/tom-protocol/apps/tom-node-tvos/.build/xcode/Build/Intermediates.noindex/TomNode.build/Debug-appletvsimulator/TomNode.build/Objects-normal/arm64/SettingsView.d",
+    "diagnostics" : "/Users/malik/Documents/tom-protocol/apps/tom-node-tvos/.build/xcode/Build/Intermediates.noindex/TomNode.build/Debug-appletvsimulator/TomNode.build/Objects-normal/arm64/SettingsView.dia",
+    "index-unit-output-path" : "/TomNode.build/Debug-appletvsimulator/TomNode.build/Objects-normal/arm64/SettingsView.o",
+    "llvm-bc" : "/Users/malik/Documents/tom-protocol/apps/tom-node-tvos/.build/xcode/Build/Intermediates.noindex/TomNode.build/Debug-appletvsimulator/TomNode.build/Objects-normal/arm64/SettingsView.bc",
+    "object" : "/Users/malik/Documents/tom-protocol/apps/tom-node-tvos/.build/xcode/Build/Intermediates.noindex/TomNode.build/Debug-appletvsimulator/TomNode.build/Objects-normal/arm64/SettingsView.o",
+    "swift-dependencies" : "/Users/malik/Documents/tom-protocol/apps/tom-node-tvos/.build/xcode/Build/Intermediates.noindex/TomNode.build/Debug-appletvsimulator/TomNode.build/Objects-normal/arm64/SettingsView.swiftdeps",
+    "swiftmodule" : "/Users/malik/Documents/tom-protocol/apps/tom-node-tvos/.build/xcode/Build/Intermediates.noindex/TomNode.build/Debug-appletvsimulator/TomNode.build/Objects-normal/arm64/SettingsView~partial.swiftmodule"
+  },
+  "/Users/malik/Documents/tom-protocol/apps/tom-node-tvos/TomNode/Views/StatusView.swift" : {
+    "const-values" : "/Users/malik/Documents/tom-protocol/apps/tom-node-tvos/.build/xcode/Build/Intermediates.noindex/TomNode.build/Debug-appletvsimulator/TomNode.build/Objects-normal/arm64/StatusView.swiftconstvalues",
+    "dependencies" : "/Users/malik/Documents/tom-protocol/apps/tom-node-tvos/.build/xcode/Build/Intermediates.noindex/TomNode.build/Debug-appletvsimulator/TomNode.build/Objects-normal/arm64/StatusView.d",
+    "diagnostics" : "/Users/malik/Documents/tom-protocol/apps/tom-node-tvos/.build/xcode/Build/Intermediates.noindex/TomNode.build/Debug-appletvsimulator/TomNode.build/Objects-normal/arm64/StatusView.dia",
+    "index-unit-output-path" : "/TomNode.build/Debug-appletvsimulator/TomNode.build/Objects-normal/arm64/StatusView.o",
+    "llvm-bc" : "/Users/malik/Documents/tom-protocol/apps/tom-node-tvos/.build/xcode/Build/Intermediates.noindex/TomNode.build/Debug-appletvsimulator/TomNode.build/Objects-normal/arm64/StatusView.bc",
+    "object" : "/Users/malik/Documents/tom-protocol/apps/tom-node-tvos/.build/xcode/Build/Intermediates.noindex/TomNode.build/Debug-appletvsimulator/TomNode.build/Objects-normal/arm64/StatusView.o",
+    "swift-dependencies" : "/Users/malik/Documents/tom-protocol/apps/tom-node-tvos/.build/xcode/Build/Intermediates.noindex/TomNode.build/Debug-appletvsimulator/TomNode.build/Objects-normal/arm64/StatusView.swiftdeps",
+    "swiftmodule" : "/Users/malik/Documents/tom-protocol/apps/tom-node-tvos/.build/xcode/Build/Intermediates.noindex/TomNode.build/Debug-appletvsimulator/TomNode.build/Objects-normal/arm64/StatusView~partial.swiftmodule"
+  }
+}
