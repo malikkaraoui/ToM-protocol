@@ -38,9 +38,17 @@ final class TomNodeService: ObservableObject {
 
         Task {
             do {
+                // Ensure data directory exists for SQLite persistence
+                if let dir = dataDir {
+                    try? FileManager.default.createDirectory(
+                        atPath: dir,
+                        withIntermediateDirectories: true
+                    )
+                }
+
                 try await node.create(
                     relayUrl: relayUrl,
-                    identityPath: nil,
+                    identityPath: identityPath,
                     n0Discovery: n0Discovery
                 )
 
@@ -49,14 +57,14 @@ final class TomNodeService: ObservableObject {
                     encryption: encryption,
                     enableDht: enableDht,
                     relayUrl: relayUrl,
-                    identityPath: nil,
+                    identityPath: identityPath,
                     n0Discovery: n0Discovery,
-                    dataDir: nil
+                    dataDir: dataDir
                 )
 
                 state = .running
                 startPolling()
-                log.info("Node started successfully")
+                log.info("Node started — identity: \(self.identityPath ?? "ephemeral"), data: \(self.dataDir ?? "none")")
 
                 // Auto-add NAS responder peer via relay
                 await addNasPeer()
