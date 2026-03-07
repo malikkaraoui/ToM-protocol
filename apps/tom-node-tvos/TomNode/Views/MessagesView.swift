@@ -6,6 +6,16 @@ struct MessagesView: View {
     @State private var targetPeerId = ""
     @State private var messageText = ""
 
+    /// All known peers: connected + hardcoded NAS peer (deduplicated)
+    private var knownPeers: [NodeId] {
+        var peers = nodeService.connectedPeers
+        let nas = nodeService.nasPeerNodeId
+        if !nas.isEmpty && !peers.contains(nas) {
+            peers.insert(nas, at: 0)
+        }
+        return peers
+    }
+
     var body: some View {
         NavigationStack {
             Group {
@@ -45,7 +55,7 @@ struct MessagesView: View {
                 SendMessageSheet(
                     targetPeerId: $targetPeerId,
                     messageText: $messageText,
-                    connectedPeers: nodeService.connectedPeers,
+                    knownPeers: knownPeers,
                     onSend: {
                         nodeService.sendMessage(to: targetPeerId, text: messageText)
                         messageText = ""
@@ -93,16 +103,16 @@ struct MessageRow: View {
 struct SendMessageSheet: View {
     @Binding var targetPeerId: String
     @Binding var messageText: String
-    let connectedPeers: [NodeId]
+    let knownPeers: [NodeId]
     let onSend: () -> Void
 
     var body: some View {
         NavigationStack {
             Form {
                 // Peer picker — select from connected peers
-                if !connectedPeers.isEmpty {
-                    Section("Connected Peers") {
-                        ForEach(connectedPeers, id: \.self) { peer in
+                if !knownPeers.isEmpty {
+                    Section("Peers") {
+                        ForEach(knownPeers, id: \.self) { peer in
                             Button(action: { targetPeerId = peer }) {
                                 HStack {
                                     Text(String(peer.prefix(8)) + "..." + String(peer.suffix(4)))

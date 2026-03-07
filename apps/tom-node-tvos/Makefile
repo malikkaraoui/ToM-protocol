@@ -14,7 +14,7 @@ ARCHIVE_DIR     = .build/archive
 
 # Rust FFI build (from repo root)
 REPO_ROOT       = ../..
-FFI_SCRIPT      = $(REPO_ROOT)/scripts/build-tom-protocol-ffi-tvos.sh
+FFI_SCRIPT      = scripts/build-tom-protocol-ffi-tvos.sh
 
 .PHONY: help
 help:
