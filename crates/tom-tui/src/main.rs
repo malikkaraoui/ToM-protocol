@@ -126,7 +126,7 @@ async fn main() -> anyhow::Result<()> {
     eprintln!("│  Short:   {}                          │", short_node_id(&local_id));
     eprintln!("╰─────────────────────────────────────────────╯");
 
-    // Build runtime config — pass CLI peer as gossip bootstrap
+    // Build runtime config — pass CLI peer or TOM_BOOTSTRAP_PEER as gossip bootstrap
     let mut config = RuntimeConfig {
         username: username.clone(),
         ..Default::default()
@@ -134,6 +134,14 @@ async fn main() -> anyhow::Result<()> {
     if let Some(ref peer_str) = peer_arg {
         if let Ok(peer_id) = peer_str.parse::<NodeId>() {
             config.gossip_bootstrap_peers = vec![peer_id];
+        }
+    }
+    // Add env-based bootstrap peer (for network seed phase)
+    if let Ok(bootstrap) = std::env::var("TOM_BOOTSTRAP_PEER") {
+        if let Ok(peer_id) = bootstrap.parse::<NodeId>() {
+            if !config.gossip_bootstrap_peers.contains(&peer_id) {
+                config.gossip_bootstrap_peers.push(peer_id);
+            }
         }
     }
 

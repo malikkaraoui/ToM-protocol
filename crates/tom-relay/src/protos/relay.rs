@@ -83,6 +83,9 @@ pub enum RelayToClientMsg {
     /// Indicates that the client identified by the underlying public key had previously sent you a
     /// packet but has now disconnected from the relay.
     EndpointGone(EndpointId),
+    /// Indicates that a peer identified by the underlying public key is currently connected
+    /// to this relay. This is a relay-observed hint — non-exhaustive, best effort.
+    PeerPresent(EndpointId),
     /// A one-way message from relay to client, declaring the connection health state.
     Health {
         /// If set, is a description of why the connection is unhealthy.
@@ -255,6 +258,7 @@ impl RelayToClientMsg {
                 }
             }
             Self::EndpointGone { .. } => FrameType::EndpointGone,
+            Self::PeerPresent { .. } => FrameType::PeerPresent,
             Self::Ping { .. } => FrameType::Ping,
             Self::Pong { .. } => FrameType::Pong,
             Self::Health { .. } => FrameType::Health,
@@ -284,6 +288,9 @@ impl RelayToClientMsg {
             Self::EndpointGone(endpoint_id) => {
                 dst.put(endpoint_id.as_ref());
             }
+            Self::PeerPresent(endpoint_id) => {
+                dst.put(endpoint_id.as_ref());
+            }
             Self::Ping(data) => {
                 dst.put(&data[..]);
             }
@@ -311,7 +318,7 @@ impl RelayToClientMsg {
                 32 // endpointid
                 + datagrams.encoded_len()
             }
-            Self::EndpointGone(_) => 32,
+            Self::EndpointGone(_) | Self::PeerPresent(_) => 32,
             Self::Ping(_) | Self::Pong(_) => 8,
             Self::Health { problem } => problem.len(),
             Self::Restarting { .. } => {
@@ -352,6 +359,11 @@ impl RelayToClientMsg {
                 ensure!(content.len() == EndpointId::LENGTH, Error::InvalidFrame);
                 let endpoint_id = cache.key_from_slice(content.as_ref())?;
                 Self::EndpointGone(endpoint_id)
+            }
+            FrameType::PeerPresent => {
+                ensure!(content.len() == EndpointId::LENGTH, Error::InvalidFrame);
+                let endpoint_id = cache.key_from_slice(content.as_ref())?;
+                Self::PeerPresent(endpoint_id)
             }
             FrameType::Ping => {
                 ensure!(content.len() == 8, Error::InvalidFrame);
@@ -540,6 +552,12 @@ mod tests {
                 61",
             ),
             (
+                RelayToClientMsg::PeerPresent(client_key.public()).write_to(Vec::new()),
+                "0d 19 7f 6b 23 e1 6c 85 32 c6 ab c8 38 fa cd 5e
+                a7 89 be 0c 76 b2 92 03 34 03 9b fa 8b 3d 36 8d
+                61",
+            ),
+            (
                 RelayToClientMsg::Ping([42u8; 8]).write_to(Vec::new()),
                 "09 2a 2a 2a 2a 2a 2a 2a 2a",
             ),
@@ -717,6 +735,7 @@ mod proptests {
             }
         });
         let endpoint_gone = key().prop_map(RelayToClientMsg::EndpointGone);
+        let peer_present = key().prop_map(RelayToClientMsg::PeerPresent);
         let ping = prop::array::uniform8(any::<u8>()).prop_map(RelayToClientMsg::Ping);
         let pong = prop::array::uniform8(any::<u8>()).prop_map(RelayToClientMsg::Pong);
         let health = ".{0,65536}"
@@ -730,7 +749,7 @@ mod proptests {
                 try_for: Duration::from_millis(try_for.into()),
             }
         });
-        prop_oneof![recv_packet, endpoint_gone, ping, pong, health, restarting]
+        prop_oneof![recv_packet, endpoint_gone, peer_present, ping, pong, health, restarting]
     }
 
     fn client_server_frame() -> impl Strategy<Value = ClientToRelayMsg> {

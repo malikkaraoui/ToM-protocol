@@ -6,6 +6,7 @@ use crate::protocol::{self, HandlerState, TomProtocolHandler};
 use crate::{NodeId, TomTransportError};
 
 use tom_base::SecretKey;
+use tom_connect::address_lookup::memory::MemoryLookup;
 use tom_connect::protocol::Router;
 use tom_connect::{Endpoint, RelayMode};
 use tom_gossip::Gossip;
@@ -124,6 +125,7 @@ fn next_discovery_refresh_delay(ttl_seconds: Option<u64>) -> Duration {
 pub struct TomNode {
     id: NodeId,
     pool: Arc<ConnectionPool>,
+    memory_lookup: MemoryLookup,
     incoming_rx: mpsc::Receiver<(NodeId, MessageEnvelope)>,
     incoming_raw_rx: mpsc::Receiver<(NodeId, Vec<u8>)>,
     path_event_tx: broadcast::Sender<PathEvent>,
@@ -242,6 +244,11 @@ impl TomNode {
             }
         };
 
+        // MemoryLookup: makes addresses injected via add_peer_addr() visible
+        // to the Endpoint's address resolution (used by gossip's endpoint.connect()).
+        let memory_lookup = MemoryLookup::new();
+        builder = builder.address_lookup(memory_lookup.clone());
+
         if let Some(key) = secret_key {
             builder = builder.secret_key(key);
         }
@@ -324,6 +331,7 @@ impl TomNode {
         Ok(Self {
             id,
             pool,
+            memory_lookup,
             incoming_rx,
             incoming_raw_rx,
             path_event_tx,
@@ -364,7 +372,12 @@ impl TomNode {
     }
 
     /// Add a known peer address (for bootstrap or manual discovery).
+    ///
+    /// Feeds both the MemoryLookup (for gossip's `endpoint.connect(endpoint_id)`)
+    /// and the ConnectionPool (for protocol transport's `send()`).
     pub async fn add_peer_addr(&self, addr: tom_connect::EndpointAddr) {
+        // MemoryLookup FIRST — so gossip can resolve the address before dialing
+        self.memory_lookup.add_endpoint_info(addr.clone());
         let id = NodeId::from_endpoint_id(addr.id);
         self.pool.add_addr(id, addr).await;
     }

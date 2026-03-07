@@ -833,12 +833,20 @@ mod tests {
                     datagrams: msg.clone(),
                 })
                 .await?;
-            let Ok(res) = tokio::time::timeout(Duration::from_millis(500), client_b.next()).await
+            let Ok(res) = tokio::time::timeout(Duration::from_millis(500), async {
+                loop {
+                    let msg = client_b.next().await.expect("stream finished")?;
+                    // Skip PeerPresent hints — they are best-effort and not relevant here
+                    if !matches!(msg, RelayToClientMsg::PeerPresent(_)) {
+                        return Ok::<_, n0_error::AnyError>(msg);
+                    }
+                }
+            })
+            .await
             else {
                 continue;
             };
-            let res = res.expect("stream finished")?;
-            return Ok(res);
+            return Ok(res?);
         }
         panic!("failed to send and recv message");
     }

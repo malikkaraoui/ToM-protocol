@@ -10,6 +10,7 @@ use std::{
 };
 
 use dashmap::DashMap;
+use rand::seq::SliceRandom;
 use tom_base::EndpointId;
 use tokio::sync::mpsc::error::TrySendError;
 use tracing::{debug, trace};
@@ -44,11 +45,17 @@ impl Clients {
             .await;
     }
 
+    /// Maximum number of peers to notify via PeerPresent per registration.
+    const PEER_PRESENT_K: usize = 8;
+
     /// Builds the client handler and starts the read & write loops for the connection.
     pub async fn register(&self, client_config: Config, metrics: Arc<Metrics>) {
         let endpoint_id = client_config.endpoint_id;
         let connection_id = self.get_connection_id();
         trace!(remote_endpoint = %endpoint_id.fmt_short(), "registering client");
+
+        // Sample existing peers BEFORE inserting the new client
+        let selected = self.sample_peers(endpoint_id, Self::PEER_PRESENT_K);
 
         let client = Client::new(client_config, connection_id, self, metrics);
         if let Some(old_client) = self.0.clients.insert(endpoint_id, client) {
@@ -58,10 +65,60 @@ impl Clients {
             );
             old_client.shutdown().await;
         }
+
+        // Notify selected existing peers that the new client is present
+        for &peer_id in &selected {
+            if let Some(peer) = self.0.clients.get(&peer_id) {
+                match peer.try_send_peer_present(endpoint_id) {
+                    Ok(()) => {}
+                    Err(TrySendError::Full(_)) => {
+                        debug!(dst = %peer_id.fmt_short(), "peer_present dropped: channel full");
+                    }
+                    Err(TrySendError::Closed(_)) => {
+                        debug!(dst = %peer_id.fmt_short(), "peer_present dropped: channel closed");
+                    }
+                }
+            }
+        }
+
+        // Notify the new client about the selected existing peers
+        if let Some(new_client) = self.0.clients.get(&endpoint_id) {
+            for &peer_id in &selected {
+                match new_client.try_send_peer_present(peer_id) {
+                    Ok(()) => {}
+                    Err(TrySendError::Full(_)) => {
+                        debug!(dst = %endpoint_id.fmt_short(), "peer_present dropped: channel full");
+                        break; // new client queue full, stop
+                    }
+                    Err(TrySendError::Closed(_)) => {
+                        debug!(dst = %endpoint_id.fmt_short(), "peer_present dropped: channel closed");
+                        break;
+                    }
+                }
+            }
+        }
     }
 
     fn get_connection_id(&self) -> u64 {
         self.0.next_connection_id.fetch_add(1, Ordering::Relaxed)
+    }
+
+    /// Samples up to `k` random peers from the connected clients, excluding `exclude`.
+    fn sample_peers(&self, exclude: EndpointId, k: usize) -> Vec<EndpointId> {
+        let mut peers: Vec<EndpointId> = self
+            .0
+            .clients
+            .iter()
+            .map(|entry| *entry.key())
+            .filter(|id| *id != exclude)
+            .collect();
+        if peers.len() <= k {
+            return peers;
+        }
+        let mut rng = rand::rng();
+        peers.shuffle(&mut rng);
+        peers.truncate(k);
+        peers
     }
 
     /// Removes the client from the map of clients, & sends a notification
