@@ -5210,6 +5210,7 @@ dependencies = [
  "tokio",
  "tokio-test",
  "tom-protocol",
+ "tom-relay",
  "tom-transport",
  "tracing",
  "tracing-subscriber",

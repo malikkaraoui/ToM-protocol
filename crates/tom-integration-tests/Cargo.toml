@@ -7,6 +7,7 @@ publish = false
 [dependencies]
 tom-protocol = { path = "../tom-protocol" }
 tom-transport = { path = "../tom-transport" }
+tom-relay = { path = "../tom-relay", features = ["server"] }
 tokio = { version = "1", features = ["full"] }
 anyhow = "1"
 tracing = "0.1"

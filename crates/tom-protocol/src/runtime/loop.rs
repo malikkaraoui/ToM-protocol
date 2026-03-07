@@ -141,11 +141,13 @@ pub(super) async fn runtime_loop(
                     }
                     RuntimeCommand::AddPeerAddr { addr } => {
                         let node_id = NodeId::from_endpoint_id(addr.id);
-                        // Join gossip topic so we discover this peer's announcements
-                        if let Some(ref sender) = gossip_sender {
-                            let _ = sender.join_peers(vec![addr.id]).await;
-                        }
+                        let endpoint_id = addr.id;
+                        // INVARIANT: add_peer_addr() BEFORE join_peers()
+                        // so MemoryLookup has the address when gossip dials
                         node.add_peer_addr(addr).await;
+                        if let Some(ref sender) = gossip_sender {
+                            let _ = sender.join_peers(vec![endpoint_id]).await;
+                        }
                         state.handle_command(RuntimeCommand::AddPeer { node_id })
                     }
                     RuntimeCommand::AddPeer { node_id } => {
@@ -175,10 +177,12 @@ pub(super) async fn runtime_loop(
                     RuntimeCommand::DhtLookupResult { ref addr } => {
                         // Build EndpointAddr from DHT record and inject into transport
                         if let Some(endpoint_addr) = dht_addr_to_endpoint_addr(addr) {
-                            if let Some(ref sender) = gossip_sender {
-                                let _ = sender.join_peers(vec![endpoint_addr.id]).await;
-                            }
+                            // INVARIANT: add_peer_addr() BEFORE join_peers()
+                            let endpoint_id = endpoint_addr.id;
                             node.add_peer_addr(endpoint_addr).await;
+                            if let Some(ref sender) = gossip_sender {
+                                let _ = sender.join_peers(vec![endpoint_id]).await;
+                            }
                         }
                         state.handle_command(cmd)
                     }
