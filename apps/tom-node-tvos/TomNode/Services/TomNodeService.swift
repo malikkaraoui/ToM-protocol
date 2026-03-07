@@ -25,7 +25,6 @@ final class TomNodeService: ObservableObject {
     @Published var encryption: Bool = true
     @Published var enableDht: Bool = true
     @Published var n0Discovery: Bool = true
-    @Published var nasPeerNodeId: String = "90cbf4dee5d41a524107b7fa6980590b92bd2d6586900f722b95e51c7eb60ec6"
 
     /// Track if the node was running before the app went to background
     private var wasRunningBeforeSleep = false
@@ -67,8 +66,6 @@ final class TomNodeService: ObservableObject {
                 startPolling()
                 log.info("Node started — identity: \(self.identityPath ?? "ephemeral"), data: \(self.dataDir ?? "none")")
 
-                // Auto-add NAS responder peer via relay
-                await addNasPeer()
             } catch {
                 log.error("Failed to start node: \(error.localizedDescription)")
                 state = .error
@@ -153,25 +150,6 @@ final class TomNodeService: ObservableObject {
             } catch {
                 log.error("Add peer failed: \(error.localizedDescription)")
             }
-        }
-    }
-
-    /// Auto-add NAS responder (Freebox) via the relay
-    private func addNasPeer() async {
-        // NAS responder node ID — set by tom-stress on NAS
-        // This is populated dynamically; check Settings for the current value
-        guard !nasPeerNodeId.isEmpty else {
-            log.info("No NAS peer configured — skipping auto-add")
-            return
-        }
-        do {
-            try await node.addPeerAddr(
-                nodeId: self.nasPeerNodeId,
-                relayUrl: self.relayUrl
-            )
-            log.info("Auto-added NAS peer: \(self.nasPeerNodeId.prefix(8))...")
-        } catch {
-            log.error("Failed to add NAS peer: \(error.localizedDescription)")
         }
     }
 

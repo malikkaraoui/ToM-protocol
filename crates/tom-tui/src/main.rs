@@ -6,6 +6,7 @@
 /// Usage:
 ///   tom-chat                     # Start fresh node (TUI)
 ///   tom-chat <peer-node-id>      # Start and connect to peer (TUI)
+///   tom-chat --username alice     # Set username for gossip discovery
 ///   tom-chat --bot               # Headless bot — auto-responds to messages
 use std::io;
 use std::time::{Duration, Instant};
@@ -107,6 +108,10 @@ async fn main() -> anyhow::Result<()> {
     // Parse CLI args
     let args: Vec<String> = std::env::args().collect();
     let bot_mode = args.iter().any(|a| a == "--bot");
+    let username = args.windows(2)
+        .find(|w| w[0] == "--username")
+        .map(|w| w[1].clone())
+        .unwrap_or_else(|| "anonymous".to_string());
     let peer_arg = args.get(1).filter(|a| !a.starts_with('-')).cloned();
 
     // Init transport
@@ -115,14 +120,17 @@ async fn main() -> anyhow::Result<()> {
 
     // Print node info to stderr (visible after TUI exits)
     eprintln!("╭─────────────────────────────────────────────╮");
-    eprintln!("│  tom-chat v0.1                              │");
+    eprintln!("│  tom-chat v0.1  user={:<22}│", &username);
     eprintln!("├─────────────────────────────────────────────┤");
     eprintln!("│  Node ID: {}..  │", &local_id.to_string()[..40]);
     eprintln!("│  Short:   {}                          │", short_node_id(&local_id));
     eprintln!("╰─────────────────────────────────────────────╯");
 
     // Build runtime config — pass CLI peer as gossip bootstrap
-    let mut config = RuntimeConfig::default();
+    let mut config = RuntimeConfig {
+        username: username.clone(),
+        ..Default::default()
+    };
     if let Some(ref peer_str) = peer_arg {
         if let Ok(peer_id) = peer_str.parse::<NodeId>() {
             config.gossip_bootstrap_peers = vec![peer_id];
