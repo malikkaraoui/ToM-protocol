@@ -89,6 +89,10 @@ pub struct RuntimeConfigFFI {
     /// Directory for persistent state (SQLite)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub data_dir: Option<String>,
+
+    /// Gossip bootstrap peers (hex NodeId strings)
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub gossip_bootstrap_peers: Vec<String>,
 }
 
 /// Group creation config

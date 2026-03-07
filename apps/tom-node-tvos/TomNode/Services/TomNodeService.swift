@@ -26,6 +26,11 @@ final class TomNodeService: ObservableObject {
     @Published var enableDht: Bool = true
     @Published var n0Discovery: Bool = true
 
+    /// Bootstrap peer for gossip discovery (Freebox NAS — network seed node)
+    /// This is only needed while the network is young; once enough peers exist,
+    /// gossip propagates organically and no fixed bootstrap is required.
+    @Published var bootstrapPeerId: String = "4e28f4706e0dcb01f13d74a9ea00d3bdfc62490c2f4a91f7cb8b14bed6a45814"
+
     /// Track if the node was running before the app went to background
     private var wasRunningBeforeSleep = false
 
@@ -38,7 +43,7 @@ final class TomNodeService: ObservableObject {
 
         Task {
             do {
-                // Ensure data directory exists for SQLite persistence
+                // Ensure Caches directory exists for persistence (tvOS restricts Documents)
                 if let dir = dataDir {
                     try? FileManager.default.createDirectory(
                         atPath: dir,
@@ -52,6 +57,7 @@ final class TomNodeService: ObservableObject {
                     n0Discovery: n0Discovery
                 )
 
+                let bootstrapPeers = bootstrapPeerId.isEmpty ? [] : [bootstrapPeerId]
                 try await node.start(
                     username: username,
                     encryption: encryption,
@@ -59,7 +65,8 @@ final class TomNodeService: ObservableObject {
                     relayUrl: relayUrl,
                     identityPath: identityPath,
                     n0Discovery: n0Discovery,
-                    dataDir: dataDir
+                    dataDir: dataDir,
+                    gossipBootstrapPeers: bootstrapPeers
                 )
 
                 state = .running
@@ -179,12 +186,12 @@ final class TomNodeService: ObservableObject {
     // MARK: - Private
 
     private var identityPath: String? {
-        let dir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
+        let dir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
         return dir?.appendingPathComponent("tom_identity.key").path
     }
 
     private var dataDir: String? {
-        let dir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
+        let dir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
         return dir?.appendingPathComponent("tom_data").path
     }
 

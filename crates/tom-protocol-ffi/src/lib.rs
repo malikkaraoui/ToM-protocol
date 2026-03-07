@@ -167,12 +167,20 @@ pub unsafe extern "C" fn tom_node_start(
         transport_config = transport_config.n0_discovery(n0_discovery);
     }
 
+    // Parse gossip bootstrap peers
+    let gossip_peers: Vec<tom_protocol::types::NodeId> = runtime_config
+        .gossip_bootstrap_peers
+        .iter()
+        .filter_map(|s| s.parse().ok())
+        .collect();
+
     // Build protocol config
     let protocol_config = RuntimeConfig {
         username: runtime_config.username.clone(),
         encryption: runtime_config.encryption.unwrap_or(true),
         enable_dht: runtime_config.enable_dht.unwrap_or(true),
         data_dir: runtime_config.data_dir.map(|p| p.into()),
+        gossip_bootstrap_peers: gossip_peers,
         ..Default::default()
     };
 
