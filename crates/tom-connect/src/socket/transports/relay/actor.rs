@@ -1547,6 +1547,79 @@ mod tests {
         Ok(())
     }
 
+    /// PeerPresent: when a second endpoint connects to the same relay,
+    /// the first actor receives PeerPresent on its peer_present_rx channel.
+    #[tokio::test]
+    #[traced_test]
+    async fn test_peer_present_received_on_channel() -> Result {
+        let (_relay_map, relay_url, _server) = test_utils::run_relay_server().await?;
+
+        // Actor under test — we keep peer_present_rx
+        let secret_key = SecretKey::from_bytes(&[1u8; 32]);
+        let (datagram_recv_tx, _datagram_recv_rx) = mpsc::channel(16);
+        let (_send_datagram_tx, send_datagram_rx) = mpsc::channel(16);
+        let (_prio_inbox_tx, prio_inbox_rx) = mpsc::channel(8);
+        let (inbox_tx, inbox_rx) = mpsc::channel(16);
+        let cancel_token = CancellationToken::new();
+
+        let (peer_present_tx, mut peer_present_rx) = mpsc::channel(16);
+        let opts = ActiveRelayActorOptions {
+            url: relay_url.clone(),
+            prio_inbox_: prio_inbox_rx,
+            inbox: inbox_rx,
+            relay_datagrams_send: send_datagram_rx,
+            relay_datagrams_recv: datagram_recv_tx,
+            connection_opts: RelayConnectionOptions {
+                secret_key,
+                dns_resolver: DnsResolver::new(),
+                proxy_url: None,
+                prefer_ipv6: Arc::new(AtomicBool::new(true)),
+                insecure_skip_cert_verify: true,
+            },
+            stop_token: cancel_token.clone(),
+            metrics: Default::default(),
+            peer_present_tx,
+        };
+        let _task = AbortOnDropHandle::new(
+            tokio::spawn(ActiveRelayActor::new(opts).run().instrument(info_span!("actor-under-test"))),
+        );
+
+        // Wait for the actor to connect (ping the relay)
+        tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                let (tx, rx) = oneshot::channel();
+                inbox_tx.send(ActiveRelayMessage::PingServer(tx)).await.ok();
+                if tokio::time::timeout(Duration::from_millis(200), rx)
+                    .await
+                    .map(|resp| resp.is_ok())
+                    .unwrap_or_default()
+                {
+                    break;
+                }
+            }
+        })
+        .await
+        .std_context("timeout waiting for actor to connect")?;
+
+        // Start a second endpoint — this triggers PeerPresent from the relay
+        let (echo_endpoint_id, _echo_task) = start_echo_endpoint(relay_url.clone());
+
+        // The actor under test should receive PeerPresent(echo_endpoint_id)
+        let (received_id, received_url) = tokio::time::timeout(
+            Duration::from_secs(5),
+            peer_present_rx.recv(),
+        )
+        .await
+        .std_context("timeout waiting for PeerPresent")?
+        .std_context("peer_present_rx closed")?;
+
+        assert_eq!(received_id, echo_endpoint_id, "should receive the echo endpoint's ID");
+        assert_eq!(received_url, relay_url, "should include the relay URL");
+
+        cancel_token.cancel();
+        Ok(())
+    }
+
     #[tokio::test]
     async fn test_ping_tracker() {
         tokio::time::pause();

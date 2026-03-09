@@ -67,6 +67,11 @@ impl Clients {
         }
 
         // Notify selected existing peers that the new client is present
+        trace!(
+            remote_endpoint = %endpoint_id.fmt_short(),
+            selected_count = selected.len(),
+            "peer_present: sampled peers for notification"
+        );
         for &peer_id in &selected {
             if let Some(peer) = self.0.clients.get(&peer_id) {
                 match peer.try_send_peer_present(endpoint_id) {
@@ -292,6 +297,117 @@ mod tests {
         .std_context("timeout")?;
         clients.shutdown().await;
 
+        Ok(())
+    }
+
+    /// PeerPresent: first client registers alone → no PeerPresent frames emitted.
+    #[tokio::test]
+    async fn register_first_client_no_peer_present() -> Result {
+        let mut rng = rand_chacha::ChaCha8Rng::seed_from_u64(42u64);
+        let a_key = SecretKey::generate(&mut rng).public();
+
+        let (builder_a, mut a_rw) = test_client_builder(a_key);
+        let clients = Clients::default();
+        let metrics = Arc::new(Metrics::default());
+
+        clients.register(builder_a, metrics).await;
+
+        // No frame should be available — use a short timeout
+        let result = tokio::time::timeout(
+            Duration::from_millis(100),
+            recv_frame(FrameType::PeerPresent, &mut a_rw),
+        )
+        .await;
+        assert!(result.is_err(), "first client should not receive PeerPresent");
+
+        clients.shutdown().await;
+        Ok(())
+    }
+
+    /// PeerPresent: 3 clients register sequentially.
+    /// - Client C (last) receives PeerPresent(A) and PeerPresent(B).
+    /// - Clients A and B each receive PeerPresent(C).
+    /// - No client receives PeerPresent about itself.
+    #[tokio::test]
+    async fn register_broadcasts_peer_present() -> Result {
+        let mut rng = rand_chacha::ChaCha8Rng::seed_from_u64(99u64);
+        let a_key = SecretKey::generate(&mut rng).public();
+        let b_key = SecretKey::generate(&mut rng).public();
+        let c_key = SecretKey::generate(&mut rng).public();
+
+        let (builder_a, mut a_rw) = test_client_builder(a_key);
+        let (builder_b, mut b_rw) = test_client_builder(b_key);
+        let (builder_c, mut c_rw) = test_client_builder(c_key);
+
+        let clients = Clients::default();
+        let metrics = Arc::new(Metrics::default());
+
+        // Register A (alone — no PeerPresent)
+        clients.register(builder_a, metrics.clone()).await;
+
+        // Register B — A should get PeerPresent(B), B should get PeerPresent(A)
+        clients.register(builder_b, metrics.clone()).await;
+
+        let frame_a1 = tokio::time::timeout(
+            Duration::from_secs(1),
+            recv_frame(FrameType::PeerPresent, &mut a_rw),
+        )
+        .await
+        .std_context("A should receive PeerPresent(B)")??;
+        assert_eq!(frame_a1, RelayToClientMsg::PeerPresent(b_key));
+
+        let frame_b1 = tokio::time::timeout(
+            Duration::from_secs(1),
+            recv_frame(FrameType::PeerPresent, &mut b_rw),
+        )
+        .await
+        .std_context("B should receive PeerPresent(A)")??;
+        assert_eq!(frame_b1, RelayToClientMsg::PeerPresent(a_key));
+
+        // Register C — both A and B should get PeerPresent(C)
+        clients.register(builder_c, metrics.clone()).await;
+
+        let frame_a2 = tokio::time::timeout(
+            Duration::from_secs(1),
+            recv_frame(FrameType::PeerPresent, &mut a_rw),
+        )
+        .await
+        .std_context("A should receive PeerPresent(C)")??;
+        assert_eq!(frame_a2, RelayToClientMsg::PeerPresent(c_key));
+
+        let frame_b2 = tokio::time::timeout(
+            Duration::from_secs(1),
+            recv_frame(FrameType::PeerPresent, &mut b_rw),
+        )
+        .await
+        .std_context("B should receive PeerPresent(C)")??;
+        assert_eq!(frame_b2, RelayToClientMsg::PeerPresent(c_key));
+
+        // C should receive PeerPresent(A) and PeerPresent(B) (order may vary)
+        let mut c_hints = Vec::new();
+        for _ in 0..2 {
+            let frame = tokio::time::timeout(
+                Duration::from_secs(1),
+                recv_frame(FrameType::PeerPresent, &mut c_rw),
+            )
+            .await
+            .std_context("C should receive 2 PeerPresent hints")??;
+            if let RelayToClientMsg::PeerPresent(id) = frame {
+                c_hints.push(id);
+            }
+        }
+        c_hints.sort();
+        let mut expected = vec![a_key, b_key];
+        expected.sort();
+        assert_eq!(c_hints, expected, "C should know about A and B");
+
+        // No self-reference: C should NOT have received PeerPresent(C)
+        assert!(
+            !c_hints.contains(&c_key),
+            "C must not receive PeerPresent about itself"
+        );
+
+        clients.shutdown().await;
         Ok(())
     }
 }

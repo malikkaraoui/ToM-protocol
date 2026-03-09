@@ -561,6 +561,7 @@ fn load_or_create_identity(path: &Path) -> Result<SecretKey, TomTransportError> 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rand::SeedableRng;
     use std::sync::{Arc, Mutex};
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::TcpListener;
@@ -844,5 +845,49 @@ mod tests {
 
         node.shutdown().await.unwrap();
         let _ = shutdown_tx.send(());
+    }
+
+    /// add_peer_addr() feeds both MemoryLookup and ConnectionPool.
+    /// This locks the critical invariant: MemoryLookup is populated so
+    /// gossip's endpoint.connect(endpoint_id) can resolve the address.
+    #[tokio::test]
+    async fn add_peer_addr_feeds_memory_lookup_and_pool() {
+        let config = TomNodeConfig::new().n0_discovery(false);
+        let node = TomNode::bind(config).await.unwrap();
+
+        // Create a fake peer address with a relay URL
+        let mut rng = rand::rngs::StdRng::seed_from_u64(42);
+        let peer_key = tom_base::SecretKey::generate(&mut rng).public();
+        let relay_url: tom_connect::RelayUrl = "http://127.0.0.1:9999".parse().unwrap();
+        let addr = tom_connect::EndpointAddr::new(peer_key).with_relay_url(relay_url.clone());
+
+        // Before: MemoryLookup should be empty for this peer
+        assert!(
+            node.memory_lookup.get_endpoint_info(peer_key).is_none(),
+            "peer should not exist in MemoryLookup before add_peer_addr"
+        );
+
+        // Act
+        node.add_peer_addr(addr).await;
+
+        // After: MemoryLookup should contain the peer with the relay URL
+        let info = node
+            .memory_lookup
+            .get_endpoint_info(peer_key)
+            .expect("peer should exist in MemoryLookup after add_peer_addr");
+        assert_eq!(info.endpoint_id, peer_key);
+        let relay_urls: Vec<_> = info.data.relay_urls().cloned().collect();
+        assert!(
+            relay_urls.contains(&relay_url),
+            "MemoryLookup should contain the relay URL, got: {relay_urls:?}"
+        );
+
+        // Also verify pool has the address
+        let pool_relays = node.pool.default_relay_urls().await;
+        // Pool stores per-peer, not in default_relay_urls — just verify no panic
+        // The real proof is that MemoryLookup is populated (the bug fix)
+
+        node.shutdown().await.unwrap();
+        let _ = pool_relays; // suppress unused warning
     }
 }

@@ -277,6 +277,46 @@ for effect in effects {
 
 ## Testing
 
+### Cross-Crate Validation (OBLIGATOIRE)
+
+Tout patch Rust touchant >1 crate doit suivre cette séquence :
+
+1. **Phase 0 — Cartographier l'impact avant de coder** :
+   - Identifier : crate modifié → downstream direct → downstream indirect → job CI concerné
+   - Pour discovery/relay/gossip : toujours vérifier tom-connect → tom-transport → tom-protocol → tom-stress
+
+1. **Dev itératif — feedback rapide par crate** :
+
+   ```bash
+   cargo build -p <crate touché>
+   cargo build -p <crate downstream>
+   cargo test -p <crate touché> --lib --no-run
+   cargo clippy -p <crate touché> -- -D warnings
+   ```
+
+1. **Validation finale AVANT push** :
+
+   ```bash
+   cargo clippy --workspace -- -D warnings
+   cargo test --workspace
+   ```
+
+> Un patch cross-crate n'est PAS terminé tant que clippy+test workspace ne passent pas.
+
+### Règle "commit push" — NON-NÉGOCIABLE
+
+Quand l'utilisateur demande "commit push" (ou toute variante commit + push) :
+
+1. **AVANT le push**, exécuter systématiquement :
+
+   ```bash
+   cargo clippy --workspace -- -D warnings
+   cargo test --workspace
+   ```
+
+1. Si clippy ou test échoue → corriger d'abord, ne PAS push
+1. Pas d'exception, même pour "juste un petit fix"
+
 ### Rust Tests
 ```bash
 cargo test --workspace              # All Rust tests (~700+)
