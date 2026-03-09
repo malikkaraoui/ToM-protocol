@@ -108,6 +108,16 @@ async fn main() -> anyhow::Result<()> {
     // Parse CLI args
     let args: Vec<String> = std::env::args().collect();
     let bot_mode = args.iter().any(|a| a == "--bot");
+
+    // Enable tracing in bot mode so logs are visible on stdout
+    if bot_mode {
+        let _ = tracing_subscriber::fmt()
+            .with_env_filter(
+                tracing_subscriber::EnvFilter::from_default_env()
+            )
+            .try_init();
+    }
+
     let username = args.windows(2)
         .find(|w| w[0] == "--username")
         .map(|w| w[1].clone())
