@@ -76,6 +76,10 @@ pub(super) async fn execute_effects<T: Transport>(
                     announce.new_role,
                 );
             }
+            RuntimeEffect::StartEmbeddedRelay { .. } | RuntimeEffect::StopEmbeddedRelay => {
+                // Handled in the runtime loop (needs EmbeddedRelayService).
+                tracing::debug!("embedded relay effect reached executor (should be intercepted by loop)");
+            }
             RuntimeEffect::SendWithBackupFallback {
                 ref envelope,
                 on_success,
