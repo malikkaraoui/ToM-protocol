@@ -427,15 +427,30 @@ impl TomNode {
         let conn = self.pool.get_or_connect(to).await?;
 
         tracing::trace!("send_raw: opening bi-stream to {}", to);
-        let (mut send, recv) = match conn.open_bi().await {
-            Ok(pair) => pair,
-            Err(e) => {
+        let (mut send, recv) = match tokio::time::timeout(
+            Duration::from_secs(5),
+            conn.open_bi(),
+        ).await {
+            Ok(Ok(pair)) => pair,
+            Ok(Err(e)) => {
                 // Connection is dead (e.g. NAT rebinding) — evict from pool
                 // so next attempt triggers a fresh connect + discovery.
                 self.pool.remove(&to).await;
                 return Err(TomTransportError::Send {
                     node_id: to,
                     source: e.into(),
+                });
+            }
+            Err(_elapsed) => {
+                // open_bi hung — connection is likely dead, evict
+                tracing::warn!("open_bi to {} timed out after 5s, evicting connection", to);
+                self.pool.remove(&to).await;
+                return Err(TomTransportError::Send {
+                    node_id: to,
+                    source: std::io::Error::new(
+                        std::io::ErrorKind::TimedOut,
+                        "open_bi timed out after 5s",
+                    ).into(),
                 });
             }
         };

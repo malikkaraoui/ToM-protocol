@@ -155,6 +155,12 @@ impl QuicTransportConfigBuilder {
         cfg.default_path_max_idle_timeout(Some(PATH_MAX_IDLE_TIMEOUT));
         cfg.max_concurrent_multipath_paths(MAX_MULTIPATH_PATHS + 1);
         cfg.set_max_remote_nat_traversal_addresses(MAX_MULTIPATH_PATHS as u8);
+        // Reduce global connection idle timeout from 30s (default) to 10s.
+        // This ensures dead connections are detected faster, reducing blackout
+        // duration when relay TCP drops (campaign found 2min blackout with 30s).
+        cfg.max_idle_timeout(Some(
+            IdleTimeout::try_from(Duration::from_secs(10)).expect("10s fits VarInt"),
+        ));
         Self(cfg)
     }
 
