@@ -4,11 +4,13 @@
 /// address resolution. Handles: announcements, heartbeats,
 /// liveness tracking, and ephemeral subnet clustering.
 pub mod heartbeat;
+pub mod relay_announce;
 pub mod role_sync;
 pub mod subnet;
 pub mod types;
 
 pub use heartbeat::HeartbeatTracker;
+pub use relay_announce::RelayReadyAnnounce;
 pub use role_sync::RoleChangeAnnounce;
 pub use subnet::{
     CommunicationEdge, DissolveReason, EphemeralSubnetManager, SubnetEvent, SubnetInfo,

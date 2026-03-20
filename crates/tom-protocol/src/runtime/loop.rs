@@ -364,6 +364,15 @@ pub(super) async fn runtime_loop(
                     let feedback_effects = state.handle_command(RuntimeCommand::EmbeddedRelayStopped);
                     regular_effects.extend(feedback_effects);
                 }
+                RuntimeEffect::BroadcastRelayReady(ref announce) => {
+                    if let Some(ref sender) = gossip_sender {
+                        if let Ok(bytes) = rmp_serde::to_vec(announce) {
+                            if let Err(e) = sender.broadcast(bytes::Bytes::from(bytes)).await {
+                                tracing::debug!("gossip: relay-ready broadcast failed: {e}");
+                            }
+                        }
+                    }
+                }
                 other => {
                     regular_effects.push(other);
                 }
