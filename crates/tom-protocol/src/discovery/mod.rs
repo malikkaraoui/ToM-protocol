@@ -5,12 +5,14 @@
 /// liveness tracking, and ephemeral subnet clustering.
 pub mod heartbeat;
 pub mod relay_announce;
+pub mod relay_registry;
 pub mod role_sync;
 pub mod subnet;
 pub mod types;
 
 pub use heartbeat::HeartbeatTracker;
 pub use relay_announce::RelayReadyAnnounce;
+pub use relay_registry::{RelayRegistry, RelayRegistryEntry, DEFAULT_RELAY_REGISTRY_TTL_MS};
 pub use role_sync::RoleChangeAnnounce;
 pub use subnet::{
     CommunicationEdge, DissolveReason, EphemeralSubnetManager, SubnetEvent, SubnetInfo,
