@@ -6,6 +6,10 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		AA000001000000000000F011 /* libtom_protocol_ffi.a in Frameworks */ = {isa = PBXBuildFile; fileRef = AA000001000000000000F010 /* libtom_protocol_ffi.a */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXFileReference section */
 		AA000001000000000000F001 /* TomNode.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = TomNode.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		AA000001000000000000F010 /* libtom_protocol_ffi.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; name = libtom_protocol_ffi.a; path = build/libtom_protocol_ffi.a; sourceTree = "<group>"; };
@@ -29,10 +33,6 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXFrameworksBuildPhase section */
-
-/* Begin PBXBuildFile section */
-		AA000001000000000000F011 /* libtom_protocol_ffi.a in Frameworks */ = {isa = PBXBuildFile; fileRef = AA000001000000000000F010 /* libtom_protocol_ffi.a */; };
-/* End PBXBuildFile section */
 
 /* Begin PBXGroup section */
 		AA000001000000000000F004 = {

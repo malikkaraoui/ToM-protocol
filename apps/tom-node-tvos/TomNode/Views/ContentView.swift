@@ -10,6 +10,11 @@ struct ContentView: View {
                     Label("Status", systemImage: "antenna.radiowaves.left.and.right")
                 }
 
+            LogView()
+                .tabItem {
+                    Label("Live Log", systemImage: "terminal")
+                }
+
             MessagesView()
                 .tabItem {
                     Label("Messages", systemImage: "message")

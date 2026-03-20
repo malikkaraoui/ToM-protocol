@@ -317,8 +317,11 @@ async fn main() -> anyhow::Result<()> {
     eprintln!("Node ID: {}", node.id());
     eprintln!();
 
-    // Register target's direct address for local connectivity (no relay/discovery needed)
-    if let Some(ref addr_str) = cli.target_addr {
+    // Register target address for connectivity.
+    // With --target-addr: use direct socket address.
+    // Without --target-addr but with relay: register target via relay URL
+    // so ConnectionPool can reach the peer through the relay.
+    {
         let target_id = match &cli.command {
             Command::Ping { connect, .. }
             | Command::Burst { connect, .. }
@@ -327,13 +330,25 @@ async fn main() -> anyhow::Result<()> {
             _ => None,
         };
         if let Some(target) = target_id {
-            let sock_addr: std::net::SocketAddr = addr_str
-                .parse()
-                .map_err(|e| anyhow::anyhow!("invalid --target-addr '{addr_str}': {e}"))?;
-            let endpoint_addr =
-                tom_transport::EndpointAddr::new(*target.as_endpoint_id()).with_ip_addr(sock_addr);
-            node.add_peer_addr(endpoint_addr).await;
-            eprintln!("Registered target addr: {sock_addr}");
+            if let Some(ref addr_str) = cli.target_addr {
+                let sock_addr: std::net::SocketAddr = addr_str
+                    .parse()
+                    .map_err(|e| anyhow::anyhow!("invalid --target-addr '{addr_str}': {e}"))?;
+                let endpoint_addr =
+                    tom_transport::EndpointAddr::new(*target.as_endpoint_id()).with_ip_addr(sock_addr);
+                node.add_peer_addr(endpoint_addr).await;
+                eprintln!("Registered target addr: {sock_addr}");
+            } else {
+                // No direct address — register via relay URL so the connection pool
+                // can route through the relay (essential for --no-n0-discovery mode).
+                let relays = node.default_relay_urls().await;
+                if let Some(url) = relays.first() {
+                    let endpoint_addr =
+                        tom_transport::EndpointAddr::new(*target.as_endpoint_id()).with_relay_url(url.clone());
+                    node.add_peer_addr(endpoint_addr).await;
+                    eprintln!("Registered target via relay: {url}");
+                }
+            }
         }
     }
 

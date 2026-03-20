@@ -91,6 +91,15 @@ struct SettingsView: View {
                     }
                 }
 
+                Section("Stress Testing") {
+                    Toggle("Auto-Echo (respond to all messages)", isOn: Binding(
+                        get: { nodeService.autoEchoEnabled },
+                        set: { nodeService.autoEchoEnabled = $0 }
+                    ))
+
+                    SettingsRow(label: "Echo Count", value: "\(nodeService.echoCount)")
+                }
+
                 Section("Profile") {
                     SettingsRow(label: "Username", value: nodeService.username)
                 }
