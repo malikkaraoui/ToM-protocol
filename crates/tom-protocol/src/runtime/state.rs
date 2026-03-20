@@ -105,6 +105,9 @@ pub struct RuntimeState {
     // Phase R16: Embedded relay logical state (tracked by pure state, no I/O)
     pub(crate) embedded_relay_state: super::LocalEmbeddedRelayState,
     pub(crate) embedded_relay_publication: super::EmbeddedRelayPublicationState,
+
+    // Phase R16: Relay registry (passive consumption of RelayReadyAnnounce)
+    pub(crate) relay_registry: crate::discovery::RelayRegistry,
 }
 
 impl RuntimeState {
@@ -206,6 +209,9 @@ impl RuntimeState {
             secret_seed,
             embedded_relay_state: super::LocalEmbeddedRelayState::Stopped,
             embedded_relay_publication: super::EmbeddedRelayPublicationState::NotPublished,
+            relay_registry: crate::discovery::RelayRegistry::new(
+                config.relay_registry_ttl.as_millis() as u64,
+            ),
             config,
             store,
             pending_envelopes: std::collections::HashMap::new(),
@@ -400,6 +406,16 @@ impl RuntimeState {
         }
 
         self.heartbeat.cleanup_departed();
+
+        // Prune expired relay registry entries
+        let expired_relays = self.relay_registry.prune(now_ms());
+        for entry in expired_relays {
+            effects.push(RuntimeEffect::Emit(ProtocolEvent::RelayRegistryExpired {
+                node_id: entry.node_id,
+                relay_url: entry.relay_url,
+            }));
+        }
+
         effects
     }
 
@@ -670,6 +686,14 @@ impl RuntimeState {
             node_id = %announce.node_id,
             relay_url = %announce.relay_url,
             "received RelayReadyAnnounce"
+        );
+
+        // Store in registry
+        self.relay_registry.upsert(
+            announce.node_id,
+            announce.relay_url.clone(),
+            announce.timestamp,
+            now_ms(),
         );
 
         // Emit event for observability — no auto-selection yet
@@ -1759,6 +1783,13 @@ impl RuntimeState {
                     self.role_manager
                         .get_all_scores(&self.topology, now_ms());
                 let _ = reply.send(scores);
+                Vec::new()
+            }
+
+            RuntimeCommand::GetKnownRelays { reply } => {
+                let mut relays: Vec<_> = self.relay_registry.all().cloned().collect();
+                relays.sort_by(|a, b| b.refreshed_at.cmp(&a.refreshed_at));
+                let _ = reply.send(relays);
                 Vec::new()
             }
 

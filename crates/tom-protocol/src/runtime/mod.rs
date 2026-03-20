@@ -69,6 +69,8 @@ pub struct RuntimeConfig {
     /// Requires `enable_embedded_relay` to be true.
     /// When false, relay starts but is not announced via gossip.
     pub enable_embedded_relay_publication: bool,
+    /// TTL for relay registry entries (how long a discovered relay stays valid without refresh).
+    pub relay_registry_ttl: Duration,
 }
 
 impl Default for RuntimeConfig {
@@ -89,6 +91,7 @@ impl Default for RuntimeConfig {
             antispam_config: crate::roles::AntiSpamConfig::default(),
             enable_embedded_relay: false,
             enable_embedded_relay_publication: false,
+            relay_registry_ttl: Duration::from_secs(600), // 10 min
         }
     }
 }
@@ -174,6 +177,10 @@ pub enum RuntimeCommand {
     EmbeddedRelayFailed { error: String },
     /// Embedded relay stopped (loop → state feedback).
     EmbeddedRelayStopped,
+    /// Query the relay registry (read-only snapshot).
+    GetKnownRelays {
+        reply: oneshot::Sender<Vec<crate::discovery::RelayRegistryEntry>>,
+    },
     /// Graceful shutdown.
     Shutdown,
 }
@@ -332,6 +339,11 @@ pub enum ProtocolEvent {
     EmbeddedRelayStopped,
     /// A remote node published a relay-ready announcement.
     RelayReadyReceived {
+        node_id: NodeId,
+        relay_url: RelayUrl,
+    },
+    /// A relay registry entry expired (no refresh within TTL).
+    RelayRegistryExpired {
         node_id: NodeId,
         relay_url: RelayUrl,
     },
@@ -626,6 +638,16 @@ impl RuntimeHandle {
             .cmd_tx
             .send(RuntimeCommand::StopEmbeddedRelay)
             .await;
+    }
+
+    /// Query all known relays from the registry (read-only snapshot, sorted by freshest first).
+    pub async fn get_known_relays(&self) -> Vec<crate::discovery::RelayRegistryEntry> {
+        let (tx, rx) = oneshot::channel();
+        let _ = self
+            .cmd_tx
+            .send(RuntimeCommand::GetKnownRelays { reply: tx })
+            .await;
+        rx.await.unwrap_or_default()
     }
 
     /// Graceful shutdown.
