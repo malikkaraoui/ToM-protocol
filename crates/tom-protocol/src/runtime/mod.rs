@@ -12,7 +12,10 @@ mod state;
 mod transport;
 
 pub use effect::RuntimeEffect;
-pub use embedded_relay::{EmbeddedRelayConfig, EmbeddedRelayService, EmbeddedRelayStatus};
+pub use embedded_relay::{
+    EmbeddedRelayConfig, EmbeddedRelayPublicationState, EmbeddedRelayService,
+    EmbeddedRelayStatus, LocalEmbeddedRelayState,
+};
 pub use metrics::{MetricsSnapshot, ProtocolMetrics};
 pub use state::{GossipInput, RuntimeState};
 pub use transport::Transport;
@@ -21,7 +24,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use tokio::sync::{mpsc, oneshot};
-use tom_connect::EndpointAddr;
+use tom_connect::{EndpointAddr, RelayUrl};
 use tom_transport::{PathEvent, TomNode};
 
 use crate::discovery::DiscoverySource;
@@ -60,6 +63,12 @@ pub struct RuntimeConfig {
     pub data_dir: Option<PathBuf>,
     /// Anti-spam configuration (progressive rate limiting).
     pub antispam_config: crate::roles::AntiSpamConfig,
+    /// Enable the embedded relay server (Phase R16).
+    pub enable_embedded_relay: bool,
+    /// Enable publication of the embedded relay to the network.
+    /// Requires `enable_embedded_relay` to be true.
+    /// When false, relay starts but is not announced via gossip.
+    pub enable_embedded_relay_publication: bool,
 }
 
 impl Default for RuntimeConfig {
@@ -78,6 +87,8 @@ impl Default for RuntimeConfig {
             enable_dht: true, // Phase R7.1: Enable by default
             data_dir: None,
             antispam_config: crate::roles::AntiSpamConfig::default(),
+            enable_embedded_relay: false,
+            enable_embedded_relay_publication: false,
         }
     }
 }
@@ -158,7 +169,7 @@ pub enum RuntimeCommand {
     /// Stop the embedded relay server.
     StopEmbeddedRelay,
     /// Embedded relay started successfully (loop → state feedback).
-    EmbeddedRelayStarted { url: String },
+    EmbeddedRelayStarted { url: RelayUrl },
     /// Embedded relay failed to start (loop → state feedback).
     EmbeddedRelayFailed { error: String },
     /// Embedded relay stopped (loop → state feedback).
@@ -314,11 +325,16 @@ pub enum ProtocolEvent {
     },
     // ── Embedded relay events ─────────────────────────
     /// The embedded relay started and is listening.
-    EmbeddedRelayStarted { url: String },
+    EmbeddedRelayStarted { url: RelayUrl },
     /// The embedded relay failed to start.
     EmbeddedRelayFailed { error: String },
     /// The embedded relay was stopped.
     EmbeddedRelayStopped,
+    /// A remote node published a relay-ready announcement.
+    RelayReadyReceived {
+        node_id: NodeId,
+        relay_url: RelayUrl,
+    },
 }
 
 // ── RuntimeHandle (app-facing API) ───────────────────────────────────

@@ -47,4 +47,7 @@ pub enum RuntimeEffect {
 
     /// Stop the embedded relay server.
     StopEmbeddedRelay,
+
+    /// Broadcast a relay-ready announcement via gossip.
+    BroadcastRelayReady(crate::discovery::RelayReadyAnnounce),
 }

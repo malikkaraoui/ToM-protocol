@@ -1,9 +1,10 @@
 /// Embedded relay service — starts/stops a real `tom-relay` server inside the node process.
 ///
-/// This is Phase R16 foundation: local relay lifecycle only.
-/// No automatic publication to the network.
+/// Phase R16: local relay lifecycle + publication-ready state.
+/// The service manages the server. RuntimeState tracks logical state and publication.
 use std::net::SocketAddr;
 
+use tom_connect::RelayUrl;
 use tom_relay::server::{AccessConfig, Limits, RelayConfig, Server, ServerConfig};
 
 /// Status of the embedded relay — lifecycle-local only.
@@ -16,10 +17,38 @@ pub enum EmbeddedRelayStatus {
     Stopped,
     /// Relay is in the process of starting.
     Starting,
-    /// Relay bound successfully and is listening on `bound_relay_url`.
+    /// Relay bound successfully and is listening.
     Healthy,
     /// Relay failed to start or crashed.
     Failed(String),
+}
+
+/// Logical state tracked by RuntimeState for the local embedded relay.
+///
+/// Separation from `EmbeddedRelayStatus` (which lives in the async service):
+/// this lives in pure state, never touches I/O.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LocalEmbeddedRelayState {
+    /// No embedded relay running.
+    Stopped,
+    /// Relay is starting (effect sent, awaiting callback).
+    Starting,
+    /// Relay is healthy and listening.
+    Healthy { bound_relay_url: RelayUrl },
+    /// Relay failed to start.
+    Failed { error: String, last_failure_at: u64 },
+}
+
+/// Publication state of the embedded relay.
+///
+/// Separate from health: a relay can be healthy but not published,
+/// or published but no longer healthy (stale publication).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum EmbeddedRelayPublicationState {
+    /// Not published to the network.
+    NotPublished,
+    /// Published via RelayReadyAnnounce.
+    Published { url: RelayUrl, published_at: u64 },
 }
 
 /// Configuration for the embedded relay.
@@ -39,7 +68,7 @@ pub struct EmbeddedRelayService {
     status: EmbeddedRelayStatus,
     server: Option<Server>,
     config: Option<EmbeddedRelayConfig>,
-    bound_relay_url: Option<String>,
+    bound_relay_url: Option<RelayUrl>,
 }
 
 impl Default for EmbeddedRelayService {
@@ -63,7 +92,7 @@ impl EmbeddedRelayService {
     ///
     /// Returns the bound URL on success.
     /// On failure, sets status to `Failed` and returns the error.
-    pub async fn start(&mut self, config: EmbeddedRelayConfig) -> Result<String, String> {
+    pub async fn start(&mut self, config: EmbeddedRelayConfig) -> Result<RelayUrl, String> {
         if self.status == EmbeddedRelayStatus::Healthy {
             if let Some(ref url) = self.bound_relay_url {
                 return Ok(url.clone());
@@ -90,7 +119,10 @@ impl EmbeddedRelayService {
                     "server started but no HTTP address available".to_string()
                 })?;
 
-                let url = format!("http://{http_addr}");
+                let url_str = format!("http://{http_addr}");
+                let url: RelayUrl = url_str.parse().map_err(|e| {
+                    format!("invalid relay URL '{url_str}': {e}")
+                })?;
 
                 tracing::info!(%url, "embedded relay started");
 
@@ -129,7 +161,7 @@ impl EmbeddedRelayService {
     }
 
     /// The URL the relay is listening on, if healthy.
-    pub fn bound_relay_url(&self) -> Option<&String> {
+    pub fn bound_relay_url(&self) -> Option<&RelayUrl> {
         self.bound_relay_url.as_ref()
     }
 }

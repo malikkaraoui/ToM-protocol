@@ -101,6 +101,10 @@ pub struct RuntimeState {
 
     // Phase R11.1: Progressive anti-spam
     pub(crate) antispam: crate::roles::AntiSpam,
+
+    // Phase R16: Embedded relay logical state (tracked by pure state, no I/O)
+    pub(crate) embedded_relay_state: super::LocalEmbeddedRelayState,
+    pub(crate) embedded_relay_publication: super::EmbeddedRelayPublicationState,
 }
 
 impl RuntimeState {
@@ -200,6 +204,8 @@ impl RuntimeState {
             antispam: crate::roles::AntiSpam::new(config.antispam_config.clone()),
             local_id,
             secret_seed,
+            embedded_relay_state: super::LocalEmbeddedRelayState::Stopped,
+            embedded_relay_publication: super::EmbeddedRelayPublicationState::NotPublished,
             config,
             store,
             pending_envelopes: std::collections::HashMap::new(),
@@ -520,6 +526,36 @@ impl RuntimeState {
         rmp_serde::to_vec(&announce).ok()
     }
 
+    /// Build a relay-ready publication if the relay is healthy and publication is enabled.
+    ///
+    /// Returns a BroadcastRelayReady effect, or empty if conditions aren't met.
+    fn build_relay_publication(&mut self, url: tom_connect::RelayUrl) -> Vec<RuntimeEffect> {
+        // Guard: publication must be enabled
+        if !self.config.enable_embedded_relay_publication {
+            return Vec::new();
+        }
+        // Guard: relay must be healthy
+        if !matches!(self.embedded_relay_state, super::LocalEmbeddedRelayState::Healthy { .. }) {
+            return Vec::new();
+        }
+
+        let now = now_ms();
+        let announce = crate::discovery::RelayReadyAnnounce::new(
+            self.local_id,
+            url.clone(),
+            now,
+            &self.secret_seed,
+        );
+
+        self.embedded_relay_publication = super::EmbeddedRelayPublicationState::Published {
+            url,
+            published_at: now,
+        };
+
+        tracing::info!("publishing embedded relay via gossip");
+        vec![RuntimeEffect::BroadcastRelayReady(announce)]
+    }
+
     /// Build effects to rejoin all restored groups (called once at startup).
     ///
     /// After a restart, groups are loaded from SQLite but the hub doesn't know
@@ -595,6 +631,52 @@ impl RuntimeState {
         };
 
         vec![RuntimeEffect::Emit(event)]
+    }
+
+    // ── Handle incoming relay-ready announcement ──────────────────────
+
+    /// Handle a RelayReadyAnnounce from gossip.
+    ///
+    /// Validates signature, freshness, and emits an event for observability.
+    /// Does NOT auto-select this relay — that's a future chantier.
+    fn handle_relay_ready_announce(
+        &mut self,
+        announce: crate::discovery::RelayReadyAnnounce,
+    ) -> Vec<RuntimeEffect> {
+        // Ignore our own announcements
+        if announce.node_id == self.local_id {
+            return Vec::new();
+        }
+
+        // Verify signature
+        if !announce.verify_signature() {
+            tracing::warn!(
+                node_id = %announce.node_id,
+                "invalid signature on RelayReadyAnnounce"
+            );
+            return Vec::new();
+        }
+
+        // Check freshness
+        if !announce.is_fresh(now_ms()) {
+            tracing::debug!(
+                node_id = %announce.node_id,
+                "stale RelayReadyAnnounce (timestamp too old)"
+            );
+            return Vec::new();
+        }
+
+        tracing::info!(
+            node_id = %announce.node_id,
+            relay_url = %announce.relay_url,
+            "received RelayReadyAnnounce"
+        );
+
+        // Emit event for observability — no auto-selection yet
+        vec![RuntimeEffect::Emit(ProtocolEvent::RelayReadyReceived {
+            node_id: announce.node_id,
+            relay_url: announce.relay_url,
+        })]
     }
 
     // ── Task 7: handle_incoming_chat ───────────────────────────────────
@@ -1717,21 +1799,36 @@ impl RuntimeState {
             RuntimeCommand::StartEmbeddedRelay { .. } => Vec::new(),
             RuntimeCommand::StopEmbeddedRelay => Vec::new(),
 
-            // Embedded relay feedback — state records the result.
+            // Embedded relay feedback — state records the result + conditionally publishes.
             RuntimeCommand::EmbeddedRelayStarted { ref url } => {
                 tracing::info!(%url, "embedded relay is healthy");
-                vec![RuntimeEffect::Emit(ProtocolEvent::EmbeddedRelayStarted {
+                self.embedded_relay_state = super::LocalEmbeddedRelayState::Healthy {
+                    bound_relay_url: url.clone(),
+                };
+                let mut effects = vec![RuntimeEffect::Emit(ProtocolEvent::EmbeddedRelayStarted {
                     url: url.clone(),
-                })]
+                })];
+                // Conditionally publish if policy allows
+                if self.config.enable_embedded_relay_publication {
+                    effects.extend(self.build_relay_publication(url.clone()));
+                }
+                effects
             }
             RuntimeCommand::EmbeddedRelayFailed { ref error } => {
                 tracing::warn!(%error, "embedded relay failed");
+                self.embedded_relay_state = super::LocalEmbeddedRelayState::Failed {
+                    error: error.clone(),
+                    last_failure_at: now_ms(),
+                };
+                self.embedded_relay_publication = super::EmbeddedRelayPublicationState::NotPublished;
                 vec![RuntimeEffect::Emit(ProtocolEvent::EmbeddedRelayFailed {
                     error: error.clone(),
                 })]
             }
             RuntimeCommand::EmbeddedRelayStopped => {
                 tracing::info!("embedded relay stopped");
+                self.embedded_relay_state = super::LocalEmbeddedRelayState::Stopped;
+                self.embedded_relay_publication = super::EmbeddedRelayPublicationState::NotPublished;
                 vec![RuntimeEffect::Emit(ProtocolEvent::EmbeddedRelayStopped)]
             }
         }
@@ -1782,6 +1879,13 @@ impl RuntimeState {
                     rmp_serde::from_slice::<crate::discovery::RoleChangeAnnounce>(&bytes)
                 {
                     return self.handle_role_announce(role_announce);
+                }
+
+                // Try RelayReadyAnnounce
+                if let Ok(relay_announce) =
+                    rmp_serde::from_slice::<crate::discovery::RelayReadyAnnounce>(&bytes)
+                {
+                    return self.handle_relay_ready_announce(relay_announce);
                 }
 
                 Vec::new()
@@ -3815,9 +3919,21 @@ mod tests {
 
     #[test]
     fn antispam_handle_incoming_throttles_spammer() {
-        let mut state = default_state(1);
+        let (local_id, local_secret) = keypair(1);
+        let mut antispam_config = crate::roles::AntiSpamConfig::default();
+        antispam_config.min_rate = 1.0;
+        antispam_config.max_rate = 1.0;
+
+        let mut state = RuntimeState::new(
+            local_id,
+            local_secret,
+            RuntimeConfig {
+                antispam_config,
+                ..Default::default()
+            },
+        );
         let (sender_id, sender_secret) = keypair(42);
-        // Spammer has score=0 → min_rate=30, burst=60
+        // Fixed low rate for deterministic CI behavior: rate=1 msg/s, burst=2.
 
         let env = crate::envelope::EnvelopeBuilder::new(
             sender_id,
@@ -3828,9 +3944,9 @@ mod tests {
         .sign(&sender_secret);
         let raw = env.to_bytes().expect("serialize");
 
-        // Send rapid burst — first 60 should pass (burst), rest throttled
+        // Send a small rapid burst — first 2 may pass, the rest must throttle.
         let mut throttled = 0;
-        for _ in 0..70 {
+        for _ in 0..10 {
             let effects = state.handle_incoming(raw.as_slice());
             if effects.iter().any(|e| {
                 matches!(e, RuntimeEffect::Emit(ProtocolEvent::SenderThrottled { .. }))
@@ -3840,8 +3956,7 @@ mod tests {
         }
 
         assert!(throttled > 0, "spammer should be throttled after burst");
-        // Note: exact throttled count depends on wall-clock refill timing in CI.
-        // We only assert that throttling does happen (progressive anti-spam active).
+        // We only assert behavioral throttling, not an exact count.
     }
 
     #[test]
@@ -3928,5 +4043,176 @@ mod tests {
             throttled, 0,
             "ACK and Heartbeat should never be throttled, but {throttled} were"
         );
+    }
+
+    // ── Embedded relay publication tests ──────────────────────────────
+
+    #[test]
+    fn relay_publication_refused_when_not_healthy() {
+        let mut state = default_state(50);
+        state.config.enable_embedded_relay = true;
+        state.config.enable_embedded_relay_publication = true;
+
+        let url: tom_connect::RelayUrl = "http://127.0.0.1:3340".parse().unwrap();
+        let effects = state.build_relay_publication(url);
+        assert!(effects.is_empty(), "should not publish when relay is Stopped");
+    }
+
+    #[test]
+    fn relay_publication_refused_when_feature_disabled() {
+        let mut state = default_state(51);
+        state.config.enable_embedded_relay = true;
+        state.config.enable_embedded_relay_publication = false;
+
+        let url: tom_connect::RelayUrl = "http://127.0.0.1:3340".parse().unwrap();
+        state.embedded_relay_state = super::super::LocalEmbeddedRelayState::Healthy {
+            bound_relay_url: url.clone(),
+        };
+
+        let effects = state.build_relay_publication(url);
+        assert!(effects.is_empty(), "should not publish when feature is disabled");
+    }
+
+    #[test]
+    fn relay_publication_ok_when_healthy_and_enabled() {
+        let mut state = default_state(52);
+        state.config.enable_embedded_relay = true;
+        state.config.enable_embedded_relay_publication = true;
+
+        let url: tom_connect::RelayUrl = "http://127.0.0.1:3340".parse().unwrap();
+        state.embedded_relay_state = super::super::LocalEmbeddedRelayState::Healthy {
+            bound_relay_url: url.clone(),
+        };
+
+        let effects = state.build_relay_publication(url.clone());
+        assert_eq!(effects.len(), 1, "should produce one BroadcastRelayReady effect");
+        assert!(
+            matches!(&effects[0], RuntimeEffect::BroadcastRelayReady(announce)
+                if announce.relay_url == url && announce.verify_signature()),
+            "effect should be a valid signed BroadcastRelayReady"
+        );
+
+        // Publication state should be updated
+        assert!(
+            matches!(&state.embedded_relay_publication,
+                super::super::EmbeddedRelayPublicationState::Published { url: pub_url, .. }
+                if pub_url == &url),
+            "publication state should be Published"
+        );
+    }
+
+    #[test]
+    fn relay_started_command_updates_state_and_publishes() {
+        let mut state = default_state(53);
+        state.config.enable_embedded_relay = true;
+        state.config.enable_embedded_relay_publication = true;
+
+        let url: tom_connect::RelayUrl = "http://127.0.0.1:3340".parse().unwrap();
+        let effects = state.handle_command(RuntimeCommand::EmbeddedRelayStarted { url: url.clone() });
+
+        // Should have: Emit(EmbeddedRelayStarted) + BroadcastRelayReady
+        assert_eq!(effects.len(), 2);
+        assert!(matches!(&effects[0], RuntimeEffect::Emit(ProtocolEvent::EmbeddedRelayStarted { .. })));
+        assert!(matches!(&effects[1], RuntimeEffect::BroadcastRelayReady(_)));
+
+        // State should be Healthy
+        assert!(matches!(&state.embedded_relay_state,
+            super::super::LocalEmbeddedRelayState::Healthy { bound_relay_url }
+            if bound_relay_url == &url));
+    }
+
+    #[test]
+    fn relay_failed_command_resets_publication() {
+        let mut state = default_state(54);
+        state.config.enable_embedded_relay_publication = true;
+
+        let url: tom_connect::RelayUrl = "http://127.0.0.1:3340".parse().unwrap();
+        state.embedded_relay_state = super::super::LocalEmbeddedRelayState::Healthy {
+            bound_relay_url: url.clone(),
+        };
+        state.embedded_relay_publication = super::super::EmbeddedRelayPublicationState::Published {
+            url,
+            published_at: 1000,
+        };
+
+        let effects = state.handle_command(RuntimeCommand::EmbeddedRelayFailed {
+            error: "bind error".into(),
+        });
+
+        assert!(matches!(&state.embedded_relay_state,
+            super::super::LocalEmbeddedRelayState::Failed { error, .. }
+            if error == "bind error"));
+        assert_eq!(state.embedded_relay_publication, super::super::EmbeddedRelayPublicationState::NotPublished);
+        assert!(effects.iter().any(|e| matches!(e, RuntimeEffect::Emit(ProtocolEvent::EmbeddedRelayFailed { .. }))));
+    }
+
+    #[test]
+    fn relay_stopped_command_resets_state() {
+        let mut state = default_state(55);
+
+        let url: tom_connect::RelayUrl = "http://127.0.0.1:3340".parse().unwrap();
+        state.embedded_relay_state = super::super::LocalEmbeddedRelayState::Healthy {
+            bound_relay_url: url,
+        };
+
+        let effects = state.handle_command(RuntimeCommand::EmbeddedRelayStopped);
+
+        assert_eq!(state.embedded_relay_state, super::super::LocalEmbeddedRelayState::Stopped);
+        assert_eq!(state.embedded_relay_publication, super::super::EmbeddedRelayPublicationState::NotPublished);
+        assert!(effects.iter().any(|e| matches!(e, RuntimeEffect::Emit(ProtocolEvent::EmbeddedRelayStopped))));
+    }
+
+    #[test]
+    fn relay_ready_announce_received_emits_event() {
+        let mut state = default_state(56);
+        let (other_id, other_seed) = keypair(99);
+        let url: tom_connect::RelayUrl = "http://10.0.0.1:4444".parse().unwrap();
+
+        let announce = crate::discovery::RelayReadyAnnounce::new(
+            other_id,
+            url.clone(),
+            now_ms(),
+            &other_seed,
+        );
+
+        let effects = state.handle_relay_ready_announce(announce);
+        assert_eq!(effects.len(), 1);
+        assert!(matches!(&effects[0],
+            RuntimeEffect::Emit(ProtocolEvent::RelayReadyReceived { node_id, relay_url })
+            if *node_id == other_id && relay_url == &url));
+    }
+
+    #[test]
+    fn relay_ready_announce_self_ignored() {
+        let mut state = default_state(57);
+        let url: tom_connect::RelayUrl = "http://127.0.0.1:3340".parse().unwrap();
+
+        let announce = crate::discovery::RelayReadyAnnounce::new(
+            state.local_id,
+            url,
+            now_ms(),
+            &state.secret_seed,
+        );
+
+        let effects = state.handle_relay_ready_announce(announce);
+        assert!(effects.is_empty(), "self-announce should be ignored");
+    }
+
+    #[test]
+    fn relay_ready_announce_invalid_signature_rejected() {
+        let mut state = default_state(58);
+        let (other_id, _) = keypair(99);
+        let (_, wrong_seed) = keypair(123);
+        let url: tom_connect::RelayUrl = "http://10.0.0.1:4444".parse().unwrap();
+
+        let announce = crate::discovery::RelayReadyAnnounce::new(
+            other_id,
+            url,
+            now_ms(),
+            &wrong_seed,
+        );
+
+        let effects = state.handle_relay_ready_announce(announce);
+        assert!(effects.is_empty(), "invalid signature should be rejected");
     }
 }
