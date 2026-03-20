@@ -4246,4 +4246,88 @@ mod tests {
         let effects = state.handle_relay_ready_announce(announce);
         assert!(effects.is_empty(), "invalid signature should be rejected");
     }
+
+    // ── Relay Registry integration tests ────────────────────────────────
+
+    #[test]
+    fn relay_ready_announce_stores_in_registry() {
+        let mut state = default_state(60);
+        let (other_id, other_seed) = keypair(100);
+        let url: tom_connect::RelayUrl = "http://10.0.0.1:3340".parse().unwrap();
+        let now = now_ms();
+
+        let announce = crate::discovery::RelayReadyAnnounce::new(
+            other_id,
+            url.clone(),
+            now,
+            &other_seed,
+        );
+
+        let effects = state.handle_relay_ready_announce(announce);
+
+        // Should emit RelayReadyReceived
+        assert_eq!(effects.len(), 1);
+        assert!(matches!(
+            &effects[0],
+            RuntimeEffect::Emit(ProtocolEvent::RelayReadyReceived { node_id, relay_url })
+            if *node_id == other_id && relay_url == &url
+        ));
+
+        // Should be in registry
+        let entry = state
+            .relay_registry
+            .get(&other_id)
+            .expect("should be in registry");
+        assert_eq!(entry.relay_url, url);
+        assert_eq!(entry.announced_at, now);
+    }
+
+    #[test]
+    fn relay_registry_prune_via_tick_heartbeat() {
+        let mut state = default_state(61);
+        let (other_id, _) = keypair(101);
+        let url: tom_connect::RelayUrl = "http://10.0.0.1:3340".parse().unwrap();
+
+        // Insert directly with expires_at far in the past so prune catches it
+        state.relay_registry = crate::discovery::RelayRegistry::new(1); // 1ms TTL
+        state.relay_registry.upsert(other_id, url.clone(), 0, 0); // expires_at = 1
+        assert_eq!(state.relay_registry.len(), 1);
+
+        // Tick heartbeat should prune the expired entry (now_ms() >> 1)
+        let effects = state.tick_heartbeat();
+        assert!(state.relay_registry.is_empty());
+
+        let has_expired = effects.iter().any(|e| {
+            matches!(
+                e,
+                RuntimeEffect::Emit(ProtocolEvent::RelayRegistryExpired {
+                    node_id,
+                    relay_url
+                }) if *node_id == other_id && relay_url == &url
+            )
+        });
+        assert!(has_expired, "should emit RelayRegistryExpired");
+    }
+
+    #[test]
+    fn get_known_relays_sorted_by_freshest() {
+        let mut state = default_state(62);
+        let (id1, _) = keypair(201);
+        let (id2, _) = keypair(202);
+        let url1: tom_connect::RelayUrl = "http://10.0.0.1:3340".parse().unwrap();
+        let url2: tom_connect::RelayUrl = "http://10.0.0.2:3340".parse().unwrap();
+
+        // Insert directly into registry with controlled timestamps
+        state.relay_registry.upsert(id1, url1, 1000, 1000); // older
+        state.relay_registry.upsert(id2, url2, 2000, 2000); // newer
+
+        // Query via handle_command
+        let (tx, mut rx) = tokio::sync::oneshot::channel();
+        state.handle_command(super::RuntimeCommand::GetKnownRelays { reply: tx });
+        let relays = rx.try_recv().expect("should receive");
+        assert_eq!(relays.len(), 2);
+        // id2 should be first (more recent refreshed_at)
+        assert_eq!(relays[0].node_id, id2);
+        assert_eq!(relays[1].node_id, id1);
+    }
 }
