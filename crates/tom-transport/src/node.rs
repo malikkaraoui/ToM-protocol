@@ -379,6 +379,11 @@ impl TomNode {
         self.peer_present_rx.take()
     }
 
+    /// Return default relay URLs configured on the connection pool.
+    pub async fn default_relay_urls(&self) -> Vec<tom_connect::RelayUrl> {
+        self.pool.default_relay_urls().await
+    }
+
     /// Access the gossip handle.
     ///
     /// Use this to subscribe to gossip topics for peer discovery.

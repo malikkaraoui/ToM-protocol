@@ -83,7 +83,7 @@ pub async fn run(config: ResponderConfig) -> anyhow::Result<()> {
                 let Some(evt) = evt else { break };
                 match &evt {
                     ProtocolEvent::PeerDiscovered { node_id, username, source } => {
-                        eprintln!("[{:>7.1}s] Peer discovered: {} \"{}\" ({:?})", start.elapsed().as_secs_f64(), short_id(&node_id.to_string()), username, source);
+                        eprintln!("[{:>7.1}s] Peer discovered: {} \"{}\" ({:?})", start.elapsed().as_secs_f64(), node_id, username, source);
                     }
                     ProtocolEvent::PeerStale { node_id } => {
                         eprintln!("[{:>7.1}s] Peer stale: {}", start.elapsed().as_secs_f64(), short_id(&node_id.to_string()));
