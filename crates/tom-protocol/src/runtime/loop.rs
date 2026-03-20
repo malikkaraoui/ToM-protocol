@@ -109,6 +109,9 @@ pub(super) async fn runtime_loop(
     // ── PeerPresent receiver from relay ────────────────────────────────
     let mut peer_present_rx = node.take_peer_present_rx();
 
+    // ── Embedded relay service ─────────────────────────────────────────
+    let mut embedded_relay = super::EmbeddedRelayService::new();
+
     // ── Rejoin groups after restart (one-shot) ────────────────────────
     let rejoin_effects = state.build_rejoin_effects();
     if !rejoin_effects.is_empty() {
@@ -185,6 +188,20 @@ pub(super) async fn runtime_loop(
                             }
                         }
                         state.handle_command(cmd)
+                    }
+                    RuntimeCommand::StartEmbeddedRelay { config } => {
+                        match embedded_relay.start(config).await {
+                            Ok(url) => {
+                                state.handle_command(RuntimeCommand::EmbeddedRelayStarted { url })
+                            }
+                            Err(error) => {
+                                state.handle_command(RuntimeCommand::EmbeddedRelayFailed { error })
+                            }
+                        }
+                    }
+                    RuntimeCommand::StopEmbeddedRelay => {
+                        embedded_relay.stop().await;
+                        state.handle_command(RuntimeCommand::EmbeddedRelayStopped)
                     }
                     RuntimeCommand::Shutdown => break,
                     other => state.handle_command(other),
@@ -322,19 +339,34 @@ pub(super) async fn runtime_loop(
             else => break,
         };
 
-        // Intercept BroadcastRoleChange effects (need gossip sender)
+        // Intercept effects that need special handling (gossip, embedded relay)
         let mut regular_effects = Vec::with_capacity(effects.len());
         for effect in effects {
-            if let RuntimeEffect::BroadcastRoleChange(ref announce) = effect {
-                if let Some(ref sender) = gossip_sender {
-                    if let Ok(bytes) = rmp_serde::to_vec(announce) {
-                        if let Err(e) = sender.broadcast(bytes::Bytes::from(bytes)).await {
-                            tracing::debug!("gossip: role announce broadcast failed: {e}");
+            match effect {
+                RuntimeEffect::BroadcastRoleChange(ref announce) => {
+                    if let Some(ref sender) = gossip_sender {
+                        if let Ok(bytes) = rmp_serde::to_vec(announce) {
+                            if let Err(e) = sender.broadcast(bytes::Bytes::from(bytes)).await {
+                                tracing::debug!("gossip: role announce broadcast failed: {e}");
+                            }
                         }
                     }
                 }
-            } else {
-                regular_effects.push(effect);
+                RuntimeEffect::StartEmbeddedRelay { config } => {
+                    let feedback_effects = match embedded_relay.start(config).await {
+                        Ok(url) => state.handle_command(RuntimeCommand::EmbeddedRelayStarted { url }),
+                        Err(error) => state.handle_command(RuntimeCommand::EmbeddedRelayFailed { error }),
+                    };
+                    regular_effects.extend(feedback_effects);
+                }
+                RuntimeEffect::StopEmbeddedRelay => {
+                    embedded_relay.stop().await;
+                    let feedback_effects = state.handle_command(RuntimeCommand::EmbeddedRelayStopped);
+                    regular_effects.extend(feedback_effects);
+                }
+                other => {
+                    regular_effects.push(other);
+                }
             }
         }
 
@@ -344,6 +376,9 @@ pub(super) async fn runtime_loop(
 
     // Save state before shutdown
     state.save_state();
+
+    // Stop embedded relay if running
+    embedded_relay.stop().await;
 
     // Graceful shutdown
     if let Err(e) = node.shutdown().await {

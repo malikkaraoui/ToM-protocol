@@ -3,6 +3,7 @@
 /// The runtime owns a `TomNode` (transport) and all protocol state (router,
 /// topology, tracker, heartbeat). It exposes a channel-based API so the
 /// application (TUI, bot, SDK) never touches raw bytes or protocol internals.
+pub mod embedded_relay;
 mod effect;
 mod executor;
 mod r#loop;
@@ -11,6 +12,7 @@ mod state;
 mod transport;
 
 pub use effect::RuntimeEffect;
+pub use embedded_relay::{EmbeddedRelayConfig, EmbeddedRelayService, EmbeddedRelayStatus};
 pub use metrics::{MetricsSnapshot, ProtocolMetrics};
 pub use state::{GossipInput, RuntimeState};
 pub use transport::Transport;
@@ -150,6 +152,17 @@ pub enum RuntimeCommand {
     // ── DHT discovery ──────────────────────────────
     /// DHT lookup completed — inject discovered address into transport.
     DhtLookupResult { addr: tom_dht::DhtNodeAddr },
+    // ── Embedded relay ──────────────────────────────
+    /// Start the embedded relay server.
+    StartEmbeddedRelay { config: EmbeddedRelayConfig },
+    /// Stop the embedded relay server.
+    StopEmbeddedRelay,
+    /// Embedded relay started successfully (loop → state feedback).
+    EmbeddedRelayStarted { url: String },
+    /// Embedded relay failed to start (loop → state feedback).
+    EmbeddedRelayFailed { error: String },
+    /// Embedded relay stopped (loop → state feedback).
+    EmbeddedRelayStopped,
     /// Graceful shutdown.
     Shutdown,
 }
@@ -299,6 +312,13 @@ pub enum ProtocolEvent {
         score: f64,
         current_rate: f64,
     },
+    // ── Embedded relay events ─────────────────────────
+    /// The embedded relay started and is listening.
+    EmbeddedRelayStarted { url: String },
+    /// The embedded relay failed to start.
+    EmbeddedRelayFailed { error: String },
+    /// The embedded relay was stopped.
+    EmbeddedRelayStopped,
 }
 
 // ── RuntimeHandle (app-facing API) ───────────────────────────────────
@@ -572,6 +592,24 @@ impl RuntimeHandle {
             .send(RuntimeCommand::GetAllRoleScores { reply: tx })
             .await;
         rx.await.unwrap_or_default()
+    }
+
+    // ── Embedded relay ──────────────────────────────
+
+    /// Start the embedded relay server.
+    pub async fn start_embedded_relay(&self, config: EmbeddedRelayConfig) {
+        let _ = self
+            .cmd_tx
+            .send(RuntimeCommand::StartEmbeddedRelay { config })
+            .await;
+    }
+
+    /// Stop the embedded relay server.
+    pub async fn stop_embedded_relay(&self) {
+        let _ = self
+            .cmd_tx
+            .send(RuntimeCommand::StopEmbeddedRelay)
+            .await;
     }
 
     /// Graceful shutdown.

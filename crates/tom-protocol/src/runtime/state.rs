@@ -1712,6 +1712,28 @@ impl RuntimeState {
 
             // Handled in the loop — signals the loop to break.
             RuntimeCommand::Shutdown => Vec::new(),
+
+            // Embedded relay — handled by the async loop, not state.
+            RuntimeCommand::StartEmbeddedRelay { .. } => Vec::new(),
+            RuntimeCommand::StopEmbeddedRelay => Vec::new(),
+
+            // Embedded relay feedback — state records the result.
+            RuntimeCommand::EmbeddedRelayStarted { ref url } => {
+                tracing::info!(%url, "embedded relay is healthy");
+                vec![RuntimeEffect::Emit(ProtocolEvent::EmbeddedRelayStarted {
+                    url: url.clone(),
+                })]
+            }
+            RuntimeCommand::EmbeddedRelayFailed { ref error } => {
+                tracing::warn!(%error, "embedded relay failed");
+                vec![RuntimeEffect::Emit(ProtocolEvent::EmbeddedRelayFailed {
+                    error: error.clone(),
+                })]
+            }
+            RuntimeCommand::EmbeddedRelayStopped => {
+                tracing::info!("embedded relay stopped");
+                vec![RuntimeEffect::Emit(ProtocolEvent::EmbeddedRelayStopped)]
+            }
         }
     }
 

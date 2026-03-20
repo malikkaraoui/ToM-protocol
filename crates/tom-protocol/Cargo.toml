@@ -41,6 +41,9 @@ tom-gossip = { path = "../tom-gossip" }
 bytes = "1"
 n0-future = "0.3"
 
+# Embedded relay (Phase R16)
+tom-relay = { path = "../tom-relay", features = ["server"] }
+
 [dev-dependencies]
 proptest = "1"
 tokio = { version = "1", features = ["full"] }

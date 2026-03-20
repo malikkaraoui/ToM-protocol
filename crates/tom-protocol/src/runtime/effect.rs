@@ -39,4 +39,12 @@ pub enum RuntimeEffect {
 
     /// Broadcast a role change via gossip to all neighbors.
     BroadcastRoleChange(RoleChangeAnnounce),
+
+    /// Start the embedded relay server with the given config.
+    StartEmbeddedRelay {
+        config: super::EmbeddedRelayConfig,
+    },
+
+    /// Stop the embedded relay server.
+    StopEmbeddedRelay,
 }
