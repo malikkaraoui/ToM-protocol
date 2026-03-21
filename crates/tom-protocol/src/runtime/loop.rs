@@ -118,6 +118,10 @@ pub(super) async fn runtime_loop(
         execute_effects(rejoin_effects, &node, &msg_tx, &status_tx, &event_tx, &metrics).await;
     }
 
+    // ── Transport relay discovery state (NOT in RuntimeState — pure transport concern)
+    let mut discovered_transport_relays: std::collections::HashSet<tom_connect::RelayUrl> =
+        std::collections::HashSet::new();
+
     // ── Main loop ────────────────────────────────────────────────────
     loop {
         let effects = tokio::select! {
@@ -371,6 +375,31 @@ pub(super) async fn runtime_loop(
                                 tracing::debug!("gossip: relay-ready broadcast failed: {e}");
                             }
                         }
+                    }
+                }
+                RuntimeEffect::InsertTransportRelay { relay_url } => {
+                    if !discovered_transport_relays.contains(&relay_url) {
+                        // Conservative config: quic: None — discovery signal doesn't advertise QUIC
+                        let config = std::sync::Arc::new(tom_connect::RelayConfig {
+                            url: relay_url.clone(),
+                            quic: None,
+                        });
+                        node.insert_relay(relay_url.clone(), config).await;
+                        discovered_transport_relays.insert(relay_url.clone());
+                        tracing::info!(%relay_url, "transport: inserted discovered relay");
+                        let _ = event_tx.try_send(ProtocolEvent::TransportRelayInserted {
+                            relay_url,
+                        });
+                    }
+                }
+                RuntimeEffect::RemoveTransportRelay { relay_url } => {
+                    // Only remove if we inserted it via discovery (not static)
+                    if discovered_transport_relays.remove(&relay_url) {
+                        node.remove_relay(&relay_url).await;
+                        tracing::info!(%relay_url, "transport: removed discovered relay");
+                        let _ = event_tx.try_send(ProtocolEvent::TransportRelayRemoved {
+                            relay_url,
+                        });
                     }
                 }
                 other => {
