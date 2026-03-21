@@ -428,6 +428,18 @@ impl RuntimeState {
             }
         }
 
+        // Periodic republication of embedded relay announcement.
+        // Piggybacks on heartbeat tick — effective cadence granularized by heartbeat_interval.
+        if let super::EmbeddedRelayPublicationState::Published { ref url, published_at } =
+            self.embedded_relay_publication
+        {
+            let interval_ms = self.config.relay_publish_interval.as_millis() as u64;
+            if now_ms().saturating_sub(published_at) >= interval_ms {
+                let url = url.clone();
+                effects.extend(self.build_relay_publication(url));
+            }
+        }
+
         effects
     }
 
@@ -2500,6 +2512,7 @@ mod tests {
     use super::*;
     use super::super::RuntimeConfig;
     use crate::relay::PeerStatus;
+    use crate::runtime::{EmbeddedRelayPublicationState, LocalEmbeddedRelayState};
 
     fn node_id(seed: u8) -> NodeId {
         use rand::SeedableRng;
@@ -4140,7 +4153,7 @@ mod tests {
         state.config.enable_embedded_relay_publication = false;
 
         let url: tom_connect::RelayUrl = "http://127.0.0.1:3340".parse().unwrap();
-        state.embedded_relay_state = super::super::LocalEmbeddedRelayState::Healthy {
+        state.embedded_relay_state = LocalEmbeddedRelayState::Healthy {
             bound_relay_url: url.clone(),
         };
 
@@ -4155,7 +4168,7 @@ mod tests {
         state.config.enable_embedded_relay_publication = true;
 
         let url: tom_connect::RelayUrl = "http://127.0.0.1:3340".parse().unwrap();
-        state.embedded_relay_state = super::super::LocalEmbeddedRelayState::Healthy {
+        state.embedded_relay_state = LocalEmbeddedRelayState::Healthy {
             bound_relay_url: url.clone(),
         };
 
@@ -4170,7 +4183,7 @@ mod tests {
         // Publication state should be updated
         assert!(
             matches!(&state.embedded_relay_publication,
-                super::super::EmbeddedRelayPublicationState::Published { url: pub_url, .. }
+                EmbeddedRelayPublicationState::Published { url: pub_url, .. }
                 if pub_url == &url),
             "publication state should be Published"
         );
@@ -4192,7 +4205,7 @@ mod tests {
 
         // State should be Healthy
         assert!(matches!(&state.embedded_relay_state,
-            super::super::LocalEmbeddedRelayState::Healthy { bound_relay_url }
+            LocalEmbeddedRelayState::Healthy { bound_relay_url }
             if bound_relay_url == &url));
     }
 
@@ -4202,10 +4215,10 @@ mod tests {
         state.config.enable_embedded_relay_publication = true;
 
         let url: tom_connect::RelayUrl = "http://127.0.0.1:3340".parse().unwrap();
-        state.embedded_relay_state = super::super::LocalEmbeddedRelayState::Healthy {
+        state.embedded_relay_state = LocalEmbeddedRelayState::Healthy {
             bound_relay_url: url.clone(),
         };
-        state.embedded_relay_publication = super::super::EmbeddedRelayPublicationState::Published {
+        state.embedded_relay_publication = EmbeddedRelayPublicationState::Published {
             url,
             published_at: 1000,
         };
@@ -4215,9 +4228,9 @@ mod tests {
         });
 
         assert!(matches!(&state.embedded_relay_state,
-            super::super::LocalEmbeddedRelayState::Failed { error, .. }
+            LocalEmbeddedRelayState::Failed { error, .. }
             if error == "bind error"));
-        assert_eq!(state.embedded_relay_publication, super::super::EmbeddedRelayPublicationState::NotPublished);
+        assert_eq!(state.embedded_relay_publication, EmbeddedRelayPublicationState::NotPublished);
         assert!(effects.iter().any(|e| matches!(e, RuntimeEffect::Emit(ProtocolEvent::EmbeddedRelayFailed { .. }))));
     }
 
@@ -4226,14 +4239,14 @@ mod tests {
         let mut state = default_state(55);
 
         let url: tom_connect::RelayUrl = "http://127.0.0.1:3340".parse().unwrap();
-        state.embedded_relay_state = super::super::LocalEmbeddedRelayState::Healthy {
+        state.embedded_relay_state = LocalEmbeddedRelayState::Healthy {
             bound_relay_url: url,
         };
 
         let effects = state.handle_command(RuntimeCommand::EmbeddedRelayStopped);
 
-        assert_eq!(state.embedded_relay_state, super::super::LocalEmbeddedRelayState::Stopped);
-        assert_eq!(state.embedded_relay_publication, super::super::EmbeddedRelayPublicationState::NotPublished);
+        assert_eq!(state.embedded_relay_state, LocalEmbeddedRelayState::Stopped);
+        assert_eq!(state.embedded_relay_publication, EmbeddedRelayPublicationState::NotPublished);
         assert!(effects.iter().any(|e| matches!(e, RuntimeEffect::Emit(ProtocolEvent::EmbeddedRelayStopped))));
     }
 
@@ -4590,5 +4603,89 @@ mod tests {
         // id2 should be first (more recent refreshed_at)
         assert_eq!(relays[0].node_id, id2);
         assert_eq!(relays[1].node_id, id1);
+    }
+
+    // ── Relay republication tests ────────────────────────────────────────
+
+    fn state_with_relay_publication(seed: u8) -> RuntimeState {
+        let (id, secret) = keypair(seed);
+        let mut config = RuntimeConfig::default();
+        config.enable_embedded_relay = true;
+        config.enable_embedded_relay_publication = true;
+        config.relay_publish_interval = std::time::Duration::from_millis(100);
+        config.heartbeat_interval = std::time::Duration::from_millis(50);
+        let mut state = RuntimeState::new(id, secret, config);
+        // Simulate healthy relay
+        state.embedded_relay_state = LocalEmbeddedRelayState::Healthy {
+            bound_relay_url: "http://127.0.0.1:3340".parse().unwrap(),
+        };
+        state.embedded_relay_publication = EmbeddedRelayPublicationState::Published {
+            url: "http://127.0.0.1:3340".parse().unwrap(),
+            published_at: now_ms(),
+        };
+        state
+    }
+
+    #[test]
+    fn relay_republication_on_heartbeat_after_interval() {
+        let mut state = state_with_relay_publication(90);
+        // Set published_at to well before interval threshold
+        state.embedded_relay_publication = EmbeddedRelayPublicationState::Published {
+            url: "http://127.0.0.1:3340".parse().unwrap(),
+            published_at: now_ms().saturating_sub(200), // 200ms ago, interval is 100ms
+        };
+        let effects = state.tick_heartbeat();
+        let has_broadcast = effects.iter().any(|e|
+            matches!(e, RuntimeEffect::BroadcastRelayReady(_))
+        );
+        assert!(has_broadcast, "should republish after interval elapsed");
+    }
+
+    #[test]
+    fn relay_no_republication_before_interval() {
+        let mut state = state_with_relay_publication(91);
+        // published_at is now() — interval not elapsed
+        let effects = state.tick_heartbeat();
+        let has_broadcast = effects.iter().any(|e|
+            matches!(e, RuntimeEffect::BroadcastRelayReady(_))
+        );
+        assert!(!has_broadcast, "should NOT republish before interval");
+    }
+
+    #[test]
+    fn relay_no_republication_when_stopped() {
+        let mut state = state_with_relay_publication(92);
+        state.embedded_relay_state = LocalEmbeddedRelayState::Stopped;
+        state.embedded_relay_publication = EmbeddedRelayPublicationState::Published {
+            url: "http://127.0.0.1:3340".parse().unwrap(),
+            published_at: now_ms().saturating_sub(200),
+        };
+        let effects = state.tick_heartbeat();
+        let has_broadcast = effects.iter().any(|e|
+            matches!(e, RuntimeEffect::BroadcastRelayReady(_))
+        );
+        assert!(!has_broadcast, "should NOT republish when relay stopped");
+    }
+
+    #[test]
+    fn relay_no_republication_when_publication_disabled() {
+        let (id, secret) = keypair(93);
+        let mut config = RuntimeConfig::default();
+        config.enable_embedded_relay = true;
+        config.enable_embedded_relay_publication = false; // disabled
+        config.relay_publish_interval = std::time::Duration::from_millis(100);
+        let mut state = RuntimeState::new(id, secret, config);
+        state.embedded_relay_state = LocalEmbeddedRelayState::Healthy {
+            bound_relay_url: "http://127.0.0.1:3340".parse().unwrap(),
+        };
+        state.embedded_relay_publication = EmbeddedRelayPublicationState::Published {
+            url: "http://127.0.0.1:3340".parse().unwrap(),
+            published_at: now_ms().saturating_sub(200),
+        };
+        let effects = state.tick_heartbeat();
+        let has_broadcast = effects.iter().any(|e|
+            matches!(e, RuntimeEffect::BroadcastRelayReady(_))
+        );
+        assert!(!has_broadcast, "should NOT republish when publication disabled");
     }
 }

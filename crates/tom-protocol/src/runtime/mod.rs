@@ -74,6 +74,11 @@ pub struct RuntimeConfig {
     /// Enable dynamic injection of discovered relay URLs into the transport layer.
     /// When false (default), RelayRegistry observes but does not mutate the Endpoint.
     pub enable_transport_relay_discovery: bool,
+    /// Interval for periodic republication of RelayReadyAnnounce when the embedded
+    /// relay is healthy and publication is enabled. Piggybacks on the heartbeat tick,
+    /// so effective cadence is granularized by `heartbeat_interval`.
+    /// Default: `relay_registry_ttl / 2`.
+    pub relay_publish_interval: Duration,
 }
 
 impl Default for RuntimeConfig {
@@ -96,6 +101,7 @@ impl Default for RuntimeConfig {
             enable_embedded_relay_publication: false,
             relay_registry_ttl: Duration::from_secs(600), // 10 min
             enable_transport_relay_discovery: false,
+            relay_publish_interval: Duration::from_secs(300), // 10 min TTL / 2
         }
     }
 }
