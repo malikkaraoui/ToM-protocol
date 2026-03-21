@@ -2,15 +2,10 @@
 ///
 /// Full-stack demo: iroh QUIC transport + protocol layer (envelope,
 /// crypto, routing) + ratatui terminal UI.
-///
-/// Usage:
-///   tom-chat                     # Start fresh node (TUI)
-///   tom-chat <peer-node-id>      # Start and connect to peer (TUI)
-///   tom-chat --username alice     # Set username for gossip discovery
-///   tom-chat --bot               # Headless bot — auto-responds to messages
 use std::io;
 use std::time::{Duration, Instant};
 
+use clap::Parser;
 use crossterm::event::{self, Event, KeyCode, KeyModifiers};
 use crossterm::terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen};
 use crossterm::ExecutableCommand;
@@ -21,6 +16,49 @@ use tom_protocol::{
     RuntimeHandle,
 };
 use tom_transport::{TomNode, TomNodeConfig};
+
+// ── CLI ─────────────────────────────────────────────────────────────────
+
+/// tom-chat — TUI chat demo for the ToM protocol.
+#[derive(Parser, Debug)]
+#[command(name = "tom-chat", version)]
+struct Cli {
+    /// Peer node ID to connect to.
+    peer: Option<String>,
+
+    /// Username for gossip discovery.
+    #[arg(long, default_value = "anonymous")]
+    username: String,
+
+    /// Headless bot mode — auto-responds to messages.
+    #[arg(long)]
+    bot: bool,
+
+    // ── Observer options ──
+
+    /// Enable transport relay discovery (observer receives RelayReadyAnnounce via gossip).
+    #[arg(long)]
+    relay_discovery: bool,
+
+    /// Relay registry TTL in seconds (how long a discovered relay stays valid).
+    #[arg(long, value_name = "SECS")]
+    relay_ttl: Option<u64>,
+
+    // ── Publisher options ──
+
+    /// Enable embedded relay server on this node.
+    #[arg(long)]
+    embedded_relay: bool,
+
+    /// Enable publication of RelayReadyAnnounce via gossip (requires --embedded-relay).
+    #[arg(long, requires = "embedded_relay")]
+    embedded_relay_publish: bool,
+
+    /// Republication interval in seconds for RelayReadyAnnounce (publisher option, requires --embedded-relay-publish).
+    /// Default: relay_ttl / 2.
+    #[arg(long, value_name = "SECS", requires = "embedded_relay_publish")]
+    relay_publish_interval: Option<u64>,
+}
 
 // ── App State ────────────────────────────────────────────────────────────
 
@@ -105,12 +143,10 @@ impl App {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    // Parse CLI args
-    let args: Vec<String> = std::env::args().collect();
-    let bot_mode = args.iter().any(|a| a == "--bot");
+    let cli = Cli::parse();
 
     // Enable tracing in bot mode so logs are visible on stdout
-    if bot_mode {
+    if cli.bot {
         let _ = tracing_subscriber::fmt()
             .with_env_filter(
                 tracing_subscriber::EnvFilter::from_default_env()
@@ -118,30 +154,41 @@ async fn main() -> anyhow::Result<()> {
             .try_init();
     }
 
-    let username = args.windows(2)
-        .find(|w| w[0] == "--username")
-        .map(|w| w[1].clone())
-        .unwrap_or_else(|| "anonymous".to_string());
-    let peer_arg = args.get(1).filter(|a| !a.starts_with('-')).cloned();
-
     // Init transport
     let node = TomNode::bind(TomNodeConfig::new()).await?;
     let local_id = node.id();
 
     // Print node info to stderr (visible after TUI exits)
     eprintln!("╭─────────────────────────────────────────────╮");
-    eprintln!("│  tom-chat v0.1  user={:<22}│", &username);
+    eprintln!("│  tom-chat v0.1  user={:<22}│", &cli.username);
     eprintln!("├─────────────────────────────────────────────┤");
     eprintln!("│  Node ID: {}..  │", &local_id.to_string()[..40]);
     eprintln!("│  Short:   {}                          │", short_node_id(&local_id));
     eprintln!("╰─────────────────────────────────────────────╯");
 
-    // Build runtime config — pass CLI peer or TOM_BOOTSTRAP_PEER as gossip bootstrap
+    // Build runtime config
     let mut config = RuntimeConfig {
-        username: username.clone(),
+        username: cli.username.clone(),
+        enable_transport_relay_discovery: cli.relay_discovery,
+        enable_embedded_relay: cli.embedded_relay,
+        enable_embedded_relay_publication: cli.embedded_relay_publish,
         ..Default::default()
     };
-    if let Some(ref peer_str) = peer_arg {
+
+    // Override TTL if specified
+    if let Some(ttl_secs) = cli.relay_ttl {
+        config.relay_registry_ttl = Duration::from_secs(ttl_secs);
+        // Adjust default publish interval to ttl/2 unless explicitly set
+        if cli.relay_publish_interval.is_none() {
+            config.relay_publish_interval = Duration::from_secs(ttl_secs / 2);
+        }
+    }
+    if let Some(interval_secs) = cli.relay_publish_interval {
+        config.relay_publish_interval = Duration::from_secs(interval_secs);
+    }
+
+    // Gossip bootstrap peer from positional arg
+    if let Some(ref peer_str) = cli.peer {
         if let Ok(peer_id) = peer_str.parse::<NodeId>() {
             config.gossip_bootstrap_peers = vec![peer_id];
         }
@@ -163,7 +210,7 @@ async fn main() -> anyhow::Result<()> {
         mut events,
     } = ProtocolRuntime::spawn(node, config);
 
-    if bot_mode {
+    if cli.bot {
         return run_bot(handle, messages).await;
     }
 
@@ -172,7 +219,7 @@ async fn main() -> anyhow::Result<()> {
     app.add_system_message(format!("Full ID: {}", local_id));
 
     // If peer arg, connect
-    if let Some(ref peer_str) = peer_arg {
+    if let Some(ref peer_str) = cli.peer {
         match peer_str.parse::<NodeId>() {
             Ok(peer_id) => {
                 app.peer_id = Some(peer_id);
@@ -562,4 +609,72 @@ fn chrono_lite_hms() -> String {
     let m = (secs / 60) % 60;
     let s = secs % 60;
     format!("{:02}:{:02}:{:02}", h, m, s)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap::error::ErrorKind;
+
+    fn try_parse(args: &[&str]) -> Result<Cli, clap::Error> {
+        Cli::try_parse_from(args)
+    }
+
+    #[test]
+    fn cli_defaults() {
+        let cli = try_parse(&["tom-chat"]).unwrap();
+        assert_eq!(cli.username, "anonymous");
+        assert!(!cli.bot);
+        assert!(!cli.relay_discovery);
+        assert!(!cli.embedded_relay);
+        assert!(!cli.embedded_relay_publish);
+        assert!(cli.relay_ttl.is_none());
+        assert!(cli.relay_publish_interval.is_none());
+        assert!(cli.peer.is_none());
+    }
+
+    #[test]
+    fn cli_observer_mode() {
+        let cli = try_parse(&[
+            "tom-chat", "--username", "obs", "--relay-discovery", "--relay-ttl", "30",
+        ]).unwrap();
+        assert_eq!(cli.username, "obs");
+        assert!(cli.relay_discovery);
+        assert_eq!(cli.relay_ttl, Some(30));
+    }
+
+    #[test]
+    fn cli_publisher_mode() {
+        let cli = try_parse(&[
+            "tom-chat", "--embedded-relay", "--embedded-relay-publish",
+            "--relay-publish-interval", "5",
+        ]).unwrap();
+        assert!(cli.embedded_relay);
+        assert!(cli.embedded_relay_publish);
+        assert_eq!(cli.relay_publish_interval, Some(5));
+    }
+
+    #[test]
+    fn cli_publish_requires_embedded_relay() {
+        let err = try_parse(&["tom-chat", "--embedded-relay-publish"]).unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::MissingRequiredArgument);
+    }
+
+    #[test]
+    fn cli_publish_interval_requires_publish() {
+        let err = try_parse(&["tom-chat", "--relay-publish-interval", "5"]).unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::MissingRequiredArgument);
+    }
+
+    #[test]
+    fn cli_peer_positional() {
+        let cli = try_parse(&["tom-chat", "abc123"]).unwrap();
+        assert_eq!(cli.peer.as_deref(), Some("abc123"));
+    }
+
+    #[test]
+    fn cli_bot_mode() {
+        let cli = try_parse(&["tom-chat", "--bot"]).unwrap();
+        assert!(cli.bot);
+    }
 }
