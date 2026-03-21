@@ -216,3 +216,94 @@ async fn transport_relay_discovery_via_runtime_loop() {
 
     handle.shutdown().await;
 }
+
+/// Functional test: periodic refresh keeps relay alive beyond TTL,
+/// and ceasing refresh causes eventual expiration + TransportRelayRemoved.
+///
+/// Uses InjectGossipBytes to simulate periodic refresh on the observer side.
+/// Publisher-side republication is proven by unit tests; full round-trip
+/// (publisher → gossip → observer) is proven by validate-transport-relay binary.
+#[tokio::test]
+async fn relay_refresh_keeps_alive_then_expires() {
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter("tom_protocol::runtime=debug")
+        .with_test_writer()
+        .try_init();
+
+    let node = TomNode::bind(TomNodeConfig::new().n0_discovery(false))
+        .await
+        .expect("bind failed");
+
+    // TTL 400ms, heartbeat 50ms.
+    // We'll manually inject refreshes every ~200ms to keep the relay alive.
+    let config = RuntimeConfig {
+        username: "refresh-test".into(),
+        encryption: false,
+        enable_dht: false,
+        enable_transport_relay_discovery: true,
+        relay_registry_ttl: Duration::from_millis(400),
+        heartbeat_interval: Duration::from_millis(50),
+        ..Default::default()
+    };
+
+    let mut channels = ProtocolRuntime::spawn(node, config);
+    let handle = channels.handle.clone();
+
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    let (relay_node_id, relay_seed) = make_keypair(210);
+    let relay_url: tom_connect::RelayUrl = "http://10.0.0.99:3340".parse().unwrap();
+    let timeout = Duration::from_secs(5);
+
+    // ── Initial announce → TransportRelayInserted ──
+
+    let announce = tom_protocol::discovery::RelayReadyAnnounce::new(
+        relay_node_id, relay_url.clone(), tom_protocol::now_ms(), &relay_seed,
+    );
+    handle.inject_gossip_bytes(rmp_serde::to_vec(&announce).unwrap()).await;
+
+    expect_event(
+        &mut channels.events,
+        |e| matches!(e, ProtocolEvent::TransportRelayInserted { .. }),
+        "initial: TransportRelayInserted",
+        timeout,
+    ).await;
+
+    // ── Phase A: periodic refresh keeps relay alive beyond TTL ──
+    // Inject refreshes at 200ms, 400ms, 600ms. Total = 800ms > TTL (400ms).
+    // Between refreshes, verify no TransportRelayRemoved.
+    for i in 0..3 {
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        let refresh = tom_protocol::discovery::RelayReadyAnnounce::new(
+            relay_node_id, relay_url.clone(), tom_protocol::now_ms(), &relay_seed,
+        );
+        handle.inject_gossip_bytes(rmp_serde::to_vec(&refresh).unwrap()).await;
+
+        // Drain events briefly — must NOT see TransportRelayRemoved
+        expect_no_event(
+            &mut channels.events,
+            |e| matches!(e, ProtocolEvent::TransportRelayRemoved { .. }),
+            &format!("phase A refresh {i}: relay must stay alive"),
+            Duration::from_millis(50),
+        ).await;
+    }
+
+    // ── Phase B: stop refreshing → relay expires → TransportRelayRemoved ──
+    // Last refresh was at ~600ms. TTL is 400ms. So by ~1000ms it should expire.
+    let mut got_removed = false;
+    let deadline_b = tokio::time::Instant::now() + Duration::from_secs(3);
+    while !got_removed {
+        match tokio::time::timeout_at(deadline_b, channels.events.recv()).await {
+            Ok(Some(ProtocolEvent::TransportRelayRemoved { relay_url: ref url }))
+                if *url == relay_url =>
+            {
+                got_removed = true;
+            }
+            Ok(Some(_)) => continue,
+            Ok(None) => panic!("phase B: event channel closed"),
+            Err(_) => panic!("phase B: timeout waiting for TransportRelayRemoved"),
+        }
+    }
+
+    handle.shutdown().await;
+}
