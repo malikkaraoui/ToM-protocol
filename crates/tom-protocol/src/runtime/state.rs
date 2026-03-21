@@ -409,11 +409,23 @@ impl RuntimeState {
 
         // Prune expired relay registry entries
         let expired_relays = self.relay_registry.prune(now_ms());
-        for entry in expired_relays {
+        for entry in &expired_relays {
             effects.push(RuntimeEffect::Emit(ProtocolEvent::RelayRegistryExpired {
                 node_id: entry.node_id,
-                relay_url: entry.relay_url,
+                relay_url: entry.relay_url.clone(),
             }));
+        }
+
+        // Transport relay discovery: remove expired URLs from transport layer
+        if self.config.enable_transport_relay_discovery {
+            for entry in &expired_relays {
+                // Only remove if no other active entry still references this URL
+                if !self.relay_registry.has_active_url(&entry.relay_url) {
+                    effects.push(RuntimeEffect::RemoveTransportRelay {
+                        relay_url: entry.relay_url.clone(),
+                    });
+                }
+            }
         }
 
         effects
@@ -689,18 +701,45 @@ impl RuntimeState {
         );
 
         // Store in registry
-        self.relay_registry.upsert(
+        let upsert_result = self.relay_registry.upsert(
             announce.node_id,
             announce.relay_url.clone(),
             announce.timestamp,
             now_ms(),
         );
 
-        // Emit event for observability — no auto-selection yet
-        vec![RuntimeEffect::Emit(ProtocolEvent::RelayReadyReceived {
+        let mut effects = vec![RuntimeEffect::Emit(ProtocolEvent::RelayReadyReceived {
             node_id: announce.node_id,
-            relay_url: announce.relay_url,
-        })]
+            relay_url: announce.relay_url.clone(),
+        })];
+
+        // Transport relay discovery: inject/update relay URLs in transport layer
+        if self.config.enable_transport_relay_discovery {
+            use crate::discovery::UpsertResult;
+            match upsert_result {
+                UpsertResult::Inserted => {
+                    effects.push(RuntimeEffect::InsertTransportRelay {
+                        relay_url: announce.relay_url,
+                    });
+                }
+                UpsertResult::UpdatedUrl { old_url } => {
+                    effects.push(RuntimeEffect::InsertTransportRelay {
+                        relay_url: announce.relay_url,
+                    });
+                    // Remove old URL only if no other active entry references it
+                    if !self.relay_registry.has_active_url(&old_url) {
+                        effects.push(RuntimeEffect::RemoveTransportRelay {
+                            relay_url: old_url,
+                        });
+                    }
+                }
+                UpsertResult::RefreshedSameUrl => {
+                    // No transport mutation needed on refresh
+                }
+            }
+        }
+
+        effects
     }
 
     // ── Task 7: handle_incoming_chat ───────────────────────────────────
@@ -4307,6 +4346,223 @@ mod tests {
             )
         });
         assert!(has_expired, "should emit RelayRegistryExpired");
+    }
+
+    // ── Transport Relay Discovery tests ────────────────────────────────
+
+    fn state_with_transport_relay_discovery(seed: u8) -> RuntimeState {
+        let (id, secret) = keypair(seed);
+        let mut config = RuntimeConfig::default();
+        config.enable_transport_relay_discovery = true;
+        RuntimeState::new(id, secret, config)
+    }
+
+    #[test]
+    fn announce_with_flag_off_no_transport_effect() {
+        let mut state = default_state(70); // flag is false by default
+        let (other_id, other_seed) = keypair(170);
+        let url: tom_connect::RelayUrl = "http://10.0.0.1:5555".parse().unwrap();
+
+        let announce = crate::discovery::RelayReadyAnnounce::new(
+            other_id, url, now_ms(), &other_seed,
+        );
+        let effects = state.handle_relay_ready_announce(announce);
+
+        // Only RelayReadyReceived, no InsertTransportRelay
+        assert_eq!(effects.len(), 1);
+        assert!(matches!(&effects[0], RuntimeEffect::Emit(ProtocolEvent::RelayReadyReceived { .. })));
+        assert!(!effects.iter().any(|e| matches!(e, RuntimeEffect::InsertTransportRelay { .. })));
+    }
+
+    #[test]
+    fn announce_with_flag_on_emits_insert() {
+        let mut state = state_with_transport_relay_discovery(71);
+        let (other_id, other_seed) = keypair(171);
+        let url: tom_connect::RelayUrl = "http://10.0.0.1:5555".parse().unwrap();
+
+        let announce = crate::discovery::RelayReadyAnnounce::new(
+            other_id, url.clone(), now_ms(), &other_seed,
+        );
+        let effects = state.handle_relay_ready_announce(announce);
+
+        // Should have RelayReadyReceived + InsertTransportRelay
+        assert_eq!(effects.len(), 2);
+        assert!(matches!(&effects[0], RuntimeEffect::Emit(ProtocolEvent::RelayReadyReceived { .. })));
+        assert!(matches!(&effects[1], RuntimeEffect::InsertTransportRelay { relay_url } if relay_url == &url));
+    }
+
+    #[test]
+    fn announce_refresh_same_url_no_insert() {
+        let mut state = state_with_transport_relay_discovery(72);
+        let (other_id, other_seed) = keypair(172);
+        let url: tom_connect::RelayUrl = "http://10.0.0.1:5555".parse().unwrap();
+
+        // First announce
+        let announce1 = crate::discovery::RelayReadyAnnounce::new(
+            other_id, url.clone(), now_ms(), &other_seed,
+        );
+        let _ = state.handle_relay_ready_announce(announce1);
+
+        // Second announce (same URL = refresh)
+        let announce2 = crate::discovery::RelayReadyAnnounce::new(
+            other_id, url.clone(), now_ms(), &other_seed,
+        );
+        let effects = state.handle_relay_ready_announce(announce2);
+
+        // Only RelayReadyReceived, no InsertTransportRelay (same URL refreshed)
+        assert_eq!(effects.len(), 1);
+        assert!(matches!(&effects[0], RuntimeEffect::Emit(ProtocolEvent::RelayReadyReceived { .. })));
+        assert!(!effects.iter().any(|e| matches!(e, RuntimeEffect::InsertTransportRelay { .. })));
+    }
+
+    #[test]
+    fn announce_url_change_emits_insert_and_remove() {
+        let mut state = state_with_transport_relay_discovery(73);
+        let (other_id, other_seed) = keypair(173);
+        let url1: tom_connect::RelayUrl = "http://10.0.0.1:5555".parse().unwrap();
+        let url2: tom_connect::RelayUrl = "http://10.0.0.2:6666".parse().unwrap();
+
+        // First announce with url1
+        let announce1 = crate::discovery::RelayReadyAnnounce::new(
+            other_id, url1.clone(), now_ms(), &other_seed,
+        );
+        let _ = state.handle_relay_ready_announce(announce1);
+
+        // Second announce with url2 (URL changed)
+        let announce2 = crate::discovery::RelayReadyAnnounce::new(
+            other_id, url2.clone(), now_ms(), &other_seed,
+        );
+        let effects = state.handle_relay_ready_announce(announce2);
+
+        // Should emit: RelayReadyReceived + InsertTransportRelay(url2) + RemoveTransportRelay(url1)
+        assert_eq!(effects.len(), 3);
+        assert!(matches!(&effects[1], RuntimeEffect::InsertTransportRelay { relay_url } if relay_url == &url2));
+        assert!(matches!(&effects[2], RuntimeEffect::RemoveTransportRelay { relay_url } if relay_url == &url1));
+    }
+
+    #[test]
+    fn announce_url_change_shared_url_no_remove() {
+        let mut state = state_with_transport_relay_discovery(74);
+        let (id_a, seed_a) = keypair(174);
+        let (id_b, seed_b) = keypair(175);
+        let shared_url: tom_connect::RelayUrl = "http://10.0.0.1:5555".parse().unwrap();
+        let new_url: tom_connect::RelayUrl = "http://10.0.0.2:6666".parse().unwrap();
+
+        // Peer A announces shared_url
+        let a1 = crate::discovery::RelayReadyAnnounce::new(
+            id_a, shared_url.clone(), now_ms(), &seed_a,
+        );
+        let _ = state.handle_relay_ready_announce(a1);
+
+        // Peer B also announces shared_url
+        let b1 = crate::discovery::RelayReadyAnnounce::new(
+            id_b, shared_url.clone(), now_ms(), &seed_b,
+        );
+        let _ = state.handle_relay_ready_announce(b1);
+
+        // Peer A changes to new_url → shared_url still active via B
+        let a2 = crate::discovery::RelayReadyAnnounce::new(
+            id_a, new_url.clone(), now_ms(), &seed_a,
+        );
+        let effects = state.handle_relay_ready_announce(a2);
+
+        // Should emit InsertTransportRelay(new_url) but NOT RemoveTransportRelay(shared_url)
+        assert!(effects.iter().any(|e| matches!(e, RuntimeEffect::InsertTransportRelay { relay_url } if relay_url == &new_url)));
+        assert!(!effects.iter().any(|e| matches!(e, RuntimeEffect::RemoveTransportRelay { relay_url } if relay_url == &shared_url)));
+    }
+
+    #[test]
+    fn prune_with_flag_on_emits_remove() {
+        let mut state = state_with_transport_relay_discovery(75);
+        let (other_id, _) = keypair(176);
+        let url: tom_connect::RelayUrl = "http://10.0.0.1:5555".parse().unwrap();
+
+        // Insert with very short TTL so it expires immediately
+        state.relay_registry = crate::discovery::RelayRegistry::new(1); // 1ms TTL
+        state.relay_registry.upsert(other_id, url.clone(), 0, 0); // expires_at = 1
+        assert_eq!(state.relay_registry.len(), 1);
+
+        let effects = state.tick_heartbeat();
+        assert!(state.relay_registry.is_empty());
+
+        // Should have RemoveTransportRelay for the expired URL
+        assert!(
+            effects.iter().any(|e| matches!(e, RuntimeEffect::RemoveTransportRelay { relay_url } if relay_url == &url)),
+            "should emit RemoveTransportRelay on prune"
+        );
+    }
+
+    #[test]
+    fn prune_shared_url_no_remove() {
+        let mut state = state_with_transport_relay_discovery(76);
+        let (id_a, _) = keypair(177);
+        let (id_b, _) = keypair(178);
+        let url: tom_connect::RelayUrl = "http://10.0.0.1:5555".parse().unwrap();
+
+        // Use very short TTL
+        state.relay_registry = crate::discovery::RelayRegistry::new(1); // 1ms TTL
+
+        // Insert A with expired timestamp, B with fresh timestamp
+        state.relay_registry.upsert(id_a, url.clone(), 0, 0); // expires_at = 1 (expired)
+
+        // Re-create registry to set a long TTL for B
+        // Actually, let's insert B with a future expires_at instead
+        // The registry uses a single TTL, so we need another approach:
+        // Insert B directly after prune — but prune happens atomically.
+        // Simpler: use a normal TTL, insert A long ago, insert B recently.
+        state.relay_registry = crate::discovery::RelayRegistry::new(100); // 100ms TTL
+        state.relay_registry.upsert(id_a, url.clone(), 0, 0); // expires_at = 100 (expired, now >> 100)
+        state.relay_registry.upsert(id_b, url.clone(), now_ms(), now_ms()); // fresh
+
+        assert_eq!(state.relay_registry.len(), 2);
+
+        let effects = state.tick_heartbeat();
+
+        // A should be pruned, B should remain
+        assert_eq!(state.relay_registry.len(), 1);
+        assert!(state.relay_registry.get(&id_b).is_some());
+
+        // URL is still active (via B), so NO RemoveTransportRelay
+        assert!(
+            !effects.iter().any(|e| matches!(e, RuntimeEffect::RemoveTransportRelay { .. })),
+            "shared URL should NOT be removed"
+        );
+    }
+
+    #[test]
+    fn no_topology_mutation_on_announce() {
+        let mut state = state_with_transport_relay_discovery(77);
+        let (other_id, other_seed) = keypair(179);
+        let url: tom_connect::RelayUrl = "http://10.0.0.1:5555".parse().unwrap();
+
+        let topo_before = state.topology.len();
+
+        let announce = crate::discovery::RelayReadyAnnounce::new(
+            other_id, url, now_ms(), &other_seed,
+        );
+        let _ = state.handle_relay_ready_announce(announce);
+
+        // Topology must NOT be mutated by transport relay discovery
+        assert_eq!(state.topology.len(), topo_before);
+    }
+
+    #[test]
+    fn no_relay_selector_impact() {
+        let mut state = state_with_transport_relay_discovery(78);
+        let (other_id, other_seed) = keypair(180);
+        let url: tom_connect::RelayUrl = "http://10.0.0.1:5555".parse().unwrap();
+
+        let announce = crate::discovery::RelayReadyAnnounce::new(
+            other_id, url, now_ms(), &other_seed,
+        );
+        let _ = state.handle_relay_ready_announce(announce);
+
+        // RelaySelector should not have been modified
+        // (select_best returns None relay for unknown target — no new relay added)
+        let dummy_target = keypair(181).0;
+        let selected = state.relay_selector.select_best(dummy_target, &state.topology);
+        assert!(selected.relay_id.is_none(),
+            "relay selector should not be affected by transport relay discovery");
     }
 
     #[test]
