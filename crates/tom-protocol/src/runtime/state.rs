@@ -1862,6 +1862,11 @@ impl RuntimeState {
             RuntimeCommand::GetConnectedPeers { .. } => Vec::new(),
             RuntimeCommand::AddPeerAddr { .. } => Vec::new(),
 
+            // Inject raw gossip bytes — test/debug bridge.
+            RuntimeCommand::InjectGossipBytes { bytes } => {
+                self.handle_gossip_event(GossipInput::PeerAnnounce(bytes))
+            }
+
             // Handled in the loop — signals the loop to break.
             RuntimeCommand::Shutdown => Vec::new(),
 
