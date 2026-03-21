@@ -518,6 +518,25 @@ impl TomNode {
         self.pool.connected_peers().await
     }
 
+    /// Insert a relay into the transport layer's relay map.
+    /// Returns the previous config if the URL already existed.
+    pub async fn insert_relay(
+        &self,
+        relay: tom_connect::RelayUrl,
+        config: Arc<tom_connect::RelayConfig>,
+    ) -> Option<Arc<tom_connect::RelayConfig>> {
+        self.endpoint.insert_relay(relay, config).await
+    }
+
+    /// Remove a relay from the transport layer's relay map.
+    /// Returns the removed config if it existed.
+    pub async fn remove_relay(
+        &self,
+        relay: &tom_connect::RelayUrl,
+    ) -> Option<Arc<tom_connect::RelayConfig>> {
+        self.endpoint.remove_relay(relay).await
+    }
+
     /// Graceful shutdown.
     pub async fn shutdown(mut self) -> Result<(), TomTransportError> {
         if let Some(stop_tx) = self.discovery_refresh_stop_tx.take() {
