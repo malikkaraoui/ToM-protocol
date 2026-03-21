@@ -9,6 +9,10 @@ license = "MIT"
 name = "tom-stress"
 path = "src/main.rs"
 
+[[bin]]
+name = "validate-transport-relay"
+path = "src/bin/validate_transport_relay.rs"
+
 [dependencies]
 tom-transport = { path = "../tom-transport" }
 tom-protocol = { path = "../tom-protocol" }
@@ -21,3 +25,5 @@ rand = "0.9"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
+rmp-serde = "1"
+tom-connect = { path = "../tom-connect" }
