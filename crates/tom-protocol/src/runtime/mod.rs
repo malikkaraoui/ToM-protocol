@@ -185,6 +185,13 @@ pub enum RuntimeCommand {
     GetKnownRelays {
         reply: oneshot::Sender<Vec<crate::discovery::RelayRegistryEntry>>,
     },
+    /// Inject raw gossip bytes into the runtime for processing.
+    ///
+    /// Test/debug bridge: feeds bytes through the same deserialization pipeline
+    /// as real gossip (PeerAnnounce, RoleChangeAnnounce, RelayReadyAnnounce).
+    /// Effects are executed through the loop interceptor, including transport
+    /// relay discovery if enabled.
+    InjectGossipBytes { bytes: Vec<u8> },
     /// Graceful shutdown.
     Shutdown,
 }
@@ -660,6 +667,18 @@ impl RuntimeHandle {
             .send(RuntimeCommand::GetKnownRelays { reply: tx })
             .await;
         rx.await.unwrap_or_default()
+    }
+
+    /// Inject raw gossip bytes into the runtime for processing.
+    ///
+    /// Test/debug bridge: feeds bytes through the same deserialization and
+    /// effect pipeline as real gossip events, including the loop interceptor
+    /// for transport relay discovery.
+    pub async fn inject_gossip_bytes(&self, bytes: Vec<u8>) {
+        let _ = self
+            .cmd_tx
+            .send(RuntimeCommand::InjectGossipBytes { bytes })
+            .await;
     }
 
     /// Graceful shutdown.
