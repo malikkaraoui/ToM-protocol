@@ -11,6 +11,25 @@ use crate::types::NodeId;
 /// Default TTL for relay registry entries (10 minutes).
 pub const DEFAULT_RELAY_REGISTRY_TTL_MS: u64 = 10 * 60 * 1000;
 
+/// Result of an upsert operation on the relay registry.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum UpsertResult {
+    /// New entry inserted (node_id was unknown).
+    Inserted,
+    /// Existing entry refreshed with the same URL.
+    RefreshedSameUrl,
+    /// Existing entry updated with a different URL.
+    UpdatedUrl {
+        old_url: RelayUrl,
+    },
+}
+
+impl UpsertResult {
+    pub fn is_new(&self) -> bool {
+        matches!(self, UpsertResult::Inserted)
+    }
+}
+
 /// A single entry in the relay registry.
 #[derive(Debug, Clone)]
 pub struct RelayRegistryEntry {
@@ -40,15 +59,21 @@ impl RelayRegistry {
         }
     }
 
-    /// Upsert a relay entry. Returns true if this is a new entry (not a refresh).
+    /// Upsert a relay entry. Returns rich result for transport decisions.
     pub fn upsert(
         &mut self,
         node_id: NodeId,
         relay_url: RelayUrl,
         announced_at: u64,
         now: u64,
-    ) -> bool {
-        let is_new = !self.entries.contains_key(&node_id);
+    ) -> UpsertResult {
+        let result = match self.entries.get(&node_id) {
+            None => UpsertResult::Inserted,
+            Some(existing) if existing.relay_url == relay_url => UpsertResult::RefreshedSameUrl,
+            Some(existing) => UpsertResult::UpdatedUrl {
+                old_url: existing.relay_url.clone(),
+            },
+        };
         self.entries.insert(
             node_id,
             RelayRegistryEntry {
@@ -59,7 +84,7 @@ impl RelayRegistry {
                 expires_at: now + self.ttl_ms,
             },
         );
-        is_new
+        result
     }
 
     /// Remove expired entries. Returns the removed entries (for event emission).
@@ -82,6 +107,11 @@ impl RelayRegistry {
 
     pub fn all(&self) -> impl Iterator<Item = &RelayRegistryEntry> {
         self.entries.values()
+    }
+
+    /// Returns true if at least one active entry points to this URL.
+    pub fn has_active_url(&self, url: &RelayUrl) -> bool {
+        self.entries.values().any(|e| &e.relay_url == url)
     }
 
     pub fn len(&self) -> usize {
@@ -122,33 +152,35 @@ mod tests {
     }
 
     #[test]
-    fn upsert_new_entry_returns_true() {
+    fn upsert_new_returns_inserted() {
         let mut reg = RelayRegistry::new(600_000);
         let id = test_node_id(1);
-        let url = test_url();
-        let is_new = reg.upsert(id, url, 1000, 2000);
-        assert!(is_new);
+        let result = reg.upsert(id, test_url(), 1000, 2000);
+        assert_eq!(result, UpsertResult::Inserted);
+        assert!(result.is_new());
         assert_eq!(reg.len(), 1);
     }
 
     #[test]
-    fn upsert_refresh_returns_false() {
+    fn upsert_same_url_returns_refreshed() {
         let mut reg = RelayRegistry::new(600_000);
         let id = test_node_id(1);
         let url = test_url();
-        assert!(reg.upsert(id, url.clone(), 1000, 2000));
-        let is_new = reg.upsert(id, url, 3000, 4000);
-        assert!(!is_new, "refresh should return false");
+        reg.upsert(id, url.clone(), 1000, 2000);
+        let result = reg.upsert(id, url, 3000, 4000);
+        assert_eq!(result, UpsertResult::RefreshedSameUrl);
+        assert!(!result.is_new());
     }
 
     #[test]
-    fn upsert_overwrites_url() {
+    fn upsert_different_url_returns_updated() {
         let mut reg = RelayRegistry::new(600_000);
         let id = test_node_id(1);
         let url1 = test_url();
         let url2: RelayUrl = "http://10.0.0.1:4444".parse().unwrap();
-        reg.upsert(id, url1, 1000, 2000);
-        reg.upsert(id, url2.clone(), 3000, 4000);
+        reg.upsert(id, url1.clone(), 1000, 2000);
+        let result = reg.upsert(id, url2.clone(), 3000, 4000);
+        assert_eq!(result, UpsertResult::UpdatedUrl { old_url: url1 });
         let entry = reg.get(&id).unwrap();
         assert_eq!(entry.relay_url, url2);
         assert_eq!(entry.refreshed_at, 4000);
@@ -206,10 +238,51 @@ mod tests {
         let reg = RelayRegistry::default();
         let id = test_node_id(1);
         reg.get(&id); // just verify it works
-        // Can't inspect ttl_ms directly, but we can test behavior
         let mut reg = RelayRegistry::default();
         reg.upsert(id, test_url(), 0, 0);
         let entry = reg.get(&id).unwrap();
         assert_eq!(entry.expires_at, DEFAULT_RELAY_REGISTRY_TTL_MS);
+    }
+
+    // ── has_active_url tests ────────────────────────────────────────────
+
+    #[test]
+    fn has_active_url_true_when_present() {
+        let mut reg = RelayRegistry::new(600_000);
+        let url = test_url();
+        reg.upsert(test_node_id(1), url.clone(), 100, 100);
+        assert!(reg.has_active_url(&url));
+    }
+
+    #[test]
+    fn has_active_url_false_when_absent() {
+        let mut reg = RelayRegistry::new(600_000);
+        reg.upsert(test_node_id(1), test_url(), 100, 100);
+        let other: RelayUrl = "http://10.0.0.1:9999".parse().unwrap();
+        assert!(!reg.has_active_url(&other));
+    }
+
+    #[test]
+    fn has_active_url_false_after_prune() {
+        let mut reg = RelayRegistry::new(100);
+        let url = test_url();
+        reg.upsert(test_node_id(1), url.clone(), 50, 50);
+        reg.prune(200);
+        assert!(!reg.has_active_url(&url));
+    }
+
+    #[test]
+    fn has_active_url_shared_url_survives_single_prune() {
+        let mut reg = RelayRegistry::new(1000);
+        let url = test_url();
+        let id1 = test_node_id(1);
+        let id2 = test_node_id(2);
+        // id1 inserted at t=100, id2 at t=500 — both point to same URL
+        reg.upsert(id1, url.clone(), 100, 100);
+        reg.upsert(id2, url.clone(), 500, 500);
+        // Prune at t=1200: id1 expires (100+1000=1100 < 1200), id2 alive (500+1000=1500)
+        reg.prune(1200);
+        assert!(reg.has_active_url(&url), "URL still active via id2");
+        assert_eq!(reg.len(), 1);
     }
 }
