@@ -2,6 +2,7 @@ use crate::discovery::RoleChangeAnnounce;
 use crate::envelope::Envelope;
 use crate::tracker::StatusChange;
 use crate::types::NodeId;
+use tom_connect::RelayUrl;
 
 use super::{DeliveredMessage, ProtocolEvent};
 
@@ -50,4 +51,17 @@ pub enum RuntimeEffect {
 
     /// Broadcast a relay-ready announcement via gossip.
     BroadcastRelayReady(crate::discovery::RelayReadyAnnounce),
+
+    /// Insert a discovered relay into the transport layer.
+    /// Handled by loop interceptor (needs node access).
+    InsertTransportRelay {
+        relay_url: RelayUrl,
+    },
+
+    /// Remove a discovered relay from the transport layer.
+    /// Only emitted when the URL is no longer referenced by any active registry entry.
+    /// Handled by loop interceptor (needs node access).
+    RemoveTransportRelay {
+        relay_url: RelayUrl,
+    },
 }
