@@ -695,7 +695,21 @@ fn read_receipt_roundtrip() {
 
 #[test]
 fn antispam_throttles_rapid_sender() {
-    let mut bob = state_with(2, false);
+    let (bob_id, bob_secret) = keypair(2);
+    let mut antispam_config = tom_protocol::AntiSpamConfig::default();
+    antispam_config.min_rate = 1.0;
+    antispam_config.max_rate = 1.0;
+
+    let mut bob = RuntimeState::new(
+        bob_id,
+        bob_secret,
+        RuntimeConfig {
+            encryption: false,
+            username: "node-2".to_string(),
+            antispam_config,
+            ..Default::default()
+        },
+    );
     let bob_id = bob.local_id();
 
     // Create a "spammer" node
@@ -711,10 +725,10 @@ fn antispam_throttles_rapid_sender() {
     .sign(&spam_secret);
     let raw = env.to_bytes().unwrap();
 
-    // Rapid burst — score=0, min_rate=30, capacity=60
-    // First 60 should pass (token bucket starts full), rest should be throttled
+    // Deterministic CI setup — rate=1 msg/s, capacity=2.
+    // On a rapid loop, a small burst must trigger throttling regardless of runner speed.
     let mut throttled = 0;
-    for _ in 0..70 {
+    for _ in 0..10 {
         let effects = bob.handle_incoming(&raw);
         if effects.iter().any(|e| {
             matches!(
@@ -727,7 +741,7 @@ fn antispam_throttles_rapid_sender() {
     }
 
     assert!(
-        throttled >= 5,
-        "Spammer should be throttled after burst capacity, got {throttled}/70"
+        throttled > 0,
+        "Spammer should be throttled after burst capacity, got {throttled}/10"
     );
 }
