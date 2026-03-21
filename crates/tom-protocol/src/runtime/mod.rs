@@ -71,6 +71,9 @@ pub struct RuntimeConfig {
     pub enable_embedded_relay_publication: bool,
     /// TTL for relay registry entries (how long a discovered relay stays valid without refresh).
     pub relay_registry_ttl: Duration,
+    /// Enable dynamic injection of discovered relay URLs into the transport layer.
+    /// When false (default), RelayRegistry observes but does not mutate the Endpoint.
+    pub enable_transport_relay_discovery: bool,
 }
 
 impl Default for RuntimeConfig {
@@ -92,6 +95,7 @@ impl Default for RuntimeConfig {
             enable_embedded_relay: false,
             enable_embedded_relay_publication: false,
             relay_registry_ttl: Duration::from_secs(600), // 10 min
+            enable_transport_relay_discovery: false,
         }
     }
 }
@@ -345,6 +349,14 @@ pub enum ProtocolEvent {
     /// A relay registry entry expired (no refresh within TTL).
     RelayRegistryExpired {
         node_id: NodeId,
+        relay_url: RelayUrl,
+    },
+    /// A discovered relay was injected into the transport layer.
+    TransportRelayInserted {
+        relay_url: RelayUrl,
+    },
+    /// A discovered relay was removed from the transport layer.
+    TransportRelayRemoved {
         relay_url: RelayUrl,
     },
 }

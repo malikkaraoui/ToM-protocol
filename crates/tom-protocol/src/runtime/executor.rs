@@ -78,9 +78,11 @@ pub(super) async fn execute_effects<T: Transport>(
             }
             RuntimeEffect::StartEmbeddedRelay { .. }
             | RuntimeEffect::StopEmbeddedRelay
-            | RuntimeEffect::BroadcastRelayReady(_) => {
-                // Handled in the runtime loop (needs EmbeddedRelayService / gossip sender).
-                tracing::debug!("embedded relay effect reached executor (should be intercepted by loop)");
+            | RuntimeEffect::BroadcastRelayReady(_)
+            | RuntimeEffect::InsertTransportRelay { .. }
+            | RuntimeEffect::RemoveTransportRelay { .. } => {
+                // Handled in the runtime loop (needs node / gossip / embedded relay access).
+                tracing::debug!("loop-intercepted effect reached executor (should be intercepted by loop)");
             }
             RuntimeEffect::SendWithBackupFallback {
                 ref envelope,
