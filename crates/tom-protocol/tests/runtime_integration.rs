@@ -3,8 +3,8 @@
 /// RuntimeState instances exchange envelopes in-memory.
 /// No transport, no tokio — pure effect-based testing.
 use tom_protocol::{
-    GroupMemberRole, MessageStatus, MessageType, ProtocolEvent, RuntimeCommand, RuntimeConfig,
-    RuntimeEffect, RuntimeState, StateSnapshot, StateStore,
+    GossipInput, GroupMemberRole, MessageStatus, MessageType, ProtocolEvent, RuntimeCommand,
+    RuntimeConfig, RuntimeEffect, RuntimeState, StateSnapshot, StateStore,
 };
 
 fn keypair(seed: u8) -> (tom_protocol::NodeId, [u8; 32]) {
@@ -743,5 +743,167 @@ fn antispam_throttles_rapid_sender() {
     assert!(
         throttled > 0,
         "Spammer should be throttled after burst capacity, got {throttled}/10"
+    );
+}
+
+// ── Transport Relay Discovery — end-to-end pipeline ──────────────────
+
+/// Full pipeline: gossip RelayReadyAnnounce → state → InsertTransportRelay effect,
+/// then prune → RemoveTransportRelay effect.
+///
+/// Exercises the real deserialization path (msgpack gossip bytes) with
+/// enable_transport_relay_discovery = true. No sleep, no network.
+#[test]
+fn transport_relay_discovery_full_pipeline() {
+    let (bob_id, bob_secret) = keypair(90);
+    let mut bob = RuntimeState::new(
+        bob_id,
+        bob_secret,
+        RuntimeConfig {
+            encryption: false,
+            username: "bob".to_string(),
+            enable_transport_relay_discovery: true,
+            relay_registry_ttl: std::time::Duration::from_millis(1), // expire immediately
+            ..Default::default()
+        },
+    );
+
+    // ── Phase 1: Announce → InsertTransportRelay ──────────────────────
+
+    let (relay_node_id, relay_seed) = keypair(91);
+    let relay_url: tom_connect::RelayUrl = "http://10.0.0.99:3340".parse().unwrap();
+    let announce = tom_protocol::discovery::RelayReadyAnnounce::new(
+        relay_node_id,
+        relay_url.clone(),
+        tom_protocol::now_ms(),
+        &relay_seed,
+    );
+    let gossip_bytes = rmp_serde::to_vec(&announce).unwrap();
+
+    let effects = bob.handle_gossip_event(GossipInput::PeerAnnounce(gossip_bytes));
+
+    // Must emit RelayReadyReceived
+    assert!(
+        effects.iter().any(|e| matches!(
+            e,
+            RuntimeEffect::Emit(ProtocolEvent::RelayReadyReceived { node_id, relay_url: url })
+            if *node_id == relay_node_id && url == &relay_url
+        )),
+        "missing RelayReadyReceived event: {effects:?}"
+    );
+
+    // Must emit InsertTransportRelay
+    assert!(
+        effects.iter().any(|e| matches!(
+            e,
+            RuntimeEffect::InsertTransportRelay { relay_url: url }
+            if url == &relay_url
+        )),
+        "missing InsertTransportRelay effect: {effects:?}"
+    );
+
+    // Topology must NOT be mutated (transport relay ≠ protocol relay)
+    assert!(
+        bob.topology().get(&relay_node_id).is_none(),
+        "Topology should not contain relay node from transport relay discovery"
+    );
+
+    // ── Phase 2: Refresh same URL → no duplicate insert ──────────────
+
+    let announce2 = tom_protocol::discovery::RelayReadyAnnounce::new(
+        relay_node_id,
+        relay_url.clone(),
+        tom_protocol::now_ms(),
+        &relay_seed,
+    );
+    let gossip_bytes2 = rmp_serde::to_vec(&announce2).unwrap();
+
+    let effects2 = bob.handle_gossip_event(GossipInput::PeerAnnounce(gossip_bytes2));
+
+    assert!(
+        effects2.iter().any(|e| matches!(e, RuntimeEffect::Emit(ProtocolEvent::RelayReadyReceived { .. }))),
+        "refresh should still emit RelayReadyReceived"
+    );
+    assert!(
+        !effects2.iter().any(|e| matches!(e, RuntimeEffect::InsertTransportRelay { .. })),
+        "refresh of same URL should NOT emit InsertTransportRelay"
+    );
+
+    // ── Phase 3: URL change → insert new + remove old ────────────────
+
+    let new_url: tom_connect::RelayUrl = "http://10.0.0.100:4444".parse().unwrap();
+    let announce3 = tom_protocol::discovery::RelayReadyAnnounce::new(
+        relay_node_id,
+        new_url.clone(),
+        tom_protocol::now_ms(),
+        &relay_seed,
+    );
+    let gossip_bytes3 = rmp_serde::to_vec(&announce3).unwrap();
+
+    let effects3 = bob.handle_gossip_event(GossipInput::PeerAnnounce(gossip_bytes3));
+
+    assert!(
+        effects3.iter().any(|e| matches!(
+            e, RuntimeEffect::InsertTransportRelay { relay_url: url } if url == &new_url
+        )),
+        "URL change should emit InsertTransportRelay for new URL: {effects3:?}"
+    );
+    assert!(
+        effects3.iter().any(|e| matches!(
+            e, RuntimeEffect::RemoveTransportRelay { relay_url: url } if url == &relay_url
+        )),
+        "URL change should emit RemoveTransportRelay for old URL: {effects3:?}"
+    );
+
+    // ── Phase 4: Prune expired → RemoveTransportRelay ────────────────
+
+    // The entry from Phase 3 was inserted with now_ms() and TTL=1ms.
+    // To guarantee expiration without sleep, we insert a controlled entry
+    // with timestamps far in the past, then prune.
+    let prune_url: tom_connect::RelayUrl = "http://10.0.0.200:9999".parse().unwrap();
+    let (prune_node_id, prune_seed) = keypair(92);
+
+    // Inject via gossip so the full pipeline is exercised
+    let prune_announce = tom_protocol::discovery::RelayReadyAnnounce::new(
+        prune_node_id,
+        prune_url.clone(),
+        tom_protocol::now_ms(),
+        &prune_seed,
+    );
+    let prune_bytes = rmp_serde::to_vec(&prune_announce).unwrap();
+    let effects_insert = bob.handle_gossip_event(GossipInput::PeerAnnounce(prune_bytes));
+    assert!(
+        effects_insert.iter().any(|e| matches!(e, RuntimeEffect::InsertTransportRelay { .. })),
+        "prune setup: should have inserted relay: {effects_insert:?}"
+    );
+
+    // Force the entry to be expired by overwriting with past timestamps.
+    // relay_registry is pub(crate), but we can access it via the public
+    // relay_registry() accessor if available, or we rely on tick_heartbeat
+    // being called after enough time. Since TTL=1ms, a busy-loop until
+    // now_ms() advances by 1ms is safe and deterministic.
+    // expires_at = now_ms(at_handle_time) + ttl(1ms). Spin until well past that.
+    let spin_target = tom_protocol::now_ms() + 2;
+    while tom_protocol::now_ms() < spin_target {
+        // spin ~2ms — deterministic, no sleep
+    }
+
+    let effects4 = bob.tick_heartbeat();
+
+    assert!(
+        effects4.iter().any(|e| matches!(
+            e,
+            RuntimeEffect::Emit(ProtocolEvent::RelayRegistryExpired { node_id, .. })
+            if *node_id == prune_node_id
+        )),
+        "prune should emit RelayRegistryExpired: {effects4:?}"
+    );
+    assert!(
+        effects4.iter().any(|e| matches!(
+            e,
+            RuntimeEffect::RemoveTransportRelay { relay_url: url }
+            if url == &prune_url
+        )),
+        "prune should emit RemoveTransportRelay for expired URL: {effects4:?}"
     );
 }
