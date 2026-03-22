@@ -211,7 +211,7 @@ async fn main() -> anyhow::Result<()> {
     } = ProtocolRuntime::spawn(node, config);
 
     if cli.bot {
-        return run_bot(handle, messages).await;
+        return run_bot(handle, messages, events).await;
     }
 
     let mut app = App::new(local_id);
@@ -453,6 +453,37 @@ fn handle_protocol_event(app: &mut App, event: &ProtocolEvent) {
         ProtocolEvent::Error { description } => {
             app.add_system_message(format!("Error: {}", description));
         }
+        // ── Embedded relay events ──
+        ProtocolEvent::EmbeddedRelayStarted { url } => {
+            app.add_system_message(format!("Embedded relay started: {}", url));
+        }
+        ProtocolEvent::EmbeddedRelayFailed { error } => {
+            app.add_system_message(format!("Embedded relay FAILED: {}", error));
+        }
+        ProtocolEvent::EmbeddedRelayStopped => {
+            app.add_system_message("Embedded relay stopped".into());
+        }
+        // ── Relay discovery events ──
+        ProtocolEvent::RelayReadyReceived { node_id, relay_url } => {
+            app.add_system_message(format!(
+                "Relay discovered: {} → {}",
+                short_node_id(node_id),
+                relay_url
+            ));
+        }
+        ProtocolEvent::RelayRegistryExpired { node_id, relay_url } => {
+            app.add_system_message(format!(
+                "Relay expired: {} → {}",
+                short_node_id(node_id),
+                relay_url
+            ));
+        }
+        ProtocolEvent::TransportRelayInserted { relay_url } => {
+            app.add_system_message(format!("Transport relay added: {}", relay_url));
+        }
+        ProtocolEvent::TransportRelayRemoved { relay_url } => {
+            app.add_system_message(format!("Transport relay removed: {}", relay_url));
+        }
         _ => {}
     }
 }
@@ -548,6 +579,7 @@ fn draw_ui(f: &mut Frame, app: &App) {
 async fn run_bot(
     handle: RuntimeHandle,
     mut messages: tokio::sync::mpsc::Receiver<DeliveredMessage>,
+    mut events: tokio::sync::mpsc::Receiver<ProtocolEvent>,
 ) -> anyhow::Result<()> {
     println!("[bot] Running in bot mode — auto-responding via ProtocolRuntime");
     println!("[bot] Node ID: {}", handle.local_id());
@@ -556,32 +588,79 @@ async fn run_bot(
     let mut count = 0u64;
 
     loop {
-        let Some(msg) = messages.recv().await else {
-            println!("[bot] runtime channel closed, shutting down");
-            break;
-        };
+        tokio::select! {
+            msg_opt = messages.recv() => {
+                let Some(msg) = msg_opt else {
+                    println!("[bot] runtime channel closed, shutting down");
+                    break;
+                };
 
-        let sig_label = if msg.signature_valid { "ok" } else { "bad" };
-        let text = String::from_utf8_lossy(&msg.payload);
-        count += 1;
+                let sig_label = if msg.signature_valid { "ok" } else { "bad" };
+                let text = String::from_utf8_lossy(&msg.payload);
+                count += 1;
 
-        println!(
-            "[bot] #{} from {} | sig={} | \"{}\"",
-            count,
-            short_node_id(&msg.from),
-            sig_label,
-            text
-        );
+                println!(
+                    "[bot] #{} from {} | sig={} | \"{}\"",
+                    count,
+                    short_node_id(&msg.from),
+                    sig_label,
+                    text
+                );
 
-        // Auto-reply via runtime (handles signing, encryption, relay selection)
-        let reply = format!("recu 5/5 malik (msg #{})", count);
-        match handle.send_message(msg.from, reply.as_bytes().to_vec()).await {
-            Ok(()) => println!("[bot] replied: \"{}\"", reply),
-            Err(e) => println!("[bot] send error: {}", e),
+                // Auto-reply via runtime (handles signing, encryption, relay selection)
+                let reply = format!("recu 5/5 malik (msg #{})", count);
+                match handle.send_message(msg.from, reply.as_bytes().to_vec()).await {
+                    Ok(()) => println!("[bot] replied: \"{}\"", reply),
+                    Err(e) => println!("[bot] send error: {}", e),
+                }
+            }
+            evt_opt = events.recv() => {
+                let Some(evt) = evt_opt else { break; };
+                handle_bot_event(&evt);
+            }
         }
     }
 
     Ok(())
+}
+
+fn handle_bot_event(event: &ProtocolEvent) {
+    match event {
+        ProtocolEvent::PeerDiscovered { node_id, username, source } => {
+            println!("[event] Peer discovered: {} \"{}\" (via {:?})", short_node_id(node_id), username, source);
+        }
+        ProtocolEvent::GossipNeighborUp { node_id } => {
+            println!("[event] Gossip neighbor up: {}", short_node_id(node_id));
+        }
+        ProtocolEvent::GossipNeighborDown { node_id } => {
+            println!("[event] Gossip neighbor down: {}", short_node_id(node_id));
+        }
+        ProtocolEvent::EmbeddedRelayStarted { url } => {
+            println!("[event] Embedded relay started: {}", url);
+        }
+        ProtocolEvent::EmbeddedRelayFailed { error } => {
+            println!("[event] Embedded relay FAILED: {}", error);
+        }
+        ProtocolEvent::EmbeddedRelayStopped => {
+            println!("[event] Embedded relay stopped");
+        }
+        ProtocolEvent::RelayReadyReceived { node_id, relay_url } => {
+            println!("[event] Relay discovered: {} → {}", short_node_id(node_id), relay_url);
+        }
+        ProtocolEvent::RelayRegistryExpired { node_id, relay_url } => {
+            println!("[event] Relay expired: {} → {}", short_node_id(node_id), relay_url);
+        }
+        ProtocolEvent::TransportRelayInserted { relay_url } => {
+            println!("[event] Transport relay added: {}", relay_url);
+        }
+        ProtocolEvent::TransportRelayRemoved { relay_url } => {
+            println!("[event] Transport relay removed: {}", relay_url);
+        }
+        ProtocolEvent::PathChanged { event } => {
+            println!("[event] Path changed: {:?}", event);
+        }
+        _ => {}
+    }
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────
