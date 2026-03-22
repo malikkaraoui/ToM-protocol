@@ -112,6 +112,18 @@ pub(super) async fn runtime_loop(
     // ── Embedded relay service ─────────────────────────────────────────
     let mut embedded_relay = super::EmbeddedRelayService::new();
 
+    // Auto-start embedded relay if enabled in config
+    if state.config.enable_embedded_relay {
+        let relay_config = super::EmbeddedRelayConfig {
+            bind_addr: std::net::SocketAddr::from(([127, 0, 0, 1], 0)),
+        };
+        let startup_effects = match embedded_relay.start(relay_config).await {
+            Ok(url) => state.handle_command(super::RuntimeCommand::EmbeddedRelayStarted { url }),
+            Err(error) => state.handle_command(super::RuntimeCommand::EmbeddedRelayFailed { error }),
+        };
+        execute_effects(startup_effects, &node, &msg_tx, &status_tx, &event_tx, &metrics).await;
+    }
+
     // ── Rejoin groups after restart (one-shot) ────────────────────────
     let rejoin_effects = state.build_rejoin_effects();
     if !rejoin_effects.is_empty() {
