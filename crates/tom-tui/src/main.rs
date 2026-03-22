@@ -58,6 +58,13 @@ struct Cli {
     /// Default: relay_ttl / 2.
     #[arg(long, value_name = "SECS", requires = "embedded_relay_publish")]
     relay_publish_interval: Option<u64>,
+
+    // ── Bot ping options ──
+
+    /// In bot mode, send a ping message to the first discovered peer every N seconds.
+    /// Proves message exchange without human intervention (requires --bot).
+    #[arg(long, value_name = "SECS", requires = "bot")]
+    bot_ping: Option<u64>,
 }
 
 // ── App State ────────────────────────────────────────────────────────────
@@ -211,7 +218,7 @@ async fn main() -> anyhow::Result<()> {
     } = ProtocolRuntime::spawn(node, config);
 
     if cli.bot {
-        return run_bot(handle, messages, events).await;
+        return run_bot(handle, messages, events, cli.bot_ping).await;
     }
 
     let mut app = App::new(local_id);
@@ -580,12 +587,23 @@ async fn run_bot(
     handle: RuntimeHandle,
     mut messages: tokio::sync::mpsc::Receiver<DeliveredMessage>,
     mut events: tokio::sync::mpsc::Receiver<ProtocolEvent>,
+    bot_ping_secs: Option<u64>,
 ) -> anyhow::Result<()> {
     println!("[bot] Running in bot mode — auto-responding via ProtocolRuntime");
     println!("[bot] Node ID: {}", handle.local_id());
+    if let Some(secs) = bot_ping_secs {
+        println!("[bot] Ping mode: will ping first discovered peer every {}s", secs);
+    }
     println!("[bot] Ctrl+C to stop\n");
 
     let mut count = 0u64;
+    let mut ping_count = 0u64;
+    let mut ping_target: Option<NodeId> = None;
+
+    // Ping interval: fires only if --bot-ping is set
+    let ping_duration = bot_ping_secs.map(Duration::from_secs);
+    let mut ping_interval = tokio::time::interval(ping_duration.unwrap_or(Duration::from_secs(3600)));
+    ping_interval.tick().await; // consume the immediate first tick
 
     loop {
         tokio::select! {
@@ -616,7 +634,23 @@ async fn run_bot(
             }
             evt_opt = events.recv() => {
                 let Some(evt) = evt_opt else { break; };
+                // Set ping target on first peer discovery
+                if ping_target.is_none() {
+                    if let ProtocolEvent::PeerDiscovered { node_id, .. } = &evt {
+                        ping_target = Some(*node_id);
+                        println!("[bot] Ping target set: {}", short_node_id(node_id));
+                    }
+                }
                 handle_bot_event(&evt);
+            }
+            _ = ping_interval.tick(), if ping_duration.is_some() && ping_target.is_some() => {
+                let target = ping_target.unwrap();
+                ping_count += 1;
+                let msg = format!("ping #{} from {}", ping_count, short_node_id(&handle.local_id()));
+                match handle.send_message(target, msg.as_bytes().to_vec()).await {
+                    Ok(()) => println!("[bot] ping #{} → {}", ping_count, short_node_id(&target)),
+                    Err(e) => println!("[bot] ping error: {}", e),
+                }
             }
         }
     }
@@ -755,5 +789,19 @@ mod tests {
     fn cli_bot_mode() {
         let cli = try_parse(&["tom-chat", "--bot"]).unwrap();
         assert!(cli.bot);
+        assert!(cli.bot_ping.is_none());
+    }
+
+    #[test]
+    fn cli_bot_ping() {
+        let cli = try_parse(&["tom-chat", "--bot", "--bot-ping", "5"]).unwrap();
+        assert!(cli.bot);
+        assert_eq!(cli.bot_ping, Some(5));
+    }
+
+    #[test]
+    fn cli_bot_ping_requires_bot() {
+        let err = try_parse(&["tom-chat", "--bot-ping", "5"]).unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::MissingRequiredArgument);
     }
 }
