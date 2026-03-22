@@ -1990,9 +1990,22 @@ impl RuntimeState {
                     status: PeerStatus::Online,
                     last_seen: now_ms(),
                 });
-                vec![RuntimeEffect::Emit(
+                let mut effects = vec![RuntimeEffect::Emit(
                     ProtocolEvent::GossipNeighborUp { node_id },
-                )]
+                )];
+
+                // Re-publish embedded relay announcement to new neighbor.
+                // The initial publication at startup is missed by nodes that join
+                // gossip after the first broadcast. This ensures late joiners
+                // receive the relay announcement without waiting for the next
+                // periodic republication interval.
+                if let super::LocalEmbeddedRelayState::Healthy { ref bound_relay_url } =
+                    self.embedded_relay_state
+                {
+                    effects.extend(self.build_relay_publication(bound_relay_url.clone()));
+                }
+
+                effects
             }
 
             GossipInput::NeighborDown(node_id) => {
@@ -2977,6 +2990,67 @@ mod tests {
             "peer should be registered in topology after NeighborUp"
         );
         assert_eq!(topo_peer.unwrap().status, PeerStatus::Online);
+    }
+
+    #[test]
+    fn neighbor_up_republishes_relay_when_published() {
+        let (local_id, local_secret) = keypair(1);
+        let mut state = RuntimeState::new(
+            local_id,
+            local_secret,
+            RuntimeConfig {
+                enable_embedded_relay: true,
+                enable_embedded_relay_publication: true,
+                ..Default::default()
+            },
+        );
+
+        // Simulate embedded relay becoming healthy
+        let relay_url: tom_connect::RelayUrl = "http://127.0.0.1:9999".parse().unwrap();
+        state.embedded_relay_state = LocalEmbeddedRelayState::Healthy {
+            bound_relay_url: relay_url.clone(),
+        };
+
+        // First publication (at startup)
+        let pub_effects = state.build_relay_publication(relay_url);
+        assert!(
+            pub_effects.iter().any(|e| matches!(e, RuntimeEffect::BroadcastRelayReady(_))),
+            "initial publication should produce BroadcastRelayReady"
+        );
+
+        // New gossip neighbor joins
+        let peer = node_id(2);
+        let effects = state.handle_gossip_event(super::GossipInput::NeighborUp(peer));
+
+        // Must contain both GossipNeighborUp AND BroadcastRelayReady
+        let has_neighbor_up = effects.iter().any(|e| {
+            matches!(e, RuntimeEffect::Emit(ProtocolEvent::GossipNeighborUp { .. }))
+        });
+        let has_relay_broadcast = effects.iter().any(|e| {
+            matches!(e, RuntimeEffect::BroadcastRelayReady(_))
+        });
+
+        assert!(has_neighbor_up, "expected GossipNeighborUp event");
+        assert!(
+            has_relay_broadcast,
+            "expected BroadcastRelayReady on NeighborUp when relay is published, got: {effects:?}"
+        );
+    }
+
+    #[test]
+    fn neighbor_up_no_republish_when_relay_not_active() {
+        let mut state = default_state(1);
+        let peer = node_id(2);
+
+        let effects = state.handle_gossip_event(super::GossipInput::NeighborUp(peer));
+
+        let has_relay_broadcast = effects.iter().any(|e| {
+            matches!(e, RuntimeEffect::BroadcastRelayReady(_))
+        });
+        assert!(
+            !has_relay_broadcast,
+            "should NOT broadcast relay when no embedded relay is active"
+        );
     }
 
     #[test]
