@@ -307,3 +307,42 @@ async fn relay_refresh_keeps_alive_then_expires() {
 
     handle.shutdown().await;
 }
+
+/// Regression test: embedded relay auto-starts when config.enable_embedded_relay is true.
+///
+/// Before fix 32165b1, the runtime created EmbeddedRelayService::new() but never
+/// started it automatically — it required an explicit RuntimeCommand::StartEmbeddedRelay.
+/// This test ensures the auto-start is not re-broken.
+#[tokio::test]
+async fn embedded_relay_auto_starts_when_enabled() {
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter("tom_protocol::runtime=debug")
+        .with_test_writer()
+        .try_init();
+
+    let node = TomNode::bind(TomNodeConfig::new().n0_discovery(false))
+        .await
+        .expect("bind failed");
+
+    let config = RuntimeConfig {
+        username: "relay-autostart-test".into(),
+        encryption: false,
+        enable_dht: false,
+        enable_embedded_relay: true,
+        enable_embedded_relay_publication: false, // only testing auto-start, not publication
+        ..Default::default()
+    };
+
+    let mut channels = ProtocolRuntime::spawn(node, config);
+
+    // The embedded relay must emit EmbeddedRelayStarted within a few seconds
+    expect_event(
+        &mut channels.events,
+        |e| matches!(e, ProtocolEvent::EmbeddedRelayStarted { .. }),
+        "embedded relay must auto-start when enable_embedded_relay=true",
+        Duration::from_secs(5),
+    )
+    .await;
+
+    channels.handle.shutdown().await;
+}
