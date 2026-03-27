@@ -53,11 +53,14 @@ pub enum EmbeddedRelayPublicationState {
 
 /// Configuration for the embedded relay.
 ///
-/// MVP: just `bind_addr`. Extensible later to dev_mode, TLS, access policy.
+/// MVP: bind_addr + optional advertise IP for cross-machine reachability.
 #[derive(Debug, Clone)]
 pub struct EmbeddedRelayConfig {
-    /// Socket address to bind the HTTP relay on (e.g. `0.0.0.0:0` for random port).
+    /// Socket address to bind the HTTP relay on (e.g. `[::]:0` for dual-stack, random port).
     pub bind_addr: SocketAddr,
+    /// Advertised IP for the relay URL published to the network.
+    /// When `None`, auto-detects the machine's outbound IP.
+    pub advertise_addr: Option<std::net::IpAddr>,
 }
 
 /// Manages the lifecycle of an embedded `tom-relay` server.
@@ -119,7 +122,23 @@ impl EmbeddedRelayService {
                     "server started but no HTTP address available".to_string()
                 })?;
 
-                let url_str = format!("http://{http_addr}");
+                // Determine the advertised address:
+                // 1. Explicit advertise_addr from config
+                // 2. Auto-detect outbound IP if bind was unspecified
+                // 3. Fall back to bound address as-is
+                let advertise_ip = config.advertise_addr.or_else(|| {
+                    let bound_ip = http_addr.ip();
+                    if bound_ip.is_unspecified() || bound_ip.is_loopback() {
+                        detect_outbound_ip()
+                    } else {
+                        Some(bound_ip)
+                    }
+                });
+
+                let url_str = match advertise_ip {
+                    Some(ip) => format!("http://{}:{}", format_ip_for_url(ip), http_addr.port()),
+                    None => format!("http://{http_addr}"),
+                };
                 let url: RelayUrl = url_str.parse().map_err(|e| {
                     format!("invalid relay URL '{url_str}': {e}")
                 })?;
@@ -166,6 +185,46 @@ impl EmbeddedRelayService {
     }
 }
 
+/// Detect the machine's outbound IP by connecting a UDP socket to a public address.
+/// No traffic is actually sent. Returns `None` if detection fails.
+fn detect_outbound_ip() -> Option<std::net::IpAddr> {
+    // Try IPv4 first (most common), then IPv6
+    if let Ok(ip) = detect_outbound_ipv4() {
+        return Some(std::net::IpAddr::V4(ip));
+    }
+    if let Ok(ip) = detect_outbound_ipv6() {
+        return Some(std::net::IpAddr::V6(ip));
+    }
+    tracing::warn!("could not auto-detect outbound IP for embedded relay");
+    None
+}
+
+fn detect_outbound_ipv4() -> Result<std::net::Ipv4Addr, std::io::Error> {
+    let socket = std::net::UdpSocket::bind("0.0.0.0:0")?;
+    socket.connect("8.8.8.8:80")?;
+    match socket.local_addr()?.ip() {
+        std::net::IpAddr::V4(ip) => Ok(ip),
+        _ => Err(std::io::Error::other("not ipv4")),
+    }
+}
+
+fn detect_outbound_ipv6() -> Result<std::net::Ipv6Addr, std::io::Error> {
+    let socket = std::net::UdpSocket::bind("[::]:0")?;
+    socket.connect("[2001:4860:4860::8888]:80")?;
+    match socket.local_addr()?.ip() {
+        std::net::IpAddr::V6(ip) => Ok(ip),
+        _ => Err(std::io::Error::other("not ipv6")),
+    }
+}
+
+/// Format an IP address for use in a URL (IPv6 needs brackets).
+fn format_ip_for_url(ip: std::net::IpAddr) -> String {
+    match ip {
+        std::net::IpAddr::V4(v4) => v4.to_string(),
+        std::net::IpAddr::V6(v6) => format!("[{v6}]"),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -179,11 +238,13 @@ mod tests {
         // Start on random port
         let config = EmbeddedRelayConfig {
             bind_addr: "127.0.0.1:0".parse().unwrap(),
+            advertise_addr: None,
         };
         let url = service.start(config).await.expect("should start");
         assert_eq!(*service.status(), EmbeddedRelayStatus::Healthy);
         assert!(service.bound_relay_url().is_some());
-        assert!(url.to_string().starts_with("http://127.0.0.1:"));
+        // URL may be 127.0.0.1 or auto-detected outbound IP
+        assert!(url.to_string().starts_with("http://"));
 
         // Stop
         service.stop().await;
@@ -200,6 +261,7 @@ mod tests {
         let mut service = EmbeddedRelayService::new();
         let config = EmbeddedRelayConfig {
             bind_addr: occupied_addr,
+            advertise_addr: None,
         };
         let result = service.start(config).await;
         assert!(result.is_err());
@@ -212,6 +274,7 @@ mod tests {
 
         let config = EmbeddedRelayConfig {
             bind_addr: "127.0.0.1:0".parse().unwrap(),
+            advertise_addr: None,
         };
         let url1 = service.start(config.clone()).await.expect("first start");
 
@@ -229,6 +292,7 @@ mod tests {
         let mut service = EmbeddedRelayService::new();
         let config = EmbeddedRelayConfig {
             bind_addr: "127.0.0.1:0".parse().unwrap(),
+            advertise_addr: None,
         };
         let _url = service.start(config).await.expect("should start");
 

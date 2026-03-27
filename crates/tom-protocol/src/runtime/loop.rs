@@ -115,7 +115,8 @@ pub(super) async fn runtime_loop(
     // Auto-start embedded relay if enabled in config
     if state.config.enable_embedded_relay {
         let relay_config = super::EmbeddedRelayConfig {
-            bind_addr: std::net::SocketAddr::from(([127, 0, 0, 1], 0)),
+            bind_addr: state.config.embedded_relay_bind_addr,
+            advertise_addr: state.config.embedded_relay_advertise_addr,
         };
         let startup_effects = match embedded_relay.start(relay_config).await {
             Ok(url) => state.handle_command(super::RuntimeCommand::EmbeddedRelayStarted { url }),
