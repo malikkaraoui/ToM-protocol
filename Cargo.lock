@@ -5457,9 +5457,12 @@ name = "tom-tui"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "clap",
  "crossterm",
+ "rand 0.9.2",
  "ratatui",
  "tokio",
+ "tom-base",
  "tom-protocol",
  "tom-transport",
  "tracing",
