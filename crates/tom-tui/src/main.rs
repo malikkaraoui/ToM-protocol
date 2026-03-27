@@ -649,13 +649,11 @@ async fn run_bot(
             evt_opt = events.recv() => {
                 let Some(evt) = evt_opt else { break; };
                 // Set ping target on first named peer discovery (skip anonymous n0 peers)
-                if ping_target.is_none() {
-                    if let ProtocolEvent::PeerDiscovered { node_id, username, .. } = &evt {
-                        if !username.is_empty() {
-                            ping_target = Some(*node_id);
-                            println!("[bot] Ping target set: {} \"{}\"", short_node_id(node_id), username);
-                        }
+                if let Some(target) = select_ping_target(ping_target, &evt) {
+                    if let ProtocolEvent::PeerDiscovered { username, .. } = &evt {
+                        println!("[bot] Ping target set: {} \"{}\"", short_node_id(&target), username);
                     }
+                    ping_target = Some(target);
                 }
                 handle_bot_event(&evt);
             }
@@ -714,6 +712,28 @@ fn handle_bot_event(event: &ProtocolEvent) {
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────
+
+/// Evaluate whether a `PeerDiscovered` event should set the bot-ping target.
+///
+/// Returns `Some(node_id)` if:
+/// - no target is set yet (`current_target` is `None`)
+/// - the discovered peer has a non-empty username (real ToM peer, not anonymous n0/Pkarr)
+///
+/// This is the regression-critical logic: anonymous peers MUST be skipped.
+fn select_ping_target(
+    current_target: Option<NodeId>,
+    event: &ProtocolEvent,
+) -> Option<NodeId> {
+    if current_target.is_some() {
+        return None; // already locked
+    }
+    if let ProtocolEvent::PeerDiscovered { node_id, username, .. } = event {
+        if !username.is_empty() {
+            return Some(*node_id);
+        }
+    }
+    None
+}
 
 fn short_node_id(id: &NodeId) -> String {
     let s = id.to_string();
@@ -819,5 +839,78 @@ mod tests {
     fn cli_bot_ping_requires_bot() {
         let err = try_parse(&["tom-chat", "--bot-ping", "5"]).unwrap_err();
         assert_eq!(err.kind(), ErrorKind::MissingRequiredArgument);
+    }
+
+    // ── Bot-ping target selection regression tests ──────────────────────
+
+    fn make_peer_discovered(node_id: NodeId, username: &str) -> ProtocolEvent {
+        ProtocolEvent::PeerDiscovered {
+            node_id,
+            username: username.to_string(),
+            source: tom_protocol::DiscoverySource::Gossip,
+        }
+    }
+
+    fn random_node_id() -> NodeId {
+        let mut rng = rand::rng();
+        let secret = tom_base::SecretKey::generate(&mut rng);
+        // PublicKey → hex string → NodeId via FromStr
+        secret.public().to_string().parse().unwrap()
+    }
+
+    /// REGRESSION: anonymous n0 peer (empty username) must NOT be selected as ping target.
+    #[test]
+    fn bot_ping_skips_anonymous_peer() {
+        let anon_id = random_node_id();
+        let event = make_peer_discovered(anon_id, "");
+        assert!(
+            select_ping_target(None, &event).is_none(),
+            "anonymous peer with empty username must be skipped"
+        );
+    }
+
+    /// Named peer (non-empty username) MUST be selected as ping target.
+    #[test]
+    fn bot_ping_selects_named_peer() {
+        let named_id = random_node_id();
+        let event = make_peer_discovered(named_id, "nas-publisher");
+        let result = select_ping_target(None, &event);
+        assert_eq!(result, Some(named_id), "named peer must be selected");
+    }
+
+    /// Once a target is locked, subsequent peers (even named) must be ignored.
+    #[test]
+    fn bot_ping_target_locked_after_first() {
+        let first = random_node_id();
+        let second = random_node_id();
+        let event = make_peer_discovered(second, "mac-obs2");
+        assert!(
+            select_ping_target(Some(first), &event).is_none(),
+            "must not override already-locked target"
+        );
+    }
+
+    /// REGRESSION: anonymous peer arrives first, then named peer — named peer must win.
+    #[test]
+    fn bot_ping_anonymous_then_named() {
+        let anon_id = random_node_id();
+        let named_id = random_node_id();
+
+        // Simulate event sequence: anonymous first
+        let anon_event = make_peer_discovered(anon_id, "");
+        let mut target = select_ping_target(None, &anon_event);
+        assert!(target.is_none(), "anonymous must be skipped");
+
+        // Then named peer arrives
+        let named_event = make_peer_discovered(named_id, "nas-publisher");
+        target = select_ping_target(None, &named_event);
+        assert_eq!(target, Some(named_id), "named peer must be selected after anonymous was skipped");
+    }
+
+    /// Non-PeerDiscovered events must be ignored.
+    #[test]
+    fn bot_ping_ignores_non_discovery_events() {
+        let event = ProtocolEvent::PeerStale { node_id: random_node_id() };
+        assert!(select_ping_target(None, &event).is_none());
     }
 }
