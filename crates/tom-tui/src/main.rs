@@ -59,6 +59,16 @@ struct Cli {
     #[arg(long, value_name = "SECS", requires = "embedded_relay_publish")]
     relay_publish_interval: Option<u64>,
 
+    /// Bind address for the embedded relay (default: [::]:0 = dual-stack, all interfaces).
+    /// Use 127.0.0.1:0 for localhost-only, or a specific IP:PORT.
+    #[arg(long, value_name = "ADDR", requires = "embedded_relay")]
+    embedded_relay_bind: Option<std::net::SocketAddr>,
+
+    /// Advertised IP for the embedded relay URL (overrides auto-detection).
+    /// Use when auto-detection picks the wrong interface (e.g. VPN, Docker).
+    #[arg(long, value_name = "IP", requires = "embedded_relay")]
+    embedded_relay_advertise: Option<std::net::IpAddr>,
+
     // ── Bot ping options ──
 
     /// In bot mode, send a ping message to the first discovered peer every N seconds.
@@ -193,6 +203,10 @@ async fn main() -> anyhow::Result<()> {
     if let Some(interval_secs) = cli.relay_publish_interval {
         config.relay_publish_interval = Duration::from_secs(interval_secs);
     }
+    if let Some(bind_addr) = cli.embedded_relay_bind {
+        config.embedded_relay_bind_addr = bind_addr;
+    }
+    config.embedded_relay_advertise_addr = cli.embedded_relay_advertise;
 
     // Gossip bootstrap peer from positional arg
     if let Some(ref peer_str) = cli.peer {
@@ -634,11 +648,13 @@ async fn run_bot(
             }
             evt_opt = events.recv() => {
                 let Some(evt) = evt_opt else { break; };
-                // Set ping target on first peer discovery
+                // Set ping target on first named peer discovery (skip anonymous n0 peers)
                 if ping_target.is_none() {
-                    if let ProtocolEvent::PeerDiscovered { node_id, .. } = &evt {
-                        ping_target = Some(*node_id);
-                        println!("[bot] Ping target set: {}", short_node_id(node_id));
+                    if let ProtocolEvent::PeerDiscovered { node_id, username, .. } = &evt {
+                        if !username.is_empty() {
+                            ping_target = Some(*node_id);
+                            println!("[bot] Ping target set: {} \"{}\"", short_node_id(node_id), username);
+                        }
                     }
                 }
                 handle_bot_event(&evt);

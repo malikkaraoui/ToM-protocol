@@ -91,6 +91,7 @@ async fn main() {
     handle_a
         .start_embedded_relay(EmbeddedRelayConfig {
             bind_addr: "127.0.0.1:0".parse::<SocketAddr>().unwrap(),
+            advertise_addr: None,
         })
         .await;
 

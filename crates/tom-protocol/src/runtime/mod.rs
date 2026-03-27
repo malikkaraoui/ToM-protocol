@@ -79,6 +79,13 @@ pub struct RuntimeConfig {
     /// so effective cadence is granularized by `heartbeat_interval`.
     /// Default: `relay_registry_ttl / 2`.
     pub relay_publish_interval: Duration,
+    /// Bind address for the embedded relay server.
+    /// Default: `[::]:0` (dual-stack, all interfaces, OS-assigned port).
+    pub embedded_relay_bind_addr: std::net::SocketAddr,
+    /// Advertised IP for the embedded relay URL published to the network.
+    /// When `None`, the runtime auto-detects the machine's outbound IP.
+    /// Set explicitly when auto-detection picks the wrong interface.
+    pub embedded_relay_advertise_addr: Option<std::net::IpAddr>,
 }
 
 impl Default for RuntimeConfig {
@@ -102,6 +109,8 @@ impl Default for RuntimeConfig {
             relay_registry_ttl: Duration::from_secs(600), // 10 min
             enable_transport_relay_discovery: false,
             relay_publish_interval: Duration::from_secs(300), // 10 min TTL / 2
+            embedded_relay_bind_addr: std::net::SocketAddr::from((std::net::Ipv6Addr::UNSPECIFIED, 0)),
+            embedded_relay_advertise_addr: None,
         }
     }
 }
