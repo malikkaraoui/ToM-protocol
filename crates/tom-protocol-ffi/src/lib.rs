@@ -52,6 +52,21 @@ fn init_tracing() {
         .try_init();
 }
 
+fn normalized_non_empty(value: Option<&str>) -> Option<String> {
+    value
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(ToOwned::to_owned)
+}
+
+fn parse_gossip_bootstrap_peers(peers: &[String]) -> Vec<tom_protocol::types::NodeId> {
+    peers
+        .iter()
+        .filter_map(|s| normalized_non_empty(Some(s.as_str())))
+        .filter_map(|s| s.parse().ok())
+        .collect()
+}
+
 /// Create a TOM protocol node (but don't start it yet)
 ///
 /// # Arguments
@@ -153,7 +168,7 @@ pub unsafe extern "C" fn tom_node_start(
     // Build transport config
     let mut transport_config = TomNodeConfig::new();
 
-    if let Some(relay_url) = &runtime_config.relay_url {
+    if let Some(relay_url) = normalized_non_empty(runtime_config.relay_url.as_deref()) {
         if let Ok(url) = relay_url.parse() {
             transport_config = transport_config.relay_url(url);
         }
@@ -168,11 +183,7 @@ pub unsafe extern "C" fn tom_node_start(
     }
 
     // Parse gossip bootstrap peers
-    let gossip_peers: Vec<tom_protocol::types::NodeId> = runtime_config
-        .gossip_bootstrap_peers
-        .iter()
-        .filter_map(|s| s.parse().ok())
-        .collect();
+    let gossip_peers = parse_gossip_bootstrap_peers(&runtime_config.gossip_bootstrap_peers);
 
     // Build protocol config
     let protocol_config = RuntimeConfig {
@@ -686,7 +697,7 @@ pub unsafe extern "C" fn tom_node_add_peer_addr(
 
     let mut endpoint_addr = tom_connect::EndpointAddr::new(*node_id.as_endpoint_id());
 
-    if let Some(relay_url) = &addr_ffi.relay_url {
+    if let Some(relay_url) = normalized_non_empty(addr_ffi.relay_url.as_deref()) {
         if let Ok(url) = relay_url.parse() {
             endpoint_addr = endpoint_addr.with_relay_url(url);
         }
@@ -824,6 +835,7 @@ mod tests {
             identity_path: None,
             n0_discovery: Some(false),
             data_dir: None,
+            gossip_bootstrap_peers: vec![],
         };
         let runtime_config_json = serde_json::to_string(&runtime_config).unwrap();
         let runtime_config_cstr = CString::new(runtime_config_json).unwrap();
@@ -849,5 +861,25 @@ mod tests {
             tom_node_free_string(status_ptr);
             tom_node_stop(handle);
         }
+    }
+
+    #[test]
+    fn normalized_non_empty_discards_blank_strings() {
+        assert_eq!(normalized_non_empty(None), None);
+        assert_eq!(normalized_non_empty(Some("   \n\t  ")), None);
+        assert_eq!(normalized_non_empty(Some(" http://127.0.0.1:3340 ")), Some("http://127.0.0.1:3340".into()));
+    }
+
+    #[test]
+    fn parse_gossip_bootstrap_peers_ignores_blank_entries() {
+        let peers = vec![
+            "   ".to_string(),
+            "4e28f4706e0dcb01f13d74a9ea00d3bdfc62490c2f4a91f7cb8b14bed6a45814".to_string(),
+            "\n".to_string(),
+        ];
+
+        let parsed = parse_gossip_bootstrap_peers(&peers);
+        assert_eq!(parsed.len(), 1);
+        assert_eq!(parsed[0].to_string(), "4e28f4706e0dcb01f13d74a9ea00d3bdfc62490c2f4a91f7cb8b14bed6a45814");
     }
 }

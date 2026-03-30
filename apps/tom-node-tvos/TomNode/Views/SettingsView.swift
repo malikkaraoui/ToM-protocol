@@ -45,7 +45,8 @@ struct SettingsView: View {
                 }
 
                 Section("Network") {
-                    SettingsRow(label: "Relay URL", value: nodeService.relayUrl, monospaced: true)
+                    SettingsRow(label: "Relay Mode", value: nodeService.relayStatusLabel, monospaced: true)
+                    SettingsRow(label: "Bootstrap", value: nodeService.bootstrapStatusLabel, monospaced: true)
 
                     Toggle("N0 Discovery", isOn: Binding(
                         get: { nodeService.n0Discovery },

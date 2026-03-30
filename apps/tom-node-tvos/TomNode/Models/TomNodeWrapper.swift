@@ -5,19 +5,27 @@ actor TomNodeWrapper {
     private let log = Logger(subsystem: "org.tom-protocol.tom-node", category: "TomNodeWrapper")
     private var handle: TomNodeHandle?
 
+    private func normalizedOptionalString(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
     var isRunning: Bool {
         handle != nil
     }
 
-    func create(relayUrl: String, identityPath: String?, n0Discovery: Bool) throws {
+    func create(relayUrl: String?, identityPath: String?, n0Discovery: Bool) throws {
         guard handle == nil else {
             throw TomError.alreadyRunning
         }
 
         var config: [String: Any] = [
-            "relay_url": relayUrl,
             "n0_discovery": n0Discovery
         ]
+        if let relayUrl = normalizedOptionalString(relayUrl) {
+            config["relay_url"] = relayUrl
+        }
         if let path = identityPath {
             config["identity_path"] = path
         }
@@ -41,7 +49,7 @@ actor TomNodeWrapper {
         username: String,
         encryption: Bool,
         enableDht: Bool,
-        relayUrl: String,
+        relayUrl: String?,
         identityPath: String?,
         n0Discovery: Bool,
         dataDir: String?,
@@ -55,17 +63,22 @@ actor TomNodeWrapper {
             "username": username,
             "encryption": encryption,
             "enable_dht": enableDht,
-            "relay_url": relayUrl,
             "n0_discovery": n0Discovery
         ]
+        if let relayUrl = normalizedOptionalString(relayUrl) {
+            config["relay_url"] = relayUrl
+        }
         if let path = identityPath {
             config["identity_path"] = path
         }
         if let dir = dataDir {
             config["data_dir"] = dir
         }
-        if !gossipBootstrapPeers.isEmpty {
-            config["gossip_bootstrap_peers"] = gossipBootstrapPeers
+        let normalizedBootstrapPeers = gossipBootstrapPeers
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        if !normalizedBootstrapPeers.isEmpty {
+            config["gossip_bootstrap_peers"] = normalizedBootstrapPeers
         }
 
         let jsonData = try JSONSerialization.data(withJSONObject: config)
@@ -166,7 +179,7 @@ actor TomNodeWrapper {
         }
 
         var config: [String: Any] = ["node_id": nodeId]
-        if let relay = relayUrl { config["relay_url"] = relay }
+        if let relay = normalizedOptionalString(relayUrl) { config["relay_url"] = relay }
         if let addrs = directAddrs { config["direct_addrs"] = addrs }
 
         let jsonData = try JSONSerialization.data(withJSONObject: config)
