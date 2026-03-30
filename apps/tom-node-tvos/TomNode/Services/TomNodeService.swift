@@ -37,6 +37,9 @@ final class TomNodeService: ObservableObject {
     @Published var encryption: Bool = true
     @Published var enableDht: Bool = true
     @Published var n0Discovery: Bool = true
+    @Published var udpLogExportEnabled: Bool = false
+    @Published var udpLogHost: String = ""
+    @Published var udpLogPort: String = "9999"
 
     /// Bootstrap peer for gossip discovery (Freebox NAS — network seed node)
     /// This is only needed while the network is young; once enough peers exist,
@@ -57,6 +60,8 @@ final class TomNodeService: ObservableObject {
         if logEntries.count > 1000 {
             logEntries.removeFirst(logEntries.count - 1000)
         }
+        // Broadcast over UDP for remote monitoring
+        sendLogUDP("\(entry.timestamp) [\(level)] \(message)")
     }
 
     // MARK: - Anti-sleep
@@ -152,6 +157,7 @@ final class TomNodeService: ObservableObject {
                 }
 
                 startAntiSleep()
+                self.startNetworkLogExportIfNeeded()
                 startPolling()
                 log.info("Node started — identity: \(self.identityPath ?? "ephemeral"), data: \(self.dataDir ?? "none")")
 
@@ -180,6 +186,7 @@ final class TomNodeService: ObservableObject {
             peersCount = 0
             groupsCount = 0
             appendLog(.info, "Node stopped. Echo count: \(echoCount)")
+            stopNetworkLogExport()
             log.info("Node stopped")
         }
     }
@@ -259,6 +266,7 @@ final class TomNodeService: ObservableObject {
         pollTask?.cancel()
         pollTask = nil
         stopAntiSleep()
+        stopNetworkLogExport()
 
         Task {
             await node.forceReset()
@@ -301,13 +309,18 @@ final class TomNodeService: ObservableObject {
                     self.appendLog(.network, "MSG from \(senderShort): \(textPreview)")
 
                     // Auto-echo: reply to incoming messages for stress testing
+                    // Format matches tom-stress responder exactly:
+                    //   PING:<seq> → PONG:<seq>
+                    //   BURST:<seq> → BURST-ACK:<seq>
+                    //   other → ECHO:<text>
                     if self.autoEchoEnabled {
                         do {
-                            let echoPayload = "echo:\(msg.text)".data(using: .utf8) ?? Data()
-                            try await self.node.sendMessage(to: msg.from, payload: echoPayload)
+                            let reply = Self.buildStressReply(msg.text)
+                            let replyData = reply.data(using: .utf8) ?? Data()
+                            try await self.node.sendMessage(to: msg.from, payload: replyData)
                             self.echoCount += 1
                             if self.echoCount <= 10 || self.echoCount % 100 == 0 {
-                                self.appendLog(.echo, "ECHO #\(self.echoCount) → \(senderShort)")
+                                self.appendLog(.echo, "ECHO #\(self.echoCount) → \(senderShort): \(reply.prefix(40))")
                             }
                         } catch {
                             self.appendLog(.error, "Echo failed → \(senderShort): \(error.localizedDescription)")
@@ -347,6 +360,89 @@ final class TomNodeService: ObservableObject {
                 }
 
                 try? await Task.sleep(nanoseconds: 250_000_000) // 250ms (faster polling)
+            }
+        }
+    }
+
+    // MARK: - Stress Reply (matches tom-stress responder exactly)
+
+    static func buildStressReply(_ text: String) -> String {
+        if text.hasPrefix("PING:") {
+            return "PONG:" + text.dropFirst(5)
+        } else if text.hasPrefix("BURST:") {
+            return "BURST-ACK:" + text.dropFirst(6)
+        } else {
+            return "ECHO:" + text
+        }
+    }
+
+    // MARK: - Network Log Export (UDP to Mac)
+
+    private var udpLogSocket: Int32 = -1
+    private var udpLogAddr: sockaddr_in?
+
+    private func startNetworkLogExportIfNeeded() {
+        guard udpLogExportEnabled else { return }
+
+        let host = udpLogHost.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !host.isEmpty else {
+            appendLog(.warning, "UDP log export skipped: host is empty")
+            return
+        }
+
+        guard let port = UInt16(udpLogPort), port > 0 else {
+            appendLog(.warning, "UDP log export skipped: invalid port '\(udpLogPort)'")
+            return
+        }
+
+        startNetworkLogExport(host: host, port: port)
+    }
+
+    /// Start broadcasting logs over UDP for optional remote monitoring.
+    private func startNetworkLogExport(host: String, port: UInt16) {
+        udpLogSocket = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)
+        guard udpLogSocket >= 0 else {
+            appendLog(.warning, "UDP log socket failed")
+            return
+        }
+
+        var addr = sockaddr_in()
+        addr.sin_family = sa_family_t(AF_INET)
+        addr.sin_port = port.bigEndian
+
+        let parseResult = host.withCString { hostPtr in
+            inet_pton(AF_INET, hostPtr, &addr.sin_addr)
+        }
+        guard parseResult == 1 else {
+            appendLog(.warning, "UDP log export skipped: invalid IPv4 host \(host)")
+            close(udpLogSocket)
+            udpLogSocket = -1
+            udpLogAddr = nil
+            return
+        }
+
+        udpLogAddr = addr
+
+        appendLog(.info, "UDP log export → \(host):\(port)")
+    }
+
+    private func stopNetworkLogExport() {
+        if udpLogSocket >= 0 {
+            close(udpLogSocket)
+            udpLogSocket = -1
+        }
+        udpLogAddr = nil
+    }
+
+    /// Send a log line over UDP (fire-and-forget)
+    private func sendLogUDP(_ message: String) {
+        guard udpLogSocket >= 0, var addr = udpLogAddr else { return }
+        let line = "[AppleTV] \(message)\n"
+        line.withCString { ptr in
+            withUnsafePointer(to: &addr) { addrPtr in
+                addrPtr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sa in
+                    sendto(udpLogSocket, ptr, strlen(ptr), 0, sa, socklen_t(MemoryLayout<sockaddr_in>.size))
+                }
             }
         }
     }
