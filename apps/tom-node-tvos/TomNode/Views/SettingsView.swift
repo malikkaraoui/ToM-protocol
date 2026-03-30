@@ -48,6 +48,19 @@ struct SettingsView: View {
                     SettingsRow(label: "Relay Mode", value: nodeService.relayStatusLabel, monospaced: true)
                     SettingsRow(label: "Bootstrap", value: nodeService.bootstrapStatusLabel, monospaced: true)
 
+                    TextField("Relay URL (optional live seed)", text: Binding(
+                        get: { nodeService.relayUrl },
+                        set: { nodeService.relayUrl = $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                    ))
+                    .disabled(nodeService.state == .running)
+
+                    TextField("Bootstrap Peer ID (optional live seed)", text: Binding(
+                        get: { nodeService.bootstrapPeerId },
+                        set: { nodeService.bootstrapPeerId = $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                    ))
+                    .font(.system(.body, design: .monospaced))
+                    .disabled(nodeService.state == .running)
+
                     Toggle("N0 Discovery", isOn: Binding(
                         get: { nodeService.n0Discovery },
                         set: { nodeService.n0Discovery = $0 }
