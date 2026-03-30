@@ -33,7 +33,7 @@ final class TomNodeService: ObservableObject {
     private var silentPlayer: AVAudioPlayer?
 
     // Config
-    @Published var relayUrl: String = "http://82.67.95.8:3340"
+    @Published var relayUrl: String = ""
     @Published var username: String = "AppleTV"
     @Published var encryption: Bool = true
     @Published var enableDht: Bool = true
@@ -42,15 +42,32 @@ final class TomNodeService: ObservableObject {
     @Published var udpLogHost: String = ""
     @Published var udpLogPort: String = "9999"
 
-    /// Bootstrap peer for gossip discovery (Freebox NAS — network seed node)
-    /// This is only needed while the network is young; once enough peers exist,
-    /// gossip propagates organically and no fixed bootstrap is required.
-    @Published var bootstrapPeerId: String = "4e28f4706e0dcb01f13d74a9ea00d3bdfc62490c2f4a91f7cb8b14bed6a45814"
+    /// Optional bootstrap peer for early-network gossip seeding.
+    /// Leave empty to rely on organic discovery (n0/DHT/gossip learned peers).
+    @Published var bootstrapPeerId: String = ""
 
     /// Track if the node was running before the app went to background
     private var wasRunningBeforeSleep = false
 
     private init() {}
+
+    private var normalizedRelayUrl: String? {
+        let trimmed = relayUrl.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private var normalizedBootstrapPeers: [String] {
+        let trimmed = bootstrapPeerId.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? [] : [trimmed]
+    }
+
+    var relayStatusLabel: String {
+        normalizedRelayUrl ?? "Automatic discovery / public fallback"
+    }
+
+    var bootstrapStatusLabel: String {
+        normalizedBootstrapPeers.isEmpty ? "Organic discovery only" : String(normalizedBootstrapPeers[0].prefix(12)) + "…"
+    }
 
     // MARK: - Logging
 
@@ -121,9 +138,10 @@ final class TomNodeService: ObservableObject {
         startNetworkLogExportIfNeeded()
 
         appendLog(.info, "Starting node...")
-        appendLog(.info, "Relay: \(relayUrl)")
+        appendLog(.info, "Relay mode: \(relayStatusLabel)")
         appendLog(.info, "Username: \(username), Encryption: \(encryption)")
         appendLog(.info, "DHT: \(enableDht), n0Discovery: \(n0Discovery)")
+        appendLog(.info, "Bootstrap mode: \(bootstrapStatusLabel)")
 
         Task {
             do {
@@ -135,18 +153,18 @@ final class TomNodeService: ObservableObject {
                 }
 
                 try await node.create(
-                    relayUrl: relayUrl,
+                    relayUrl: normalizedRelayUrl,
                     identityPath: identityPath,
                     n0Discovery: n0Discovery
                 )
                 appendLog(.success, "Node handle created")
 
-                let bootstrapPeers = bootstrapPeerId.isEmpty ? [] : [bootstrapPeerId]
+                let bootstrapPeers = normalizedBootstrapPeers
                 try await node.start(
                     username: username,
                     encryption: encryption,
                     enableDht: enableDht,
-                    relayUrl: relayUrl,
+                    relayUrl: normalizedRelayUrl,
                     identityPath: identityPath,
                     n0Discovery: n0Discovery,
                     dataDir: dataDir,
@@ -157,6 +175,8 @@ final class TomNodeService: ObservableObject {
                 appendLog(.success, "Runtime started")
                 if !bootstrapPeers.isEmpty {
                     appendLog(.network, "Bootstrap peers: \(bootstrapPeers.map { String($0.prefix(8)) })")
+                } else {
+                    appendLog(.network, "Bootstrap peers: none (organic discovery)")
                 }
 
                 startAntiSleep()

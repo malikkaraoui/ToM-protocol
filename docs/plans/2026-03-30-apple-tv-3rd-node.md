@@ -168,7 +168,7 @@ ssh -p 2222 root@82.67.95.8 'kill $(pidof tom-chat); systemctl start tom-relay.s
 
 ## Risques connus
 
-- **Apple TV bootstrap hardcodé** : le `bootstrapPeerId` dans Settings est persisté mais doit correspondre au NAS actuel. Si le NAS change d'identité (éphémère), il faut le re-saisir.
+- **Ce run utilisait un bootstrap manuel** : pour cette validation, le `bootstrapPeerId` pointait vers le NAS courant. Depuis le patch du 30 mars, l'app tvOS ne shippe plus de relay ni de bootstrap hardcodés par défaut ; il faut désormais les fournir explicitement pour un scénario seedé, ou laisser vide pour tester l'amorçage organique.
 - **bot-ping mono-target** : le NAS ne ping qu'un seul peer (Mac ou Apple TV, pas les deux). L'Apple TV reçoit des messages seulement si elle est le premier peer nommé découvert, ou si Mac lui envoie des pings. Contournement : Mac envoie des pings, Apple TV echo.
 - **500ms polling tvOS** : les messages apparaissent avec un léger délai dans l'app (polling FFI, pas push).
 - **Anti-sleep** : l'app tvOS a un silent audio loop pour empêcher la mise en veille. Vérifié fonctionnel.

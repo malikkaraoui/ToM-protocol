@@ -41,6 +41,34 @@ Le bon cap est :
 3. **le démontrer proprement** ;
 4. **le pousser ensuite jusqu'à une validation alpha qui mérite vraiment son nom**.
 
+## Mise à jour de cap — 30 mars 2026
+
+Le run Apple TV comme 3e nœud a validé un point important : le socle fonctionne sur plusieurs devices réels. Mais il a aussi révélé un verrou plus prioritaire que le stress ou les groupes : l'amorçage restait encore partiellement **hardcodé côté tvOS** (relay connu, bootstrap peer connu).
+
+Conclusion : la suite doit être **reclassée**.
+
+### Ordre reclassé immédiatement
+
+1. **Dé-hardcoder l'amorçage**
+2. **Prouver la survie du réseau sans les devices du seed initial**
+3. **NAS down / seed down**
+4. **Mini-stress Apple TV (10 min)**
+5. **Groupes**
+6. **MacBook Air 2011**
+7. **4G/5G / autre Freebox**
+
+### Ce qui doit désormais être prouvé
+
+La vraie preuve n'est pas seulement "3 devices communiquent". La vraie preuve est que le réseau peut porter lui-même le flambeau après amorçage.
+
+- **Test A — amorçage minimal** : un volontaire ou une infra amie amorce le réseau, puis les nœuds se rejoignent.
+- **Test B — propagation** : peers, relays et routes utiles sont appris par plusieurs nœuds sans saisie manuelle.
+- **Test C — retrait du seed initial** : on coupe le seed initial, le réseau continue à vivre.
+- **Test D — retrait de nos devices** : on coupe les devices du porteur initial, le réseau continue grâce aux autres volontaires.
+- **Test E — retour plus tard** : un device revient plus tard et retrouve un réseau vivant sans reconfiguration lourde.
+
+Tant que cette séquence n'est pas validée, les scénarios de stress, groupes ou extension multi-sites restent utiles, mais ne constituent pas encore la preuve centrale de la promesse ToM.
+
 ---
 
 ## 1. Constats de réalignement
