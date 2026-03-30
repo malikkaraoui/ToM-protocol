@@ -66,6 +66,32 @@ struct SettingsView: View {
                     .disabled(nodeService.state == .running)
                 }
 
+                Section("Observability") {
+                    Toggle("UDP Log Export", isOn: Binding(
+                        get: { nodeService.udpLogExportEnabled },
+                        set: { nodeService.udpLogExportEnabled = $0 }
+                    ))
+                    .disabled(nodeService.state == .running)
+
+                    TextField("IPv4 host (optional)", text: Binding(
+                        get: { nodeService.udpLogHost },
+                        set: { nodeService.udpLogHost = $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                    ))
+                    .disabled(nodeService.state == .running || !nodeService.udpLogExportEnabled)
+
+                    TextField("Port", text: Binding(
+                        get: { nodeService.udpLogPort },
+                        set: { nodeService.udpLogPort = String($0.filter(\.isNumber).prefix(5)) }
+                    ))
+                    .disabled(nodeService.state == .running || !nodeService.udpLogExportEnabled)
+
+                    SettingsRow(
+                        label: "UDP Status",
+                        value: nodeService.udpLogExportEnabled ? "Enabled on next start" : "Disabled",
+                        valueColor: nodeService.udpLogExportEnabled ? .orange : .secondary
+                    )
+                }
+
                 Section("Peers") {
                     if !nodeService.connectedPeers.isEmpty {
                         ForEach(nodeService.connectedPeers, id: \.self) { peer in
