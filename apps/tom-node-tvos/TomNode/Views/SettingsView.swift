@@ -134,7 +134,7 @@ struct SettingsView: View {
                     SettingsRow(label: "Status", value: nodeService.state.rawValue, valueColor: stateColor)
                     SettingsRow(label: "Peers", value: "\(nodeService.peersCount)")
                     SettingsRow(label: "Groups", value: "\(nodeService.groupsCount)")
-                    SettingsRow(label: "Messages", value: "\(nodeService.messages.count)")
+                    SettingsRow(label: "Messages", value: "\(nodeService.totalMessagesCount)")
                 }
             }
         }
