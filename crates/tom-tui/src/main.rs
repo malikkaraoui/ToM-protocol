@@ -23,7 +23,7 @@ use tom_transport::{TomNode, TomNodeConfig};
 #[derive(Parser, Debug)]
 #[command(name = "tom-chat", version)]
 struct Cli {
-    /// Peer node ID to connect to.
+    /// Peer node ID to connect to (gossip bootstrap).
     peer: Option<String>,
 
     /// Username for gossip discovery.
@@ -33,6 +33,10 @@ struct Cli {
     /// Headless bot mode — auto-responds to messages.
     #[arg(long)]
     bot: bool,
+
+    /// Gossip bootstrap peer (alternative to positional arg, can repeat).
+    #[arg(long = "bootstrap", value_name = "NODE_ID")]
+    bootstrap_peers: Vec<String>,
 
     // ── Observer options ──
 
@@ -44,13 +48,18 @@ struct Cli {
     #[arg(long, value_name = "SECS")]
     relay_ttl: Option<u64>,
 
-    // ── Publisher options ──
+    // ── Publisher / self-relay options ──
+
+    /// Start as self-relay: embedded relay on 0.0.0.0:3340 + publish via gossip.
+    /// Shorthand for --embedded-relay --embedded-relay-publish --embedded-relay-bind 0.0.0.0:3340.
+    #[arg(long)]
+    self_relay: bool,
 
     /// Enable embedded relay server on this node.
     #[arg(long)]
     embedded_relay: bool,
 
-    /// Enable publication of RelayReadyAnnounce via gossip (requires --embedded-relay).
+    /// Enable publication of RelayReadyAnnounce via gossip (requires --embedded-relay or --self-relay).
     #[arg(long, requires = "embedded_relay")]
     embedded_relay_publish: bool,
 
@@ -171,24 +180,25 @@ async fn main() -> anyhow::Result<()> {
             .try_init();
     }
 
+    // ── Expand --self-relay shorthand ──
+    let use_embedded_relay = cli.embedded_relay || cli.self_relay;
+    let use_embedded_relay_publish = cli.embedded_relay_publish || cli.self_relay;
+    let effective_bind = if cli.self_relay && cli.embedded_relay_bind.is_none() {
+        Some(std::net::SocketAddr::from(([0, 0, 0, 0], 3340)))
+    } else {
+        cli.embedded_relay_bind
+    };
+
     // Init transport
     let node = TomNode::bind(TomNodeConfig::new()).await?;
     let local_id = node.id();
-
-    // Print node info to stderr (visible after TUI exits)
-    eprintln!("╭─────────────────────────────────────────────╮");
-    eprintln!("│  tom-chat v0.1  user={:<22}│", &cli.username);
-    eprintln!("├─────────────────────────────────────────────┤");
-    eprintln!("│  Node ID: {}..  │", &local_id.to_string()[..40]);
-    eprintln!("│  Short:   {}                          │", short_node_id(&local_id));
-    eprintln!("╰─────────────────────────────────────────────╯");
 
     // Build runtime config
     let mut config = RuntimeConfig {
         username: cli.username.clone(),
         enable_transport_relay_discovery: cli.relay_discovery,
-        enable_embedded_relay: cli.embedded_relay,
-        enable_embedded_relay_publication: cli.embedded_relay_publish,
+        enable_embedded_relay: use_embedded_relay,
+        enable_embedded_relay_publication: use_embedded_relay_publish,
         ..Default::default()
     };
 
@@ -203,18 +213,24 @@ async fn main() -> anyhow::Result<()> {
     if let Some(interval_secs) = cli.relay_publish_interval {
         config.relay_publish_interval = Duration::from_secs(interval_secs);
     }
-    if let Some(bind_addr) = cli.embedded_relay_bind {
+    if let Some(bind_addr) = effective_bind {
         config.embedded_relay_bind_addr = bind_addr;
     }
     config.embedded_relay_advertise_addr = cli.embedded_relay_advertise;
 
-    // Gossip bootstrap peer from positional arg
+    // Gossip bootstrap peers: positional + --bootstrap + env
     if let Some(ref peer_str) = cli.peer {
         if let Ok(peer_id) = peer_str.parse::<NodeId>() {
-            config.gossip_bootstrap_peers = vec![peer_id];
+            config.gossip_bootstrap_peers.push(peer_id);
         }
     }
-    // Add env-based bootstrap peer (for network seed phase)
+    for peer_str in &cli.bootstrap_peers {
+        if let Ok(peer_id) = peer_str.parse::<NodeId>() {
+            if !config.gossip_bootstrap_peers.contains(&peer_id) {
+                config.gossip_bootstrap_peers.push(peer_id);
+            }
+        }
+    }
     if let Ok(bootstrap) = std::env::var("TOM_BOOTSTRAP_PEER") {
         if let Ok(peer_id) = bootstrap.parse::<NodeId>() {
             if !config.gossip_bootstrap_peers.contains(&peer_id) {
@@ -222,6 +238,29 @@ async fn main() -> anyhow::Result<()> {
             }
         }
     }
+
+    // ── Startup summary ──
+    let mode = if use_embedded_relay { "publisher" } else if cli.relay_discovery { "observer" } else { "peer" };
+    let relay_env = std::env::var("TOM_RELAY_URL").unwrap_or_else(|_| "(none)".into());
+    eprintln!("tom-chat v0.1 | {} | user={}", mode, cli.username);
+    eprintln!("  node    {}", local_id);
+    eprintln!("  relay   {}", relay_env);
+    if use_embedded_relay {
+        eprintln!("  self-relay  bind={}", effective_bind.map_or("default".into(), |a| a.to_string()));
+    }
+    if cli.relay_discovery {
+        eprintln!("  discovery   relay-ttl={}s", cli.relay_ttl.unwrap_or(600));
+    }
+    if !config.gossip_bootstrap_peers.is_empty() {
+        for bp in &config.gossip_bootstrap_peers {
+            eprintln!("  bootstrap   {}", short_node_id(bp));
+        }
+    }
+    if cli.bot {
+        eprintln!("  bot         ping={}",
+            cli.bot_ping.map_or("off".into(), |s| format!("{}s", s)));
+    }
+    eprintln!();
 
     // Start protocol runtime (owns the node, handles routing/crypto/tracking)
     let RuntimeChannels {
@@ -777,9 +816,11 @@ mod tests {
         assert!(!cli.relay_discovery);
         assert!(!cli.embedded_relay);
         assert!(!cli.embedded_relay_publish);
+        assert!(!cli.self_relay);
         assert!(cli.relay_ttl.is_none());
         assert!(cli.relay_publish_interval.is_none());
         assert!(cli.peer.is_none());
+        assert!(cli.bootstrap_peers.is_empty());
     }
 
     #[test]
@@ -839,6 +880,46 @@ mod tests {
     fn cli_bot_ping_requires_bot() {
         let err = try_parse(&["tom-chat", "--bot-ping", "5"]).unwrap_err();
         assert_eq!(err.kind(), ErrorKind::MissingRequiredArgument);
+    }
+
+    // ── --self-relay shorthand tests ────────────────────────────────────
+
+    #[test]
+    fn cli_self_relay_sets_embedded_flags() {
+        let cli = try_parse(&["tom-chat", "--self-relay"]).unwrap();
+        assert!(cli.self_relay);
+        // --self-relay doesn't set embedded_relay directly (expanded at runtime)
+        assert!(!cli.embedded_relay);
+    }
+
+    #[test]
+    fn cli_self_relay_with_custom_bind() {
+        // --embedded-relay-bind requires --embedded-relay, but --self-relay should
+        // allow the user to override bind without --embedded-relay explicit
+        let cli = try_parse(&["tom-chat", "--self-relay", "--embedded-relay", "--embedded-relay-bind", "127.0.0.1:4000"]).unwrap();
+        assert!(cli.self_relay);
+        assert_eq!(cli.embedded_relay_bind, Some("127.0.0.1:4000".parse().unwrap()));
+    }
+
+    // ── --bootstrap tests ────────────────────────────────────────────────
+
+    #[test]
+    fn cli_bootstrap_single() {
+        let cli = try_parse(&["tom-chat", "--bootstrap", "abc123"]).unwrap();
+        assert_eq!(cli.bootstrap_peers, vec!["abc123"]);
+    }
+
+    #[test]
+    fn cli_bootstrap_multiple() {
+        let cli = try_parse(&["tom-chat", "--bootstrap", "aaa", "--bootstrap", "bbb"]).unwrap();
+        assert_eq!(cli.bootstrap_peers, vec!["aaa", "bbb"]);
+    }
+
+    #[test]
+    fn cli_bootstrap_and_positional() {
+        let cli = try_parse(&["tom-chat", "positional_peer", "--bootstrap", "named_peer"]).unwrap();
+        assert_eq!(cli.peer.as_deref(), Some("positional_peer"));
+        assert_eq!(cli.bootstrap_peers, vec!["named_peer"]);
     }
 
     // ── Bot-ping target selection regression tests ──────────────────────
