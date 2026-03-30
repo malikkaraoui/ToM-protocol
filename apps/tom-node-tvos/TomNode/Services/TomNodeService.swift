@@ -17,6 +17,7 @@ final class TomNodeService: ObservableObject {
     @Published var peersCount: Int = 0
     @Published var groupsCount: Int = 0
     @Published var messages: [TomMessage] = []
+    @Published var totalMessagesCount: Int = 0
     @Published var connectedPeers: [NodeId] = []
     @Published var discoveredPeers: [TomPeer] = []
     @Published var errorMessage: String?
@@ -116,6 +117,8 @@ final class TomNodeService: ObservableObject {
         state = .starting
         errorMessage = nil
         echoCount = 0
+        stopNetworkLogExport()
+        startNetworkLogExportIfNeeded()
 
         appendLog(.info, "Starting node...")
         appendLog(.info, "Relay: \(relayUrl)")
@@ -157,7 +160,6 @@ final class TomNodeService: ObservableObject {
                 }
 
                 startAntiSleep()
-                self.startNetworkLogExportIfNeeded()
                 startPolling()
                 log.info("Node started — identity: \(self.identityPath ?? "ephemeral"), data: \(self.dataDir ?? "none")")
 
@@ -209,6 +211,7 @@ final class TomNodeService: ObservableObject {
                     wasEncrypted: true
                 )
                 messages.append(sent)
+                totalMessagesCount += 1
             } catch {
                 log.error("Send failed: \(error.localizedDescription)")
                 errorMessage = error.localizedDescription
@@ -304,6 +307,7 @@ final class TomNodeService: ObservableObject {
                 let newMessages = await self.node.receiveMessages()
                 for msg in newMessages {
                     self.messages.append(msg)
+                    self.totalMessagesCount += 1
                     let senderShort = String(msg.from.prefix(8))
                     let textPreview = String(msg.text.prefix(80))
                     self.appendLog(.network, "MSG from \(senderShort): \(textPreview)")
