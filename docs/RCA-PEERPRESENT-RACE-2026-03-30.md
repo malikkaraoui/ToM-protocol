@@ -1,46 +1,35 @@
 # RCA — PeerAnnounce 12/13 (race condition self-relay)
 
 Date: 2026-03-30
-Scope: investigation only (no fix)
+Status: **CORRIGE** (commit `5c38cdf`)
 
-## Résumé
-Le publisher ne reçoit pas immédiatement `PeerPresent` quand il démarre avec relay embarqué local (`127.0.0.1:3340`), malgré une config relay correcte. La cause est une course temporelle entre le probe relay initial de l’Endpoint et le démarrage du relay embarqué.
+## Bug
 
-## Séquence temporelle observée
-1. `TomNode::bind()` crée l’`Endpoint` avec `configured_relays=[http://127.0.0.1:3340/]`.
-2. L’Endpoint démarre l’actor avec `new_re_stun_timer(false)` -> probe netcheck immédiat.
-3. Le probe vise `http://127.0.0.1:3340/` mais le relay embarqué n’est pas encore démarré -> échec, `preferred_relay=None`.
-4. `bind()` retourne.
-5. `ProtocolRuntime::spawn()` démarre la loop runtime.
-6. Le relay embarqué est lancé ensuite (`embedded_relay.start()`), donc après le probe initial.
-7. Le re-probe suivant est planifié à ~20–26s; avant cela, pas de `home is now relay`, donc pas de connexion client relay côté publisher.
+Le publisher ne se connecte pas comme client à son propre relay embarqué. Fenêtre muette de ~20-26s, discovery et messages bloqués.
 
-## Preuves (code)
-- `crates/tom-connect/src/magicsock/socket.rs:871`
-  - `new_re_stun_timer(false)` -> probe immédiat.
-- `crates/tom-connect/src/magicsock/socket.rs:1501`
-  - retry re-stun randomisé ~20–26s.
-- `crates/tom-protocol/src/runtime/loop.rs:121`
-  - `embedded_relay.start()` est exécuté après `TomNode::bind()`.
-- `crates/tom-relay/src/server/clients.rs::register()`
-  - `PeerPresent` est échangé entre clients effectivement connectés au relay.
+## Cause
 
-## Corrélation logs
-- Publisher: `configured_relays=[http://127.0.0.1:3340/]`, mais pas de `home is now relay` dans la fenêtre d’observation.
-- Observer: même config, puis `home is now relay` -> `Adding relay connection` -> `connected to relay`.
-- Interprétation: l’observer démarre après que le relay du publisher est déjà UP, son premier probe réussit.
+Race condition : le probe relay initial de l'Endpoint fire avant que le relay embarqué démarre. Probe échoue, `preferred_relay=None`, retry dans 20-26s.
 
-## Impact
-- Fenêtre muette initiale côté publisher (jusqu’au prochain re-stun).
-- Pendant cette fenêtre: pas de connexion client relay du publisher, découverte incomplète, scénario 3 commandes pouvant rater (12/13).
+## Fix
 
-## Décision de cette investigation
-Hypothèse 1: **confirmée**.
-Cause principale candidate: race de démarrage entre probe relay initial et démarrage du relay embarqué.
+`reprobe_relays()` exposé via `Endpoint` → `TomNode`, appelé juste après `embedded_relay.start()` dans `loop.rs`. Force un re-probe immédiat.
 
-## Prochain point (sans implémentation ici)
-Valider la stratégie de mitigation en design:
-- soit démarrer relay embarqué avant `TomNode::bind()`,
-- soit forcer un re-stun/re-probe juste après `embedded_relay.start()`.
+## Preuve locale
 
-Aucune correction de code n’a été appliquée dans cette note.
+Scénario 3 commandes (publisher + obs1 + obs2, sans relay externe) :
+- Embedded relay started OK
+- PeerDiscovered via Announce pour obs1 et obs2
+- 315+ messages, 0 erreur, path upgrade direct 0.65ms RTT
+- Commit: `5c38cdf`
+
+## Validation terrain (2026-03-30)
+
+Mac (observer) ↔ NAS (publisher + self-relay), WAN via `http://82.67.95.8:3340` :
+
+- Discovery auto : PASS (PeerDiscovered via Announce, ~10s)
+- Path upgrade : Direct, 4-5ms RTT
+- Endurance 11 min : **17 543 msgs Mac / 17 570 msgs NAS, 0 erreur**
+- Fenêtre morte au démarrage : aucune
+
+**Bug clos.** Fix validé local + terrain.
