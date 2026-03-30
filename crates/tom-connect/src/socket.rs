@@ -526,6 +526,7 @@ enum UpdateReason {
     LinkChangeMajor,
     LinkChangeMinor,
     RelayMapChange,
+    Manual,
 }
 
 impl UpdateReason {
@@ -1008,6 +1009,10 @@ impl Handle {
             .ok();
     }
 
+    pub(crate) async fn reprobe_relays(&self) {
+        self.actor_sender.send(ActorMessage::ReProbe).await.ok();
+    }
+
     #[cfg(test)]
     async fn force_network_change(&self, is_major: bool) {
         self.actor_sender
@@ -1101,6 +1106,7 @@ fn default_quic_client_config() -> rustls::ClientConfig {
 enum ActorMessage {
     NetworkChange,
     RelayMapChange,
+    ReProbe,
     #[debug("ResolveRemote(..)")]
     ResolveRemote(
         EndpointAddr,
@@ -1314,6 +1320,9 @@ impl Actor {
             }
             ActorMessage::RelayMapChange => {
                 self.handle_relay_map_change();
+            }
+            ActorMessage::ReProbe => {
+                self.re_stun(UpdateReason::Manual);
             }
             ActorMessage::ResolveRemote(addr, tx) => {
                 tx.send(self.remote_map.resolve_remote(addr).await).ok();

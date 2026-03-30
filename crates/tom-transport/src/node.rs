@@ -537,6 +537,14 @@ impl TomNode {
         self.endpoint.remove_relay(relay).await
     }
 
+    /// Force an immediate relay reprobe on the underlying endpoint.
+    ///
+    /// Useful when a relay becomes available after the node has already bound,
+    /// such as an embedded relay that starts during runtime initialization.
+    pub async fn reprobe_relays(&self) {
+        self.endpoint.reprobe_relays().await;
+    }
+
     /// Graceful shutdown.
     pub async fn shutdown(mut self) -> Result<(), TomTransportError> {
         if let Some(stop_tx) = self.discovery_refresh_stop_tx.take() {
@@ -929,4 +937,5 @@ mod tests {
         node.shutdown().await.unwrap();
         let _ = pool_relays; // suppress unused warning
     }
+
 }
