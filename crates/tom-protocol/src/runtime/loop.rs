@@ -119,7 +119,10 @@ pub(super) async fn runtime_loop(
             advertise_addr: state.config.embedded_relay_advertise_addr,
         };
         let startup_effects = match embedded_relay.start(relay_config).await {
-            Ok(url) => state.handle_command(super::RuntimeCommand::EmbeddedRelayStarted { url }),
+            Ok(url) => {
+                node.reprobe_relays().await;
+                state.handle_command(super::RuntimeCommand::EmbeddedRelayStarted { url })
+            }
             Err(error) => state.handle_command(super::RuntimeCommand::EmbeddedRelayFailed { error }),
         };
         execute_effects(startup_effects, &node, &msg_tx, &status_tx, &event_tx, &metrics).await;
@@ -209,6 +212,7 @@ pub(super) async fn runtime_loop(
                     RuntimeCommand::StartEmbeddedRelay { config } => {
                         match embedded_relay.start(config).await {
                             Ok(url) => {
+                                node.reprobe_relays().await;
                                 state.handle_command(RuntimeCommand::EmbeddedRelayStarted { url })
                             }
                             Err(error) => {
@@ -371,7 +375,10 @@ pub(super) async fn runtime_loop(
                 }
                 RuntimeEffect::StartEmbeddedRelay { config } => {
                     let feedback_effects = match embedded_relay.start(config).await {
-                        Ok(url) => state.handle_command(RuntimeCommand::EmbeddedRelayStarted { url }),
+                        Ok(url) => {
+                            node.reprobe_relays().await;
+                            state.handle_command(RuntimeCommand::EmbeddedRelayStarted { url })
+                        }
                         Err(error) => state.handle_command(RuntimeCommand::EmbeddedRelayFailed { error }),
                     };
                     regular_effects.extend(feedback_effects);

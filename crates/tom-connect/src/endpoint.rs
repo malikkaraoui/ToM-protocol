@@ -1201,6 +1201,15 @@ impl Endpoint {
         self.sock.network_change().await;
     }
 
+    /// Forces an immediate relay/net-report reprobe.
+    ///
+    /// This is useful when relay availability changes without a network interface
+    /// change, for example when an embedded/local relay starts after the endpoint
+    /// has already completed its initial probe.
+    pub async fn reprobe_relays(&self) {
+        self.sock.reprobe_relays().await;
+    }
+
     // # Methods to update internal state.
 
     /// Sets the initial user-defined data to be published in Address Lookups for this endpoint.
@@ -1744,6 +1753,73 @@ mod tests {
         server.close().await;
 
         assert_eq!(&data, b"Hello, world!");
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn reprobe_relays_connects_late_started_relay() -> Result {
+        use tom_relay::{
+            RelayConfig,
+            server::{AccessConfig, Limits, RelayConfig as RelayServerConfig, Server, ServerConfig},
+        };
+
+        let probe_socket = std::net::TcpListener::bind((Ipv4Addr::LOCALHOST, 0))?;
+        let port = probe_socket.local_addr()?.port();
+        drop(probe_socket);
+
+        let relay_url: RelayUrl = format!("http://127.0.0.1:{port}").parse()?;
+        let relay_map: RelayMap = RelayConfig {
+            url: relay_url.clone(),
+            quic: None,
+        }
+        .into();
+
+        let ep = Endpoint::empty_builder(RelayMode::Custom(relay_map))
+            .bind()
+            .await?;
+
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        assert!(
+            !ep.addr().addrs.iter().any(|addr| matches!(
+                addr,
+                TransportAddr::Relay(url) if url == &relay_url
+            )),
+            "late relay must not be selected before it starts"
+        );
+
+        let relay_server = Server::spawn(ServerConfig::<(), ()> {
+            relay: Some(RelayServerConfig {
+                http_bind_addr: (Ipv4Addr::LOCALHOST, port).into(),
+                tls: None,
+                limits: Limits::default(),
+                key_cache_capacity: None,
+                access: AccessConfig::Everyone,
+            }),
+            quic: None,
+            metrics_addr: None,
+        })
+        .await?;
+
+        ep.reprobe_relays().await;
+
+        tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                if ep.addr().addrs.iter().any(|addr| matches!(
+                    addr,
+                    TransportAddr::Relay(url) if url == &relay_url
+                )) {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(50)).await;
+            }
+        })
+        .await
+        .std_context("relay reprobe should connect quickly")?;
+
+        ep.close().await;
+        relay_server.shutdown().await?;
 
         Ok(())
     }

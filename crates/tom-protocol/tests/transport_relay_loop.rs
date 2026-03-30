@@ -346,3 +346,87 @@ async fn embedded_relay_auto_starts_when_enabled() {
 
     channels.handle.shutdown().await;
 }
+
+/// Regression test for the self-relay startup race.
+///
+/// Publisher binds with a relay URL that does not exist yet, then the runtime starts an
+/// embedded relay on that same URL. We must trigger an immediate relay reprobe so that,
+/// when an observer joins shortly after, the publisher is already present as a relay client
+/// and receives PeerPresent/GossipNeighborUp without waiting 20–26 seconds.
+#[tokio::test]
+async fn embedded_self_relay_reprobes_before_observer_joins() {
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter("tom_protocol::runtime=debug,tom_connect::socket::transports::relay::actor=debug")
+        .with_test_writer()
+        .try_init();
+
+    let probe_socket = std::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
+        .expect("free port");
+    let port = probe_socket.local_addr().expect("local addr").port();
+    drop(probe_socket);
+
+    let relay_url: tom_connect::RelayUrl = format!("http://127.0.0.1:{port}")
+        .parse()
+        .expect("relay url");
+
+    let publisher = TomNode::bind(
+        TomNodeConfig::new()
+            .relay_url(relay_url.clone())
+            .n0_discovery(false),
+    )
+    .await
+    .expect("publisher bind failed");
+
+    let publisher_config = RuntimeConfig {
+        username: "publisher".into(),
+        encryption: false,
+        enable_dht: false,
+        enable_embedded_relay: true,
+        enable_embedded_relay_publication: false,
+        embedded_relay_bind_addr: (std::net::Ipv4Addr::LOCALHOST, port).into(),
+        embedded_relay_advertise_addr: Some(std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST)),
+        heartbeat_interval: Duration::from_millis(100),
+        gossip_announce_interval: Duration::from_millis(200),
+        ..Default::default()
+    };
+
+    let mut publisher_channels = ProtocolRuntime::spawn(publisher, publisher_config);
+
+    expect_event(
+        &mut publisher_channels.events,
+        |e| matches!(e, ProtocolEvent::EmbeddedRelayStarted { .. }),
+        "publisher embedded relay started",
+        Duration::from_secs(5),
+    )
+    .await;
+
+    let observer = TomNode::bind(
+        TomNodeConfig::new()
+            .relay_url(relay_url.clone())
+            .n0_discovery(false),
+    )
+    .await
+    .expect("observer bind failed");
+
+    let observer_config = RuntimeConfig {
+        username: "observer".into(),
+        encryption: false,
+        enable_dht: false,
+        heartbeat_interval: Duration::from_millis(100),
+        gossip_announce_interval: Duration::from_millis(200),
+        ..Default::default()
+    };
+
+    let observer_channels = ProtocolRuntime::spawn(observer, observer_config);
+
+    expect_event(
+        &mut publisher_channels.events,
+        |e| matches!(e, ProtocolEvent::GossipNeighborUp { .. }),
+        "publisher should observe observer quickly via self-relay",
+        Duration::from_secs(5),
+    )
+    .await;
+
+    observer_channels.handle.shutdown().await;
+    publisher_channels.handle.shutdown().await;
+}
