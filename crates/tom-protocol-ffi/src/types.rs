@@ -86,6 +86,10 @@ pub struct RuntimeConfigFFI {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub n0_discovery: Option<bool>,
 
+    /// Enable local LAN discovery via mDNS bootstrap hints.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub local_discovery: Option<bool>,
+
     /// Directory for persistent state (SQLite)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub data_dir: Option<String>,

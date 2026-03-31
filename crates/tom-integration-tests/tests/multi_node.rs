@@ -320,7 +320,7 @@ async fn raw_transport_10_messages() -> anyhow::Result<()> {
         .try_init()
         .ok();
 
-    let mut node_a = TomNode::bind(TomNodeConfig::new().n0_discovery(false)).await?;
+    let node_a = TomNode::bind(TomNodeConfig::new().n0_discovery(false)).await?;
     let mut node_b = TomNode::bind(TomNodeConfig::new().n0_discovery(false)).await?;
 
     let addr_a = node_a.addr();

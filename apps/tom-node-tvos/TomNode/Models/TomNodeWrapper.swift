@@ -52,6 +52,7 @@ actor TomNodeWrapper {
         relayUrl: String?,
         identityPath: String?,
         n0Discovery: Bool,
+        localDiscovery: Bool,
         dataDir: String?,
         gossipBootstrapPeers: [String] = []
     ) throws {
@@ -63,7 +64,8 @@ actor TomNodeWrapper {
             "username": username,
             "encryption": encryption,
             "enable_dht": enableDht,
-            "n0_discovery": n0Discovery
+            "n0_discovery": n0Discovery,
+            "local_discovery": localDiscovery
         ]
         if let relayUrl = normalizedOptionalString(relayUrl) {
             config["relay_url"] = relayUrl

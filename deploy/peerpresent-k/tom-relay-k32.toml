@@ -1,0 +1,5 @@
+# PeerPresent measurement preset — high fanout
+# Usage:
+#   cargo run -p tom-relay -- --dev --config-path deploy/peerpresent-k/tom-relay-k32.toml
+
+peer_present_k = 32

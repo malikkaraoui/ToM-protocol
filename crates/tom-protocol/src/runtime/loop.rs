@@ -4,10 +4,11 @@
 /// application commands, and timers. Delegates all logic to RuntimeState,
 /// executes effects via executor.
 use tokio::sync::{broadcast, mpsc};
-use tom_transport::TomNode;
+use tom_transport::{BootstrapHint, TomNode};
 
 use crate::types::NodeId;
 
+use super::bootstrap::{BootstrapPhase, BootstrapSource};
 use super::effect::RuntimeEffect;
 use super::executor::execute_effects;
 use super::state::{GossipInput, RuntimeState};
@@ -15,7 +16,7 @@ use super::{DeliveredMessage, ProtocolEvent, RuntimeCommand};
 use crate::tracker::StatusChange;
 
 use tom_gossip::Gossip;
-use tom_gossip::api::Event as GossipEvent;
+use tom_gossip::api::{Event as GossipEvent, GossipSender};
 use n0_future::StreamExt;
 use tom_connect::TransportAddr;
 use tom_transport::PathEvent;
@@ -108,6 +109,8 @@ pub(super) async fn runtime_loop(
 
     // ── PeerPresent receiver from relay ────────────────────────────────
     let mut peer_present_rx = node.take_peer_present_rx();
+    let mut bootstrap_hint_rx = node.take_bootstrap_hint_rx();
+    let mut bootstrap_phase = BootstrapPhase::LanProbe;
 
     // ── Embedded relay service ─────────────────────────────────────────
     let mut embedded_relay = super::EmbeddedRelayService::new();
@@ -164,13 +167,13 @@ pub(super) async fn runtime_loop(
                     }
                     RuntimeCommand::AddPeerAddr { addr } => {
                         let node_id = NodeId::from_endpoint_id(addr.id);
-                        let endpoint_id = addr.id;
-                        // INVARIANT: add_peer_addr() BEFORE join_peers()
-                        // so MemoryLookup has the address when gossip dials
-                        node.add_peer_addr(addr).await;
-                        if let Some(ref sender) = gossip_sender {
-                            let _ = sender.join_peers(vec![endpoint_id]).await;
-                        }
+                        bootstrap_join_peer(
+                            &node,
+                            gossip_sender.as_ref(),
+                            addr,
+                            BootstrapSource::Manual,
+                            &mut bootstrap_phase,
+                        ).await;
                         state.handle_command(RuntimeCommand::AddPeer { node_id })
                     }
                     RuntimeCommand::AddPeer { node_id } => {
@@ -200,12 +203,13 @@ pub(super) async fn runtime_loop(
                     RuntimeCommand::DhtLookupResult { ref addr } => {
                         // Build EndpointAddr from DHT record and inject into transport
                         if let Some(endpoint_addr) = dht_addr_to_endpoint_addr(addr) {
-                            // INVARIANT: add_peer_addr() BEFORE join_peers()
-                            let endpoint_id = endpoint_addr.id;
-                            node.add_peer_addr(endpoint_addr).await;
-                            if let Some(ref sender) = gossip_sender {
-                                let _ = sender.join_peers(vec![endpoint_id]).await;
-                            }
+                            bootstrap_join_peer(
+                                &node,
+                                gossip_sender.as_ref(),
+                                endpoint_addr,
+                                BootstrapSource::Dht,
+                                &mut bootstrap_phase,
+                            ).await;
                         }
                         state.handle_command(cmd)
                     }
@@ -234,6 +238,28 @@ pub(super) async fn runtime_loop(
                 vec![RuntimeEffect::Emit(ProtocolEvent::PathChanged { event })]
             }
 
+            // ── 3a. LAN bootstrap hints (mDNS) ───────────────
+            event = async {
+                match bootstrap_hint_rx.as_mut() {
+                    Some(rx) => rx.recv().await,
+                    None => std::future::pending().await,
+                }
+            } => {
+                if let Some(BootstrapHint::MdnsDiscovered { endpoint_addr }) = event {
+                    let node_id = NodeId::from_endpoint_id(endpoint_addr.id);
+                    bootstrap_join_peer(
+                        &node,
+                        gossip_sender.as_ref(),
+                        endpoint_addr,
+                        BootstrapSource::Mdns,
+                        &mut bootstrap_phase,
+                    ).await;
+                    state.handle_command(RuntimeCommand::AddPeer { node_id })
+                } else {
+                    Vec::new()
+                }
+            }
+
             // ── 3b. Relay PeerPresent: auto-discovery ──────────
             event = async {
                 match peer_present_rx.as_mut() {
@@ -243,15 +269,14 @@ pub(super) async fn runtime_loop(
             } => {
                 if let Some((endpoint_id, relay_url)) = event {
                     let node_id = NodeId::from_endpoint_id(endpoint_id);
-                    tracing::info!(peer = %node_id, relay = %relay_url, "relay PeerPresent -> gossip join");
-                    // 1. Inject address (MemoryLookup + Pool)
                     let addr = tom_connect::EndpointAddr::new(endpoint_id).with_relay_url(relay_url);
-                    node.add_peer_addr(addr).await;
-                    // 2. Tell gossip to dial (AFTER address injection)
-                    if let Some(ref sender) = gossip_sender {
-                        let _ = sender.join_peers(vec![endpoint_id]).await;
-                    }
-                    // 3. Enrich protocol topology
+                    bootstrap_join_peer(
+                        &node,
+                        gossip_sender.as_ref(),
+                        addr,
+                        BootstrapSource::PeerPresent,
+                        &mut bootstrap_phase,
+                    ).await;
                     state.handle_command(RuntimeCommand::AddPeer { node_id })
                 } else {
                     Vec::new()
@@ -486,4 +511,38 @@ fn dht_addr_to_endpoint_addr(addr: &tom_dht::DhtNodeAddr) -> Option<tom_connect:
         id: *node_id.as_endpoint_id(),
         addrs,
     })
+}
+
+async fn bootstrap_join_peer(
+    node: &TomNode,
+    gossip_sender: Option<&GossipSender>,
+    endpoint_addr: tom_connect::EndpointAddr,
+    source: BootstrapSource,
+    bootstrap_phase: &mut BootstrapPhase,
+) {
+    let endpoint_id = endpoint_addr.id;
+    let node_id = NodeId::from_endpoint_id(endpoint_id);
+    tracing::info!(peer = %node_id, source = %source, phase = ?bootstrap_phase, "bootstrap: accepted peer hint");
+
+    // INVARIANT: add_peer_addr() BEFORE join_peers()
+    // so MemoryLookup has the address when gossip dials.
+    node.add_peer_addr(endpoint_addr).await;
+
+    if let Some(sender) = gossip_sender {
+        if let Err(error) = sender.join_peers(vec![endpoint_id]).await {
+            tracing::debug!(peer = %node_id, source = %source, %error, "bootstrap: gossip join failed");
+        }
+    }
+
+    if *bootstrap_phase != BootstrapPhase::Converged {
+        let previous_phase = *bootstrap_phase;
+        bootstrap_phase.on_hint_accepted();
+        tracing::info!(
+            from = ?previous_phase,
+            to = ?bootstrap_phase,
+            peer = %node_id,
+            source = %source,
+            "bootstrap: phase advanced"
+        );
+    }
 }

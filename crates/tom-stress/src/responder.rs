@@ -29,7 +29,7 @@ pub async fn run(config: ResponderConfig) -> anyhow::Result<()> {
         node_config = node_config.relay_url(url.parse()?);
     }
     if config.no_n0_discovery {
-        node_config = node_config.n0_discovery(false);
+        node_config = node_config.n0_discovery(false).local_discovery(true);
     }
     if let Some(ref path) = config.identity_path {
         node_config = node_config.identity_path(path.into());

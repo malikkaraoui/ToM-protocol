@@ -500,7 +500,7 @@ fn peer_to_discovery_item(peer: &Peer, endpoint_id: &EndpointId) -> AddressLooku
     // Get the user-defined data from the resolved peer info. We expect an attribute with a value
     // that parses as `UserData`. Otherwise, omit.
     let user_data = if let Some(Some(user_data)) = peer.txt_attribute(USER_DATA_ATTRIBUTE) {
-        match user_data.parse() {
+        match user_data.parse::<crate::address_lookup::UserData>() {
             Err(err) => {
                 debug!("failed to parse user data from TXT attribute: {err}");
                 None
@@ -548,6 +548,8 @@ mod tests {
     /// This module's name signals nextest to run test in a single thread (no other concurrent
     /// tests)
     mod run_in_isolation {
+        use std::sync::OnceLock;
+
         use tom_base::{SecretKey, TransportAddr};
         use n0_error::{AnyError as Error, Result, StdResultExt, bail_any};
         use n0_future::StreamExt;
@@ -557,9 +559,15 @@ mod tests {
         use super::super::*;
         use crate::address_lookup::UserData;
 
+        fn isolation_lock() -> &'static tokio::sync::Mutex<()> {
+            static LOCK: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
+            LOCK.get_or_init(|| tokio::sync::Mutex::new(()))
+        }
+
         #[tokio::test]
         #[traced_test]
         async fn mdns_publish_resolve() -> Result {
+            let _guard = isolation_lock().lock().await;
             let mut rng = rand_chacha::ChaCha8Rng::seed_from_u64(0u64);
 
             // Create Address LookupA with advertise=false (only listens)
@@ -625,6 +633,7 @@ mod tests {
         #[tokio::test]
         #[traced_test]
         async fn mdns_publish_expire() -> Result {
+            let _guard = isolation_lock().lock().await;
             let mut rng = rand_chacha::ChaCha8Rng::seed_from_u64(0u64);
             let (_, address_lookup_a) = make_address_lookup(&mut rng, false)?;
             let (endpoint_id_b, address_lookup_b) = make_address_lookup(&mut rng, true)?;
@@ -682,6 +691,7 @@ mod tests {
         #[tokio::test]
         #[traced_test]
         async fn mdns_subscribe() -> Result {
+            let _guard = isolation_lock().lock().await;
             let mut rng = rand_chacha::ChaCha8Rng::seed_from_u64(0u64);
 
             let num_endpoints = 5;
@@ -733,6 +743,7 @@ mod tests {
         #[tokio::test]
         #[traced_test]
         async fn non_advertising_endpoint_not_discovered() -> Result {
+            let _guard = isolation_lock().lock().await;
             let mut rng = rand_chacha::ChaCha8Rng::seed_from_u64(0u64);
 
             let (_, address_lookup_a) = make_address_lookup(&mut rng, false)?;
@@ -767,6 +778,7 @@ mod tests {
         #[tokio::test]
         #[traced_test]
         async fn test_service_names() -> Result {
+            let _guard = isolation_lock().lock().await;
             let mut rng = rand_chacha::ChaCha8Rng::seed_from_u64(0u64);
 
             // Create an Address Lookupusing the default

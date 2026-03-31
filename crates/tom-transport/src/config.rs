@@ -64,6 +64,16 @@ pub struct TomNodeConfig {
     /// n0's Pkarr relay and DNS infrastructure. Set to `false` when running
     /// your own relay and using gossip-based peer discovery instead.
     pub(crate) n0_discovery: bool,
+    /// Enable local LAN discovery via mDNS bootstrap hints.
+    ///
+    /// Disabled by default until the protocol runtime explicitly consumes
+    /// those hints and folds them into the bootstrap flow.
+    pub(crate) local_discovery: bool,
+    /// Disable direct IP transports and keep only relay-assisted connectivity.
+    ///
+    /// Useful for deterministic relay-only tests and benchmarks where direct
+    /// path opening would otherwise introduce noise.
+    pub(crate) relay_only: bool,
     /// Path to persistent identity file (32-byte Ed25519 secret key).
     ///
     /// If set, the node loads its identity from this file (creating it on first run).
@@ -127,6 +137,8 @@ impl TomNodeConfig {
             relay_discovery_url,
             relay_dns_fallback_domain,
             n0_discovery: true,
+            local_discovery: false,
+            relay_only: false,
             identity_path,
         }
     }
@@ -220,6 +232,22 @@ impl TomNodeConfig {
         self
     }
 
+    /// Enable or disable local LAN discovery via mDNS.
+    pub fn local_discovery(mut self, enabled: bool) -> Self {
+        self.local_discovery = enabled;
+        self
+    }
+
+    /// Enable or disable relay-only transport mode.
+    ///
+    /// When enabled, the node removes all direct IP transports and publishes
+    /// relay addresses only. This is intended for measurement and deterministic
+    /// relay-path validation.
+    pub fn relay_only(mut self, enabled: bool) -> Self {
+        self.relay_only = enabled;
+        self
+    }
+
     /// Use a persistent identity stored at the given path.
     ///
     /// The file contains a raw 32-byte Ed25519 secret key seed.
@@ -297,5 +325,29 @@ mod tests {
     fn fallback_relay_urls_contains_default_public_relays() {
         let parsed = fallback_relay_urls();
         assert_eq!(parsed.len(), DEFAULT_RELAY_URLS.len());
+    }
+
+    #[test]
+    fn local_discovery_is_disabled_by_default() {
+        let cfg = TomNodeConfig::new();
+        assert!(!cfg.local_discovery);
+    }
+
+    #[test]
+    fn local_discovery_sets_value() {
+        let cfg = TomNodeConfig::new().local_discovery(true);
+        assert!(cfg.local_discovery);
+    }
+
+    #[test]
+    fn relay_only_is_disabled_by_default() {
+        let cfg = TomNodeConfig::new();
+        assert!(!cfg.relay_only);
+    }
+
+    #[test]
+    fn relay_only_sets_value() {
+        let cfg = TomNodeConfig::new().relay_only(true);
+        assert!(cfg.relay_only);
     }
 }
