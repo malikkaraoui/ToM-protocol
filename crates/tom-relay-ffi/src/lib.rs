@@ -105,6 +105,7 @@ pub unsafe extern "C" fn tom_relay_start(
             },
             tls: None,
             key_cache_capacity: None,
+            peer_present_k: None,
             access: tom_relay::server::AccessConfig::Everyone,
         }),
         quic: None,

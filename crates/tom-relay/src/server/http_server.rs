@@ -241,6 +241,8 @@ pub(super) struct ServerBuilder {
     client_rx_ratelimit: Option<ClientRateLimit>,
     /// The capacity of the key cache.
     key_cache_capacity: usize,
+    /// PeerPresent fanout for each new registration.
+    peer_present_k: usize,
     /// Access config for endpoints.
     access: AccessConfig,
     metrics: Option<Arc<Metrics>>,
@@ -256,6 +258,7 @@ impl ServerBuilder {
             headers: HeaderMap::new(),
             client_rx_ratelimit: None,
             key_cache_capacity: DEFAULT_KEY_CACHE_CAPACITY,
+            peer_present_k: Clients::DEFAULT_PEER_PRESENT_K,
             access: AccessConfig::Everyone,
             metrics: None,
         }
@@ -313,6 +316,12 @@ impl ServerBuilder {
         self
     }
 
+    /// Set the PeerPresent fanout `k` used when a new client registers.
+    pub fn peer_present_k(mut self, peer_present_k: usize) -> Self {
+        self.peer_present_k = peer_present_k;
+        self
+    }
+
     /// Builds and spawns an HTTP(S) Relay Server.
     pub(super) async fn spawn(self) -> Result<Server, SpawnError> {
         let cancel_token = CancellationToken::new();
@@ -322,6 +331,7 @@ impl ServerBuilder {
             self.headers,
             self.client_rx_ratelimit,
             KeyCache::new(self.key_cache_capacity),
+            self.peer_present_k,
             self.access,
             self.metrics.unwrap_or_default(),
         );
@@ -701,13 +711,14 @@ impl RelayService {
         headers: HeaderMap,
         rate_limit: Option<ClientRateLimit>,
         key_cache: KeyCache,
+        peer_present_k: usize,
         access: AccessConfig,
         metrics: Arc<Metrics>,
     ) -> Self {
         Self(Arc::new(Inner {
             handlers,
             headers,
-            clients: Clients::default(),
+            clients: Clients::new(peer_present_k),
             write_timeout: SERVER_WRITE_TIMEOUT,
             rate_limit,
             key_cache,
@@ -1131,6 +1142,7 @@ mod tests {
             Default::default(),
             None,
             KeyCache::test(),
+            Clients::DEFAULT_PEER_PRESENT_K,
             AccessConfig::Everyone,
             metrics.clone(),
         );
@@ -1238,6 +1250,7 @@ mod tests {
             Default::default(),
             None,
             KeyCache::test(),
+            Clients::DEFAULT_PEER_PRESENT_K,
             AccessConfig::Everyone,
             Default::default(),
         );

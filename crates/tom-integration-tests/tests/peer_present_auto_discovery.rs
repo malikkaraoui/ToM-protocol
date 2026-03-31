@@ -33,6 +33,7 @@ async fn run_test_relay() -> Result<(RelayUrl, Server), SpawnError> {
             tls: None,
             limits: Default::default(),
             key_cache_capacity: Some(1024),
+            peer_present_k: None,
             access: AccessConfig::Everyone,
         }),
         quic: None,
@@ -56,7 +57,8 @@ async fn spawn_runtime_node(relay_url: RelayUrl) -> Result<TestNode> {
     let node = TomNode::bind(
         TomNodeConfig::new()
             .relay_url(relay_url)
-            .n0_discovery(false),
+            .n0_discovery(false)
+            .relay_only(true),
     )
     .await?;
 

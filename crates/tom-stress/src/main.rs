@@ -307,7 +307,7 @@ async fn main() -> anyhow::Result<()> {
         config = config.relay_url(url.parse()?);
     }
     if cli.no_n0_discovery {
-        config = config.n0_discovery(false);
+        config = config.n0_discovery(false).local_discovery(true);
     }
     if let Some(ref path) = cli.identity {
         config = config.identity_path(path.into());

@@ -60,6 +60,7 @@ pub async fn run_relay_server_with(quic: bool) -> Result<(RelayMap, RelayUrl, Se
             tls: Some(tls),
             limits: Default::default(),
             key_cache_capacity: Some(1024),
+            peer_present_k: None,
             access: AccessConfig::Everyone,
         }),
         quic,

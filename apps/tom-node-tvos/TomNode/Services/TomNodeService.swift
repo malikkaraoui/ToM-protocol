@@ -160,6 +160,7 @@ final class TomNodeService: ObservableObject {
                 appendLog(.success, "Node handle created")
 
                 let bootstrapPeers = normalizedBootstrapPeers
+                let localDiscovery = !n0Discovery
                 try await node.start(
                     username: username,
                     encryption: encryption,
@@ -167,12 +168,14 @@ final class TomNodeService: ObservableObject {
                     relayUrl: normalizedRelayUrl,
                     identityPath: identityPath,
                     n0Discovery: n0Discovery,
+                    localDiscovery: localDiscovery,
                     dataDir: dataDir,
                     gossipBootstrapPeers: bootstrapPeers
                 )
 
                 state = .running
                 appendLog(.success, "Runtime started")
+                appendLog(.network, "Local discovery: \(localDiscovery ? "enabled" : "disabled")")
                 if !bootstrapPeers.isEmpty {
                     appendLog(.network, "Bootstrap peers: \(bootstrapPeers.map { String($0.prefix(8)) })")
                 } else {

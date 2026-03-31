@@ -124,6 +124,10 @@ pub struct RelayConfig<EC: fmt::Debug, EA: fmt::Debug = EC> {
     pub limits: Limits,
     /// Key cache capacity.
     pub key_cache_capacity: Option<usize>,
+    /// Maximum number of peers to sample for PeerPresent on each new registration.
+    ///
+    /// When `None`, uses the built-in default (`8`).
+    pub peer_present_k: Option<usize>,
     /// Access configuration.
     pub access: AccessConfig,
 }
@@ -377,6 +381,7 @@ impl Server {
                     .metrics(metrics.server.clone())
                     .headers(headers)
                     .key_cache_capacity(key_cache_capacity)
+                    .peer_present_k(relay_config.peer_present_k.unwrap_or(clients::Clients::DEFAULT_PEER_PRESENT_K))
                     .access(relay_config.access)
                     .request_handler(Method::GET, "/", Box::new(root_handler))
                     .request_handler(Method::GET, "/index.html", Box::new(root_handler))
@@ -810,6 +815,7 @@ mod tests {
                 tls: None,
                 limits: Default::default(),
                 key_cache_capacity: Some(1024),
+                peer_present_k: None,
                 access: AccessConfig::Everyone,
             }),
             quic: None,
@@ -877,6 +883,7 @@ mod tests {
                 tls: None,
                 limits: Default::default(),
                 key_cache_capacity: Some(1024),
+                peer_present_k: None,
                 access: AccessConfig::Everyone,
             }),
             quic: None,
@@ -1049,6 +1056,7 @@ mod tests {
                 tls: None,
                 limits: Default::default(),
                 key_cache_capacity: Some(1024),
+                peer_present_k: None,
                 access: AccessConfig::Restricted(Box::new(move |endpoint_id| {
                     async move {
                         info!("checking {}", endpoint_id);

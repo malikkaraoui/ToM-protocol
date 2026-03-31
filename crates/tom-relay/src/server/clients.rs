@@ -22,10 +22,10 @@ use crate::{
 };
 
 /// Manages the connections to all currently connected clients.
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Clone)]
 pub(super) struct Clients(Arc<Inner>);
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 struct Inner {
     /// The list of all currently connected clients.
     clients: DashMap<EndpointId, Client>,
@@ -33,9 +33,23 @@ struct Inner {
     sent_to: DashMap<EndpointId, HashSet<EndpointId>>,
     /// Connection ID Counter
     next_connection_id: AtomicU64,
+    /// Maximum number of peers to notify via PeerPresent per registration.
+    peer_present_k: usize,
 }
 
 impl Clients {
+    /// Default number of peers to sample for PeerPresent notifications.
+    pub(super) const DEFAULT_PEER_PRESENT_K: usize = 8;
+
+    pub(super) fn new(peer_present_k: usize) -> Self {
+        Self(Arc::new(Inner {
+            clients: DashMap::default(),
+            sent_to: DashMap::default(),
+            next_connection_id: AtomicU64::default(),
+            peer_present_k,
+        }))
+    }
+
     pub async fn shutdown(&self) {
         let keys: Vec<_> = self.0.clients.iter().map(|x| *x.key()).collect();
         trace!("shutting down {} clients", keys.len());
@@ -45,9 +59,6 @@ impl Clients {
             .await;
     }
 
-    /// Maximum number of peers to notify via PeerPresent per registration.
-    const PEER_PRESENT_K: usize = 8;
-
     /// Builds the client handler and starts the read & write loops for the connection.
     pub async fn register(&self, client_config: Config, metrics: Arc<Metrics>) {
         let endpoint_id = client_config.endpoint_id;
@@ -55,7 +66,7 @@ impl Clients {
         trace!(remote_endpoint = %endpoint_id.fmt_short(), "registering client");
 
         // Sample existing peers BEFORE inserting the new client
-        let selected = self.sample_peers(endpoint_id, Self::PEER_PRESENT_K);
+        let selected = self.sample_peers(endpoint_id, self.0.peer_present_k);
 
         let client = Client::new(client_config, connection_id, self, metrics);
         if let Some(old_client) = self.0.clients.insert(endpoint_id, client) {
@@ -198,6 +209,12 @@ impl Clients {
                 Err(ForwardPacketError::new(SendError::Closed))
             }
         }
+    }
+}
+
+impl Default for Clients {
+    fn default() -> Self {
+        Self::new(Self::DEFAULT_PEER_PRESENT_K)
     }
 }
 
@@ -405,6 +422,88 @@ mod tests {
         assert!(
             !c_hints.contains(&c_key),
             "C must not receive PeerPresent about itself"
+        );
+
+        clients.shutdown().await;
+        Ok(())
+    }
+
+    /// PeerPresent fanout respects the configured `peer_present_k` limit.
+    #[tokio::test]
+    async fn register_respects_peer_present_k_limit() -> Result {
+        let mut rng = rand_chacha::ChaCha8Rng::seed_from_u64(123u64);
+        let a_key = SecretKey::generate(&mut rng).public();
+        let b_key = SecretKey::generate(&mut rng).public();
+        let c_key = SecretKey::generate(&mut rng).public();
+
+        let (builder_a, mut a_rw) = test_client_builder(a_key);
+        let (builder_b, mut b_rw) = test_client_builder(b_key);
+        let (builder_c, mut c_rw) = test_client_builder(c_key);
+
+        let clients = Clients::new(1);
+        let metrics = Arc::new(Metrics::default());
+
+        clients.register(builder_a, metrics.clone()).await;
+        clients.register(builder_b, metrics.clone()).await;
+
+        // Drain the deterministic A<->B initial hints.
+        let _ = tokio::time::timeout(
+            Duration::from_secs(1),
+            recv_frame(FrameType::PeerPresent, &mut a_rw),
+        )
+        .await
+        .std_context("A should receive initial PeerPresent(B)")??;
+        let _ = tokio::time::timeout(
+            Duration::from_secs(1),
+            recv_frame(FrameType::PeerPresent, &mut b_rw),
+        )
+        .await
+        .std_context("B should receive initial PeerPresent(A)")??;
+
+        clients.register(builder_c, metrics.clone()).await;
+
+        let maybe_a = tokio::time::timeout(
+            Duration::from_millis(200),
+            recv_frame(FrameType::PeerPresent, &mut a_rw),
+        )
+        .await;
+        let maybe_b = tokio::time::timeout(
+            Duration::from_millis(200),
+            recv_frame(FrameType::PeerPresent, &mut b_rw),
+        )
+        .await;
+
+        let notified_existing = [maybe_a.as_ref().ok(), maybe_b.as_ref().ok()]
+            .into_iter()
+            .flatten()
+            .filter(|frame| matches!(frame, Ok(RelayToClientMsg::PeerPresent(id)) if *id == c_key))
+            .count();
+        assert_eq!(
+            notified_existing, 1,
+            "exactly one existing peer should receive PeerPresent(C) when k=1"
+        );
+
+        let first_hint_c = tokio::time::timeout(
+            Duration::from_secs(1),
+            recv_frame(FrameType::PeerPresent, &mut c_rw),
+        )
+        .await
+        .std_context("C should receive exactly one PeerPresent hint when k=1")??;
+
+        let RelayToClientMsg::PeerPresent(first_id) = first_hint_c else {
+            panic!("expected PeerPresent frame for C");
+        };
+        assert!(first_id == a_key || first_id == b_key);
+        assert_ne!(first_id, c_key);
+
+        let second_hint_c = tokio::time::timeout(
+            Duration::from_millis(200),
+            recv_frame(FrameType::PeerPresent, &mut c_rw),
+        )
+        .await;
+        assert!(
+            second_hint_c.is_err(),
+            "C should not receive more than one hint when k=1"
         );
 
         clients.shutdown().await;

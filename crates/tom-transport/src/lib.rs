@@ -26,6 +26,7 @@
 //! # }
 //! ```
 
+mod bootstrap;
 mod config;
 mod connection;
 mod envelope;
@@ -34,6 +35,7 @@ mod node;
 mod path;
 mod protocol;
 
+pub use bootstrap::BootstrapHint;
 pub use config::TomNodeConfig;
 pub use envelope::{now_ms, MessageEnvelope};
 pub use error::TomTransportError;

@@ -182,6 +182,10 @@ pub unsafe extern "C" fn tom_node_start(
         transport_config = transport_config.n0_discovery(n0_discovery);
     }
 
+    if let Some(local_discovery) = runtime_config.local_discovery {
+        transport_config = transport_config.local_discovery(local_discovery);
+    }
+
     // Parse gossip bootstrap peers
     let gossip_peers = parse_gossip_bootstrap_peers(&runtime_config.gossip_bootstrap_peers);
 
@@ -834,6 +838,7 @@ mod tests {
             relay_url: Some("http://127.0.0.1:3343".to_string()),
             identity_path: None,
             n0_discovery: Some(false),
+            local_discovery: Some(true),
             data_dir: None,
             gossip_bootstrap_peers: vec![],
         };

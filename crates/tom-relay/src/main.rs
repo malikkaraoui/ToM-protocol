@@ -141,6 +141,10 @@ struct Config {
     metrics_bind_addr: Option<SocketAddr>,
     /// The capacity of the key cache.
     key_cache_capacity: Option<usize>,
+    /// Maximum number of peers to sample for PeerPresent on each new registration.
+    ///
+    /// Default: 8.
+    peer_present_k: Option<usize>,
     /// Access control for relaying connections.
     ///
     /// This controls which endpoints are allowed to relay connections, other endpoints are not controlled by this.
@@ -309,6 +313,10 @@ fn validate_startup_config(cfg: &Config, cli: &Cli) -> Result<()> {
         );
     }
 
+    if matches!(cfg.peer_present_k, Some(0)) {
+        bail_any!("peer_present_k must be >= 1 when specified");
+    }
+
     let mut listeners: Vec<(&'static str, SocketAddr)> = Vec::new();
 
     if cfg.enable_relay {
@@ -410,6 +418,7 @@ impl Default for Config {
             enable_metrics: cfg_defaults::enable_metrics(),
             metrics_bind_addr: None,
             key_cache_capacity: Default::default(),
+            peer_present_k: None,
             access: AccessConfig::Everyone,
         }
     }
@@ -787,6 +796,7 @@ async fn build_relay_config(cfg: Config) -> Result<relay::ServerConfig<std::io::
             tls: relay_tls.and_then(|tls| if dangerous_http_only { None } else { Some(tls) }),
             limits,
             key_cache_capacity: cfg.key_cache_capacity,
+            peer_present_k: cfg.peer_present_k,
             access: cfg.access.clone().into(),
         })
     } else {
@@ -1038,6 +1048,20 @@ mod tests {
         let err = validate_startup_config(&cfg, &test_cli(false)).unwrap_err();
         let msg = format!("{err:#}");
         assert!(msg.contains("listener address conflict"));
+    }
+
+    #[test]
+    fn test_validate_startup_rejects_zero_peer_present_k() {
+        let cfg = Config::from_str(
+            r#"
+                peer_present_k = 0
+            "#,
+        )
+        .unwrap();
+
+        let err = validate_startup_config(&cfg, &test_cli(false)).unwrap_err();
+        let msg = format!("{err:#}");
+        assert!(msg.contains("peer_present_k must be >= 1"));
     }
 
     #[test]

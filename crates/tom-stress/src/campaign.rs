@@ -201,7 +201,7 @@ pub async fn run(config: CampaignConfig) -> anyhow::Result<()> {
         node_config = node_config.relay_url(url.parse()?);
     }
     if config.no_n0_discovery {
-        node_config = node_config.n0_discovery(false);
+        node_config = node_config.n0_discovery(false).local_discovery(true);
     }
     let node = TomNode::bind(node_config).await?;
     let local_id = node.id();

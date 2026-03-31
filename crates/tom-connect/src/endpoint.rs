@@ -1795,6 +1795,7 @@ mod tests {
                 tls: None,
                 limits: Limits::default(),
                 key_cache_capacity: None,
+                peer_present_k: None,
                 access: AccessConfig::Everyone,
             }),
             quic: None,

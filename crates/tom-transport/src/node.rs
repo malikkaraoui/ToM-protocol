@@ -3,13 +3,15 @@ use crate::connection::ConnectionPool;
 use crate::envelope::MessageEnvelope;
 use crate::path::{PathEvent, PathKind};
 use crate::protocol::{self, HandlerState, TomProtocolHandler};
-use crate::{NodeId, TomTransportError};
+use crate::{BootstrapHint, NodeId, TomTransportError};
 
 use tom_base::SecretKey;
+use tom_connect::address_lookup::MdnsAddressLookup;
 use tom_connect::address_lookup::memory::MemoryLookup;
 use tom_connect::protocol::Router;
 use tom_connect::{Endpoint, RelayMode};
 use tom_gossip::Gossip;
+use n0_future::StreamExt;
 use serde::Deserialize;
 use std::path::Path;
 use std::sync::Arc;
@@ -137,6 +139,8 @@ pub struct TomNode {
     discovery_refresh_task: Option<JoinHandle<()>>,
     /// Receiver for PeerPresent events from relay servers.
     peer_present_rx: Option<mpsc::Receiver<(tom_connect::EndpointId, tom_connect::RelayUrl)>>,
+    /// Receiver for transport bootstrap hints (mDNS, future local discovery signals).
+    bootstrap_hint_rx: Option<mpsc::Receiver<BootstrapHint>>,
 }
 
 impl TomNode {
@@ -246,6 +250,21 @@ impl TomNode {
             }
         };
 
+        #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
+        if config.relay_only {
+            if configured_relays.is_empty() {
+                return Err(TomTransportError::Config(
+                    "relay_only requires at least one relay URL".to_string(),
+                ));
+            }
+            builder = builder.clear_ip_transports();
+        }
+
+        #[cfg(all(target_family = "wasm", target_os = "unknown"))]
+        if config.relay_only {
+            tracing::warn!("relay_only requested on wasm target; ignoring unsupported option");
+        }
+
         // MemoryLookup: makes addresses injected via add_peer_addr() visible
         // to the Endpoint's address resolution (used by gossip's endpoint.connect()).
         let memory_lookup = MemoryLookup::new();
@@ -331,6 +350,33 @@ impl TomNode {
             };
 
         let peer_present_rx = endpoint.take_peer_present_rx();
+        let mut bootstrap_hint_rx = None;
+
+        if config.local_discovery {
+            match MdnsAddressLookup::builder().build(endpoint.id()) {
+                Ok(mdns) => {
+                    endpoint.address_lookup().add(mdns.clone());
+
+                    let (hint_tx, hint_rx) = mpsc::channel(64);
+                    let mut mdns_events = mdns.subscribe().await;
+                    tokio::spawn(async move {
+                        while let Some(event) = mdns_events.next().await {
+                            if let Some(hint) = crate::bootstrap::mdns_event_to_hint(event) {
+                                if hint_tx.send(hint).await.is_err() {
+                                    break;
+                                }
+                            }
+                        }
+                    });
+
+                    bootstrap_hint_rx = Some(hint_rx);
+                    tracing::info!("local mDNS discovery enabled");
+                }
+                Err(error) => {
+                    tracing::warn!(%error, "failed to enable local mDNS discovery; continuing without it");
+                }
+            }
+        }
 
         Ok(Self {
             id,
@@ -346,6 +392,7 @@ impl TomNode {
             discovery_refresh_stop_tx,
             discovery_refresh_task,
             peer_present_rx,
+            bootstrap_hint_rx,
         })
     }
 
@@ -377,6 +424,13 @@ impl TomNode {
         &mut self,
     ) -> Option<mpsc::Receiver<(tom_connect::EndpointId, tom_connect::RelayUrl)>> {
         self.peer_present_rx.take()
+    }
+
+    /// Takes the receiver for transport bootstrap hints.
+    ///
+    /// Returns `None` if already taken or if local discovery was disabled.
+    pub fn take_bootstrap_hint_rx(&mut self) -> Option<mpsc::Receiver<BootstrapHint>> {
+        self.bootstrap_hint_rx.take()
     }
 
     /// Return default relay URLs configured on the connection pool.
@@ -743,6 +797,34 @@ mod tests {
         node2.shutdown().await.unwrap();
 
         assert_ne!(id1, id2, "No identity path should produce different NodeIds");
+    }
+
+    #[tokio::test]
+    async fn bootstrap_hint_rx_absent_when_local_discovery_disabled() {
+        let mut node = TomNode::bind(TomNodeConfig::new().n0_discovery(false))
+            .await
+            .unwrap();
+
+        assert!(node.take_bootstrap_hint_rx().is_none());
+
+        node.shutdown().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn relay_only_bind_disables_direct_ip_addrs() {
+        let node = TomNode::bind(
+            TomNodeConfig::new()
+                .relay_url("http://127.0.0.1:3340".parse().unwrap())
+                .n0_discovery(false)
+                .relay_only(true),
+        )
+        .await
+        .unwrap();
+
+        let addr = node.addr();
+        assert_eq!(addr.ip_addrs().count(), 0);
+
+        node.shutdown().await.unwrap();
     }
 
     #[test]
