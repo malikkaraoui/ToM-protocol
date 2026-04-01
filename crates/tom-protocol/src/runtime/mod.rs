@@ -4,7 +4,7 @@
 /// topology, tracker, heartbeat). It exposes a channel-based API so the
 /// application (TUI, bot, SDK) never touches raw bytes or protocol internals.
 pub mod embedded_relay;
-mod bootstrap;
+pub mod bootstrap;
 mod effect;
 mod executor;
 mod r#loop;
@@ -17,6 +17,7 @@ pub use embedded_relay::{
     EmbeddedRelayConfig, EmbeddedRelayPublicationState, EmbeddedRelayService,
     EmbeddedRelayStatus, LocalEmbeddedRelayState,
 };
+pub use bootstrap::{BootstrapPhase, BootstrapSource};
 pub use metrics::{MetricsSnapshot, ProtocolMetrics};
 pub use state::{GossipInput, RuntimeState};
 pub use transport::Transport;

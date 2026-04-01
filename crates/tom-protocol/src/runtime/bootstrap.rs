@@ -2,9 +2,9 @@
 ///
 /// Purely informational: used for logging and future telemetry. Does not gate
 /// any protocol behaviour; the node remains active in every phase.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 #[allow(dead_code)] // RelayAssist / DhtAssist used in future phases
-pub(crate) enum BootstrapPhase {
+pub enum BootstrapPhase {
     /// No peer discovered yet; LAN probe in progress.
     LanProbe,
     /// LAN probe timed out without results; waiting on relay-assisted discovery.
@@ -15,6 +15,17 @@ pub(crate) enum BootstrapPhase {
     Converged,
 }
 
+impl std::fmt::Display for BootstrapPhase {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            BootstrapPhase::LanProbe => write!(f, "amorcage"),
+            BootstrapPhase::RelayAssist => write!(f, "amorcage"),
+            BootstrapPhase::DhtAssist => write!(f, "amorcage"),
+            BootstrapPhase::Converged => write!(f, "connecte"),
+        }
+    }
+}
+
 impl BootstrapPhase {
     /// Transition to `Converged` on first useful hint, regardless of current phase.
     pub(crate) fn on_hint_accepted(&mut self) {
@@ -23,9 +34,9 @@ impl BootstrapPhase {
 }
 
 /// Source that produced a bootstrap hint.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 #[allow(dead_code)] // Manual used in future
-pub(crate) enum BootstrapSource {
+pub enum BootstrapSource {
     Mdns,
     PeerPresent,
     Dht,
