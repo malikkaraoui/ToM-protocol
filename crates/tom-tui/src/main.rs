@@ -92,6 +92,90 @@ fn chrono_lite_iso() -> String {
     format!("{:02}:{:02}:{:02}.{:03}", h, m, s, ms)
 }
 
+// ── Status HTTP Server ──────────────────────────────────────────────────
+
+/// Spawns a tiny HTTP server that responds to any GET with a JSON status page.
+/// No dependency on hyper — raw TCP + minimal HTTP response.
+fn spawn_status_server(port: u16, handle: RuntimeHandle, node_label: String) {
+    tokio::spawn(async move {
+        let listener = match tokio::net::TcpListener::bind(format!("0.0.0.0:{}", port)).await {
+            Ok(l) => l,
+            Err(e) => {
+                eprintln!("{{\"event\":\"erreur_status_server\",\"detail\":\"{}\"}}", e);
+                return;
+            }
+        };
+        eprintln!("{{\"event\":\"status_server_demarre\",\"detail\":\"port={}\"}}", port);
+
+        loop {
+            let Ok((mut stream, _)) = listener.accept().await else { continue };
+            let handle = handle.clone();
+            let label = node_label.clone();
+
+            tokio::spawn(async move {
+                use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+                // Read request (we don't care about the content, just drain it)
+                let mut buf = [0u8; 1024];
+                let _ = stream.read(&mut buf).await;
+
+                // Build JSON status
+                let snap = handle.metrics();
+                let peers = handle.connected_peers().await;
+                let groups = handle.groups().await;
+
+                let peers_json: Vec<String> = peers.iter().map(|p| {
+                    let s = p.to_string();
+                    format!("\"{}\"", &s[..8.min(s.len())])
+                }).collect();
+
+                let groups_json: Vec<String> = groups.iter().map(|g| {
+                    format!("{{\"nom\":\"{}\",\"membres\":{}}}", g.name, g.members.len())
+                }).collect();
+
+                let body = format!(
+                    concat!(
+                        "{{",
+                        "\"node\":\"{label}\",",
+                        "\"node_id\":\"{node_id}\",",
+                        "\"phase\":\"{phase}\",",
+                        "\"taille_reseau\":{taille},",
+                        "\"role\":\"{role:?}\",",
+                        "\"relayeurs\":{relayeurs},",
+                        "\"pairs_connectes\":[{peers}],",
+                        "\"groupes\":[{groups}],",
+                        "\"messages_envoyes\":{sent},",
+                        "\"messages_recus\":{recv},",
+                        "\"messages_echoues\":{failed},",
+                        "\"uptime_secondes\":{uptime}",
+                        "}}"
+                    ),
+                    label = label,
+                    node_id = handle.local_id(),
+                    phase = snap.phase,
+                    taille = snap.taille_reseau,
+                    role = snap.role_local,
+                    relayeurs = snap.relayeurs_connus,
+                    peers = peers_json.join(","),
+                    groups = groups_json.join(","),
+                    sent = snap.messages_sent,
+                    recv = snap.messages_received,
+                    failed = snap.messages_failed,
+                    uptime = snap.uptime_seconds,
+                );
+
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nAccess-Control-Allow-Origin: *\r\nContent-Length: {}\r\n\r\n{}",
+                    body.len(),
+                    body
+                );
+
+                let _ = stream.write_all(response.as_bytes()).await;
+            });
+        }
+    });
+}
+
 // ── CLI ─────────────────────────────────────────────────────────────────
 
 /// tom-chat — TUI chat demo for the ToM protocol.
@@ -170,6 +254,11 @@ struct Cli {
     /// Logs are sent as JSON lines over UDP in addition to stderr.
     #[arg(long, value_name = "HOST:PORT")]
     log_udp: Option<String>,
+
+    /// HTTP port for local status page (e.g. 8080).
+    /// Exposes a JSON endpoint showing node identity, phase, peers, roles, metrics.
+    #[arg(long, value_name = "PORT")]
+    status_port: Option<u16>,
 }
 
 // ── App State ────────────────────────────────────────────────────────────
@@ -356,6 +445,11 @@ async fn main() -> anyhow::Result<()> {
         status_changes: _status_changes,
         mut events,
     } = ProtocolRuntime::spawn(node, config);
+
+    // Start status HTTP server if requested
+    if let Some(port) = cli.status_port {
+        spawn_status_server(port, handle.clone(), cli.node_label.clone());
+    }
 
     if cli.bot {
         let udp = cli.log_udp.as_deref().and_then(UdpLogger::new);
