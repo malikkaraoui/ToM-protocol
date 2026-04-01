@@ -53,6 +53,7 @@ pub(crate) struct HandlerState {
     pub incoming_tx: mpsc::Sender<(NodeId, MessageEnvelope)>,
     pub incoming_raw_tx: mpsc::Sender<(NodeId, Vec<u8>)>,
     pub path_event_tx: broadcast::Sender<PathEvent>,
+    pub pool: Arc<crate::connection::ConnectionPool>,
     pub max_message_size: usize,
 }
 
@@ -73,14 +74,23 @@ impl tom_connect::protocol::ProtocolHandler for TomProtocolHandler {
         let remote = NodeId::from_endpoint_id(connection.remote_id());
         let state = self.state.clone();
 
-        // Notify pool of the remote peer's endpoint ID. We do NOT store the
-        // connection's remote_address() because in MagicSock it is an internal
-        // address (not directly connectable). The real address should be
-        // exchanged out-of-band (add_peer_addr / DHT / Pkarr).
-        // The endpoint layer already knows about the peer from the incoming
-        // QUIC handshake, so outgoing connections via get_or_connect will work
-        // when the peer's address has been provided through add_peer_addr.
         tracing::debug!("Accepted connection from {}", remote);
+
+        // Auto-learn relay route: extract the relay URL from the incoming
+        // connection's path info so replies can reach this peer without
+        // manual seeding.
+        {
+            let mut paths = connection.paths();
+            for path in paths.get().iter() {
+                if let tom_base::TransportAddr::Relay(relay_url) = path.remote_addr() {
+                    let addr = tom_connect::EndpointAddr::new(connection.remote_id())
+                        .with_relay_url(relay_url.clone());
+                    state.pool.add_addr(remote, addr).await;
+                    tracing::debug!("Auto-learned relay route for {} via {}", remote, relay_url);
+                    break;
+                }
+            }
+        }
 
         // Spawn path watcher for this connection
         spawn_path_watcher(&connection, remote, state.path_event_tx.clone());

@@ -67,6 +67,7 @@
 			isa = PBXNativeTarget;
 			buildConfigurationList = AA000001000000000000F00D /* Build configuration list for PBXNativeTarget "TomNode" */;
 			buildPhases = (
+				AA000001000000000000F013 /* Build Rust FFI */,
 				AA000001000000000000F007 /* Sources */,
 				AA000001000000000000F003 /* Frameworks */,
 				AA000001000000000000F008 /* Resources */,
@@ -128,6 +129,32 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		AA000001000000000000F013 /* Build Rust FFI */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"$(SRCROOT)/TomNode/Services/build_ffi.sh",
+				"$(SRCROOT)/../../scripts/build-tom-protocol-ffi-tvos.sh",
+			);
+			name = "Build Rust FFI";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(SRCROOT)/build/libtom_protocol_ffi.a",
+				"$(SRCROOT)/build/tom_protocol_ffi.h",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/bash;
+			shellScript = "\"${SRCROOT}/TomNode/Services/build_ffi.sh\"\n";
+		};
+/* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		AA000001000000000000F007 /* Sources */ = {
