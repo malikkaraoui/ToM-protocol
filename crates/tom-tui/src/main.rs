@@ -3,6 +3,8 @@
 /// Full-stack demo: iroh QUIC transport + protocol layer (envelope,
 /// crypto, routing) + ratatui terminal UI.
 use std::io;
+use std::net::UdpSocket;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use clap::Parser;
@@ -16,6 +18,79 @@ use tom_protocol::{
     RuntimeHandle,
 };
 use tom_transport::{TomNode, TomNodeConfig};
+
+// ── UDP Log Sender ──────────────────────────────────────────────────────
+
+/// Sends structured JSON log lines to a central collector via UDP.
+struct UdpLogger {
+    socket: UdpSocket,
+    target: String,
+}
+
+impl UdpLogger {
+    fn new(target: &str) -> Option<Self> {
+        let socket = UdpSocket::bind("0.0.0.0:0").ok()?;
+        socket.set_nonblocking(true).ok()?;
+        Some(Self {
+            socket,
+            target: target.to_string(),
+        })
+    }
+
+    fn send(&self, json: &str) {
+        let _ = self.socket.send_to(json.as_bytes(), &self.target);
+    }
+}
+
+/// Shared context for structured log emission (bot mode).
+struct BotContext {
+    node_label: String,
+    node_id: String,
+    udp: Option<UdpLogger>,
+    handle: RuntimeHandle,
+}
+
+impl BotContext {
+    fn log_event(&self, event: &str, detail: &str) {
+        let snap = self.handle.metrics();
+        let phase_str = format!("{}", snap.phase);
+        let role_str = format!("{:?}", snap.role_local);
+
+        let json = serde_json::json!({
+            "ts": chrono_lite_iso(),
+            "node": self.node_label,
+            "node_id": &self.node_id[..8.min(self.node_id.len())],
+            "event": event,
+            "detail": detail,
+            "phase": phase_str,
+            "taille_reseau": snap.taille_reseau,
+            "role": role_str,
+            "msgs_sent": snap.messages_sent,
+            "msgs_recv": snap.messages_received,
+            "relayeurs": snap.relayeurs_connus,
+            "uptime_s": snap.uptime_seconds,
+        });
+        let line = json.to_string();
+
+        eprintln!("{}", line);
+        if let Some(ref udp) = self.udp {
+            udp.send(&line);
+        }
+    }
+}
+
+/// ISO 8601 timestamp without chrono dependency.
+fn chrono_lite_iso() -> String {
+    let d = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap();
+    let secs = d.as_secs();
+    let h = (secs / 3600) % 24;
+    let m = (secs / 60) % 60;
+    let s = secs % 60;
+    let ms = d.subsec_millis();
+    format!("{:02}:{:02}:{:02}.{:03}", h, m, s, ms)
+}
 
 // ── CLI ─────────────────────────────────────────────────────────────────
 
@@ -84,6 +159,17 @@ struct Cli {
     /// Proves message exchange without human intervention (requires --bot).
     #[arg(long, value_name = "SECS", requires = "bot")]
     bot_ping: Option<u64>,
+
+    // ── Observability options ──
+
+    /// Human-readable label for this node (shown in logs and status).
+    #[arg(long, default_value = "unnamed")]
+    node_label: String,
+
+    /// UDP host:port for centralized log collection (e.g. "192.168.1.10:9999").
+    /// Logs are sent as JSON lines over UDP in addition to stderr.
+    #[arg(long, value_name = "HOST:PORT")]
+    log_udp: Option<String>,
 }
 
 // ── App State ────────────────────────────────────────────────────────────
@@ -171,9 +257,10 @@ impl App {
 async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
 
-    // Enable tracing in bot mode so logs are visible on stdout
+    // Enable tracing in bot mode — JSON format for machine-readable logs
     if cli.bot {
         let _ = tracing_subscriber::fmt()
+            .json()
             .with_env_filter(
                 tracing_subscriber::EnvFilter::from_default_env()
             )
@@ -271,7 +358,15 @@ async fn main() -> anyhow::Result<()> {
     } = ProtocolRuntime::spawn(node, config);
 
     if cli.bot {
-        return run_bot(handle, messages, events, cli.bot_ping).await;
+        let udp = cli.log_udp.as_deref().and_then(UdpLogger::new);
+        let ctx = Arc::new(BotContext {
+            node_label: cli.node_label.clone(),
+            node_id: local_id.to_string(),
+            udp,
+            handle: handle.clone(),
+        });
+        ctx.log_event("demarrage", &format!("noeud={} mode=bot", cli.node_label));
+        return run_bot(ctx, handle, messages, events, cli.bot_ping).await;
     }
 
     let mut app = App::new(local_id);
@@ -637,72 +732,63 @@ fn draw_ui(f: &mut Frame, app: &App) {
 // ── Bot Mode ─────────────────────────────────────────────────────────
 
 async fn run_bot(
+    ctx: Arc<BotContext>,
     handle: RuntimeHandle,
     mut messages: tokio::sync::mpsc::Receiver<DeliveredMessage>,
     mut events: tokio::sync::mpsc::Receiver<ProtocolEvent>,
     bot_ping_secs: Option<u64>,
 ) -> anyhow::Result<()> {
-    println!("[bot] Running in bot mode — auto-responding via ProtocolRuntime");
-    println!("[bot] Node ID: {}", handle.local_id());
-    if let Some(secs) = bot_ping_secs {
-        println!("[bot] Ping mode: will ping first discovered peer every {}s", secs);
-    }
-    println!("[bot] Ctrl+C to stop\n");
+    ctx.log_event("bot_start", &format!("id={}", handle.local_id()));
 
     let mut count = 0u64;
     let mut ping_count = 0u64;
     let mut ping_target: Option<NodeId> = None;
 
-    // Ping interval: fires only if --bot-ping is set
     let ping_duration = bot_ping_secs.map(Duration::from_secs);
     let mut ping_interval = tokio::time::interval(ping_duration.unwrap_or(Duration::from_secs(3600)));
-    ping_interval.tick().await; // consume the immediate first tick
+    ping_interval.tick().await;
 
     loop {
         tokio::select! {
             msg_opt = messages.recv() => {
                 let Some(msg) = msg_opt else {
-                    println!("[bot] runtime channel closed, shutting down");
+                    ctx.log_event("arret", "canal fermé");
                     break;
                 };
 
-                let sig_label = if msg.signature_valid { "ok" } else { "bad" };
                 let text = String::from_utf8_lossy(&msg.payload);
                 count += 1;
 
-                println!(
-                    "[bot] #{} from {} | sig={} | \"{}\"",
-                    count,
+                ctx.log_event("message_recu", &format!(
+                    "de={} sig={} contenu={}",
                     short_node_id(&msg.from),
-                    sig_label,
+                    if msg.signature_valid { "ok" } else { "bad" },
                     text
-                );
+                ));
 
-                // Auto-reply via runtime (handles signing, encryption, relay selection)
-                let reply = format!("recu 5/5 malik (msg #{})", count);
+                let reply = format!("recu 5/5 (msg #{})", count);
                 match handle.send_message(msg.from, reply.as_bytes().to_vec()).await {
-                    Ok(()) => println!("[bot] replied: \"{}\"", reply),
-                    Err(e) => println!("[bot] send error: {}", e),
+                    Ok(()) => ctx.log_event("reponse_envoyee", &format!("a={}", short_node_id(&msg.from))),
+                    Err(e) => ctx.log_event("erreur_envoi", &e.to_string()),
                 }
             }
             evt_opt = events.recv() => {
                 let Some(evt) = evt_opt else { break; };
-                // Set ping target on first named peer discovery (skip anonymous n0 peers)
                 if let Some(target) = select_ping_target(ping_target, &evt) {
                     if let ProtocolEvent::PeerDiscovered { username, .. } = &evt {
-                        println!("[bot] Ping target set: {} \"{}\"", short_node_id(&target), username);
+                        ctx.log_event("cible_ping", &format!("{} \"{}\"", short_node_id(&target), username));
                     }
                     ping_target = Some(target);
                 }
-                handle_bot_event(&evt);
+                handle_bot_event(&ctx, &evt);
             }
             _ = ping_interval.tick(), if ping_duration.is_some() && ping_target.is_some() => {
                 let target = ping_target.unwrap();
                 ping_count += 1;
                 let msg = format!("ping #{} from {}", ping_count, short_node_id(&handle.local_id()));
                 match handle.send_message(target, msg.as_bytes().to_vec()).await {
-                    Ok(()) => println!("[bot] ping #{} → {}", ping_count, short_node_id(&target)),
-                    Err(e) => println!("[bot] ping error: {}", e),
+                    Ok(()) => ctx.log_event("ping_envoye", &format!("#{} a={}", ping_count, short_node_id(&target))),
+                    Err(e) => ctx.log_event("erreur_ping", &e.to_string()),
                 }
             }
         }
@@ -711,40 +797,55 @@ async fn run_bot(
     Ok(())
 }
 
-fn handle_bot_event(event: &ProtocolEvent) {
+fn handle_bot_event(ctx: &BotContext, event: &ProtocolEvent) {
     match event {
         ProtocolEvent::PeerDiscovered { node_id, username, source } => {
-            println!("[event] Peer discovered: {} \"{}\" (via {:?})", short_node_id(node_id), username, source);
+            ctx.log_event("pair_trouve", &format!("{} \"{}\" via {:?}", short_node_id(node_id), username, source));
         }
         ProtocolEvent::GossipNeighborUp { node_id } => {
-            println!("[event] Gossip neighbor up: {}", short_node_id(node_id));
+            ctx.log_event("voisin_connecte", &short_node_id(node_id));
         }
         ProtocolEvent::GossipNeighborDown { node_id } => {
-            println!("[event] Gossip neighbor down: {}", short_node_id(node_id));
+            ctx.log_event("voisin_deconnecte", &short_node_id(node_id));
         }
         ProtocolEvent::EmbeddedRelayStarted { url } => {
-            println!("[event] Embedded relay started: {}", url);
+            ctx.log_event("relayeur_demarre", &url.to_string());
         }
         ProtocolEvent::EmbeddedRelayFailed { error } => {
-            println!("[event] Embedded relay FAILED: {}", error);
+            ctx.log_event("relayeur_echec", error);
         }
         ProtocolEvent::EmbeddedRelayStopped => {
-            println!("[event] Embedded relay stopped");
+            ctx.log_event("relayeur_arrete", "");
         }
         ProtocolEvent::RelayReadyReceived { node_id, relay_url } => {
-            println!("[event] Relay discovered: {} → {}", short_node_id(node_id), relay_url);
-        }
-        ProtocolEvent::RelayRegistryExpired { node_id, relay_url } => {
-            println!("[event] Relay expired: {} → {}", short_node_id(node_id), relay_url);
+            ctx.log_event("relayeur_decouvert", &format!("{} → {}", short_node_id(node_id), relay_url));
         }
         ProtocolEvent::TransportRelayInserted { relay_url } => {
-            println!("[event] Transport relay added: {}", relay_url);
+            ctx.log_event("relayeur_ajoute", &relay_url.to_string());
         }
         ProtocolEvent::TransportRelayRemoved { relay_url } => {
-            println!("[event] Transport relay removed: {}", relay_url);
+            ctx.log_event("relayeur_retire", &relay_url.to_string());
         }
         ProtocolEvent::PathChanged { event } => {
-            println!("[event] Path changed: {:?}", event);
+            ctx.log_event("chemin_change", &format!("{:?}", event));
+        }
+        ProtocolEvent::RolePromoted { node_id, score } => {
+            ctx.log_event("role_promu_relayeur", &format!("{} score={:.1}", short_node_id(node_id), score));
+        }
+        ProtocolEvent::RoleDemoted { node_id, score } => {
+            ctx.log_event("role_retro_participant", &format!("{} score={:.1}", short_node_id(node_id), score));
+        }
+        ProtocolEvent::GroupCreated { group } => {
+            ctx.log_event("groupe_cree", &group.name);
+        }
+        ProtocolEvent::GroupJoined { group_name, .. } => {
+            ctx.log_event("groupe_rejoint", group_name);
+        }
+        ProtocolEvent::GroupMemberJoined { .. } => {
+            ctx.log_event("membre_rejoint_groupe", "");
+        }
+        ProtocolEvent::GroupHubMigrated { new_hub_id, .. } => {
+            ctx.log_event("responsable_groupe_change", &short_node_id(new_hub_id));
         }
         _ => {}
     }

@@ -41,8 +41,9 @@ pub use roles::{AntiSpamConfig, ContributionMetrics, RoleAction, RoleManager, Ro
 pub use router::{AckPayload, AckType, ReadReceiptPayload, Router, RoutingAction};
 pub use tracker::{MessageTracker, StatusChange};
 pub use runtime::{
-    DeliveredMessage, GossipInput, MetricsSnapshot, ProtocolEvent, ProtocolMetrics, ProtocolRuntime,
-    RuntimeChannels, RuntimeCommand, RuntimeConfig, RuntimeEffect, RuntimeHandle, RuntimeState,
+    BootstrapPhase, BootstrapSource, DeliveredMessage, GossipInput, MetricsSnapshot,
+    ProtocolEvent, ProtocolMetrics, ProtocolRuntime, RuntimeChannels, RuntimeCommand,
+    RuntimeConfig, RuntimeEffect, RuntimeHandle, RuntimeState,
 };
 pub use storage::{StateStore, StateSnapshot};
 pub use types::{now_ms, MessageStatus, MessageType, NodeId};

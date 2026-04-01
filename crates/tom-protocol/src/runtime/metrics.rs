@@ -5,16 +5,27 @@
 use std::sync::Arc;
 use tom_metrics::{Counter, Gauge};
 
+use super::bootstrap::BootstrapPhase;
+use crate::relay::PeerRole;
+
 /// Snapshot of all protocol metrics at a point in time.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct MetricsSnapshot {
     pub messages_sent: u64,
     pub messages_received: u64,
     pub messages_failed: u64,
-    pub messages_dropped: u64,  // Messages lost due to full buffer
+    pub messages_dropped: u64,
     pub groups_count: u64,
     pub peers_known: u64,
     pub uptime_seconds: u64,
+    /// Network phase as perceived by this node.
+    pub phase: BootstrapPhase,
+    /// Number of active peers this node currently sees.
+    pub taille_reseau: u64,
+    /// Number of peers with relay role in the topology.
+    pub relayeurs_connus: u64,
+    /// Local node role (Peer or Relay).
+    pub role_local: PeerRole,
 }
 
 /// Shared, clonable metrics handle.
@@ -33,6 +44,12 @@ struct Inner {
     groups_count: Gauge,
     peers_known: Gauge,
     start_time: std::time::Instant,
+    /// 0=LanProbe, 1=RelayAssist, 2=DhtAssist, 3=Converged
+    phase: std::sync::atomic::AtomicU8,
+    taille_reseau: Gauge,
+    relayeurs_connus: Gauge,
+    /// 0=Peer, 1=Relay
+    role_local: std::sync::atomic::AtomicU8,
 }
 
 impl ProtocolMetrics {
@@ -46,6 +63,10 @@ impl ProtocolMetrics {
                 groups_count: Gauge::new(),
                 peers_known: Gauge::new(),
                 start_time: std::time::Instant::now(),
+                phase: std::sync::atomic::AtomicU8::new(0),
+                taille_reseau: Gauge::new(),
+                relayeurs_connus: Gauge::new(),
+                role_local: std::sync::atomic::AtomicU8::new(0),
             }),
         }
     }
@@ -76,10 +97,46 @@ impl ProtocolMetrics {
         self.inner.peers_known.set(n);
     }
 
+    pub fn set_phase(&self, phase: BootstrapPhase) {
+        let v = match phase {
+            BootstrapPhase::LanProbe => 0,
+            BootstrapPhase::RelayAssist => 1,
+            BootstrapPhase::DhtAssist => 2,
+            BootstrapPhase::Converged => 3,
+        };
+        self.inner.phase.store(v, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    pub fn set_taille_reseau(&self, n: u64) {
+        self.inner.taille_reseau.set(n);
+    }
+
+    pub fn set_relayeurs_connus(&self, n: u64) {
+        self.inner.relayeurs_connus.set(n);
+    }
+
+    pub fn set_role_local(&self, role: PeerRole) {
+        let v = match role {
+            PeerRole::Peer => 0,
+            PeerRole::Relay => 1,
+        };
+        self.inner.role_local.store(v, std::sync::atomic::Ordering::Relaxed);
+    }
+
     // ── Read method (called by app via RuntimeHandle) ────────────────
 
     /// Take a consistent snapshot of all metrics.
     pub fn snapshot(&self) -> MetricsSnapshot {
+        let phase_val = self.inner.phase.load(std::sync::atomic::Ordering::Relaxed);
+        let phase = match phase_val {
+            1 => BootstrapPhase::RelayAssist,
+            2 => BootstrapPhase::DhtAssist,
+            3 => BootstrapPhase::Converged,
+            _ => BootstrapPhase::LanProbe,
+        };
+        let role_val = self.inner.role_local.load(std::sync::atomic::Ordering::Relaxed);
+        let role_local = if role_val == 1 { PeerRole::Relay } else { PeerRole::Peer };
+
         MetricsSnapshot {
             messages_sent: self.inner.messages_sent.get(),
             messages_received: self.inner.messages_received.get(),
@@ -88,6 +145,10 @@ impl ProtocolMetrics {
             groups_count: self.inner.groups_count.get(),
             peers_known: self.inner.peers_known.get(),
             uptime_seconds: self.inner.start_time.elapsed().as_secs(),
+            phase,
+            taille_reseau: self.inner.taille_reseau.get(),
+            relayeurs_connus: self.inner.relayeurs_connus.get(),
+            role_local,
         }
     }
 }
@@ -143,5 +204,30 @@ mod tests {
         m.inc_messages_sent();
         let json = serde_json::to_string(&m.snapshot()).unwrap();
         assert!(json.contains("\"messages_sent\":1"));
+    }
+
+    #[test]
+    fn metrics_network_state() {
+        let m = ProtocolMetrics::new();
+        let snap = m.snapshot();
+        assert_eq!(snap.phase, BootstrapPhase::LanProbe);
+        assert_eq!(snap.taille_reseau, 0);
+        assert_eq!(snap.relayeurs_connus, 0);
+        assert_eq!(snap.role_local, PeerRole::Peer);
+
+        m.set_phase(BootstrapPhase::Converged);
+        m.set_taille_reseau(5);
+        m.set_relayeurs_connus(2);
+        m.set_role_local(PeerRole::Relay);
+
+        let snap = m.snapshot();
+        assert_eq!(snap.phase, BootstrapPhase::Converged);
+        assert_eq!(snap.taille_reseau, 5);
+        assert_eq!(snap.relayeurs_connus, 2);
+        assert_eq!(snap.role_local, PeerRole::Relay);
+
+        let json = serde_json::to_string(&snap).unwrap();
+        assert!(json.contains("\"phase\""));
+        assert!(json.contains("\"taille_reseau\":5"));
     }
 }

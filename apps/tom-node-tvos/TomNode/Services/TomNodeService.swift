@@ -86,8 +86,13 @@ final class TomNodeService: ObservableObject {
         if logEntries.count > 1000 {
             logEntries.removeFirst(logEntries.count - 1000)
         }
-        // Broadcast over UDP for remote monitoring
-        sendLogUDP("\(entry.timestamp) [\(level)] \(message)")
+        // Broadcast structured JSON over UDP for remote monitoring
+        let escaped = message.replacingOccurrences(of: "\"", with: "\\\"")
+            .replacingOccurrences(of: "\n", with: " ")
+        let json = """
+        {"ts":"\(entry.timestamp)","node":"\(username)","appareil":"tvos","event":"\(level)","detail":"\(escaped)","phase":"\(state == .running ? "connecte" : "arret")","taille_reseau":\(peersCount),"role":"participant","msgs_recv":\(totalMessagesCount)}
+        """
+        sendLogUDP(json.trimmingCharacters(in: .whitespacesAndNewlines))
     }
 
     // MARK: - Anti-sleep
@@ -566,10 +571,10 @@ final class TomNodeService: ObservableObject {
         udpLogAddr = nil
     }
 
-    /// Send a log line over UDP (fire-and-forget)
+    /// Send a JSON log line over UDP (fire-and-forget)
     private func sendLogUDP(_ message: String) {
         guard udpLogSocket >= 0, var addr = udpLogAddr else { return }
-        let line = "[AppleTV] \(message)\n"
+        let line = "\(message)\n"
         line.withCString { ptr in
             withUnsafePointer(to: &addr) { addrPtr in
                 addrPtr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sa in
