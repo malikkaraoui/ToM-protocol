@@ -9,6 +9,9 @@ struct TomNodeApp: App {
         WindowGroup {
             ContentView()
                 .environmentObject(nodeService)
+                .onAppear {
+                    nodeService.scheduleInitialAutoStart()
+                }
                 .onChange(of: scenePhase) { newPhase in
                     if newPhase == .active {
                         nodeService.handleReturnToForeground()

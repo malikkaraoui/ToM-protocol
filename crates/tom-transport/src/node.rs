@@ -295,6 +295,7 @@ impl TomNode {
             incoming_tx,
             incoming_raw_tx,
             path_event_tx: path_event_tx.clone(),
+            pool: pool.clone(),
             max_message_size: config.max_message_size,
         });
 

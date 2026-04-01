@@ -8,9 +8,17 @@ import Combine
 final class TomNodeService: ObservableObject {
     static let shared = TomNodeService()
 
+    private static let autoStartDelayNanoseconds: UInt64 = 5_000_000_000
+    private static let autoMessageRetryInterval: TimeInterval = 5
+
     private let log = Logger(subsystem: "org.tom-protocol.tom-node", category: "TomNodeService")
     private let node = TomNodeWrapper()
     private var pollTask: Task<Void, Never>?
+    private var autoStartTask: Task<Void, Never>?
+    private var hasScheduledInitialAutoStart = false
+    private var autoMessagedPeerIds = Set<String>()
+    private var autoMessageAttemptedAt: [String: Date] = [:]
+    private var seededPeerIds = Set<String>()
 
     @Published var state: TomNodeState = .stopped
     @Published var nodeId: String = ""
@@ -134,6 +142,11 @@ final class TomNodeService: ObservableObject {
         state = .starting
         errorMessage = nil
         echoCount = 0
+        autoStartTask?.cancel()
+        autoStartTask = nil
+        autoMessagedPeerIds.removeAll()
+        autoMessageAttemptedAt.removeAll()
+        seededPeerIds.removeAll()
         stopNetworkLogExport()
         startNetworkLogExportIfNeeded()
 
@@ -182,6 +195,12 @@ final class TomNodeService: ObservableObject {
                     appendLog(.network, "Bootstrap peers: none (organic discovery)")
                 }
 
+                if let relayUrl = self.normalizedRelayUrl {
+                    for peerId in bootstrapPeers {
+                        await self.seedPeerRoute(nodeId: peerId, relayUrl: relayUrl, source: "bootstrap")
+                    }
+                }
+
                 startAntiSleep()
                 startPolling()
                 log.info("Node started — identity: \(self.identityPath ?? "ephemeral"), data: \(self.dataDir ?? "none")")
@@ -200,6 +219,9 @@ final class TomNodeService: ObservableObject {
         state = .stopping
         pollTask?.cancel()
         pollTask = nil
+        autoMessagedPeerIds.removeAll()
+        autoMessageAttemptedAt.removeAll()
+        seededPeerIds.removeAll()
         stopAntiSleep()
 
         appendLog(.info, "Stopping node...")
@@ -306,6 +328,24 @@ final class TomNodeService: ObservableObject {
         }
     }
 
+    func scheduleInitialAutoStart() {
+        guard !hasScheduledInitialAutoStart else { return }
+        hasScheduledInitialAutoStart = true
+
+        appendLog(.info, "Auto-start scheduled in 5 seconds")
+
+        autoStartTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: Self.autoStartDelayNanoseconds)
+            guard let self = self, !Task.isCancelled else { return }
+            self.autoStartTask = nil
+
+            guard self.state == .stopped || self.state == .error else { return }
+
+            self.appendLog(.info, "Auto-start trigger fired")
+            self.start()
+        }
+    }
+
     // MARK: - Private
 
     private var identityPath: String? {
@@ -378,6 +418,7 @@ final class TomNodeService: ObservableObject {
                     }
                 }
                 self.discoveredPeers = currentDiscovered
+                await self.maybeAutoMessageDiscoveredPeers(currentDiscovered)
 
                 // Log peer count changes
                 let peerCount = currentDiscovered.count
@@ -391,6 +432,62 @@ final class TomNodeService: ObservableObject {
         }
     }
 
+    private func maybeAutoMessageDiscoveredPeers(_ peers: [TomPeer]) async {
+        guard state == .running else { return }
+
+        let now = Date()
+
+        for peer in peers {
+            guard peer.nodeId != nodeId else { continue }
+            guard !autoMessagedPeerIds.contains(peer.nodeId) else { continue }
+
+            let lastAttempt = autoMessageAttemptedAt[peer.nodeId] ?? .distantPast
+            guard now.timeIntervalSince(lastAttempt) >= Self.autoMessageRetryInterval else { continue }
+
+            autoMessageAttemptedAt[peer.nodeId] = now
+
+            let targetLabel = peer.username.isEmpty ? peer.shortId : peer.username
+            let probe = Self.buildAutoProbeMessage(username: username)
+
+            do {
+                if let relayUrl = normalizedRelayUrl {
+                    await seedPeerRoute(nodeId: peer.nodeId, relayUrl: relayUrl, source: "auto-discovery")
+                }
+                let payload = Data(probe.utf8)
+                try await node.sendMessage(to: peer.nodeId, payload: payload)
+                autoMessagedPeerIds.insert(peer.nodeId)
+                appendLog(.network, "AUTO-PING → \(targetLabel): \(probe)")
+
+                let sent = TomMessage(
+                    id: UUID().uuidString,
+                    from: nodeId,
+                    payload: payload.base64EncodedString(),
+                    timestamp: UInt64(Date().timeIntervalSince1970 * 1000),
+                    signatureValid: true,
+                    wasEncrypted: true
+                )
+                messages.append(sent)
+                totalMessagesCount += 1
+            } catch {
+                appendLog(.warning, "AUTO-PING failed → \(targetLabel): \(error.localizedDescription)")
+            }
+        }
+    }
+
+    private func seedPeerRoute(nodeId: NodeId, relayUrl: String, source: String) async {
+        guard !nodeId.isEmpty else { return }
+        guard nodeId != self.nodeId else { return }
+        guard !seededPeerIds.contains(nodeId) else { return }
+
+        do {
+            try await node.addPeerAddr(nodeId: nodeId, relayUrl: relayUrl)
+            seededPeerIds.insert(nodeId)
+            appendLog(.network, "SEEDED ROUTE → \(String(nodeId.prefix(8))) via relay (\(source))")
+        } catch {
+            appendLog(.warning, "SEED ROUTE failed → \(String(nodeId.prefix(8))): \(error.localizedDescription)")
+        }
+    }
+
     // MARK: - Stress Reply (matches tom-stress responder exactly)
 
     static func buildStressReply(_ text: String) -> String {
@@ -401,6 +498,14 @@ final class TomNodeService: ObservableObject {
         } else {
             return "ECHO:" + text
         }
+    }
+
+    static func buildAutoProbeMessage(username: String) -> String {
+        let sanitized = username
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: " ", with: "-")
+        let suffix = UInt64(Date().timeIntervalSince1970)
+        return "PING:\(sanitized.isEmpty ? "appletv" : sanitized)-\(suffix)"
     }
 
     // MARK: - Network Log Export (UDP to Mac)
