@@ -36,3 +36,4 @@ crates/tom-relay-ffi/target/
 # Patch crate metadata (not needed in VCS)
 patches/*/.cargo-ok
 patches/*/.cargo_vcs_info.json
+logs/

@@ -16,8 +16,15 @@ echo "  PLATFORM_NAME: ${PLATFORM_NAME:-<non défini>}"
 echo "  SRCROOT: ${SRCROOT:-<non défini>}"
 echo "  PROJECT_DIR: ${PROJECT_DIR:-<non défini>}"
 
-# Déterminer la cible
-case "${EFFECTIVE_PLATFORM_NAME:-${PLATFORM_NAME:-}}" in
+# Déterminer la cible (iOS ou tvOS)
+PLATFORM="${EFFECTIVE_PLATFORM_NAME:-${PLATFORM_NAME:-}}"
+case "$PLATFORM" in
+    -iphoneos|iphoneos)
+        TVOS_TARGET="aarch64-apple-ios"
+        ;;
+    -iphonesimulator|iphonesimulator)
+        TVOS_TARGET="aarch64-apple-ios-sim"
+        ;;
     -appletvsimulator|appletvsimulator)
         TVOS_TARGET="aarch64-apple-tvos-sim"
         ;;
