@@ -59,14 +59,48 @@ final class TomNodeService: ObservableObject {
         #endif
     }
 
-    /// Auto-detect collector host: use the default gateway (router IP) as a
-    /// reasonable guess for the MacBook Pro on the same LAN.
-    /// Falls back to broadcast 255.255.255.255 if detection fails.
+    /// Detect the subnet broadcast address from the device's Wi-Fi IP.
+    /// On a 192.168.0.x network → returns 192.168.0.255.
+    /// Falls back to 255.255.255.255 if detection fails.
     private static func defaultCollectorHost() -> String {
-        // Try to find the default gateway via getifaddrs — the MacBook Pro
-        // running the collector is typically on the same LAN.
-        // For now, use broadcast so logs reach any listener on the network.
+        if let localIP = getLocalIPv4() {
+            let parts = localIP.split(separator: ".")
+            if parts.count == 4 {
+                return "\(parts[0]).\(parts[1]).\(parts[2]).255"
+            }
+        }
         return "255.255.255.255"
+    }
+
+    /// Get the device's local IPv4 address (Wi-Fi preferred).
+    private static func getLocalIPv4() -> String? {
+        var ifaddr: UnsafeMutablePointer<ifaddrs>?
+        guard getifaddrs(&ifaddr) == 0, let firstAddr = ifaddr else { return nil }
+        defer { freeifaddrs(ifaddr) }
+
+        var bestIP: String?
+
+        for ptr in sequence(first: firstAddr, next: { $0.pointee.ifa_next }) {
+            guard let addr = ptr.pointee.ifa_addr else { continue }
+            let flags = Int32(ptr.pointee.ifa_flags)
+
+            guard addr.pointee.sa_family == UInt8(AF_INET) else { continue }
+            guard (flags & (IFF_UP | IFF_RUNNING)) != 0 else { continue }
+            guard (flags & IFF_LOOPBACK) == 0 else { continue }
+
+            var hostname = [CChar](repeating: 0, count: Int(NI_MAXHOST))
+            if getnameinfo(addr, socklen_t(addr.pointee.sa_len),
+                           &hostname, socklen_t(hostname.count),
+                           nil, 0, NI_NUMERICHOST) == 0 {
+                let ip = String(cString: hostname)
+                let name = String(cString: ptr.pointee.ifa_name)
+                // en0 = Wi-Fi on iOS/tvOS
+                if name == "en0" { return ip }
+                if bestIP == nil { bestIP = ip }
+            }
+        }
+
+        return bestIP
     }
 
     /// Optional bootstrap peer for early-network gossip seeding.
