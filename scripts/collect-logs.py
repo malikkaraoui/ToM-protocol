@@ -84,7 +84,12 @@ try:
         color = get_color(node)
         try:
             d = json.loads(line)
-            ts = d.get("ts", "?")
+            raw_ts = d.get("ts", "?")
+            # Convert Unix ms to readable time
+            if isinstance(raw_ts, (int, float)) and raw_ts > 1000000000000:
+                ts = datetime.fromtimestamp(raw_ts / 1000).strftime("%H:%M:%S.%f")[:12]
+            else:
+                ts = str(raw_ts)[:12]
             event = d.get("event", "?")
             detail = str(d.get("detail", ""))[:50]
             phase = d.get("phase", "?")

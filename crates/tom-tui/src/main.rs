@@ -57,7 +57,7 @@ impl BotContext {
         let role_str = format!("{:?}", snap.role_local);
 
         let json = serde_json::json!({
-            "ts": chrono_lite_iso(),
+            "ts": timestamp_ms(),
             "node": self.node_label,
             "node_id": &self.node_id[..8.min(self.node_id.len())],
             "event": event,
@@ -79,17 +79,12 @@ impl BotContext {
     }
 }
 
-/// ISO 8601 timestamp without chrono dependency.
-fn chrono_lite_iso() -> String {
-    let d = std::time::SystemTime::now()
+/// Unix timestamp in milliseconds — universal, no timezone ambiguity.
+fn timestamp_ms() -> u64 {
+    std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .unwrap();
-    let secs = d.as_secs();
-    let h = (secs / 3600) % 24;
-    let m = (secs / 60) % 60;
-    let s = secs % 60;
-    let ms = d.subsec_millis();
-    format!("{:02}:{:02}:{:02}.{:03}", h, m, s, ms)
+        .unwrap()
+        .as_millis() as u64
 }
 
 // ── Status HTTP Server ──────────────────────────────────────────────────
