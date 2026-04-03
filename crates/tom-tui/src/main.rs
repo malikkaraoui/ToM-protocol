@@ -64,10 +64,12 @@ impl BotContext {
             "detail": detail,
             "phase": phase_str,
             "taille_reseau": snap.taille_reseau,
+            "number_peers": snap.peers_known,
             "role": role_str,
             "msgs_sent": snap.messages_sent,
             "msgs_recv": snap.messages_received,
             "relayeurs": snap.relayeurs_connus,
+            "groups": snap.groups_count,
             "uptime_s": snap.uptime_seconds,
         });
         let line = json.to_string();
