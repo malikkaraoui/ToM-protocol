@@ -434,17 +434,15 @@ final class TomNodeService: ObservableObject {
                     let textPreview = String(msg.text.prefix(80))
                     self.appendLog(.network, "MSG from \(senderShort): \(textPreview)")
 
-                    // Auto-echo: reply to incoming messages for stress testing
-                    // Only reply to PING/BURST — never echo an ECHO (prevents infinite loop)
-                    if self.autoEchoEnabled && !msg.text.hasPrefix("ECHO:") && !msg.text.hasPrefix("PONG:") && !msg.text.hasPrefix("BURST-ACK:") && !msg.text.hasPrefix("recu 5/5") {
+                    // Auto-echo: reply to incoming messages
+                    // Reply with a fixed-size response (no growing chain)
+                    if self.autoEchoEnabled {
                         do {
-                            let reply = Self.buildStressReply(msg.text)
+                            // Fixed reply — never forward the original text (prevents ECHO:ECHO:... growth)
+                            let reply = "recu 5/5 (msg #\(self.totalMessagesCount))"
                             let replyData = reply.data(using: .utf8) ?? Data()
                             try await self.node.sendMessage(to: msg.from, payload: replyData)
                             self.echoCount += 1
-                            if self.echoCount <= 10 || self.echoCount % 100 == 0 {
-                                self.appendLog(.echo, "ECHO #\(self.echoCount) → \(senderShort): \(reply.prefix(40))")
-                            }
                         } catch {
                             self.appendLog(.error, "Echo failed → \(senderShort): \(error.localizedDescription)")
                         }
