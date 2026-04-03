@@ -101,6 +101,21 @@ impl Topology {
         self.peers.is_empty()
     }
 
+    /// Number of online peers.
+    pub fn online_count(&self) -> usize {
+        self.peers.values().filter(|p| p.status == PeerStatus::Online).count()
+    }
+
+    /// Number of peers with Relay role.
+    pub fn relay_count(&self) -> usize {
+        self.peers.values().filter(|p| p.role == PeerRole::Relay).count()
+    }
+
+    /// Local node's role (defaults to Peer if not in topology).
+    pub fn local_role(&self, node_id: &NodeId) -> PeerRole {
+        self.peers.get(node_id).map_or(PeerRole::Peer, |p| p.role)
+    }
+
     /// All online relay-capable peers, sorted by most recently seen.
     pub fn online_relays(&self) -> Vec<&PeerInfo> {
         let mut relays: Vec<&PeerInfo> = self
