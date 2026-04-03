@@ -93,11 +93,17 @@ for i in 1 2 3; do
 
     echo "  Lancement $LABEL (status: :$PORT_STATUS)..."
 
+    # Seul mbp-1 lance un relay embarqué, les autres sont des nœuds simples
+    RELAY_FLAG=""
+    if [ "$i" = "1" ]; then
+        RELAY_FLAG="--self-relay"
+    fi
+
     TOM_RELAY_URL="$RELAY_URL" RUST_LOG="$RUST_LOG" \
         "$TOM_CHAT" \
         --bot \
         --bot-ping 10 \
-        --self-relay \
+        $RELAY_FLAG \
         --node-label "$LABEL" \
         --log-udp "$COLLECTOR_IP:$COLLECTOR_PORT" \
         --status-port "$PORT_STATUS" \
