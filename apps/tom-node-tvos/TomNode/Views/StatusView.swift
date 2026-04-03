@@ -39,7 +39,7 @@ struct StatusView: View {
 
                 // Stats
                 HStack(spacing: 40) {
-                    StatBox(title: "Peers", value: "\(nodeService.discoveredPeers.count)", icon: "person.2")
+                    StatBox(title: "Peers", value: "\(nodeService.connectedPeers.count)", icon: "person.2")
                     StatBox(title: "Groups", value: "\(nodeService.groupsCount)", icon: "person.3")
                     StatBox(title: "Messages", value: "\(nodeService.totalMessagesCount)", icon: "message")
                 }
