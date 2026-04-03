@@ -231,7 +231,7 @@ final class TomNodeService: ObservableObject {
                 appendLog(.success, "Node handle created")
 
                 let bootstrapPeers = normalizedBootstrapPeers
-                let localDiscovery = !n0Discovery
+                let localDiscovery = true  // Always enable local discovery (mDNS) — finds peers on same LAN
                 try await node.start(
                     username: username,
                     encryption: encryption,
