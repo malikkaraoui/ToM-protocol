@@ -144,7 +144,7 @@ final class TomNodeService: ObservableObject {
         let escaped = message.replacingOccurrences(of: "\"", with: "\\\"")
             .replacingOccurrences(of: "\n", with: " ")
         let json = """
-        {"ts":"\(entry.timestamp)","node":"\(username)","appareil":"tvos","event":"\(level)","detail":"\(escaped)","phase":"\(state == .running ? "connecte" : "arret")","taille_reseau":\(peersCount),"role":"participant","msgs_recv":\(totalMessagesCount)}
+        {"ts":\(Int(Date().timeIntervalSince1970 * 1000)),"node":"\(username)","event":"\(level)","detail":"\(escaped)","phase":"\(state == .running ? "connecte" : "arret")","taille_reseau":\(peersCount),"role":"participant","msgs_recv":\(totalMessagesCount)}
         """
         sendLogUDP(json.trimmingCharacters(in: .whitespacesAndNewlines))
     }

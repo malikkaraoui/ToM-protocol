@@ -405,7 +405,10 @@ impl RuntimeState {
             }
         }
 
-        self.heartbeat.cleanup_departed();
+        let departed = self.heartbeat.cleanup_departed();
+        for node_id in &departed {
+            self.topology.remove(node_id);
+        }
 
         // Prune expired relay registry entries
         let expired_relays = self.relay_registry.prune(now_ms());
