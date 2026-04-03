@@ -245,7 +245,12 @@ pub unsafe extern "C" fn tom_node_start(
             loop {
                 tokio::select! {
                     Some(msg) = messages_rx.recv() => {
-                        msg_queue_clone.lock().await.push_back(msg);
+                        let mut q = msg_queue_clone.lock().await;
+                        q.push_back(msg);
+                        // Keep queue bounded — drop oldest if too large
+                        while q.len() > 1000 {
+                            q.pop_front();
+                        }
                     }
                     Some(event) = events_rx.recv() => {
                         // Cache discovered peers from gossip/DHT
@@ -295,7 +300,11 @@ pub unsafe extern "C" fn tom_node_start(
                                 }
                             }
                         }
-                        event_queue_clone.lock().await.push_back(event);
+                        let mut eq = event_queue_clone.lock().await;
+                        eq.push_back(event);
+                        while eq.len() > 500 {
+                            eq.pop_front();
+                        }
                     }
                     else => break,
                 }
