@@ -137,7 +137,7 @@ impl TomNodeConfig {
             relay_discovery_url,
             relay_dns_fallback_domain,
             n0_discovery: true,
-            local_discovery: false,
+            local_discovery: true,
             relay_only: false,
             identity_path,
         }
@@ -328,9 +328,9 @@ mod tests {
     }
 
     #[test]
-    fn local_discovery_is_disabled_by_default() {
+    fn local_discovery_is_enabled_by_default() {
         let cfg = TomNodeConfig::new();
-        assert!(!cfg.local_discovery);
+        assert!(cfg.local_discovery);
     }
 
     #[test]
