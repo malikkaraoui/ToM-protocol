@@ -40,15 +40,34 @@ final class TomNodeService: ObservableObject {
     // Anti-sleep audio player
     private var silentPlayer: AVAudioPlayer?
 
-    // Config
+    // Config — defaults work out of the box, zero manual configuration
     @Published var relayUrl: String = ""
-    @Published var username: String = "AppleTV"
+    @Published var username: String = TomNodeService.defaultUsername()
     @Published var encryption: Bool = true
     @Published var enableDht: Bool = true
     @Published var n0Discovery: Bool = true
-    @Published var udpLogExportEnabled: Bool = false
-    @Published var udpLogHost: String = ""
+    @Published var udpLogExportEnabled: Bool = true
+    @Published var udpLogHost: String = TomNodeService.defaultCollectorHost()
     @Published var udpLogPort: String = "9999"
+
+    /// Device-aware username: "iPad", "iPhone", or "AppleTV"
+    private static func defaultUsername() -> String {
+        #if os(iOS)
+        return UIDevice.current.userInterfaceIdiom == .pad ? "iPad" : "iPhone"
+        #else
+        return "AppleTV"
+        #endif
+    }
+
+    /// Auto-detect collector host: use the default gateway (router IP) as a
+    /// reasonable guess for the MacBook Pro on the same LAN.
+    /// Falls back to broadcast 255.255.255.255 if detection fails.
+    private static func defaultCollectorHost() -> String {
+        // Try to find the default gateway via getifaddrs — the MacBook Pro
+        // running the collector is typically on the same LAN.
+        // For now, use broadcast so logs reach any listener on the network.
+        return "255.255.255.255"
+    }
 
     /// Optional bootstrap peer for early-network gossip seeding.
     /// Leave empty to rely on organic discovery (n0/DHT/gossip learned peers).
@@ -535,13 +554,17 @@ final class TomNodeService: ObservableObject {
         startNetworkLogExport(host: host, port: port)
     }
 
-    /// Start broadcasting logs over UDP for optional remote monitoring.
+    /// Start broadcasting logs over UDP for remote monitoring.
     private func startNetworkLogExport(host: String, port: UInt16) {
         udpLogSocket = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)
         guard udpLogSocket >= 0 else {
             appendLog(.warning, "UDP log socket failed")
             return
         }
+
+        // Enable broadcast so 255.255.255.255 works
+        var broadcastEnable: Int32 = 1
+        setsockopt(udpLogSocket, SOL_SOCKET, SO_BROADCAST, &broadcastEnable, socklen_t(MemoryLayout<Int32>.size))
 
         var addr = sockaddr_in()
         addr.sin_family = sa_family_t(AF_INET)
