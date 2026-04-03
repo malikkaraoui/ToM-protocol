@@ -435,11 +435,8 @@ final class TomNodeService: ObservableObject {
                     self.appendLog(.network, "MSG from \(senderShort): \(textPreview)")
 
                     // Auto-echo: reply to incoming messages for stress testing
-                    // Format matches tom-stress responder exactly:
-                    //   PING:<seq> → PONG:<seq>
-                    //   BURST:<seq> → BURST-ACK:<seq>
-                    //   other → ECHO:<text>
-                    if self.autoEchoEnabled {
+                    // Only reply to PING/BURST — never echo an ECHO (prevents infinite loop)
+                    if self.autoEchoEnabled && !msg.text.hasPrefix("ECHO:") && !msg.text.hasPrefix("PONG:") && !msg.text.hasPrefix("BURST-ACK:") && !msg.text.hasPrefix("recu 5/5") {
                         do {
                             let reply = Self.buildStressReply(msg.text)
                             let replyData = reply.data(using: .utf8) ?? Data()
