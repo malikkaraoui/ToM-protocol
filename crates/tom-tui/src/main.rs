@@ -857,13 +857,11 @@ async fn run_bot(
                     text
                 ));
 
-                // Reply only every 10th message to avoid saturating slow machines
-                if count % 10 == 1 {
-                    let reply = format!("recu 5/5 (msg #{})", count);
-                    match handle.send_message(msg.from, reply.as_bytes().to_vec()).await {
-                        Ok(()) => ctx.log_event("reponse_envoyee", &format!("a={}", short_node_id(&msg.from))),
-                        Err(e) => ctx.log_event("erreur_envoi", &e.to_string()),
-                    }
+                // Reply with fixed-size response (no growing chain)
+                let reply = format!("recu 5/5 (msg #{})", count);
+                match handle.send_message(msg.from, reply.as_bytes().to_vec()).await {
+                    Ok(()) => ctx.log_event("reponse_envoyee", &format!("a={}", short_node_id(&msg.from))),
+                    Err(e) => ctx.log_event("erreur_envoi", &e.to_string()),
                 }
             }
             evt_opt = events.recv() => {
