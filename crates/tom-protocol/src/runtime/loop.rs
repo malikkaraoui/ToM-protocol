@@ -334,7 +334,25 @@ pub(super) async fn runtime_loop(
                         }
                         GossipEvent::NeighborDown(endpoint_id) => {
                             let node_id = NodeId::from_endpoint_id(endpoint_id);
-                            state.handle_gossip_event(GossipInput::NeighborDown(node_id))
+                            let effects = state.handle_gossip_event(GossipInput::NeighborDown(node_id));
+
+                            // If we lost all gossip neighbors, re-bootstrap:
+                            // rejoin known peers so we reconnect instead of staying isolated.
+                            if let Some(ref sender) = gossip_sender {
+                                let known_peers: Vec<_> = state.topology.peers()
+                                    .map(|p| *p.node_id.as_endpoint_id())
+                                    .collect();
+                                if !known_peers.is_empty() {
+                                    tracing::info!(
+                                        peers = known_peers.len(),
+                                        "neighbor down — rejoining {} known peers",
+                                        known_peers.len()
+                                    );
+                                    let _ = sender.join_peers(known_peers).await;
+                                }
+                            }
+
+                            effects
                         }
                         GossipEvent::Lagged => {
                             tracing::warn!("gossip: receiver lagged, missed events");

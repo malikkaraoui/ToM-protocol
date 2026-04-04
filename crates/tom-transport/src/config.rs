@@ -66,8 +66,8 @@ pub struct TomNodeConfig {
     pub(crate) n0_discovery: bool,
     /// Enable local LAN discovery via mDNS bootstrap hints.
     ///
-    /// Disabled by default until the protocol runtime explicitly consumes
-    /// those hints and folds them into the bootstrap flow.
+    /// Enabled by default so the protocol runtime can consume LAN bootstrap
+    /// hints and fold them into the same bootstrap flow as PeerPresent and DHT.
     pub(crate) local_discovery: bool,
     /// Disable direct IP transports and keep only relay-assisted connectivity.
     ///
