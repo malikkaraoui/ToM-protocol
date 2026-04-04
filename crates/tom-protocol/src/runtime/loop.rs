@@ -60,6 +60,7 @@ pub(super) async fn runtime_loop(
     let mut dht_republish = tokio::time::interval(std::time::Duration::from_secs(30 * 60));
     let mut delivery_deadline = tokio::time::interval(std::time::Duration::from_secs(5));
     let mut hub_cleanup = tokio::time::interval(std::time::Duration::from_secs(60));
+    let mut reconnect_check = tokio::time::interval(std::time::Duration::from_secs(15));
 
     // Skip the immediate first tick
     cache_cleanup.tick().await;
@@ -75,6 +76,7 @@ pub(super) async fn runtime_loop(
     dht_republish.tick().await;
     delivery_deadline.tick().await;
     hub_cleanup.tick().await;
+    reconnect_check.tick().await;
 
     // ── Gossip subscription ──────────────────────────────────────────
     let topic_id = tom_gossip::TopicId::from_bytes(TOM_GOSSIP_TOPIC);
@@ -403,6 +405,21 @@ pub(super) async fn runtime_loop(
 
             // ── 15. Timer: delivery deadline check (5s) ────
             _ = delivery_deadline.tick() => state.tick_delivery_deadlines(),
+
+            // ── 16. Timer: reconnect known peers (15s) ──
+            // Periodically rejoin all known peers so that discovered-but-unconnected
+            // peers get a fresh connection attempt. Cheap if already connected.
+            _ = reconnect_check.tick() => {
+                if let Some(ref sender) = gossip_sender {
+                    let known: Vec<_> = state.topology.peers()
+                        .map(|p| *p.node_id.as_endpoint_id())
+                        .collect();
+                    if !known.is_empty() {
+                        let _ = sender.join_peers(known).await;
+                    }
+                }
+                Vec::new()
+            }
 
             else => break,
         };
