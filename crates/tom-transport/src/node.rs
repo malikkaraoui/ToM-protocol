@@ -802,11 +802,30 @@ mod tests {
 
     #[tokio::test]
     async fn bootstrap_hint_rx_absent_when_local_discovery_disabled() {
-        let mut node = TomNode::bind(TomNodeConfig::new().n0_discovery(false))
-            .await
-            .unwrap();
+        let mut node = TomNode::bind(
+            TomNodeConfig::new()
+                .n0_discovery(false)
+                .local_discovery(false),
+        )
+        .await
+        .unwrap();
 
         assert!(node.take_bootstrap_hint_rx().is_none());
+
+        node.shutdown().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn bootstrap_hint_rx_present_when_local_discovery_enabled() {
+        let mut node = TomNode::bind(
+            TomNodeConfig::new()
+                .n0_discovery(false)
+                .local_discovery(true),
+        )
+        .await
+        .unwrap();
+
+        assert!(node.take_bootstrap_hint_rx().is_some());
 
         node.shutdown().await.unwrap();
     }
