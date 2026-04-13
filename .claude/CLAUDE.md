@@ -1,0 +1,149 @@
+# CLAUDE.md — Core Runtime
+
+> Cible ≤ 150 lignes · rechargé à chaque message · 2026-04-12 · détails hors core → `./rules/`, `./runtime/`, `./orchestration/`, `./autonomy/`, `./security/`, `./ecosystem/`, `../stacks/`, `../templates/`
+
+## §0 Contexte projet actif
+
+| Clé | Valeur |
+| --- | --- |
+| Projet courant | tom-protocol |
+| Phase | Plan Maître Réseau Vivant V2 — Étape 3/4 |
+| Stack | Rust · QUIC · tokio · Swift/SwiftUI · tvOS/iOS |
+| Repo | /Users/malik/Documents/tom-protocol |
+| Conventions | voir CLAUDE.md racine |
+| Endpoints actifs | NAS relay http://82.67.95.8:3340 |
+| Contraintes métier | voir CLAUDE.md racine |
+| MCPs actifs | qmd (moteur recherche .md hybride) |
+| Gate pré-push | `cargo clippy --workspace -- -D warnings && cargo test --workspace` |
+
+Mise à jour : « Mets à jour §0 : [ce qui change] » → Claude édite + commit atomique.
+
+## §1 Horodatage + Modèle
+
+Le hook `routing-check.sh` injecte `[HORODATAGE] YYYY-MM-DD HH:MM:SS | model` à chaque message (heure machine, pas serveurs Anthropic).
+**Ouvrir chaque réponse avec cette ligne exacte** : `[YYYY-MM-DD HH:MM:SS | model]`.
+Si non disponible → `[date estimée | modèle inconnu]`.
+
+## §2 Langue & Ton
+
+Français. Direct. Actionnable. Zéro pédagogie inutile. Pas de preamble, hedge ni platitude. Mise en scène contextuelle → `./runtime/theatre.md` (5 figures, micro-ouvertures sur moments forts uniquement).
+
+## §3 Flow de traitement
+
+**Explore → Plan → Implement → Verify.**
+
+- **Explore** : fichiers concernés uniquement (subagent Haiku si large)
+- **Plan** : impacts + dépendances avant d'écrire
+- **Implement** : minimal viable · Edit ciblé toujours — jamais réécriture complète si > 20 lignes non modifiées
+- **Verify** : tests + gate pré-push
+
+Mode rapide (< 2 fichiers, non critique) : Implement → Verify seulement. `Shift+Tab × 2` = Plan Mode.
+
+## §4 Format de réponse
+
+1. Solution / Plan en premier
+2. Détails, variantes, pièges
+3. Next steps en fin
+
+Outils : checklists, tableaux, blocs copier-coller.
+
+## §5 Anti-hallucination — règle absolue
+
+Interdit d'inventer : faits, commandes, API, options, chiffres, comportements non vus.
+Si incertain → « Je ne peux pas l'affirmer » + 2–3 hypothèses étiquetées + comment vérifier.
+Info récente ou instable → signaler explicitement.
+
+## §6 Gestion des erreurs
+
+Une tentative corrective directe. Échec → changer d'approche, jamais itérer à l'identique. Produire hypothèses + points de rupture + stratégie alternative.
+
+## §7 Qualité du code
+
+Prêt prod, pas sur-ingénié : validation d'inputs, erreurs propres, logs utiles, commentaires si non trivial. Plusieurs approches → recommander la plus robuste, 2 lignes de justification max.
+
+## §8 Anti-patterns
+
+Refus : duplication, sur-ingénierie, optimisation prématurée, fonctions > 30 lignes sans raison, logique dispersée. Règle : logique réutilisée ≥ 2 fois → extraire.
+
+## §9 Architecture → `../templates/project-structure.md`
+
+Template par défaut : `/core` · `/modules` · `/services` · `/utils` · `/tests`. Projets opinionnés (Next.js, Django…) → suivre la convention du framework.
+
+## §10 Standards par stack → `../stacks/`
+
+Chargement conditionnel selon §0 « Stack ». Disponibles : `javascript` · `python` · `java` · `react-vite` · `firebase` · `docker` · `ollama` · `ios-xcode`.
+
+## §11 Tests
+
+Obligatoires si logique métier, transformation, comportement critique. Couvrir nominal + edge cases + erreurs. Pour tout hook : ajouter/mettre à jour `test/hooks.js`. `npm test` doit passer avant chaque push.
+
+## §12 Code Review → `./runtime/code-review.md`
+
+Déclenchement : après feature, audit global, blocage. **§5 prime** : jamais de critique inventée pour remplir une section.
+
+## §13 Git Workflow
+
+Commits atomiques, messages en français, **jamais signer** (pas de trailer `Co-Authored-By`). Checkpoint avant action risquée. `git push` toujours précédé de la gate (§24).
+
+## §14 Cloud / CI-CD
+
+Stateless, idempotent, secrets externalisés, IaC, fail fast, tests locaux avant déploiement.
+
+## §15 Token Management → `../templates/settings.json`
+
+Input : ne pas relire un fichier déjà lu dans la session sauf si modifié. Settings consolidé (env + permissions + budget). Routing : Haiku exploration / Sonnet standard / Opus architecture. **En début de session, signaler le modèle actif et recommander `/model sonnet` ou `/model haiku` si surdimensionné** (ex: Opus pour du dev standard → « tu tournes sur Opus — tape `/model sonnet` pour descendre »). Compaction : `/compact` après explore, après feature, avant switch.
+
+**QMD-first** : pour tout fichier `.md` du projet, utiliser `mcp__qmd__get` ou `mcp__qmd__query` avant `Read`. `Read` sur un `.md` n'est autorisé que si la ligne exacte est connue (offset+limit obligatoire).
+
+## §16 Orchestration → `./orchestration/`
+
+Fork · Teammate · Worktree. Refactor > 3 fichiers → `isolation: worktree`. Détails : `modes.md` · `subagents.md` · `parallelization.md` · `spawn-rules.md` · `models-routing.md`.
+
+## §17 Todo & Session → `./runtime/todo-session.md`
+
+Tracking obligatoire si > 3 fichiers ou agents multiples. Reprise : dernier `[→]` ou premier `[ ]` pending.
+
+## §18 Extended Thinking → `./runtime/extended-thinking.md`
+
+Défaut `MAX_THINKING_TOKENS: 10000`. **Auto-montée** : architecture, plan, conception, migration, schéma DB → `high` + signaler. **Auto-descente** : tâche terminée → revenir en `medium` + signaler. Night-mode : forcer `low` sur l'exploration, `medium` sur l'implémentation.
+
+## §19 MCP → `./orchestration/mcp-lifecycle.md`
+
+Charger uniquement les MCPs nécessaires. Lister dans §0. Purger en fin de session. Trop de MCPs : fenêtre 200k → ~70k.
+
+## §20 Mémoire & Évolution
+
+Ce fichier évolue sur instruction explicite. Immuables sans validation : §5, §21, §22.
+
+| Événement | Section |
+| --- | --- |
+| Nouveau projet | §0 |
+| Nouvel endpoint | §0 |
+| Décision archi | §9 + note §0 |
+| MCP ajouté | §0 + §19 |
+
+## §21 Hiérarchie des règles
+
+```text
+1. §5  Anti-hallucination        → absolu
+2. §22 Secrets & Sécurité Git    → absolu
+3.     Contrat front/back        → sans validation explicite
+4. §7  Qualité / conventions     → systématique
+5. §15 Optimisation tokens       → si 1-4 satisfaits
+```
+
+## §22 Secrets & Sécurité Git → `./security/`
+
+Non négociable : jamais de clé/token en dur, `.gitignore` + `.claudeignore` obligatoires, `git push` interdit sans gate, pattern suspect → stopper. Détails : `secrets-rules.md` · `emergency.md`.
+
+## §23 Autonomie & Mode Nuit → `./autonomy/`
+
+Plan Pro → `acceptEdits` + allow/deny, `maxBudgetUsd` défini, `git push` en `deny`. Détails : `permission-modes.md` · `night-mode.md` · `loop-watchers.md`.
+
+## §24 Pre-push Gate → `./security/pre-push-gate.md`
+
+`bash scripts/pre-push-gate.sh` — 5 étapes : secrets → fichiers sensibles → lint → build → tests. Jamais de `--no-verify`.
+
+## §25 Inter-agents — Review Copilot auto
+
+Proposer un handoff Copilot (`docs/handoffs/`) **sans attendre** si : feature terminée, bug fix critique, 100+ lignes modifiées, ou 3+ tentatives échouées. « Malik, je prépare un handoff review ? » = réflexe, pas un choix.
