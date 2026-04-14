@@ -1,0 +1,30 @@
+# .claudeignore — Fichiers que Claude ne doit JAMAIS lire
+# Copie ce fichier a la racine de ton projet avant d'activer Claude Code.
+# Ce fichier empeche Claude d'acceder aux secrets meme en mode acceptEdits.
+
+# Env / Secrets
+.env
+.env.*
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa*
+id_ed25519*
+
+# Service accounts / credentials
+serviceAccountKey.json
+google-services.json
+GoogleService-Info.plist
+*credentials*.json
+*secret*.json
+*token*.json
+*-service-account.json
+
+# Cloud provider
+.aws/
+.gcloud/
+
+# Keystores
+*.keystore
+*.jks

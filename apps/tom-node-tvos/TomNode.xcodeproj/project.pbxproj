@@ -7,12 +7,12 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		AA000001000000000000F011 /* libtom_protocol_ffi.a in Frameworks */ = {isa = PBXBuildFile; fileRef = AA000001000000000000F010 /* libtom_protocol_ffi.a */; };
+		AA000001000000000000F011 /* TomProtocolFFI.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = AA000001000000000000F010 /* TomProtocolFFI.xcframework */; settings = {ATTRIBUTES = (Required, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 		AA000001000000000000F001 /* TomNode.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = TomNode.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		AA000001000000000000F010 /* libtom_protocol_ffi.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; name = libtom_protocol_ffi.a; path = build/libtom_protocol_ffi.a; sourceTree = "<group>"; };
+		AA000001000000000000F010 /* TomProtocolFFI.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = TomProtocolFFI.xcframework; path = build/TomProtocolFFI.xcframework; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -28,7 +28,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				AA000001000000000000F011 /* libtom_protocol_ffi.a in Frameworks */,
+				AA000001000000000000F011 /* TomProtocolFFI.xcframework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -55,7 +55,7 @@
 		AA000001000000000000F012 /* Libraries */ = {
 			isa = PBXGroup;
 			children = (
-				AA000001000000000000F010 /* libtom_protocol_ffi.a */,
+				AA000001000000000000F010 /* TomProtocolFFI.xcframework */,
 			);
 			name = Libraries;
 			sourceTree = "<group>";
@@ -133,7 +133,6 @@
 /* Begin PBXShellScriptBuildPhase section */
 		AA000001000000000000F013 /* Build Rust FFI */ = {
 			isa = PBXShellScriptBuildPhase;
-			alwaysOutOfDate = 1;
 			buildActionMask = 2147483647;
 			files = (
 			);
@@ -141,13 +140,13 @@
 			);
 			inputPaths = (
 				"$(SRCROOT)/TomNode/Services/build_ffi.sh",
-				"$(SRCROOT)/../../scripts/build-tom-protocol-ffi-tvos.sh",
+				"$(SRCROOT)/../../scripts/build-tom-protocol-ffi-xcframework.sh",
 			);
 			name = "Build Rust FFI";
 			outputFileListPaths = (
 			);
 			outputPaths = (
-				"$(SRCROOT)/build/libtom_protocol_ffi.a",
+				"$(SRCROOT)/build/TomProtocolFFI.xcframework",
 				"$(SRCROOT)/build/tom_protocol_ffi.h",
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -312,22 +311,6 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				"LIBRARY_SEARCH_PATHS[sdk=appletvos*]" = (
-					"$(inherited)",
-					"$(PROJECT_DIR)/build",
-				);
-				"LIBRARY_SEARCH_PATHS[sdk=appletvsimulator*]" = (
-					"$(inherited)",
-					"$(PROJECT_DIR)/build",
-				);
-				"LIBRARY_SEARCH_PATHS[sdk=iphoneos*]" = (
-					"$(inherited)",
-					"$(PROJECT_DIR)/build/ios",
-				);
-				"LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*]" = (
-					"$(inherited)",
-					"$(PROJECT_DIR)/build/ios",
-				);
 				MARKETING_VERSION = 1.0;
 				OTHER_LDFLAGS = (
 					"$(inherited)",
@@ -375,22 +358,6 @@
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
-				);
-				"LIBRARY_SEARCH_PATHS[sdk=appletvos*]" = (
-					"$(inherited)",
-					"$(PROJECT_DIR)/build",
-				);
-				"LIBRARY_SEARCH_PATHS[sdk=appletvsimulator*]" = (
-					"$(inherited)",
-					"$(PROJECT_DIR)/build",
-				);
-				"LIBRARY_SEARCH_PATHS[sdk=iphoneos*]" = (
-					"$(inherited)",
-					"$(PROJECT_DIR)/build/ios",
-				);
-				"LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*]" = (
-					"$(inherited)",
-					"$(PROJECT_DIR)/build/ios",
 				);
 				MARKETING_VERSION = 1.0;
 				OTHER_LDFLAGS = (

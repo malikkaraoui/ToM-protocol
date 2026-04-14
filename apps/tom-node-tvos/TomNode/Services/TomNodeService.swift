@@ -29,6 +29,9 @@ final class TomNodeService: ObservableObject {
     @Published var connectedPeers: [NodeId] = []
     @Published var discoveredPeers: [TomPeer] = []
     @Published var errorMessage: String?
+    @Published var localRole: String = "Peer"
+    @Published var pathKind: String = "RELAY"
+    @Published var pathRttMs: UInt64 = 0
 
     // Live log
     @Published var logEntries: [LogEntry] = []
@@ -144,7 +147,7 @@ final class TomNodeService: ObservableObject {
         let escaped = message.replacingOccurrences(of: "\"", with: "\\\"")
             .replacingOccurrences(of: "\n", with: " ")
         let json = """
-        {"ts":\(Int(Date().timeIntervalSince1970 * 1000)),"node":"\(username)","event":"\(level)","detail":"\(escaped)","phase":"\(state == .running ? "connecte" : "arret")","taille_reseau":\(peersCount),"number_peers":\(connectedPeers.count),"discovered_peers":\(discoveredPeers.count),"role":"participant","msgs_recv":\(totalMessagesCount),"groups":\(groupsCount)}
+        {"ts":\(Int(Date().timeIntervalSince1970 * 1000)),"node":"\(username)","event":"\(level)","detail":"\(escaped)","phase":"\(state == .running ? "connecte" : "arret")","taille_reseau":\(peersCount),"number_peers":\(connectedPeers.count),"discovered_peers":\(discoveredPeers.count),"role":"\(localRole)","path":"\(pathKind)","rtt_ms":\(pathRttMs),"msgs_recv":\(totalMessagesCount),"groups":\(groupsCount)}
         """
         sendLogUDP(json.trimmingCharacters(in: .whitespacesAndNewlines))
     }
@@ -458,6 +461,9 @@ final class TomNodeService: ObservableObject {
                     self.nodeId = status.nodeId
                     self.peersCount = status.peersCount
                     self.groupsCount = status.groupsCount
+                    if let role = status.localRole { self.localRole = role }
+                    if let pk = status.pathKind { self.pathKind = pk }
+                    if let rtt = status.pathRttMs { self.pathRttMs = rtt }
                 }
                 let currentConnected = await self.node.connectedPeers()
                 self.connectedPeers = currentConnected

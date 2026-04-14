@@ -18,18 +18,19 @@ FFI_SCRIPT      = scripts/build-tom-protocol-ffi-tvos.sh
 
 .PHONY: help
 help:
-	@echo "TomNode tvOS — Available commands:"
-	@echo "  make tvsim      — build tvOS simulator"
-	@echo "  make tvrun      — build + install + launch tvOS simulator"
-	@echo "  make tvdevice   — build for physical Apple TV"
-	@echo "  make tvtest     — run unit tests on simulator"
-	@echo "  make ffi        — rebuild Rust FFI library (simulator)"
-	@echo "  make ffi-device — rebuild Rust FFI library (device)"
-	@echo "  make devices    — list available devices"
-	@echo "  make doctor     — diagnostic"
-	@echo "  make logs       — show build logs"
-	@echo "  make clean      — clean build artifacts"
-	@echo "  make archive    — archive for App Store"
+	@echo "TomNode tvOS+iOS — Available commands:"
+	@echo "  make tvsim          — build tvOS simulator"
+	@echo "  make tvrun          — build + install + launch tvOS simulator"
+	@echo "  make tvdevice       — build for physical Apple TV"
+	@echo "  make tvtest         — run unit tests on simulator"
+	@echo "  make ffi-xcframework — rebuild Rust XCFramework (tvOS + iOS, all variants)"
+	@echo "  make ffi            — rebuild Rust FFI (tvOS simulator only)"
+	@echo "  make ffi-device     — rebuild Rust FFI (tvOS device only)"
+	@echo "  make devices        — list available devices"
+	@echo "  make doctor         — diagnostic"
+	@echo "  make logs           — show build logs"
+	@echo "  make clean          — clean build artifacts"
+	@echo "  make archive        — archive for App Store"
 
 .PHONY: tvsim
 tvsim:
@@ -85,6 +86,11 @@ tvtest:
 		| tee $(LOG_DIR)/tests.log \
 		| xcpretty --color 2>/dev/null || tail -20 $(LOG_DIR)/tests.log
 
+.PHONY: ffi-xcframework
+ffi-xcframework:
+	@echo "▶ Building Rust XCFramework (tvOS + iOS, all variants)..."
+	cd $(REPO_ROOT) && bash scripts/build-tom-protocol-ffi-xcframework.sh
+
 .PHONY: ffi
 ffi:
 	@echo "▶ Building Rust FFI for tvOS simulator..."
@@ -111,8 +117,8 @@ doctor:
 	@echo "▶ Swift"
 	@swift --version || true
 	@echo ""
-	@echo "▶ Rust FFI library"
-	@ls -lh build/libtom_protocol_ffi.a 2>/dev/null || echo "  ⚠ Not built yet. Run: make ffi"
+	@echo "▶ Rust XCFramework"
+	@ls -lh build/TomProtocolFFI.xcframework 2>/dev/null || echo "  ⚠ Not built yet. Run: make ffi-xcframework"
 	@echo ""
 	@echo "▶ FFI Header"
 	@ls -lh build/tom_protocol_ffi.h 2>/dev/null || echo "  ⚠ Header missing"
