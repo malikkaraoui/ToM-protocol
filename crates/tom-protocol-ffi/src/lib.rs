@@ -42,6 +42,10 @@ pub struct TomNodeHandle {
     node_id: Arc<Mutex<Option<String>>>,
     /// Last error message (retrievable by Swift after a -1 return)
     last_error: Arc<std::sync::Mutex<Option<String>>>,
+    /// Last known path kind + RTT ms (updated from PathChanged events)
+    last_path: Arc<Mutex<Option<(String, u64)>>>,
+    /// Local node role: "Peer" or "Relay" (updated from LocalRoleChanged events)
+    local_role: Arc<Mutex<String>>,
 }
 
 /// Initialize tracing (logs) for the node
@@ -120,6 +124,8 @@ pub unsafe extern "C" fn tom_node_create(config_json: *const c_char) -> *mut Tom
         discovered_peers: Arc::new(Mutex::new(HashMap::new())),
         node_id: Arc::new(Mutex::new(None)),
         last_error: Arc::new(std::sync::Mutex::new(None)),
+        last_path: Arc::new(Mutex::new(None)),
+        local_role: Arc::new(Mutex::new("Peer".to_string())),
     }))
 }
 
@@ -238,6 +244,8 @@ pub unsafe extern "C" fn tom_node_start(
         let msg_queue_clone = msg_queue.clone();
         let event_queue_clone = event_queue.clone();
         let discovered_peers_clone = handle_ref.discovered_peers.clone();
+        let last_path_clone = handle_ref.last_path.clone();
+        let local_role_clone = handle_ref.local_role.clone();
         let mut messages_rx = channels.messages;
         let mut events_rx = channels.events;
 
@@ -253,6 +261,16 @@ pub unsafe extern "C" fn tom_node_start(
                         }
                     }
                     Some(event) = events_rx.recv() => {
+                        // Track path upgrades (RELAY ↔ DIRECT)
+                        if let ProtocolEvent::PathChanged { ref event } = event {
+                            let mut lp = last_path_clone.lock().await;
+                            *lp = Some((format!("{}", event.kind), event.rtt.as_millis() as u64));
+                        }
+                        // Track local role changes
+                        if let ProtocolEvent::LocalRoleChanged { ref new_role } = event {
+                            let mut lr = local_role_clone.lock().await;
+                            *lr = format!("{:?}", new_role);
+                        }
                         // Cache discovered peers from gossip/DHT
                         if let ProtocolEvent::PeerDiscovered { ref node_id, ref username, ref source } = event {
                             let incoming = DiscoveredPeerFFI {
@@ -622,12 +640,21 @@ pub unsafe extern "C" fn tom_node_status(handle: *const TomNodeHandle) -> *mut c
             ("Stopped", 0, 0)
         };
 
+        let local_role = handle_ref.local_role.lock().await.clone();
+        let (path_kind, path_rtt_ms) = {
+            let lp = handle_ref.last_path.lock().await;
+            lp.clone().unwrap_or_else(|| ("RELAY".to_string(), 0))
+        };
+
         format!(
-            r#"{{"node_id":"{}","status":"{}","peers_count":{},"groups_count":{}}}"#,
+            r#"{{"node_id":"{}","status":"{}","peers_count":{},"groups_count":{},"local_role":"{}","path_kind":"{}","path_rtt_ms":{}}}"#,
             node_id.unwrap_or_else(|| "unknown".to_string()),
             status,
             peers_count,
-            groups_count
+            groups_count,
+            local_role,
+            path_kind,
+            path_rtt_ms
         )
     });
 

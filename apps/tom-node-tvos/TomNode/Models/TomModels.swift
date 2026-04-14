@@ -80,12 +80,18 @@ struct TomNodeStatus: Codable {
     let status: String
     let peersCount: Int
     let groupsCount: Int
+    let localRole: String?
+    let pathKind: String?
+    let pathRttMs: UInt64?
 
     enum CodingKeys: String, CodingKey {
         case nodeId = "node_id"
         case status
         case peersCount = "peers_count"
         case groupsCount = "groups_count"
+        case localRole = "local_role"
+        case pathKind = "path_kind"
+        case pathRttMs = "path_rtt_ms"
     }
 }
 

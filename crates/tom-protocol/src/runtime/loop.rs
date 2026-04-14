@@ -237,6 +237,12 @@ pub(super) async fn runtime_loop(
 
             // ── 3. Path events from transport ───────────────────
             Ok(event) = path_rx.recv() => {
+                tracing::info!(
+                    peer = %event.remote,
+                    kind = %event.kind,
+                    rtt_ms = event.rtt.as_millis(),
+                    "path changed"
+                );
                 vec![RuntimeEffect::Emit(ProtocolEvent::PathChanged { event })]
             }
 
@@ -325,6 +331,14 @@ pub(super) async fn runtime_loop(
                             let effects = state.handle_gossip_event(
                                 GossipInput::NeighborUp(node_id)
                             );
+                            // A gossip neighbor = bootstrap complete, regardless of hint source
+                            if bootstrap_phase != BootstrapPhase::Converged {
+                                bootstrap_phase.on_hint_accepted();
+                                tracing::info!(
+                                    peer = %node_id,
+                                    "bootstrap: converged via GossipNeighborUp"
+                                );
+                            }
                             // Re-broadcast announce on NeighborUp
                             // (key learning from PoC-3: initial broadcast has no neighbors)
                             if let Some(ref sender) = gossip_sender {
@@ -389,6 +403,16 @@ pub(super) async fn runtime_loop(
                 state.save_state();
                 metrics.set_groups_count(state.group_manager.group_count() as u64);
                 metrics.set_peers_known(state.topology.len() as u64);
+                // Fallback phase advance: relay-only nodes may never receive a mDNS/PeerPresent
+                // hint, but they still discover peers via received messages. If topology has any
+                // peer (Online, Stale, or Offline), we are past the amorçage stage.
+                if bootstrap_phase != BootstrapPhase::Converged && !state.topology.is_empty() {
+                    bootstrap_phase.on_hint_accepted();
+                    tracing::info!(
+                        peers = state.topology.len(),
+                        "bootstrap: converged via topology peers (relay-only path)"
+                    );
+                }
                 metrics.set_phase(bootstrap_phase);
                 metrics.set_taille_reseau(state.topology.online_count() as u64);
                 metrics.set_relayeurs_connus(state.topology.relay_count() as u64);

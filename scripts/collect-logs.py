@@ -95,7 +95,11 @@ try:
             phase = d.get("phase", "?")
             taille = d.get("taille_reseau", "?")
             role = d.get("role", "?")
-            print(f"{color}{ts} [{node:>10}] {event:<25} {detail:<50} phase={phase} taille={taille} role={role}{RESET}")
+            path = d.get("path", "?")
+            rtt = d.get("rtt_ms", "")
+            path_str = f"{path} {rtt}ms" if rtt else path
+            peers = d.get("number_peers", d.get("taille_reseau", "?"))
+            print(f"{color}{ts} [{node:>10}] {event:<12} {detail:<45} role={role:<6} path={path_str:<14} peers={peers}{RESET}")
         except:
             print(f"{color}[{node:>10}] {line[:120]}{RESET}")
 
