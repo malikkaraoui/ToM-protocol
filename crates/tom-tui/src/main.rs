@@ -46,6 +46,7 @@ impl UdpLogger {
 struct BotContext {
     node_label: String,
     node_id: String,
+    appareil: String,
     udp: Option<UdpLogger>,
     handle: RuntimeHandle,
 }
@@ -60,6 +61,7 @@ impl BotContext {
             "ts": timestamp_ms(),
             "node": self.node_label,
             "node_id": &self.node_id[..8.min(self.node_id.len())],
+            "appareil": self.appareil,
             "event": event,
             "detail": detail,
             "phase": phase_str,
@@ -246,6 +248,11 @@ struct Cli {
     /// Human-readable label for this node (shown in logs and status).
     #[arg(long, default_value = "unnamed")]
     node_label: String,
+
+    /// Appareil/platform identifier for structured logs (e.g. "macos", "linux", "nas").
+    /// Auto-detected if not specified.
+    #[arg(long, value_name = "PLATFORM")]
+    node_appareil: Option<String>,
 
     /// UDP host:port for centralized log collection (e.g. "192.168.1.10:9999").
     /// Logs are sent as JSON lines over UDP in addition to stderr.
@@ -450,9 +457,15 @@ async fn main() -> anyhow::Result<()> {
 
     if cli.bot {
         let udp = cli.log_udp.as_deref().and_then(UdpLogger::new);
+        let appareil = cli.node_appareil.unwrap_or_else(|| {
+            if cfg!(target_os = "macos") { "macos".into() }
+            else if cfg!(target_os = "linux") { "linux".into() }
+            else { "unknown".into() }
+        });
         let ctx = Arc::new(BotContext {
             node_label: cli.node_label.clone(),
             node_id: local_id.to_string(),
+            appareil,
             udp,
             handle: handle.clone(),
         });

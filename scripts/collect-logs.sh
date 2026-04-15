@@ -58,12 +58,16 @@ try:
     d = json.loads(sys.stdin.read())
     ts = d.get('ts', '?')
     node = d.get('node', '?')
+    appareil = d.get('appareil', '')
+    label = f'{node}/{appareil}' if appareil else node
     event = d.get('event', '?')
     detail = d.get('detail', '')
     phase = d.get('phase', '?')
     taille = d.get('taille_reseau', '?')
     role = d.get('role', '?')
-    print(f'{ts} [{node:>10}] {event:<25} {detail:<30} phase={phase} taille={taille} role={role}')
+    src = d.get('source_amorcage', '')
+    src_tag = f' src={src}' if src else ''
+    print(f'{ts} [{label:>16}] {event:<25} {detail:<30} phase={phase} taille={taille} role={role}{src_tag}')
 except:
     print(sys.stdin.read(), end='')
 " 2>/dev/null || echo "$line"
