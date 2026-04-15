@@ -1,6 +1,6 @@
 [package]
 name = "tom-gateway"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 description = "CLI to auto-configure a Freebox router for the ToM protocol relay"
 license = "MIT"
