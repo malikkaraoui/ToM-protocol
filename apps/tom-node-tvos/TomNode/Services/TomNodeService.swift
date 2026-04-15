@@ -63,6 +63,20 @@ final class TomNodeService: ObservableObject {
         #endif
     }
 
+    /// Platform identifier for structured logs.
+    static let appareil: String = {
+        #if os(iOS)
+        return UIDevice.current.userInterfaceIdiom == .pad ? "ipad" : "iphone"
+        #else
+        return "tvos"
+        #endif
+    }()
+
+    /// Timestamp when the node entered .running state (nil when stopped).
+    private var nodeStartTime: Date?
+    /// Count of messages sent by this node (used in structured logs).
+    private var totalMessagesSentCount: Int = 0
+
     /// Detect the subnet broadcast address from the device's Wi-Fi IP.
     /// On a 192.168.0.x network → returns 192.168.0.255.
     /// Falls back to 255.255.255.255 if detection fails.
@@ -146,8 +160,12 @@ final class TomNodeService: ObservableObject {
         // Broadcast structured JSON over UDP for remote monitoring
         let escaped = message.replacingOccurrences(of: "\"", with: "\\\"")
             .replacingOccurrences(of: "\n", with: " ")
+        let uptimeS = nodeStartTime.map { Int(-$0.timeIntervalSinceNow) } ?? 0
+        let msgsSent = totalMessagesSentCount
+        let msgsRecv = totalMessagesCount - totalMessagesSentCount
+        let shortId = String(nodeId.prefix(8))
         let json = """
-        {"ts":\(Int(Date().timeIntervalSince1970 * 1000)),"node":"\(username)","event":"\(level)","detail":"\(escaped)","phase":"\(state == .running ? "connecte" : "arret")","taille_reseau":\(peersCount),"number_peers":\(connectedPeers.count),"discovered_peers":\(discoveredPeers.count),"role":"\(localRole)","path":"\(pathKind)","rtt_ms":\(pathRttMs),"msgs_recv":\(totalMessagesCount),"groups":\(groupsCount)}
+        {"ts":\(Int(Date().timeIntervalSince1970 * 1000)),"node":"\(username)","node_id":"\(shortId)","appareil":"\(Self.appareil)","event":"\(level)","detail":"\(escaped)","phase":"\(state == .running ? "connecte" : "arret")","taille_reseau":\(peersCount),"number_peers":\(connectedPeers.count),"discovered_peers":\(discoveredPeers.count),"role":"\(localRole)","path":"\(pathKind)","rtt_ms":\(pathRttMs),"msgs_sent":\(msgsSent),"msgs_recv":\(msgsRecv),"groups":\(groupsCount),"uptime_s":\(uptimeS)}
         """
         sendLogUDP(json.trimmingCharacters(in: .whitespacesAndNewlines))
     }
@@ -249,6 +267,7 @@ final class TomNodeService: ObservableObject {
                 )
 
                 state = .running
+                nodeStartTime = Date()
                 appendLog(.success, "Runtime started")
                 appendLog(.network, "Local discovery: \(localDiscovery ? "enabled" : "disabled")")
                 if !bootstrapPeers.isEmpty {
@@ -294,6 +313,8 @@ final class TomNodeService: ObservableObject {
             nodeId = ""
             peersCount = 0
             groupsCount = 0
+            nodeStartTime = nil
+            totalMessagesSentCount = 0
             appendLog(.info, "Node stopped. Echo count: \(echoCount)")
             stopNetworkLogExport()
             log.info("Node stopped")
@@ -319,6 +340,7 @@ final class TomNodeService: ObservableObject {
                 )
                 messages.append(sent)
                 totalMessagesCount += 1
+                totalMessagesSentCount += 1
             } catch {
                 log.error("Send failed: \(error.localizedDescription)")
                 errorMessage = error.localizedDescription
@@ -528,6 +550,7 @@ final class TomNodeService: ObservableObject {
                 )
                 messages.append(sent)
                 totalMessagesCount += 1
+                totalMessagesSentCount += 1
             } catch {
                 appendLog(.warning, "AUTO-PING failed → \(targetLabel): \(error.localizedDescription)")
             }
