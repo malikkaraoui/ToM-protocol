@@ -1,6 +1,6 @@
 [package]
 name = "tom-dht"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 description = "DHT discovery for ToM Protocol (BEP-0044 mutable storage)"
 license = "MIT"

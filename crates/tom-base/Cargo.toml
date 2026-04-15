@@ -1,6 +1,6 @@
 [package]
 name = "tom-base"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 description = "Cryptographic base types for the ToM protocol stack — forked from iroh-base 0.96"
 license = "MIT"

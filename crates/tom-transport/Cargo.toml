@@ -1,6 +1,6 @@
 [package]
 name = "tom-transport"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 description = "ToM Protocol transport layer — QUIC connectivity with hole punching"
 license = "MIT"

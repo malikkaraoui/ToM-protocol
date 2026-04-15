@@ -1,6 +1,6 @@
 [package]
 name = "tom-relay"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 description = "ToM relay server — forked from iroh-relay 0.96"
 license = "MIT"

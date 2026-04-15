@@ -1,6 +1,6 @@
 [package]
 name = "tom-relay-ffi"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 description = "FFI wrapper for tom-relay — exposes C API for Swift/tvOS"
 license = "MIT"

@@ -1,6 +1,6 @@
 [package]
 name = "tom-connect"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 description = "ToM transport layer — forked from iroh 0.96"
 license = "MIT"
