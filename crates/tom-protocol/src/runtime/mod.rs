@@ -129,7 +129,7 @@ pub enum RuntimeCommand {
         original_message_id: String,
     },
     /// Register a peer in the network (triggers discovery via iroh).
-    AddPeer { node_id: NodeId },
+    AddPeer { node_id: NodeId, source: DiscoverySource },
     /// Register a peer with its full network address (for direct connectivity).
     AddPeerAddr { addr: EndpointAddr },
     /// Update topology: add or refresh a peer.
@@ -437,7 +437,7 @@ impl RuntimeHandle {
     pub async fn add_peer(&self, node_id: NodeId) {
         let _ = self
             .cmd_tx
-            .send(RuntimeCommand::AddPeer { node_id })
+            .send(RuntimeCommand::AddPeer { node_id, source: DiscoverySource::Direct })
             .await;
     }
 

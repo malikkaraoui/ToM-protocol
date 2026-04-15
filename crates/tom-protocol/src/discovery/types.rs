@@ -112,6 +112,10 @@ pub enum DiscoverySource {
     Announce,
     /// Discovered via DHT (BEP-0044) lookup.
     Dht,
+    /// Discovered via mDNS (LAN multicast).
+    Mdns,
+    /// Discovered via relay PeerPresent frame.
+    PeerPresent,
 }
 
 // ── LivenessState ────────────────────────────────────────────────────────
@@ -188,7 +192,7 @@ mod tests {
 
     #[test]
     fn discovery_source_roundtrip() {
-        for source in [DiscoverySource::Direct, DiscoverySource::Gossip, DiscoverySource::Announce, DiscoverySource::Dht] {
+        for source in [DiscoverySource::Direct, DiscoverySource::Gossip, DiscoverySource::Announce, DiscoverySource::Dht, DiscoverySource::Mdns, DiscoverySource::PeerPresent] {
             let bytes = rmp_serde::to_vec(&source).expect("serialize");
             let decoded: DiscoverySource = rmp_serde::from_slice(&bytes).expect("deserialize");
             assert_eq!(source, decoded);

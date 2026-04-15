@@ -53,11 +53,15 @@ struct BotContext {
 
 impl BotContext {
     fn log_event(&self, event: &str, detail: &str) {
+        self.log_event_sourced(event, detail, None);
+    }
+
+    fn log_event_sourced(&self, event: &str, detail: &str, source_amorcage: Option<&str>) {
         let snap = self.handle.metrics();
         let phase_str = format!("{}", snap.phase);
         let role_str = format!("{:?}", snap.role_local);
 
-        let json = serde_json::json!({
+        let mut json = serde_json::json!({
             "ts": timestamp_ms(),
             "node": self.node_label,
             "node_id": &self.node_id[..8.min(self.node_id.len())],
@@ -74,6 +78,9 @@ impl BotContext {
             "groups": snap.groups_count,
             "uptime_s": snap.uptime_seconds,
         });
+        if let Some(src) = source_amorcage {
+            json["source_amorcage"] = serde_json::Value::String(src.to_string());
+        }
         let line = json.to_string();
 
         eprintln!("{}", line);
@@ -905,7 +912,11 @@ async fn run_bot(
 fn handle_bot_event(ctx: &BotContext, event: &ProtocolEvent) {
     match event {
         ProtocolEvent::PeerDiscovered { node_id, username, source } => {
-            ctx.log_event("pair_trouve", &format!("{} \"{}\" via {:?}", short_node_id(node_id), username, source));
+            ctx.log_event_sourced(
+                "pair_trouve",
+                &format!("{} \"{}\"", short_node_id(node_id), username),
+                Some(discovery_source_str(source)),
+            );
         }
         ProtocolEvent::GossipNeighborUp { node_id } => {
             ctx.log_event("voisin_connecte", &short_node_id(node_id));
@@ -978,6 +989,17 @@ fn select_ping_target(
         }
     }
     None
+}
+
+fn discovery_source_str(source: &tom_protocol::DiscoverySource) -> &'static str {
+    match source {
+        tom_protocol::DiscoverySource::Mdns        => "mdns",
+        tom_protocol::DiscoverySource::PeerPresent => "peer_present",
+        tom_protocol::DiscoverySource::Dht         => "dht",
+        tom_protocol::DiscoverySource::Gossip      => "gossip",
+        tom_protocol::DiscoverySource::Announce    => "announce",
+        tom_protocol::DiscoverySource::Direct      => "direct",
+    }
 }
 
 fn short_node_id(id: &NodeId) -> String {
