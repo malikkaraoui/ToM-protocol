@@ -6,6 +6,7 @@
 use tokio::sync::{broadcast, mpsc};
 use tom_transport::{BootstrapHint, TomNode};
 
+use crate::discovery::DiscoverySource;
 use crate::types::NodeId;
 
 use super::bootstrap::{BootstrapPhase, BootstrapSource};
@@ -176,9 +177,9 @@ pub(super) async fn runtime_loop(
                             BootstrapSource::Manual,
                             &mut bootstrap_phase,
                         ).await;
-                        state.handle_command(RuntimeCommand::AddPeer { node_id })
+                        state.handle_command(RuntimeCommand::AddPeer { node_id, source: DiscoverySource::Direct })
                     }
-                    RuntimeCommand::AddPeer { node_id } => {
+                    RuntimeCommand::AddPeer { node_id, source } => {
                         // Spawn a DHT lookup for unknown peers (non-blocking)
                         if let Some(dht_client) = dht_handle.as_ref() {
                             if state.topology.get(&node_id).is_none() {
@@ -200,7 +201,7 @@ pub(super) async fn runtime_loop(
                                 });
                             }
                         }
-                        state.handle_command(RuntimeCommand::AddPeer { node_id })
+                        state.handle_command(RuntimeCommand::AddPeer { node_id, source })
                     }
                     RuntimeCommand::DhtLookupResult { ref addr } => {
                         // Build EndpointAddr from DHT record and inject into transport
@@ -262,7 +263,7 @@ pub(super) async fn runtime_loop(
                         BootstrapSource::Mdns,
                         &mut bootstrap_phase,
                     ).await;
-                    state.handle_command(RuntimeCommand::AddPeer { node_id })
+                    state.handle_command(RuntimeCommand::AddPeer { node_id, source: DiscoverySource::Mdns })
                 } else {
                     Vec::new()
                 }
@@ -285,7 +286,7 @@ pub(super) async fn runtime_loop(
                         BootstrapSource::PeerPresent,
                         &mut bootstrap_phase,
                     ).await;
-                    state.handle_command(RuntimeCommand::AddPeer { node_id })
+                    state.handle_command(RuntimeCommand::AddPeer { node_id, source: DiscoverySource::PeerPresent })
                 } else {
                     Vec::new()
                 }

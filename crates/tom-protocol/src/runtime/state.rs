@@ -1374,16 +1374,22 @@ impl RuntimeState {
             false
         };
 
-        // Record heartbeat + auto-register
+        // Record heartbeat + auto-register / revive stale peers.
+        // Always refresh last_seen and force Online — a message receipt is proof of liveness.
+        // Without this, peers that went Stale (>20s) or Offline (>45s) between state_save
+        // ticks would show online_count=0 even though messages keep flowing.
         self.heartbeat.record_heartbeat(envelope.from);
-        if self.topology.get(&envelope.from).is_none() {
-            self.topology.upsert(PeerInfo {
-                node_id: envelope.from,
-                role: PeerRole::Peer,
-                status: PeerStatus::Online,
-                last_seen: now_ms(),
-            });
-        }
+        let existing_role = self
+            .topology
+            .get(&envelope.from)
+            .map(|p| p.role)
+            .unwrap_or(PeerRole::Peer);
+        self.topology.upsert(PeerInfo {
+            node_id: envelope.from,
+            role: existing_role,
+            status: PeerStatus::Online,
+            last_seen: now_ms(),
+        });
 
         // Dispatch by message type
         match envelope.msg_type {
@@ -1647,10 +1653,10 @@ impl RuntimeState {
                 original_message_id,
             } => self.handle_send_read_receipt(to, original_message_id),
 
-            RuntimeCommand::AddPeer { node_id } => {
+            RuntimeCommand::AddPeer { node_id, source } => {
                 self.heartbeat.record_heartbeat_with_source(
                     node_id,
-                    DiscoverySource::Direct,
+                    source,
                     String::new(),
                 );
                 self.topology.upsert(PeerInfo {
@@ -2941,7 +2947,7 @@ mod tests {
         assert!(state.topology.get(&peer).is_none());
 
         let effects =
-            state.handle_command(RuntimeCommand::AddPeer { node_id: peer });
+            state.handle_command(RuntimeCommand::AddPeer { node_id: peer, source: DiscoverySource::Direct });
 
         assert!(effects.is_empty(), "AddPeer returns no effects");
         assert!(
@@ -2956,7 +2962,7 @@ mod tests {
         let peer = node_id(2);
 
         // Add peer first
-        state.handle_command(RuntimeCommand::AddPeer { node_id: peer });
+        state.handle_command(RuntimeCommand::AddPeer { node_id: peer, source: DiscoverySource::Direct });
         assert!(state.topology.get(&peer).is_some());
 
         // Remove peer
@@ -3321,7 +3327,7 @@ mod tests {
         assert_eq!(state.heartbeat.liveness(&peer), crate::discovery::LivenessState::Departed);
 
         // Add peer
-        state.handle_command(RuntimeCommand::AddPeer { node_id: peer });
+        state.handle_command(RuntimeCommand::AddPeer { node_id: peer, source: DiscoverySource::Direct });
         assert!(state.topology.get(&peer).is_some(), "peer should be in topology after AddPeer");
         assert_ne!(
             state.heartbeat.liveness(&peer),
