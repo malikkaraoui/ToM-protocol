@@ -754,10 +754,25 @@ impl ProtocolRuntime {
 
         // Clone gossip handle before moving node
         let gossip = node.gossip().clone();
-        let gossip_bootstrap_peers = config.gossip_bootstrap_peers.clone();
+        let mut gossip_bootstrap_peers = config.gossip_bootstrap_peers.clone();
 
         // Create pure protocol state
         let state = RuntimeState::new(local_id, secret_seed, config);
+
+        // Auto-reconnect: inject persisted peers as bootstrap targets so the node
+        // redials them on restart without relay assistance.
+        for peer in state.topology.peers() {
+            if !gossip_bootstrap_peers.contains(&peer.node_id) {
+                gossip_bootstrap_peers.push(peer.node_id);
+            }
+        }
+        if !gossip_bootstrap_peers.is_empty() {
+            tracing::info!(
+                count = gossip_bootstrap_peers.len(),
+                "auto-reconnect: {} peers queued for gossip bootstrap",
+                gossip_bootstrap_peers.len()
+            );
+        }
 
         // Spawn the event loop (thin orchestrator + executor)
         let loop_metrics = metrics.clone();
