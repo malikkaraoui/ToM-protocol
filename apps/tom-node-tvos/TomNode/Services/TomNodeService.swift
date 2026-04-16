@@ -76,6 +76,8 @@ final class TomNodeService: ObservableObject {
     private var nodeStartTime: Date?
     /// Count of messages sent by this node (used in structured logs).
     private var totalMessagesSentCount: Int = 0
+    /// First bootstrap source observed — persisted across all subsequent log lines.
+    private var firstBootstrapSource: String? = nil
 
     /// Detect the subnet broadcast address from the device's Wi-Fi IP.
     /// On a 192.168.0.x network → returns 192.168.0.255.
@@ -164,7 +166,8 @@ final class TomNodeService: ObservableObject {
         let msgsSent = totalMessagesSentCount
         let msgsRecv = totalMessagesCount - totalMessagesSentCount
         let shortId = String(nodeId.prefix(8))
-        let srcField = sourceAmorcage.map { ",\"source_amorcage\":\"\($0)\"" } ?? ""
+        let effectiveSource = sourceAmorcage ?? firstBootstrapSource
+        let srcField = effectiveSource.map { ",\"source_amorcage\":\"\($0)\"" } ?? ""
         let json = """
         {"ts":\(Int(Date().timeIntervalSince1970 * 1000)),"node":"\(username)","node_id":"\(shortId)","appareil":"\(Self.appareil)","event":"\(level)","detail":"\(escaped)"\(srcField),"phase":"\(state == .running ? "connecte" : "arret")","taille_reseau":\(peersCount),"number_peers":\(connectedPeers.count),"discovered_peers":\(discoveredPeers.count),"role":"\(localRole)","path":"\(pathKind)","rtt_ms":\(pathRttMs),"msgs_sent":\(msgsSent),"msgs_recv":\(msgsRecv),"groups":\(groupsCount),"uptime_s":\(uptimeS)}
         """
@@ -304,6 +307,7 @@ final class TomNodeService: ObservableObject {
         autoMessagedPeerIds.removeAll()
         autoMessageAttemptedAt.removeAll()
         seededPeerIds.removeAll()
+        firstBootstrapSource = nil
         stopAntiSleep()
 
         appendLog(.info, "Stopping node...")
@@ -497,7 +501,9 @@ final class TomNodeService: ObservableObject {
                     if !knownPeerIds.contains(peer.nodeId) {
                         knownPeerIds.insert(peer.nodeId)
                         let name = peer.username.isEmpty ? peer.shortId : "\(peer.username) (\(peer.shortId))"
-                        self.appendLog(.success, "PEER DISCOVERED: \(name) via \(peer.source)", sourceAmorcage: peer.source.lowercased())
+                        let src = peer.source.lowercased()
+                        if self.firstBootstrapSource == nil { self.firstBootstrapSource = src }
+                        self.appendLog(.success, "PEER DISCOVERED: \(name) via \(peer.source)", sourceAmorcage: src)
                     }
                 }
                 self.discoveredPeers = currentDiscovered

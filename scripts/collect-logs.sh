@@ -25,52 +25,65 @@ echo "    Logs dans : ${LOGDIR}/"
 echo "    Ctrl+C pour arrêter"
 echo ""
 
-# Fonction cleanup
-cleanup() {
-    echo ""
-    echo "=== Collecteur arrêté ==="
-    exit 0
-}
-trap cleanup INT TERM
-
-# Vérifier que nc (netcat) est disponible
-if ! command -v nc &>/dev/null; then
-    echo "ERREUR : nc (netcat) non trouvé. Installer avec : brew install netcat"
-    exit 1
+TAIL_FLAG=""
+if [ "$TAIL" = "--tail" ]; then
+    TAIL_FLAG="1"
 fi
 
-# Boucle principale : nc -u -l écoute un seul datagramme sur macOS,
-# donc on boucle pour rester à l'écoute.
-while true; do
-    nc -u -l "$PORT" 2>/dev/null | while IFS= read -r line; do
-        # Écrire dans all.jsonl
-        echo "$line" >> "${LOGDIR}/all.jsonl"
+python3 - "$PORT" "$LOGDIR" "$TAIL_FLAG" <<'PYEOF'
+import sys
+import socket
+import json
+import os
 
-        # Extraire le nom du nœud pour le fichier dédié
-        node=$(echo "$line" | python3 -c "import sys,json; print(json.loads(sys.stdin.read()).get('node','unknown'))" 2>/dev/null || echo "unknown")
-        echo "$line" >> "${LOGDIR}/${node}.jsonl"
+port = int(sys.argv[1])
+logdir = sys.argv[2]
+do_tail = sys.argv[3] == "1"
 
-        # Affichage live si --tail
-        if [ "$TAIL" = "--tail" ]; then
-            echo "$line" | python3 -c "
-import sys, json
+sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+sock.bind(("0.0.0.0", port))
+
+all_log = open(os.path.join(logdir, "all.jsonl"), "a", buffering=1)
+node_files = {}
+
+def get_node_file(node):
+    if node not in node_files:
+        path = os.path.join(logdir, f"{node}.jsonl")
+        node_files[node] = open(path, "a", buffering=1)
+    return node_files[node]
+
 try:
-    d = json.loads(sys.stdin.read())
-    ts = d.get('ts', '?')
-    node = d.get('node', '?')
-    appareil = d.get('appareil', '')
-    label = f'{node}/{appareil}' if appareil else node
-    event = d.get('event', '?')
-    detail = d.get('detail', '')
-    phase = d.get('phase', '?')
-    taille = d.get('taille_reseau', '?')
-    role = d.get('role', '?')
-    src = d.get('source_amorcage', '')
-    src_tag = f' src={src}' if src else ''
-    print(f'{ts} [{label:>16}] {event:<25} {detail:<30} phase={phase} taille={taille} role={role}{src_tag}')
-except:
-    print(sys.stdin.read(), end='')
-" 2>/dev/null || echo "$line"
-        fi
-    done
-done
+    while True:
+        data, addr = sock.recvfrom(65535)
+        for line in data.decode("utf-8", errors="replace").splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            all_log.write(line + "\n")
+            try:
+                d = json.loads(line)
+                node = d.get("node", "unknown")
+                get_node_file(node).write(line + "\n")
+                if do_tail:
+                    ts = d.get("ts", "?")
+                    appareil = d.get("appareil", "")
+                    label = f"{node}/{appareil}" if appareil else node
+                    event = d.get("event", "?")
+                    detail = d.get("detail", "")
+                    phase = d.get("phase", "?")
+                    taille = d.get("taille_reseau", "?")
+                    role = d.get("role", "?")
+                    src = d.get("source_amorcage", "")
+                    src_tag = f" src={src}" if src else ""
+                    print(f"{ts} [{label:>16}] {event:<25} {detail:<30} phase={phase} taille={taille} role={role}{src_tag}", flush=True)
+            except Exception:
+                get_node_file("unknown").write(line + "\n")
+except KeyboardInterrupt:
+    print("\n=== Collecteur arrêté ===")
+finally:
+    sock.close()
+    all_log.close()
+    for f in node_files.values():
+        f.close()
+PYEOF

@@ -19,6 +19,8 @@ TOOLCHAIN="${TOOLCHAIN:-nightly-aarch64-apple-darwin}"
 PROFILE="${PROFILE:-release}"
 TV_DEPLOYMENT="${TVOS_DEPLOYMENT_TARGET:-16.3}"
 IOS_DEPLOYMENT="${IPHONEOS_DEPLOYMENT_TARGET:-16.0}"
+# DEVICE_ONLY=1 → skip simulator slices (faster builds, Xcode device targets only)
+DEVICE_ONLY="${DEVICE_ONLY:-0}"
 
 MANIFEST="crates/tom-protocol-ffi/Cargo.toml"
 CRATE_TARGET_DIR="crates/tom-protocol-ffi/target"
@@ -31,12 +33,19 @@ mkdir -p "${OUT_DIR}"
 
 # ── Ensure Rust targets ────────────────────────────────────────────────────
 
-TARGETS=(
-    "aarch64-apple-tvos"
-    "aarch64-apple-tvos-sim"
-    "aarch64-apple-ios"
-    "aarch64-apple-ios-sim"
-)
+if [[ "${DEVICE_ONLY}" == "1" ]]; then
+    TARGETS=(
+        "aarch64-apple-tvos"
+        "aarch64-apple-ios"
+    )
+else
+    TARGETS=(
+        "aarch64-apple-tvos"
+        "aarch64-apple-tvos-sim"
+        "aarch64-apple-ios"
+        "aarch64-apple-ios-sim"
+    )
+fi
 
 echo "[1/6] Ensuring Rust toolchain ${TOOLCHAIN} + targets"
 rustup toolchain install "${TOOLCHAIN}" >/dev/null 2>&1 || true
@@ -69,29 +78,41 @@ build_slice() {
 
 # ── Build all slices ───────────────────────────────────────────────────────
 
-echo "[2/6] Building tvOS device   (aarch64-apple-tvos)"
-TV_A=$(build_slice aarch64-apple-tvos TVOS_DEPLOYMENT_TARGET "${TV_DEPLOYMENT}")
+if [[ "${DEVICE_ONLY}" == "1" ]]; then
+    echo "[2/4] Building tvOS device   (aarch64-apple-tvos)"
+    TV_A=$(build_slice aarch64-apple-tvos TVOS_DEPLOYMENT_TARGET "${TV_DEPLOYMENT}")
 
-echo "[3/6] Building tvOS simulator (aarch64-apple-tvos-sim)"
-TVSIM_A=$(build_slice aarch64-apple-tvos-sim TVOS_DEPLOYMENT_TARGET "${TV_DEPLOYMENT}")
+    echo "[3/4] Building iOS device    (aarch64-apple-ios)"
+    IOS_A=$(build_slice aarch64-apple-ios IPHONEOS_DEPLOYMENT_TARGET "${IOS_DEPLOYMENT}")
 
-echo "[4/6] Building iOS device    (aarch64-apple-ios)"
-IOS_A=$(build_slice aarch64-apple-ios IPHONEOS_DEPLOYMENT_TARGET "${IOS_DEPLOYMENT}")
+    echo "[4/4] Assembling XCFramework (device only) → ${XCFW}"
+    rm -rf "${XCFW}"
+    xcodebuild -create-xcframework \
+        -library "${TV_A}"  -headers "${HEADER_DIR}" \
+        -library "${IOS_A}" -headers "${HEADER_DIR}" \
+        -output "${XCFW}"
+else
+    echo "[2/6] Building tvOS device   (aarch64-apple-tvos)"
+    TV_A=$(build_slice aarch64-apple-tvos TVOS_DEPLOYMENT_TARGET "${TV_DEPLOYMENT}")
 
-echo "[5/6] Building iOS simulator  (aarch64-apple-ios-sim)"
-IOSSIM_A=$(build_slice aarch64-apple-ios-sim IPHONEOS_DEPLOYMENT_TARGET "${IOS_DEPLOYMENT}")
+    echo "[3/6] Building tvOS simulator (aarch64-apple-tvos-sim)"
+    TVSIM_A=$(build_slice aarch64-apple-tvos-sim TVOS_DEPLOYMENT_TARGET "${TV_DEPLOYMENT}")
 
-# ── Assemble XCFramework ───────────────────────────────────────────────────
+    echo "[4/6] Building iOS device    (aarch64-apple-ios)"
+    IOS_A=$(build_slice aarch64-apple-ios IPHONEOS_DEPLOYMENT_TARGET "${IOS_DEPLOYMENT}")
 
-echo "[6/6] Assembling XCFramework → ${XCFW}"
+    echo "[5/6] Building iOS simulator  (aarch64-apple-ios-sim)"
+    IOSSIM_A=$(build_slice aarch64-apple-ios-sim IPHONEOS_DEPLOYMENT_TARGET "${IOS_DEPLOYMENT}")
 
-rm -rf "${XCFW}"
-xcodebuild -create-xcframework \
-    -library "${TV_A}"     -headers "${HEADER_DIR}" \
-    -library "${TVSIM_A}"  -headers "${HEADER_DIR}" \
-    -library "${IOS_A}"    -headers "${HEADER_DIR}" \
-    -library "${IOSSIM_A}" -headers "${HEADER_DIR}" \
-    -output "${XCFW}"
+    echo "[6/6] Assembling XCFramework → ${XCFW}"
+    rm -rf "${XCFW}"
+    xcodebuild -create-xcframework \
+        -library "${TV_A}"     -headers "${HEADER_DIR}" \
+        -library "${TVSIM_A}"  -headers "${HEADER_DIR}" \
+        -library "${IOS_A}"    -headers "${HEADER_DIR}" \
+        -library "${IOSSIM_A}" -headers "${HEADER_DIR}" \
+        -output "${XCFW}"
+fi
 
 # Stage header for HEADER_SEARCH_PATHS
 cp -f "${HEADER_SOURCE}" "${OUT_DIR}/tom_protocol_ffi.h"

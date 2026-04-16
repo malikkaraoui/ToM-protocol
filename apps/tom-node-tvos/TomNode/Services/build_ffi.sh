@@ -1,14 +1,9 @@
 #!/bin/bash
 
-# Xcode build phase — delegates to scripts/build-tom-protocol-ffi-xcframework.sh
-# Builds TomProtocolFFI.xcframework (tvOS + iOS, all variants).
-# Skipped by Xcode when output already exists (no alwaysOutOfDate).
+# Xcode build phase — rebuilds TomProtocolFFI.xcframework (device only: tvOS + iOS).
+# Skips if already built. Run `make ffi-xcframework` to force a full rebuild.
 
 export PATH="$HOME/.cargo/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"
-
-echo "================================================"
-echo "🔨 Build TomProtocolFFI.xcframework"
-echo "================================================"
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
@@ -27,22 +22,33 @@ for dir in "${SEARCH_DIRS[@]}"; do
     if [ -d "$dir" ] && [ -f "$dir/Cargo.toml" ]; then
         if grep -q "tom-protocol-ffi" "$dir/Cargo.toml" 2>/dev/null; then
             WORKSPACE_ROOT="$(cd "$dir" && pwd)"
-            echo "  ✅ Workspace: $WORKSPACE_ROOT"
             break
         fi
     fi
 done
 
 if [ -z "$WORKSPACE_ROOT" ]; then
-    echo "❌ ERREUR: Workspace Cargo introuvable"
+    echo "❌ Workspace Cargo introuvable"
     exit 1
 fi
 
+XCFW="$WORKSPACE_ROOT/apps/tom-node-tvos/build/TomProtocolFFI.xcframework"
+
+# Skip if already built
+if [ -d "$XCFW" ] && [ -f "$XCFW/Info.plist" ]; then
+    echo "✅ TomProtocolFFI.xcframework déjà présent — skip"
+    exit 0
+fi
+
+echo "================================================"
+echo "🔨 Build TomProtocolFFI.xcframework (device only)"
+echo "================================================"
+
 XCFW_SCRIPT="$WORKSPACE_ROOT/scripts/build-tom-protocol-ffi-xcframework.sh"
 if [ ! -f "$XCFW_SCRIPT" ]; then
-    echo "❌ ERREUR: Script xcframework introuvable: $XCFW_SCRIPT"
+    echo "❌ Script xcframework introuvable: $XCFW_SCRIPT"
     exit 1
 fi
 
 cd "$WORKSPACE_ROOT"
-bash "$XCFW_SCRIPT"
+DEVICE_ONLY=1 bash "$XCFW_SCRIPT"
