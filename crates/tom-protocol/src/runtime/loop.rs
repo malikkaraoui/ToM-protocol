@@ -519,6 +519,13 @@ pub(super) async fn runtime_loop(
 
         // Execute remaining effects
         execute_effects(regular_effects, &node, &msg_tx, &status_tx, &event_tx, &metrics).await;
+
+        // Sync topology metrics after every loop iteration
+        metrics.set_taille_reseau(state.topology.online_count() as u64);
+        metrics.set_peers_known(state.topology.len() as u64);
+        metrics.set_relayeurs_connus(state.topology.relay_count() as u64);
+        metrics.set_role_local(state.topology.local_role(&state.local_id));
+        metrics.set_groups_count(state.group_manager.group_count() as u64);
     }
 
     // Save state before shutdown
