@@ -261,6 +261,12 @@ struct Cli {
     #[arg(long, value_name = "PLATFORM")]
     node_appareil: Option<String>,
 
+    /// Path to persistent identity file (32-byte Ed25519 secret key).
+    /// If absent, a fresh ephemeral identity is generated on each run.
+    /// Default when omitted: no persistence (ephemeral).
+    #[arg(long, value_name = "PATH")]
+    key_path: Option<std::path::PathBuf>,
+
     /// UDP host:port for centralized log collection (e.g. "192.168.1.10:9999").
     /// Logs are sent as JSON lines over UDP in addition to stderr.
     #[arg(long, value_name = "HOST:PORT")]
@@ -377,7 +383,11 @@ async fn main() -> anyhow::Result<()> {
     };
 
     // Init transport
-    let node = TomNode::bind(TomNodeConfig::new()).await?;
+    let mut node_config = TomNodeConfig::new();
+    if let Some(path) = cli.key_path.clone() {
+        node_config = node_config.identity_path(path);
+    }
+    let node = TomNode::bind(node_config).await?;
     let local_id = node.id();
 
     // Build runtime config

@@ -5,28 +5,16 @@
 ## §0 Contexte projet actif
 
 | Clé | Valeur |
-| --- | --- |
-| Projet courant | tom-protocol |
-| Phase | Plan Maître Réseau Vivant V2 — Étape 3/4 |
-| Stack | Rust · QUIC · tokio · Swift/SwiftUI · tvOS/iOS |
-| Repo | /Users/malik/Documents/tom-protocol |
-| Conventions | voir CLAUDE.md racine |
-| Endpoints actifs | NAS relay http://82.67.95.8:3340 |
-| Contraintes métier | voir CLAUDE.md racine |
-| MCPs actifs | qmd (moteur recherche .md hybride) |
-| Gate pré-push | `cargo clippy --workspace -- -D warnings && cargo test --workspace` |
 
-Mise à jour : « Mets à jour §0 : [ce qui change] » → Claude édite + commit atomique.
+## §1 Horodatage + Modèle — EXIGENCE non négociable
 
-## §1 Horodatage + Modèle
-
-Le hook `routing-check.sh` injecte `[HORODATAGE] YYYY-MM-DD HH:MM:SS | model` à chaque message (heure machine, pas serveurs Anthropic).
-**Ouvrir chaque réponse avec cette ligne exacte** : `[YYYY-MM-DD HH:MM:SS | model]`.
-Si non disponible → `[date estimée | modèle inconnu]`.
+Extraire MODEL-ID de la ligne `[ROUTING] modèle actif: MODEL-ID` injectée par `routing-check.sh` (jamais du system prompt — stale).
+**Ta réponse DOIT commencer par cette ligne, AVANT tout texte ou tool call** : `` `[YYYY-MM-DD HH:MM:SS | MODEL-ID]` ``.
+L'horodatage du hook = contexte, **pas** ta sortie. Aucune exception. Modèle indispo → `[date estimée | modèle inconnu]`.
 
 ## §2 Langue & Ton
 
-Français. Direct. Actionnable. Zéro pédagogie inutile. Pas de preamble, hedge ni platitude. Mise en scène contextuelle → `./runtime/theatre.md` (5 figures, micro-ouvertures sur moments forts uniquement).
+Français. Direct. Actionnable. Zéro pédagogie inutile. Pas de preamble, hedge ni platitude. **≤ 25 mots entre deux tool calls. ≤ 100 mots pour une réponse finale.** Mise en scène contextuelle → `./runtime/theatre.md` (5 figures, micro-ouvertures sur moments forts uniquement).
 
 ## §3 Flow de traitement
 
@@ -71,11 +59,11 @@ Template par défaut : `/core` · `/modules` · `/services` · `/utils` · `/tes
 
 ## §10 Standards par stack → `../stacks/`
 
-Chargement conditionnel selon §0 « Stack ». Disponibles : `javascript` · `python` · `java` · `react-vite` · `firebase` · `docker` · `ollama` · `ios-xcode`.
+Chargement conditionnel selon §0 « Stack ». Disponibles : `javascript` · `python` · `java` · `react-vite` · `firebase` · `docker` · `ollama` · `ios-xcode` · `freebox`.
 
 ## §11 Tests
 
-Obligatoires si logique métier, transformation, comportement critique. Couvrir nominal + edge cases + erreurs. Pour tout hook : ajouter/mettre à jour `test/hooks.js`. `npm test` doit passer avant chaque push.
+Obligatoires si logique métier, transformation, comportement critique. Couvrir nominal + edge cases + erreurs. Pour tout hook : MAJ `test/hooks.js` + `.claude/hooks-manifest.json`. `npm test` doit passer avant chaque push.
 
 ## §12 Code Review → `./runtime/code-review.md`
 
@@ -91,7 +79,7 @@ Stateless, idempotent, secrets externalisés, IaC, fail fast, tests locaux avant
 
 ## §15 Token Management → `../templates/settings.json`
 
-Input : ne pas relire un fichier déjà lu dans la session sauf si modifié. Settings consolidé (env + permissions + budget). Routing : Haiku exploration / Sonnet standard / Opus architecture. **En début de session, signaler le modèle actif et recommander `/model sonnet` ou `/model haiku` si surdimensionné** (ex: Opus pour du dev standard → « tu tournes sur Opus — tape `/model sonnet` pour descendre »). Compaction : `/compact` après explore, après feature, avant switch.
+Input : ne pas relire un fichier déjà lu dans la session sauf si modifié. Settings consolidé (env + permissions + budget). Routing : Haiku exploration / Sonnet standard / Opus architecture. **En début de session, signaler le modèle actif et recommander `/model sonnet` ou `/model haiku` si surdimensionné** (ex: Opus pour du dev standard → « tu tournes sur Opus — tape `/model sonnet` pour descendre »). Compaction : `/compact` à **~60% de la fenêtre** (ne pas attendre 75-98% — résumé agressif garantit perte d'info). Déclencher aussi après explore, après feature, avant switch.
 
 **QMD-first** : pour tout fichier `.md` du projet, utiliser `mcp__qmd__get` ou `mcp__qmd__query` avant `Read`. `Read` sur un `.md` n'est autorisé que si la ligne exacte est connue (offset+limit obligatoire).
 
@@ -101,7 +89,7 @@ Fork · Teammate · Worktree. Refactor > 3 fichiers → `isolation: worktree`. D
 
 ## §17 Todo & Session → `./runtime/todo-session.md`
 
-Tracking obligatoire si > 3 fichiers ou agents multiples. Reprise : dernier `[→]` ou premier `[ ]` pending.
+Tracking obligatoire si > 3 fichiers ou agents multiples. **Les todos survivent aux compactions** (stockés hors flux messages). Reprise : dernier `[→]` ou premier `[ ]` pending.
 
 ## §18 Extended Thinking → `./runtime/extended-thinking.md`
 
@@ -121,7 +109,6 @@ Ce fichier évolue sur instruction explicite. Immuables sans validation : §5, �
 | Nouvel endpoint | §0 |
 | Décision archi | §9 + note §0 |
 | MCP ajouté | §0 + §19 |
-
 ## §21 Hiérarchie des règles
 
 ```text
@@ -138,7 +125,7 @@ Non négociable : jamais de clé/token en dur, `.gitignore` + `.claudeignore` ob
 
 ## §23 Autonomie & Mode Nuit → `./autonomy/`
 
-Plan Pro → `acceptEdits` + allow/deny, `maxBudgetUsd` défini, `git push` en `deny`. Détails : `permission-modes.md` · `night-mode.md` · `loop-watchers.md`.
+Plan Pro → `acceptEdits` + allow/deny, `maxBudgetUsd` défini. Push autonome autorisé après gate verte. Détails : `permission-modes.md` · `night-mode.md` · `loop-watchers.md`.
 
 ## §24 Pre-push Gate → `./security/pre-push-gate.md`
 

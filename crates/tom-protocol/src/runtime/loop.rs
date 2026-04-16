@@ -441,6 +441,11 @@ pub(super) async fn runtime_loop(
                         .collect();
                     if !known.is_empty() {
                         let _ = sender.join_peers(known).await;
+                    } else {
+                        // Topology is empty — re-probe relays to trigger PeerPresent
+                        // and recover from full isolation (e.g. after relay cut).
+                        node.reprobe_relays().await;
+                        tracing::info!("reconnect_check: topology empty — relay reprobe triggered");
                     }
                 }
                 Vec::new()
