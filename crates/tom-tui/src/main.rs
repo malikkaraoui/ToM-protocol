@@ -918,6 +918,15 @@ fn handle_bot_event(ctx: &BotContext, event: &ProtocolEvent) {
                 Some(discovery_source_str(source)),
             );
         }
+        ProtocolEvent::PeerStale { node_id } => {
+            ctx.log_event("pair_stale", &short_node_id(node_id));
+        }
+        ProtocolEvent::PeerOffline { node_id } => {
+            ctx.log_event("pair_offline", &short_node_id(node_id));
+        }
+        ProtocolEvent::PeerOnline { node_id } => {
+            ctx.log_event("pair_online", &short_node_id(node_id));
+        }
         ProtocolEvent::GossipNeighborUp { node_id } => {
             ctx.log_event("voisin_connecte", &short_node_id(node_id));
         }
