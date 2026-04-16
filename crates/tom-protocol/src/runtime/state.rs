@@ -1,3 +1,5 @@
+use std::cmp::Reverse;
+
 use crate::backup::{BackupAction, BackupCoordinator, BackupEvent};
 use crate::discovery::{
     DiscoveryEvent, DiscoverySource, EphemeralSubnetManager, HeartbeatTracker, PeerAnnounce,
@@ -1848,7 +1850,7 @@ impl RuntimeState {
 
             RuntimeCommand::GetKnownRelays { reply } => {
                 let mut relays: Vec<_> = self.relay_registry.all().cloned().collect();
-                relays.sort_by(|a, b| b.refreshed_at.cmp(&a.refreshed_at));
+                relays.sort_by_key(|a| Reverse(a.refreshed_at));
                 let _ = reply.send(relays);
                 Vec::new()
             }
