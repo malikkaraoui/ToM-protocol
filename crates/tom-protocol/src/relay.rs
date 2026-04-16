@@ -3,7 +3,7 @@
 /// Chooses the best relay node based on network topology: role,
 /// online status, and last-seen timestamp.
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::{cmp::Reverse, collections::HashMap};
 use crate::types::NodeId;
 
 /// Maximum relay depth for path selection.
@@ -123,7 +123,7 @@ impl Topology {
             .values()
             .filter(|p| p.role == PeerRole::Relay && p.status == PeerStatus::Online)
             .collect();
-        relays.sort_by(|a, b| b.last_seen.cmp(&a.last_seen));
+        relays.sort_by_key(|a| Reverse(a.last_seen));
         relays
     }
 }

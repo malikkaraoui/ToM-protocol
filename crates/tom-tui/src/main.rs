@@ -528,11 +528,9 @@ async fn main() -> anyhow::Result<()> {
                     KeyCode::Esc => {
                         app.quit = true;
                     }
-                    KeyCode::Enter => {
-                        if !app.input.is_empty() {
-                            let text = app.input.drain(..).collect::<String>();
-                            handle_input(&mut app, &text, &handle).await;
-                        }
+                    KeyCode::Enter if !app.input.is_empty() => {
+                        let text = app.input.drain(..).collect::<String>();
+                        handle_input(&mut app, &text, &handle).await;
                     }
                     KeyCode::Backspace => {
                         app.input.pop();
