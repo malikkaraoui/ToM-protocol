@@ -150,7 +150,7 @@ final class TomNodeService: ObservableObject {
 
     // MARK: - Logging
 
-    func appendLog(_ level: LogLevel, _ message: String) {
+    func appendLog(_ level: LogLevel, _ message: String, sourceAmorcage: String? = nil) {
         let entry = LogEntry(date: Date(), level: level, message: message)
         logEntries.append(entry)
         // Keep last 1000 entries
@@ -164,8 +164,9 @@ final class TomNodeService: ObservableObject {
         let msgsSent = totalMessagesSentCount
         let msgsRecv = totalMessagesCount - totalMessagesSentCount
         let shortId = String(nodeId.prefix(8))
+        let srcField = sourceAmorcage.map { ",\"source_amorcage\":\"\($0)\"" } ?? ""
         let json = """
-        {"ts":\(Int(Date().timeIntervalSince1970 * 1000)),"node":"\(username)","node_id":"\(shortId)","appareil":"\(Self.appareil)","event":"\(level)","detail":"\(escaped)","phase":"\(state == .running ? "connecte" : "arret")","taille_reseau":\(peersCount),"number_peers":\(connectedPeers.count),"discovered_peers":\(discoveredPeers.count),"role":"\(localRole)","path":"\(pathKind)","rtt_ms":\(pathRttMs),"msgs_sent":\(msgsSent),"msgs_recv":\(msgsRecv),"groups":\(groupsCount),"uptime_s":\(uptimeS)}
+        {"ts":\(Int(Date().timeIntervalSince1970 * 1000)),"node":"\(username)","node_id":"\(shortId)","appareil":"\(Self.appareil)","event":"\(level)","detail":"\(escaped)"\(srcField),"phase":"\(state == .running ? "connecte" : "arret")","taille_reseau":\(peersCount),"number_peers":\(connectedPeers.count),"discovered_peers":\(discoveredPeers.count),"role":"\(localRole)","path":"\(pathKind)","rtt_ms":\(pathRttMs),"msgs_sent":\(msgsSent),"msgs_recv":\(msgsRecv),"groups":\(groupsCount),"uptime_s":\(uptimeS)}
         """
         sendLogUDP(json.trimmingCharacters(in: .whitespacesAndNewlines))
     }
@@ -496,7 +497,7 @@ final class TomNodeService: ObservableObject {
                     if !knownPeerIds.contains(peer.nodeId) {
                         knownPeerIds.insert(peer.nodeId)
                         let name = peer.username.isEmpty ? peer.shortId : "\(peer.username) (\(peer.shortId))"
-                        self.appendLog(.success, "PEER DISCOVERED: \(name) via \(peer.source)")
+                        self.appendLog(.success, "PEER DISCOVERED: \(name) via \(peer.source)", sourceAmorcage: peer.source.lowercased())
                     }
                 }
                 self.discoveredPeers = currentDiscovered
