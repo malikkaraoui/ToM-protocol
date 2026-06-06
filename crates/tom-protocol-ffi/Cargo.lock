@@ -4036,7 +4036,7 @@ dependencies = [
 
 [[package]]
 name = "tom-base"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "curve25519-dalek 5.0.0-pre.1",
  "data-encoding",
@@ -4052,7 +4052,7 @@ dependencies = [
 
 [[package]]
 name = "tom-connect"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "backon",
@@ -4102,7 +4102,7 @@ dependencies = [
 
 [[package]]
 name = "tom-dht"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "futures-lite",
@@ -4115,7 +4115,7 @@ dependencies = [
 
 [[package]]
 name = "tom-gossip"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "blake3",
  "bytes",
@@ -4143,14 +4143,14 @@ dependencies = [
 
 [[package]]
 name = "tom-metrics"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "tom-protocol"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "async-trait",
  "bytes",
@@ -4240,7 +4240,7 @@ dependencies = [
 
 [[package]]
 name = "tom-relay"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "ahash",
  "anyhow",
@@ -4298,7 +4298,7 @@ dependencies = [
 
 [[package]]
 name = "tom-transport"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "bytes",
