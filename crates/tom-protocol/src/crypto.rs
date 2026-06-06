@@ -404,4 +404,47 @@ mod tests {
         let decrypted = decrypt_group_message(&ciphertext, &nonce, &key).unwrap();
         assert_eq!(decrypted, b"");
     }
+
+    // ── HKDF pinned vectors ───────────────────────────────────────────────
+
+    /// HKDF-SHA256 is deterministic: same shared secret → identical derived key.
+    #[test]
+    fn hkdf_derived_key_is_deterministic() {
+        let shared_secret = [0x42u8; 32];
+        let key1 = derive_key(&shared_secret);
+        let key2 = derive_key(&shared_secret);
+        assert_eq!(key1, key2, "HKDF must be deterministic for the same input");
+    }
+
+    /// Pinned HKDF-SHA256 vector: any change to HKDF_INFO, algorithm, or domain tag
+    /// will break this test, immediately catching silent regression.
+    ///
+    /// Vector: IKM=[0x42;32], salt=None, info="tom-protocol-e2e-xchacha20poly1305-v1", L=32.
+    #[test]
+    fn hkdf_pinned_vector_known_input() {
+        let shared_secret = [0x42u8; 32];
+        let key = derive_key(&shared_secret);
+        let expected: [u8; 32] = [
+            0xcb, 0x3f, 0x89, 0xb2, 0xed, 0x6b, 0x61, 0x02,
+            0x9e, 0x83, 0x90, 0xf6, 0xcb, 0x93, 0xc7, 0x93,
+            0x1c, 0x70, 0x78, 0x1f, 0x0f, 0xe6, 0x1a, 0x7c,
+            0xbc, 0xdc, 0x77, 0x59, 0xd5, 0xfa, 0x7d, 0x7a,
+        ];
+        assert_eq!(key, expected, "HKDF-SHA256 pinned vector: HKDF_INFO or algorithm changed");
+        // Domain tag check: wrong info string → different key
+        let tampered_hkdf = hkdf::Hkdf::<sha2::Sha256>::new(None, &shared_secret);
+        let mut tampered_key = [0u8; 32];
+        tampered_hkdf.expand(b"wrong-info", &mut tampered_key).unwrap();
+        assert_ne!(key, tampered_key, "different HKDF info must produce different key");
+    }
+
+    /// Two different shared secrets produce distinct derived keys (no collision).
+    #[test]
+    fn hkdf_distinct_inputs_produce_distinct_keys() {
+        let secret_a = [0xAAu8; 32];
+        let secret_b = [0xBBu8; 32];
+        let key_a = derive_key(&secret_a);
+        let key_b = derive_key(&secret_b);
+        assert_ne!(key_a, key_b, "different shared secrets must yield different keys");
+    }
 }
