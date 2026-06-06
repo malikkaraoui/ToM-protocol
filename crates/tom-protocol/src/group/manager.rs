@@ -1900,4 +1900,62 @@ mod tests {
         let actions = mgr.handle_member_role_changed(&gid, &bob, GroupMemberRole::Admin);
         assert!(actions.is_empty(), "unknown group should be silently ignored");
     }
+
+    // ── R13.3: Member sequence tracking ──────────────────────────────────
+
+    #[test]
+    fn member_tracks_last_seq() {
+        let alice = node_id(1);
+        let hub = node_id(10);
+        let mut mgr = GroupManager::new(alice, "alice".into());
+
+        let group = make_test_group(alice, hub);
+        let gid = group.group_id.clone();
+        mgr.handle_group_created(group);
+
+        assert_eq!(mgr.last_seq(&gid), 0, "initial last_seq should be 0");
+
+        // Deliver a message with seq=5
+        let mut msg = GroupMessage::new(gid.clone(), hub, "hub".into(), "hello".into());
+        msg.seq = 5;
+        mgr.deliver_message(msg);
+
+        assert_eq!(mgr.last_seq(&gid), 5, "last_seq should be updated to 5");
+
+        // Deliver a later message with seq=12
+        let mut msg2 = GroupMessage::new(gid.clone(), hub, "hub".into(), "world".into());
+        msg2.seq = 12;
+        mgr.deliver_message(msg2);
+
+        assert_eq!(mgr.last_seq(&gid), 12, "last_seq should advance to 12");
+    }
+
+    #[test]
+    fn duplicate_seq_not_tracked() {
+        let alice = node_id(1);
+        let hub = node_id(10);
+        let mut mgr = GroupManager::new(alice, "alice".into());
+
+        let group = make_test_group(alice, hub);
+        let gid = group.group_id.clone();
+        mgr.handle_group_created(group);
+
+        // Deliver msg with seq=10
+        let mut msg = GroupMessage::new(gid.clone(), hub, "hub".into(), "first".into());
+        msg.seq = 10;
+        mgr.deliver_message(msg);
+        assert_eq!(mgr.last_seq(&gid), 10);
+
+        // Deliver a message with a lower seq — last_seq must NOT decrease
+        let mut msg_old = GroupMessage::new(gid.clone(), hub, "hub".into(), "old".into());
+        msg_old.seq = 7;
+        mgr.deliver_message(msg_old);
+        assert_eq!(mgr.last_seq(&gid), 10, "last_seq must not decrease on old seq");
+
+        // Deliver a message with seq=0 (unassigned) — last_seq must stay
+        let mut msg_zero = GroupMessage::new(gid.clone(), hub, "hub".into(), "zero-seq".into());
+        msg_zero.seq = 0;
+        mgr.deliver_message(msg_zero);
+        assert_eq!(mgr.last_seq(&gid), 10, "seq=0 must not affect last_seq");
+    }
 }
