@@ -607,6 +607,115 @@ mod tests {
         decoded.verify_signature().expect("signature valid after roundtrip");
     }
 
+    // --- ADR-003: relays mutate TTL in transit; signature MUST survive ---
+
+    #[test]
+    fn signing_bytes_independent_of_ttl() {
+        let mut env = make_envelope(MessageType::Chat, b"x".to_vec());
+        let before = env.signing_bytes();
+        env.ttl = env.ttl.saturating_sub(3);
+        let after = env.signing_bytes();
+        assert_eq!(before, after, "ADR-003: ttl must be excluded from signing_bytes");
+    }
+
+    #[test]
+    fn ttl_mutation_does_not_break_signature() {
+        let (sk, _, from) = keypair(1);
+        let (_, _, to) = keypair(2);
+
+        let mut env = EnvelopeBuilder::new(from, to, MessageType::Chat, b"relayed".to_vec())
+            .ttl(8)
+            .sign(&sk);
+        env.verify_signature().expect("valid at origin");
+
+        // Simulate relay hops decrementing TTL in transit.
+        for expected in (0..8).rev() {
+            env.decrement_ttl().expect("ttl decrement");
+            assert_eq!(env.ttl, expected);
+            env.verify_signature()
+                .expect("ADR-003: ttl mutation must NOT invalidate signature");
+        }
+    }
+
+    #[test]
+    fn ttl_mutation_survives_wire_roundtrip_with_signature() {
+        let (sk, _, from) = keypair(1);
+        let (_, _, to) = keypair(2);
+
+        let mut env = EnvelopeBuilder::new(from, to, MessageType::Chat, b"hop".to_vec())
+            .ttl(5)
+            .sign(&sk);
+
+        // A relay decrements TTL, then forwards the bytes over the wire.
+        env.decrement_ttl().unwrap();
+        let bytes = env.to_bytes().expect("serialize");
+        let decoded = Envelope::from_bytes(&bytes).expect("deserialize");
+        assert_eq!(decoded.ttl, 4);
+        decoded
+            .verify_signature()
+            .expect("signature valid after relay ttl decrement + wire roundtrip");
+    }
+
+    #[test]
+    fn ttl_exhaustion_at_zero_is_rejected() {
+        let mut env = make_envelope(MessageType::Chat, vec![]);
+        env.ttl = 1;
+        env.decrement_ttl().expect("1 -> 0 ok");
+        assert_eq!(env.ttl, 0);
+        assert!(env.decrement_ttl().is_err(), "decrement at ttl=0 must error");
+    }
+
+    // --- Malformed wire input: must Err gracefully, never panic ---
+
+    #[test]
+    fn from_bytes_rejects_truncated() {
+        let env = make_envelope(MessageType::Chat, b"hello world".to_vec());
+        let bytes = env.to_bytes().expect("serialize");
+        for cut in [0, 1, bytes.len() / 2, bytes.len().saturating_sub(1)] {
+            assert!(
+                Envelope::from_bytes(&bytes[..cut]).is_err(),
+                "truncated@{cut} must be rejected, not panic"
+            );
+        }
+    }
+
+    #[test]
+    fn from_bytes_rejects_garbage() {
+        for garbage in [
+            Vec::new(),
+            vec![0x00],
+            vec![0xff; 16],
+            b"not msgpack at all".to_vec(),
+        ] {
+            assert!(
+                Envelope::from_bytes(&garbage).is_err(),
+                "garbage {garbage:?} must be rejected"
+            );
+        }
+    }
+
+    #[test]
+    fn decrypt_rejects_malformed_ciphertext() {
+        let (sk_recipient, _pk, to) = keypair(2);
+        // encrypted=true but payload is not a valid EncryptedPayload.
+        let mut env = Envelope {
+            id: "x".into(),
+            from: node_id(1),
+            to,
+            via: Vec::new(),
+            msg_type: MessageType::Chat,
+            payload: vec![0xde, 0xad, 0xbe, 0xef],
+            timestamp: 1,
+            signature: Vec::new(),
+            ttl: DEFAULT_TTL,
+            encrypted: true,
+        };
+        assert!(
+            env.decrypt_payload(&sk_recipient).is_err(),
+            "malformed ciphertext must Err, not panic"
+        );
+    }
+
     // --- EnvelopeBuilder tests ---
 
     #[test]
