@@ -12,6 +12,7 @@ mod scenario_backup;
 mod scenario_chaos;
 mod scenario_common;
 mod scenario_e2e;
+mod scenario_endurance;
 mod scenario_failover;
 mod scenario_group;
 mod scenario_roles;
@@ -158,6 +159,9 @@ enum Command {
     /// Chaos scenario: randomized multi-node test with random delays and message sizes.
     Chaos,
 
+    /// Endurance scenario: 6h soak test with 5 nodes, churn, relay kill, and group test.
+    Endurance,
+
     /// Run all 6 protocol scenarios in sequence (e2e, group, backup, failover, roles, chaos).
     Scenarios,
 
@@ -194,6 +198,7 @@ async fn main() -> anyhow::Result<()> {
         Command::Failover => "failover",
         Command::Roles => "roles",
         Command::Chaos => "chaos",
+        Command::Endurance => "endurance",
         Command::Scenarios => "scenarios",
         Command::Responder => "responder",
         Command::Campaign { .. } => "campaign",
@@ -243,7 +248,7 @@ async fn main() -> anyhow::Result<()> {
 
     // ── Protocol scenarios (spawn their own nodes) ───────────────
     match &cli.command {
-        Command::E2e | Command::Group | Command::Backup | Command::Failover | Command::Roles | Command::Chaos => {
+        Command::E2e | Command::Group | Command::Backup | Command::Failover | Command::Roles | Command::Chaos | Command::Endurance => {
             let result = match cli.command {
                 Command::E2e => scenario_e2e::run().await?,
                 Command::Group => scenario_group::run().await?,
@@ -251,6 +256,7 @@ async fn main() -> anyhow::Result<()> {
                 Command::Failover => scenario_failover::run().await?,
                 Command::Roles => scenario_roles::run().await?,
                 Command::Chaos => scenario_chaos::run().await?,
+                Command::Endurance => scenario_endurance::run().await?,
                 _ => unreachable!(),
             };
             result.print_summary();
@@ -460,7 +466,7 @@ async fn main() -> anyhow::Result<()> {
 
         // Already handled above
         Command::E2e | Command::Group | Command::Backup | Command::Failover | Command::Roles
-        | Command::Chaos | Command::Scenarios | Command::Responder | Command::Campaign { .. } => {
+        | Command::Chaos | Command::Endurance | Command::Scenarios | Command::Responder | Command::Campaign { .. } => {
             unreachable!()
         }
     }

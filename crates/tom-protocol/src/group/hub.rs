@@ -2667,4 +2667,44 @@ mod tests {
         assert_eq!(purged, 3, "should purge 3 old messages");
         assert_eq!(hub.message_history(&gid).unwrap().len(), 2);
     }
+
+    // ── R13.3: SyncRequest for unknown group ──────────────────────────────
+
+    #[test]
+    fn sync_request_for_unknown_group_ignored() {
+        let mut hub = make_hub();
+        let alice = node_id(1);
+        let unknown_gid = GroupId::from("no-such-group".to_string());
+
+        // Hub has no groups at all — SyncRequest must return empty vec without panicking
+        let actions = hub.handle_payload(
+            GroupPayload::SyncRequest {
+                group_id: unknown_gid.clone(),
+                since_seq: 0,
+            },
+            alice,
+        );
+        assert!(actions.is_empty(), "SyncRequest for unknown group should produce no actions");
+
+        // Also verify for a hub that has groups but not THIS group
+        hub.handle_payload(
+            GroupPayload::Create {
+                group_name: "Other".into(),
+                creator_username: "alice".into(),
+                initial_members: vec![],
+                invite_only: false,
+            },
+            alice,
+        );
+        assert_eq!(hub.group_count(), 1);
+
+        let actions2 = hub.handle_payload(
+            GroupPayload::SyncRequest {
+                group_id: unknown_gid,
+                since_seq: 5,
+            },
+            alice,
+        );
+        assert!(actions2.is_empty(), "SyncRequest for non-member group should produce no actions");
+    }
 }
