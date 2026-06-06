@@ -531,4 +531,41 @@ mod tests {
         let expired = tracker.expired_deadlines();
         assert!(expired.is_empty(), "restored message should have fresh deadline");
     }
+
+    // ── LOCKED Decision #1: delivered ⟺ ACK (negative cases) ─────────────
+
+    #[test]
+    fn sent_without_ack_never_reaches_delivered() {
+        let mut tracker = MessageTracker::new();
+        tracker.track("msg-1".into(), node_id(2));
+        tracker.mark_sent("msg-1");
+        tracker.mark_relayed("msg-1");
+
+        // No delivery ACK fed → status must stay below Delivered.
+        assert_eq!(tracker.status("msg-1"), Some(MessageStatus::Relayed));
+        assert!(tracker.status("msg-1").unwrap() < MessageStatus::Delivered);
+    }
+
+    #[test]
+    fn relayed_is_not_delivery_confirmation() {
+        // A relay ACK must never be mistaken for recipient delivery (Decision #1).
+        let mut tracker = MessageTracker::new();
+        tracker.track("msg-1".into(), node_id(2));
+        tracker.mark_relayed("msg-1");
+        assert_ne!(tracker.status("msg-1"), Some(MessageStatus::Delivered));
+    }
+
+    #[test]
+    fn unacked_message_fails_never_silently_delivered() {
+        // Without an ACK, an exhausted message is abandoned (Failed),
+        // never silently promoted to Delivered.
+        let mut tracker = MessageTracker::new();
+        tracker.track("msg-1".into(), node_id(2));
+        tracker.mark_sent("msg-1");
+        tracker.reset_deadline("msg-1"); // retry 1
+        tracker.reset_deadline("msg-1"); // retry 2 → 0 remaining
+        let change = tracker.mark_failed("msg-1").unwrap();
+        assert_eq!(change.current, MessageStatus::Failed);
+        assert_ne!(tracker.status("msg-1"), Some(MessageStatus::Delivered));
+    }
 }
