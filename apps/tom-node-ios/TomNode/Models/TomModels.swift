@@ -1,0 +1,104 @@
+import Foundation
+
+typealias NodeId = String
+typealias GroupId = String
+typealias MessageId = String
+
+struct TomPeer: Identifiable, Codable {
+    let nodeId: NodeId
+    var username: String = ""
+    var source: String = ""
+    var discoveredAt: UInt64 = 0
+
+    var id: NodeId { nodeId }
+
+    var displayName: String {
+        username.isEmpty ? shortId : username
+    }
+
+    var shortId: String {
+        String(nodeId.prefix(8)) + "..." + String(nodeId.suffix(4))
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case nodeId = "node_id"
+        case username
+        case source
+        case discoveredAt = "discovered_at"
+    }
+}
+
+struct TomMessage: Identifiable, Codable {
+    let id: String // envelope_id
+    let from: NodeId
+    let payload: String // base64-encoded from FFI
+    let timestamp: UInt64
+    let signatureValid: Bool
+    let wasEncrypted: Bool
+    var groupId: GroupId?
+
+    var payloadData: Data {
+        Data(base64Encoded: payload) ?? Data()
+    }
+
+    var text: String {
+        String(data: payloadData, encoding: .utf8) ?? "<binary \(payloadData.count) bytes>"
+    }
+
+    var date: Date {
+        Date(timeIntervalSince1970: Double(timestamp) / 1000.0)
+    }
+
+    var senderShortId: String {
+        String(from.prefix(8)) + "..."
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id = "envelope_id"
+        case from
+        case payload
+        case timestamp
+        case signatureValid = "signature_valid"
+        case wasEncrypted = "was_encrypted"
+        case groupId = "group_id"
+    }
+}
+
+struct TomGroup: Identifiable, Codable {
+    let id: GroupId
+    var name: String
+    var members: [NodeId]
+    var messages: [TomMessage] = []
+
+    enum CodingKeys: String, CodingKey {
+        case id, name, members
+    }
+}
+
+struct TomNodeStatus: Codable {
+    let nodeId: String
+    let status: String
+    let peersCount: Int
+    let groupsCount: Int
+    let localRole: String?
+    let pathKind: String?
+    let pathRttMs: UInt64?
+
+    enum CodingKeys: String, CodingKey {
+        case nodeId = "node_id"
+        case status
+        case peersCount = "peers_count"
+        case groupsCount = "groups_count"
+        case localRole = "local_role"
+        case pathKind = "path_kind"
+        case pathRttMs = "path_rtt_ms"
+    }
+}
+
+enum TomNodeState: String {
+    case stopped = "Stopped"
+    case starting = "Starting"
+    case running = "Running"
+    case stopping = "Stopping"
+    case error = "Error"
+}
