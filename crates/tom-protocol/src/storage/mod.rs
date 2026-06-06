@@ -982,4 +982,95 @@ mod tests {
         let mgr_snap = loaded.manager.unwrap();
         assert_eq!(mgr_snap.last_seqs[&gid], 17);
     }
+
+    #[test]
+    fn hub_messages_survive_restart() {
+        let dir = tempfile::tempdir().unwrap();
+        let db_path = dir.path().join("hub_history.db");
+        let gid = GroupId::from("grp-persist".to_string());
+
+        // Write messages into a file-backed store
+        {
+            let store = StateStore::open(&db_path).unwrap();
+            for seq in 1..=5u64 {
+                let data = format!("msg-{seq}").into_bytes();
+                store.save_hub_message(&gid, seq, &data, seq * 1000).unwrap();
+            }
+        }
+
+        // Reopen from the same file — messages must still be there
+        {
+            let store = StateStore::open(&db_path).unwrap();
+            let msgs = store.load_hub_messages_since(&gid, 0, 100).unwrap();
+            assert_eq!(msgs.len(), 5, "all 5 messages should survive db close/reopen");
+            assert_eq!(msgs[0].0, 1);
+            assert_eq!(msgs[4].0, 5);
+            assert_eq!(msgs[0].1, b"msg-1");
+        }
+    }
+
+    #[test]
+    fn sync_response_limit_500() {
+        let store = StateStore::open_memory().unwrap();
+        let gid = GroupId::from("grp-500".to_string());
+
+        // Insert 600 messages (seq 1..=600)
+        for seq in 1..=600u64 {
+            store.save_hub_message(&gid, seq, b"x", seq).unwrap();
+        }
+
+        // Request with max_count=500 — must return exactly 500
+        let msgs = store.load_hub_messages_since(&gid, 0, 500).unwrap();
+        assert_eq!(msgs.len(), 500, "load_hub_messages_since must respect max_count=500");
+        assert_eq!(msgs[0].0, 1, "first returned seq should be 1");
+        assert_eq!(msgs[499].0, 500, "last returned seq should be 500");
+
+        // Request with max_count=500, since_seq=100 — 500 messages starting at 101
+        let msgs2 = store.load_hub_messages_since(&gid, 100, 500).unwrap();
+        assert_eq!(msgs2.len(), 500);
+        assert_eq!(msgs2[0].0, 101);
+        assert_eq!(msgs2[499].0, 600);
+    }
+
+    #[test]
+    fn last_seq_restored_after_restart() {
+        let dir = tempfile::tempdir().unwrap();
+        let db_path = dir.path().join("member_seq.db");
+        let alice = node_id(1);
+        let hub = node_id(10);
+
+        let info = make_group_info("RestartGroup", hub, alice);
+        let gid = info.group_id.clone();
+
+        // Save member snapshot with last_seq=99 to file-backed store
+        {
+            let store = StateStore::open(&db_path).unwrap();
+            let mut groups = HashMap::new();
+            groups.insert(gid.clone(), info.clone());
+            let mut last_seqs = HashMap::new();
+            last_seqs.insert(gid.clone(), 99u64);
+
+            let snapshot = StateSnapshot {
+                manager: Some(GroupManagerSnapshot {
+                    groups,
+                    local_sender_keys: HashMap::new(),
+                    sender_keys: HashMap::new(),
+                    previous_sender_keys: HashMap::new(),
+                    local_sender_message_counts: HashMap::new(),
+                    message_history: HashMap::new(),
+                    last_seqs,
+                }),
+                ..Default::default()
+            };
+            store.save(&snapshot).unwrap();
+        }
+
+        // Reopen — last_seq must be restored
+        {
+            let store = StateStore::open(&db_path).unwrap();
+            let loaded = store.load().unwrap();
+            let mgr_snap = loaded.manager.unwrap();
+            assert_eq!(mgr_snap.last_seqs[&gid], 99, "last_seq must survive db close/reopen");
+        }
+    }
 }
