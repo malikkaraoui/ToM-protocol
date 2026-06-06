@@ -7,8 +7,9 @@
 /// with heartbeats tracking liveness and triggering topology changes.
 use tom_protocol::{
     DissolveReason, EphemeralSubnetManager, HeartbeatTracker, LivenessState, PeerAnnounce,
-    PeerInfo, PeerRole, PeerStatus, SubnetEvent, Topology,
+    PeerInfo, PeerRole, PeerStatus, RoleChangeAnnounce, SubnetEvent, Topology,
 };
+use tom_protocol::discovery::RelayReadyAnnounce;
 
 type NodeId = tom_protocol::NodeId;
 
@@ -288,4 +289,121 @@ fn multiple_independent_subnets() {
     assert_eq!(subnets.subnet_count(), 1);
     assert!(subnets.are_in_same_subnet(&b1, &b2));
     assert!(!subnets.are_in_same_subnet(&a1, &a2));
+}
+
+// ─── Gossip adversarial tests ────────────────────────────────────────────────
+
+fn relay_url() -> tom_connect::RelayUrl {
+    "http://127.0.0.1:3340".parse().unwrap()
+}
+
+fn keypair_relay(seed: u8) -> (NodeId, [u8; 32]) {
+    use rand::SeedableRng;
+    let mut rng = rand::rngs::StdRng::seed_from_u64(seed as u64);
+    let secret = tom_connect::SecretKey::generate(&mut rng);
+    let seed_bytes = secret.to_bytes();
+    let id = secret.public().to_string().parse().unwrap();
+    (id, seed_bytes)
+}
+
+/// A RelayReadyAnnounce with an all-zeros forged signature is rejected.
+#[test]
+fn gossip_relay_announce_forged_sig_rejected() {
+    let (id, seed) = keypair_relay(1);
+    let mut announce = RelayReadyAnnounce::new(id, relay_url(), 1_000_000, &seed);
+    announce.signature = vec![0u8; 64];
+    assert!(
+        !announce.verify_signature(),
+        "forged all-zeros signature must be rejected"
+    );
+}
+
+/// Tampering the relay URL after signing breaks the signature.
+#[test]
+fn gossip_relay_announce_tampered_url_breaks_sig() {
+    let (id, seed) = keypair_relay(2);
+    let mut announce = RelayReadyAnnounce::new(id, relay_url(), 1_000_000, &seed);
+    assert!(announce.verify_signature(), "original must be valid");
+    announce.relay_url = "http://evil.attacker.com:9999".parse().unwrap();
+    assert!(
+        !announce.verify_signature(),
+        "tampered relay URL must break the signature"
+    );
+}
+
+/// Tampering the node_id after signing breaks the RelayReadyAnnounce signature.
+#[test]
+fn gossip_relay_announce_wrong_node_id_breaks_sig() {
+    let (id, seed) = keypair_relay(3);
+    let (other_id, _) = keypair_relay(4);
+    let mut announce = RelayReadyAnnounce::new(id, relay_url(), 1_000_000, &seed);
+    assert!(announce.verify_signature());
+    announce.node_id = other_id;
+    assert!(
+        !announce.verify_signature(),
+        "swapped node_id must break signature (wrong verifying key)"
+    );
+}
+
+/// A RelayReadyAnnounce signed by a different key is rejected.
+#[test]
+fn gossip_relay_announce_wrong_signer_rejected() {
+    let (id, _) = keypair_relay(5);
+    let (_, wrong_seed) = keypair_relay(6);
+    // Sign with wrong_seed but advertise `id` as the source
+    let announce = RelayReadyAnnounce::new(id, relay_url(), 1_000_000, &wrong_seed);
+    assert!(
+        !announce.verify_signature(),
+        "relay announce signed by wrong key must be rejected"
+    );
+}
+
+/// Tampering the score in a RoleChangeAnnounce breaks the signature.
+#[test]
+fn gossip_role_announce_tampered_score_rejected() {
+    let (id, seed) = keypair_relay(7);
+    let mut announce = RoleChangeAnnounce::new(id, PeerRole::Relay, 0.85, 1_000_000, &seed);
+    assert!(announce.verify_signature(), "original must be valid");
+    announce.score = 0.0; // attacker tries to degrade reputation
+    assert!(
+        !announce.verify_signature(),
+        "tampered score must break the signature"
+    );
+}
+
+/// RoleChangeAnnounce with a zero-length signature is rejected without panic.
+#[test]
+fn gossip_role_announce_empty_sig_rejected() {
+    let (id, seed) = keypair_relay(8);
+    let mut announce = RoleChangeAnnounce::new(id, PeerRole::Peer, 0.5, 1_000_000, &seed);
+    announce.signature = vec![];
+    assert!(
+        !announce.verify_signature(),
+        "empty signature must be rejected (not panic)"
+    );
+}
+
+/// PeerAnnounce timestamp far in the future is rejected by the timestamp guard.
+#[test]
+fn gossip_peer_announce_far_future_timestamp_rejected() {
+    let now = 10_000_000_000u64;
+    let mut announce = PeerAnnounce::new(node_id(9), "mallory".into(), vec![PeerRole::Relay]);
+    // 10 minutes in the future (> 5-minute MAX_FUTURE_DRIFT_MS)
+    announce.timestamp = now + 10 * 60 * 1000;
+    assert!(
+        !announce.is_timestamp_valid(now),
+        "far-future PeerAnnounce must be rejected (clock spoofing)"
+    );
+}
+
+/// PeerAnnounce with very old timestamp is rejected.
+#[test]
+fn gossip_peer_announce_stale_timestamp_rejected() {
+    let now = 10_000_000_000u64;
+    let mut announce = PeerAnnounce::new(node_id(10), "zombie".into(), vec![PeerRole::Peer]);
+    announce.timestamp = now - 2 * 60 * 60 * 1000; // 2 hours old
+    assert!(
+        !announce.is_timestamp_valid(now),
+        "2-hour-old PeerAnnounce must be rejected"
+    );
 }

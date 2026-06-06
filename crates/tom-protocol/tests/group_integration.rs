@@ -1214,3 +1214,205 @@ fn epoch_transition_old_and_new_messages_delivered() {
     assert_eq!(history[0].text, "msg epoch N");
     assert_eq!(history[1].text, "msg epoch N+1");
 }
+
+// ─── Double failure / orphan tests ───────────────────────────────────────────
+
+/// Double failure scenario: primary hub crashes and shadow also crashes before
+/// broadcasting HubMigration to all members.
+/// Member (Alice) stays orphaned — no silent hub migration on her side.
+#[test]
+fn hub_double_failure_both_dead_before_migration_delivered() {
+    let hub_id = node_id(10);
+    let shadow_id = node_id(2);
+    let alice_id = node_id(1);
+
+    let mut hub = GroupHub::new(hub_id);
+    let mut shadow_mgr = GroupManager::new(shadow_id, "shadow".into());
+    let mut alice_mgr = GroupManager::new(alice_id, "alice".into());
+
+    // Create group on hub
+    let hub_actions = hub.handle_payload(
+        GroupPayload::Create {
+            group_name: "Orphan Test".into(),
+            creator_username: "alice".into(),
+            initial_members: vec![],
+            invite_only: false,
+        },
+        alice_id,
+    );
+    let GroupAction::Send { payload: GroupPayload::Created { group }, .. } = &hub_actions[0]
+    else { panic!() };
+    let gid = group.group_id.clone();
+    alice_mgr.handle_group_created(group.clone());
+
+    // Shadow joins
+    hub.handle_payload(
+        GroupPayload::Join { group_id: gid.clone(), username: "shadow".into() },
+        shadow_id,
+    );
+    shadow_mgr.handle_group_created(GroupInfo { hub_relay_id: hub_id, ..group.clone() });
+
+    // Hub assigns shadow
+    let assign_actions = hub.assign_shadow(&gid);
+    for action in &assign_actions {
+        if let GroupAction::Send {
+            to,
+            payload: GroupPayload::HubShadowSync { group_id, members, candidate_id: cand, config_version },
+        } = action
+        {
+            if *to == shadow_id {
+                shadow_mgr.handle_shadow_sync(group_id, members.clone(), *cand, *config_version);
+            }
+        }
+    }
+    assert!(shadow_mgr.is_shadow_for(&gid));
+
+    // Primary hub crashes. Shadow detects via 2 ping failures and promotes.
+    let _no_action = shadow_mgr.record_ping_failure(&gid);
+    let migration_actions = shadow_mgr.record_ping_failure(&gid);
+    assert!(!migration_actions.is_empty(), "shadow must promote after 2 failures");
+    let has_migration = migration_actions.iter().any(|a| {
+        matches!(a, GroupAction::Broadcast { payload: GroupPayload::HubMigration { new_hub_id, .. }, .. }
+            if *new_hub_id == shadow_id)
+    });
+    assert!(has_migration, "HubMigration must be broadcast");
+
+    // Shadow also crashes right after broadcasting (network partition / simultaneous failure).
+    // Alice NEVER receives the HubMigration — simulated by not calling handle_hub_migration.
+
+    // Alice still routes to the original dead hub.
+    let alice_group = alice_mgr.get_group(&gid).unwrap();
+    assert_eq!(
+        alice_group.hub_relay_id, hub_id,
+        "Alice must remain orphaned: no silent hub update without receiving HubMigration"
+    );
+    assert!(alice_mgr.is_in_group(&gid), "Alice still belongs to the group");
+    assert!(!alice_mgr.is_shadow_for(&gid), "Alice is not shadow");
+}
+
+/// When a member receives HubMigration, it recovers from the orphan state.
+/// Validates that handle_hub_migration is the ONLY path to update hub pointer.
+#[test]
+fn hub_orphan_recovers_on_migration_receipt() {
+    let hub_id = node_id(10);
+    let shadow_id = node_id(2);
+    let alice_id = node_id(1);
+
+    let mut hub = GroupHub::new(hub_id);
+    let mut shadow_mgr = GroupManager::new(shadow_id, "shadow".into());
+    let mut alice_mgr = GroupManager::new(alice_id, "alice".into());
+
+    // Setup group
+    let hub_actions = hub.handle_payload(
+        GroupPayload::Create {
+            group_name: "Recovery Test".into(),
+            creator_username: "alice".into(),
+            initial_members: vec![],
+            invite_only: false,
+        },
+        alice_id,
+    );
+    let GroupAction::Send { payload: GroupPayload::Created { group }, .. } = &hub_actions[0]
+    else { panic!() };
+    let gid = group.group_id.clone();
+    alice_mgr.handle_group_created(group.clone());
+
+    hub.handle_payload(
+        GroupPayload::Join { group_id: gid.clone(), username: "shadow".into() },
+        shadow_id,
+    );
+    shadow_mgr.handle_group_created(GroupInfo { hub_relay_id: hub_id, ..group.clone() });
+    let assign_actions = hub.assign_shadow(&gid);
+    for action in &assign_actions {
+        if let GroupAction::Send {
+            to,
+            payload: GroupPayload::HubShadowSync { group_id, members, candidate_id: cand, config_version },
+        } = action
+        {
+            if *to == shadow_id {
+                shadow_mgr.handle_shadow_sync(group_id, members.clone(), *cand, *config_version);
+            }
+        }
+    }
+
+    // Primary dies, shadow promotes
+    shadow_mgr.record_ping_failure(&gid);
+    let _ = shadow_mgr.record_ping_failure(&gid); // triggers migration
+
+    // Alice receives HubMigration late (e.g. from another member who had gotten it)
+    let recovery_actions = alice_mgr.handle_hub_migration(&gid, shadow_id);
+    assert!(!recovery_actions.is_empty(), "migration receipt must produce an event");
+
+    // Alice now routes to the new hub (shadow became primary)
+    let alice_group = alice_mgr.get_group(&gid).unwrap();
+    assert_eq!(
+        alice_group.hub_relay_id, shadow_id,
+        "Alice must now route to shadow (new hub) after receiving HubMigration"
+    );
+}
+
+/// Hub failover cascade: primary dies → shadow promotes → shadow (new primary) also dies.
+/// A second shadow would be needed for full recovery; without one, members become orphaned again.
+#[test]
+fn hub_failover_cascade_shadow_becomes_hub_then_also_unreachable() {
+    let hub_id = node_id(10);
+    let shadow_id = node_id(2);
+    let bob_id = node_id(3);
+
+    let mut hub = GroupHub::new(hub_id);
+    let mut shadow_mgr = GroupManager::new(shadow_id, "shadow".into());
+    let mut bob_mgr = GroupManager::new(bob_id, "bob".into());
+
+    // Setup
+    let hub_actions = hub.handle_payload(
+        GroupPayload::Create {
+            group_name: "Cascade Test".into(),
+            creator_username: "bob".into(),
+            initial_members: vec![],
+            invite_only: false,
+        },
+        bob_id,
+    );
+    let GroupAction::Send { payload: GroupPayload::Created { group }, .. } = &hub_actions[0]
+    else { panic!() };
+    let gid = group.group_id.clone();
+    bob_mgr.handle_group_created(group.clone());
+
+    hub.handle_payload(
+        GroupPayload::Join { group_id: gid.clone(), username: "shadow".into() },
+        shadow_id,
+    );
+    shadow_mgr.handle_group_created(GroupInfo { hub_relay_id: hub_id, ..group.clone() });
+    let assign_actions = hub.assign_shadow(&gid);
+    for action in &assign_actions {
+        if let GroupAction::Send {
+            to,
+            payload: GroupPayload::HubShadowSync { group_id, members, candidate_id: cand, config_version },
+        } = action
+        {
+            if *to == shadow_id {
+                shadow_mgr.handle_shadow_sync(group_id, members.clone(), *cand, *config_version);
+            }
+        }
+    }
+
+    // Primary crashes → shadow promotes
+    shadow_mgr.record_ping_failure(&gid);
+    let _ = shadow_mgr.record_ping_failure(&gid);
+    // Shadow is now no longer shadow (it promoted)
+    assert!(!shadow_mgr.is_shadow_for(&gid), "shadow promoted itself to primary");
+
+    // Bob receives migration → points to shadow_id as new hub
+    bob_mgr.handle_hub_migration(&gid, shadow_id);
+    assert_eq!(bob_mgr.get_group(&gid).unwrap().hub_relay_id, shadow_id);
+
+    // Now shadow (new hub) also crashes. Bob has no shadow to fall back to.
+    // Bob's hub pointer still points to shadow_id (now dead).
+    let bob_group = bob_mgr.get_group(&gid).unwrap();
+    assert_eq!(
+        bob_group.hub_relay_id, shadow_id,
+        "Bob is orphaned again: shadow (new hub) also dead, no further failover"
+    );
+    // No automatic re-election without a second shadow or out-of-band coordination
+    assert!(bob_group.shadow_id.is_none(), "no shadow assigned yet for the new hub");
+}
