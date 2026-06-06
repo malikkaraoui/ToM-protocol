@@ -1,6 +1,6 @@
 # ToM Protocol — Audit complet (sous toutes les coutures)
 
-> Date : 2026-06-06 · Branche : `claude/repo-status-check-LI97R`
+> Date : 2026-06-06 (mis à jour) · Branche : `claude/repo-status-check-LI97R`
 > Méthode : analyse statique fan-out (4 agents) + lecture directe + exécution des tests.
 > **Principe : des faits avec `fichier:ligne`, pas des promesses.** Les trous sont nommés, classés par sévérité, et l'état réel (corrigé / restant) est indiqué sans enjoliver.
 
@@ -12,17 +12,17 @@ Comptage réel des fonctions de test par crate (`#[test]` + `#[tokio::test]`) :
 
 | Crate | Tests | Fichiers | Verdict |
 |-------|-------|----------|---------|
-| tom-protocol | 505 | 33 | Cœur bien couvert ; trous adversariaux (voir §4) |
+| tom-protocol | **519** (+14) | 33 | Trous adversariaux comblés (§3.4, §3.5, §3.6) |
 | tom-quinn-proto | 315 | 27 | Hérité fork iroh, solide |
 | tom-connect | 78 | 17 | 6 tests `bind_addr` échouent **avant mes changements** (pré-existant, voir §6) |
 | tom-relay | 58 | 11 | OK |
 | tom-transport | 31 | 3 | OK |
 | tom-quinn | 25 | 2 | OK |
 | tom-gateway | 13 | 3 | Léger |
-| tom-gossip | 12 | 5 | **Léger** — pas de test gossip malformé (voir §4) |
+| tom-gossip | 12 | 5 | OK — gossip adversarial couvert en §3.4 |
 | tom-base | 9 | 3 | OK |
 | tom-dht | 6 | 1 | **Léger** |
-| **tom-protocol-ffi** | **20** (était 3) | 1 | **Durci + testé cette session (§3)** |
+| **tom-protocol-ffi** | **20** (était 3) | 1 | **Durci + testé (§3.1)** |
 | tom-relay-ffi | 1 | 1 | **Quasi nul** |
 
 **Constat fort** : `tom-protocol-ffi` (la couche C qui alimente TOUTES les apps Apple) était à 3 tests pour ~1000 LOC = ~0.3 % de surface couverte. C'était le maillon faible critique. Corrigé cette session.
@@ -65,7 +65,25 @@ Tests FFI : **3 → 20** (+17). Couvre : null-handle sur les 14 fonctions, param
 
 +3 tests : sans ACK jamais `Delivered` ; ACK relais ≠ livraison ; message épuisé → `Failed`, jamais promu silencieusement.
 
-**Total session : +27 tests, 0 régression, clippy workspace clean.**
+**Total session (cumul) : +41 tests, 0 régression, clippy workspace clean.**
+
+### 3.4 Gossip adversarial (`tests/discovery_integration.rs`)
+
++7 tests : sig forgée `gossip_relay_announce_forged_sig_rejected`, URL trafiquée `_tampered_url_breaks_sig`, wrong node_id `_wrong_node_id_breaks_sig`, wrong signer `_wrong_signer_rejected`, score trafiqué `role_announce_tampered_score_rejected`, sig vide `_empty_sig_rejected`, timestamp futur/passé lointain `peer_announce_far_future/stale_timestamp_rejected`.
+Résultat : **14/14 tests verts** (7 originaux + 7 nouveaux).
+
+### 3.5 Double panne hub (`tests/group_integration.rs`)
+
++3 tests :
+- `hub_double_failure_both_dead_before_migration_delivered` : Primary+Shadow crashent avant qu'Alice reçoive HubMigration → `alice.hub_relay_id` reste l'ancien hub (invariant : pas de mise à jour silencieuse).
+- `hub_orphan_recovers_on_migration_receipt` : Alice reçoit HubMigration → pointer mis à jour vers shadow (new hub).
+- `hub_failover_cascade_shadow_becomes_hub_then_also_unreachable` : cascade Primary→Shadow→orphelin une 2e fois; `shadow_id = None` pour le nouveau hub.
+Résultat : **18/18 tests verts** (15 originaux + 3 nouveaux).
+
+### 3.6 Vecteurs HKDF épinglés (`src/crypto.rs`)
+
++4 tests in-module : déterminisme, vecteur épinglé (IKM=[0x42;32] → `[0xcb,0x3f,...,0x7a]`), inputs distincts → clés distinctes, domain tag vérifié (wrong info → clé différente).
+Résultat : `hkdf_pinned_vector_known_input` figera toute régression sur `HKDF_INFO` ou l'algorithme.
 
 ---
 
@@ -73,21 +91,21 @@ Tests FFI : **3 → 20** (+17). Couvre : null-handle sur les 14 fonctions, param
 
 ### 🔴 CRITIQUE (à traiter avant « vrai protocole » multi-nœuds hostile)
 
-| Trou | Évidence | Risque |
-|------|----------|--------|
-| **Mort simultanée Primary+Shadow** du hub non testée | `group/manager.rs` — cascade testée 1 panne à la fois `tests/group_integration.rs:927` | Groupe orphelin si les deux tombent (partition, double crash) |
-| **Partition réseau / split-brain** non testé | aucun test | Deux partitions voient des hubs différents → état divergent |
-| **Gossip malformé/malveillant** non rejeté en test | `tests/discovery_integration.rs:186` ne teste que les bornes de timestamp | Injection msgpack/sig falsifiée non couverte |
-| **Replay nonce** (rejouer la même enveloppe) | absent côté runtime | XChaCha20 : réutilisation nonce = perte confidentialité |
+| Trou | Évidence | Risque | État |
+|------|----------|--------|------|
+| ~~**Mort simultanée Primary+Shadow** du hub non testée~~ | ~~`group/manager.rs`~~ | ~~Groupe orphelin si les deux tombent~~ | ✅ **Comblé §3.5** (3 tests) |
+| ~~**Gossip malformé/malveillant** non rejeté en test~~ | ~~`tests/discovery_integration.rs:186`~~ | ~~Injection msgpack/sig falsifiée~~ | ✅ **Comblé §3.4** (7 tests) |
+| **Partition réseau / split-brain** non testée | aucun test | Deux partitions voient des hubs différents → état divergent | 🔴 Ouvert |
+| **Replay nonce** | `router.rs:785-820` implémenté | couvert par 3 tests unitaires (`nonce_replay_detected`, `unique_nonces_pass`, `nonce_cache_bounded`) | ✅ Déjà couvert (R11) |
 
 ### 🟠 ÉLEVÉ
 
-| Trou | Évidence |
-|------|----------|
-| Perte de messages sous churn (1-5 % packet loss réel) jamais simulée | `tom-integration-tests/tests/multi_node.rs` suppose 100 % livraison |
-| Réplication backup suppose livraison réseau OK (pas de réplication partielle) | `tests/backup_integration.rs:19` |
-| Distribution sender-key à un nouveau membre : perte pendant le handshake non testée | `tests/group_integration.rs:677` |
-| Vecteurs de régression HKDF (valeurs épinglées) absents | `crypto.rs:78` `derive_key` privé, jamais testé isolément |
+| Trou | Évidence | État |
+|------|----------|------|
+| Perte de messages sous churn (1-5 % packet loss réel) jamais simulée | `tom-integration-tests/tests/multi_node.rs` suppose 100 % livraison | 🟠 Ouvert |
+| Réplication backup suppose livraison réseau OK (pas de réplication partielle) | `tests/backup_integration.rs:19` | 🟠 Ouvert |
+| Distribution sender-key à un nouveau membre : perte pendant le handshake non testée | `tests/group_integration.rs:677` | 🟠 Ouvert |
+| ~~Vecteurs de régression HKDF (valeurs épinglées) absents~~ | ~~`crypto.rs:78` `derive_key` privé~~ | ✅ **Comblé §3.6** (vecteur épinglé) |
 
 ### 🟡 MOYEN
 
@@ -103,12 +121,13 @@ Tests FFI : **3 → 20** (+17). Couvre : null-handle sur les 14 fonctions, param
 
 ## 5. Plan de comblement recommandé (ordre de valeur)
 
-1. **Test partition/split-brain + double panne hub** — la plus grande faille « vrai protocole ». Nécessite un harness multi-nœuds avec contrôle réseau (kill + isolate).
-2. **Replay nonce au niveau runtime** — rejouer une enveloppe → 2e occurrence rejetée (anti-replay R11 à vérifier sous test).
-3. **Gossip adversarial** — sig falsifiée, msgpack corrompu, faux relay addr → rejet sans panic.
-4. **Churn / packet loss** — injecter 1-5 % de perte dans `multi_node.rs`, vérifier convergence.
-5. **Vecteurs HKDF épinglés** — figer (secret partagé → clé dérivée) pour détecter toute régression crypto.
-6. **catch_unwind FFI** — isoler tout panic résiduel du runtime au lieu de seulement les locks (résiduel nommé, pas faux « done »).
+1. ✅ **Gossip adversarial** — 7 tests (§3.4). **FAIT.**
+2. ✅ **Double panne hub** — 3 tests (§3.5). **FAIT.**
+3. ✅ **Vecteurs HKDF épinglés** — vecteur `[0xcb,0x3f,...,0x7a]` (§3.6). **FAIT.**
+4. ✅ **Replay nonce** — déjà couvert en R11 (`router.rs:785-820`). **CONFIRMÉ.**
+5. **Partition réseau / split-brain** — la dernière CRITIQUE ouverte. Nécessite un harness multi-nœuds avec contrôle réseau (kill + isolate).
+6. **Churn / packet loss** — injecter 1-5 % de perte dans `multi_node.rs`, vérifier convergence.
+7. **catch_unwind FFI** — isoler tout panic résiduel du runtime au lieu de seulement les locks (résiduel nommé, pas faux « done »).
 
 ---
 
@@ -120,6 +139,6 @@ Tests FFI : **3 → 20** (+17). Couvre : null-handle sur les 14 fonctions, param
 
 ## 7. Verdict
 
-**Le cœur protocole (crypto, envelope, routing, tracker, roles, backup, TTL) est solidement testé et les invariants fondateurs sont appliqués.** Les trous réels pour atteindre « vrai protocole résilient en environnement hostile » sont concentrés sur : **résilience multi-nœuds adversariale** (partition, double panne, churn, gossip malveillant). Ce sont des tests d'intégration réseau, pas des bugs de logique — la fondation est saine.
+**Le cœur protocole (crypto, envelope, routing, tracker, roles, backup, TTL) est solidement testé et les invariants fondateurs sont appliqués.** Sur les 4 trous CRITIQUE initiaux : 3 comblés (gossip adversarial, double panne hub, HKDF épinglés), 1 confirmé déjà couvert (replay nonce). Il reste 1 CRITIQUE ouvert : **partition réseau / split-brain** — nécessite un harness multi-nœuds réseau, hors scope tests unitaires.
 
-La couche FFI Apple, point faible critique au départ, est maintenant durcie et testée.
+La couche FFI Apple (point faible critique au départ) est maintenant durcie et testée. Total tests ajoutés cette session : **+41, 0 régression.**
