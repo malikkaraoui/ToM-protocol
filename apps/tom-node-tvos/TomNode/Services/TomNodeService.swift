@@ -1,7 +1,9 @@
 import Foundation
 import os.log
+#if !os(macOS)
 import UIKit
 import AVFoundation
+#endif
 import Combine
 
 @MainActor
@@ -40,8 +42,10 @@ final class TomNodeService: ObservableObject {
     @Published var autoEchoEnabled: Bool = true
     @Published var echoCount: Int = 0
 
-    // Anti-sleep audio player
+    // Anti-sleep audio player (iOS/tvOS only)
+    #if !os(macOS)
     private var silentPlayer: AVAudioPlayer?
+    #endif
 
     // Config — defaults work out of the box, zero manual configuration
     // Relais VIDE par défaut = découverte organique décentralisée (n0/Pkarr/DNS
@@ -57,19 +61,21 @@ final class TomNodeService: ObservableObject {
     @Published var udpLogHost: String = TomNodeService.defaultCollectorHost()
     @Published var udpLogPort: String = "9999"
 
-    /// Device-aware username: "iPad", "iPhone", or "AppleTV"
     private static func defaultUsername() -> String {
         #if os(iOS)
         return UIDevice.current.userInterfaceIdiom == .pad ? "iPad" : "iPhone"
+        #elseif os(macOS)
+        return "Mac"
         #else
         return "AppleTV"
         #endif
     }
 
-    /// Platform identifier for structured logs.
     static let appareil: String = {
         #if os(iOS)
         return UIDevice.current.userInterfaceIdiom == .pad ? "ipad" : "iphone"
+        #elseif os(macOS)
+        return "macos"
         #else
         return "tvos"
         #endif
@@ -180,13 +186,12 @@ final class TomNodeService: ObservableObject {
     // MARK: - Anti-sleep
 
     func startAntiSleep() {
-        // Disable idle timer (official API to prevent screen dimming/sleep)
+        #if !os(macOS)
         UIApplication.shared.isIdleTimerDisabled = true
 
-        // Play a silent audio loop to prevent tvOS from sleeping
-        let silenceData = Data(count: 44100 * 2) // 1s of silence (16-bit mono 44.1kHz)
+        // Silent audio loop prevents tvOS/iOS from sleeping
+        let silenceData = Data(count: 44100 * 2)
         var wavHeader = Data()
-        // WAV header for 1s silence
         let dataSize = UInt32(silenceData.count)
         let fileSize = UInt32(36 + silenceData.count)
         wavHeader.append(contentsOf: [0x52, 0x49, 0x46, 0x46]) // RIFF
@@ -194,12 +199,12 @@ final class TomNodeService: ObservableObject {
         wavHeader.append(contentsOf: [0x57, 0x41, 0x56, 0x45]) // WAVE
         wavHeader.append(contentsOf: [0x66, 0x6D, 0x74, 0x20]) // fmt
         wavHeader.append(contentsOf: withUnsafeBytes(of: UInt32(16).littleEndian) { Array($0) })
-        wavHeader.append(contentsOf: withUnsafeBytes(of: UInt16(1).littleEndian) { Array($0) }) // PCM
-        wavHeader.append(contentsOf: withUnsafeBytes(of: UInt16(1).littleEndian) { Array($0) }) // mono
-        wavHeader.append(contentsOf: withUnsafeBytes(of: UInt32(44100).littleEndian) { Array($0) }) // sample rate
-        wavHeader.append(contentsOf: withUnsafeBytes(of: UInt32(88200).littleEndian) { Array($0) }) // byte rate
-        wavHeader.append(contentsOf: withUnsafeBytes(of: UInt16(2).littleEndian) { Array($0) }) // block align
-        wavHeader.append(contentsOf: withUnsafeBytes(of: UInt16(16).littleEndian) { Array($0) }) // bits per sample
+        wavHeader.append(contentsOf: withUnsafeBytes(of: UInt16(1).littleEndian) { Array($0) })
+        wavHeader.append(contentsOf: withUnsafeBytes(of: UInt16(1).littleEndian) { Array($0) })
+        wavHeader.append(contentsOf: withUnsafeBytes(of: UInt32(44100).littleEndian) { Array($0) })
+        wavHeader.append(contentsOf: withUnsafeBytes(of: UInt32(88200).littleEndian) { Array($0) })
+        wavHeader.append(contentsOf: withUnsafeBytes(of: UInt16(2).littleEndian) { Array($0) })
+        wavHeader.append(contentsOf: withUnsafeBytes(of: UInt16(16).littleEndian) { Array($0) })
         wavHeader.append(contentsOf: [0x64, 0x61, 0x74, 0x61]) // data
         wavHeader.append(contentsOf: withUnsafeBytes(of: dataSize.littleEndian) { Array($0) })
         wavHeader.append(silenceData)
@@ -208,20 +213,25 @@ final class TomNodeService: ObservableObject {
             try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default)
             try AVAudioSession.sharedInstance().setActive(true)
             silentPlayer = try AVAudioPlayer(data: wavHeader)
-            silentPlayer?.numberOfLoops = -1 // infinite loop
-            silentPlayer?.volume = 0.01 // near-silent
+            silentPlayer?.numberOfLoops = -1
+            silentPlayer?.volume = 0.01
             silentPlayer?.play()
             appendLog(.info, "Anti-sleep: silent audio loop started")
         } catch {
             appendLog(.warning, "Anti-sleep failed: \(error.localizedDescription)")
         }
+        #else
+        appendLog(.info, "Anti-sleep: not required on macOS")
+        #endif
     }
 
     func stopAntiSleep() {
+        #if !os(macOS)
         UIApplication.shared.isIdleTimerDisabled = false
         silentPlayer?.stop()
         silentPlayer = nil
         try? AVAudioSession.sharedInstance().setActive(false)
+        #endif
     }
 
     func start() {
