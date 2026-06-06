@@ -71,6 +71,38 @@ fn parse_gossip_bootstrap_peers(peers: &[String]) -> Vec<tom_protocol::types::No
         .collect()
 }
 
+/// Safely read a C string argument across the FFI boundary.
+///
+/// Returns `None` when the pointer is null or the bytes are not valid UTF-8,
+/// instead of triggering undefined behaviour. `CStr::from_ptr` on a null
+/// pointer is UB, and the caller (Swift) can legitimately bridge a `nil`
+/// `String` to a null `char*`; every C-string argument must go through here.
+///
+/// # Safety
+/// If non-null, `ptr` must point to a valid null-terminated C string that
+/// stays alive for the duration of the returned borrow.
+unsafe fn cstr_opt<'a>(ptr: *const c_char) -> Option<&'a str> {
+    if ptr.is_null() {
+        return None;
+    }
+    match unsafe { CStr::from_ptr(ptr) }.to_str() {
+        Ok(s) => Some(s),
+        Err(e) => {
+            tracing::error!("FFI received non-UTF-8 C string: {}", e);
+            None
+        }
+    }
+}
+
+/// Lock a std mutex without panicking across the FFI boundary on poison.
+///
+/// A panic unwinding into Swift is undefined behaviour, so a poisoned lock
+/// (a thread panicked while holding it) must be recovered rather than
+/// re-panicked via `.unwrap()`.
+fn lock_recover<T>(m: &std::sync::Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    m.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
 /// Create a TOM protocol node (but don't start it yet)
 ///
 /// # Arguments
@@ -87,11 +119,11 @@ fn parse_gossip_bootstrap_peers(peers: &[String]) -> Vec<tom_protocol::types::No
 pub unsafe extern "C" fn tom_node_create(config_json: *const c_char) -> *mut TomNodeHandle {
     init_tracing();
 
-    // Parse JSON config
-    let config_str = match unsafe { CStr::from_ptr(config_json) }.to_str() {
-        Ok(s) => s,
-        Err(e) => {
-            tracing::error!("Invalid config_json UTF-8: {}", e);
+    // Parse JSON config (null-safe + UTF-8 safe)
+    let config_str = match unsafe { cstr_opt(config_json) } {
+        Some(s) => s,
+        None => {
+            tracing::error!("tom_node_create: null or non-UTF-8 config_json");
             return std::ptr::null_mut();
         }
     };
@@ -154,11 +186,11 @@ pub unsafe extern "C" fn tom_node_start(
 
     let handle_ref = unsafe { &*handle };
 
-    // Parse runtime config
-    let config_str = match unsafe { CStr::from_ptr(runtime_config_json) }.to_str() {
-        Ok(s) => s,
-        Err(e) => {
-            tracing::error!("Invalid runtime_config_json UTF-8: {}", e);
+    // Parse runtime config (null-safe + UTF-8 safe)
+    let config_str = match unsafe { cstr_opt(runtime_config_json) } {
+        Some(s) => s,
+        None => {
+            tracing::error!("tom_node_start: null or non-UTF-8 runtime_config_json");
             return -1;
         }
     };
@@ -212,7 +244,7 @@ pub unsafe extern "C" fn tom_node_start(
     let last_error_arc = handle_ref.last_error.clone();
 
     // Clear previous error
-    *last_error_arc.lock().unwrap() = None;
+    *lock_recover(&last_error_arc) = None;
 
     // Block until bind + runtime spawn completes (not fire-and-forget)
     let result = handle_ref.runtime.block_on(async move {
@@ -229,7 +261,7 @@ pub unsafe extern "C" fn tom_node_start(
             Err(e) => {
                 let err_msg = format!("Failed to bind TomNode: {}", e);
                 tracing::error!("{}", err_msg);
-                *last_error_arc.lock().unwrap() = Some(err_msg);
+                *lock_recover(&last_error_arc) = Some(err_msg);
                 return -1i32;
             }
         };
@@ -401,10 +433,10 @@ pub unsafe extern "C" fn tom_node_send_message(
 
     let handle_ref = unsafe { &*handle };
 
-    let target_str = match unsafe { CStr::from_ptr(target_id) }.to_str() {
-        Ok(s) => s,
-        Err(e) => {
-            tracing::error!("Invalid target_id UTF-8: {}", e);
+    let target_str = match unsafe { cstr_opt(target_id) } {
+        Some(s) => s,
+        None => {
+            tracing::error!("tom_node_send_message: null or non-UTF-8 target_id");
             return -1;
         }
     };
@@ -417,7 +449,17 @@ pub unsafe extern "C" fn tom_node_send_message(
         }
     };
 
-    let payload_vec = unsafe { std::slice::from_raw_parts(payload, payload_len) }.to_vec();
+    // Null-safe payload read: a null pointer with len 0 is a legitimate empty
+    // message (Swift's empty Data bridges to null), but a null pointer with a
+    // non-zero len is a caller bug — reject it instead of risking UB.
+    let payload_vec = if payload_len == 0 {
+        Vec::new()
+    } else if payload.is_null() {
+        tracing::error!("tom_node_send_message: null payload with non-zero len");
+        return -1;
+    } else {
+        unsafe { std::slice::from_raw_parts(payload, payload_len) }.to_vec()
+    };
 
     handle_ref.runtime.block_on(async {
         if let Some(runtime_handle) = handle_ref.handle.lock().await.as_ref() {
@@ -464,9 +506,9 @@ pub unsafe extern "C" fn tom_node_create_group(
 
     let handle_ref = unsafe { &*handle };
 
-    let config_str = match unsafe { CStr::from_ptr(group_config_json) }.to_str() {
-        Ok(s) => s,
-        Err(_) => return -1,
+    let config_str = match unsafe { cstr_opt(group_config_json) } {
+        Some(s) => s,
+        None => return -1,
     };
 
     let group_config: GroupConfigFFI = match serde_json::from_str(config_str) {
@@ -540,14 +582,14 @@ pub unsafe extern "C" fn tom_node_send_group_message(
 
     let handle_ref = unsafe { &*handle };
 
-    let group_id_str = match unsafe { CStr::from_ptr(group_id) }.to_str() {
-        Ok(s) => s,
-        Err(_) => return -1,
+    let group_id_str = match unsafe { cstr_opt(group_id) } {
+        Some(s) => s,
+        None => return -1,
     };
 
-    let text_str = match unsafe { CStr::from_ptr(text) }.to_str() {
-        Ok(s) => s,
-        Err(_) => return -1,
+    let text_str = match unsafe { cstr_opt(text) } {
+        Some(s) => s,
+        None => return -1,
     };
 
     // GroupId is a newtype wrapper around String
@@ -679,7 +721,7 @@ pub unsafe extern "C" fn tom_node_last_error(handle: *const TomNodeHandle) -> *m
     }
 
     let handle_ref = unsafe { &*handle };
-    let error = handle_ref.last_error.lock().unwrap().clone();
+    let error = lock_recover(&handle_ref.last_error).clone();
 
     match error {
         Some(msg) => match CString::new(msg) {
@@ -714,9 +756,9 @@ pub unsafe extern "C" fn tom_node_add_peer_addr(
 
     let handle_ref = unsafe { &*handle };
 
-    let json_str = match unsafe { CStr::from_ptr(peer_addr_json) }.to_str() {
-        Ok(s) => s,
-        Err(_) => return -1,
+    let json_str = match unsafe { cstr_opt(peer_addr_json) } {
+        Some(s) => s,
+        None => return -1,
     };
 
     let addr_ffi: PeerAddrFFI = match serde_json::from_str(json_str) {
@@ -922,5 +964,241 @@ mod tests {
         let parsed = parse_gossip_bootstrap_peers(&peers);
         assert_eq!(parsed.len(), 1);
         assert_eq!(parsed[0].to_string(), "4e28f4706e0dcb01f13d74a9ea00d3bdfc62490c2f4a91f7cb8b14bed6a45814");
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // FFI safety suite — null pointers, invalid input, string ownership.
+    // These exercise the C ABI surface that powers every Apple app.
+    // ──────────────────────────────────────────────────────────────────────
+
+    const VALID_NODE_ID: &str =
+        "4e28f4706e0dcb01f13d74a9ea00d3bdfc62490c2f4a91f7cb8b14bed6a45814";
+
+    /// Create a valid handle WITHOUT starting it (no bind, no network).
+    fn make_unstarted_handle() -> *mut TomNodeHandle {
+        let cfg = NodeConfigFFI {
+            relay_url: None,
+            n0_discovery: Some(false),
+            identity_path: None,
+        };
+        let json = serde_json::to_string(&cfg).unwrap();
+        let cstr = CString::new(json).unwrap();
+        unsafe { tom_node_create(cstr.as_ptr()) }
+    }
+
+    #[test]
+    fn create_rejects_null_config() {
+        let h = unsafe { tom_node_create(std::ptr::null()) };
+        assert!(h.is_null(), "null config_json must not crash, must return null");
+    }
+
+    #[test]
+    fn create_rejects_invalid_json() {
+        let cstr = CString::new("{not valid json").unwrap();
+        let h = unsafe { tom_node_create(cstr.as_ptr()) };
+        assert!(h.is_null());
+    }
+
+    #[test]
+    fn create_rejects_non_utf8_config() {
+        // 0xFF is an invalid UTF-8 start byte; CString accepts it (no interior nul).
+        let cstr = CString::new(vec![0xffu8, 0x28]).unwrap();
+        let h = unsafe { tom_node_create(cstr.as_ptr()) };
+        assert!(h.is_null(), "non-UTF-8 config must return null, not panic/UB");
+    }
+
+    #[test]
+    fn null_handle_calls_are_safe() {
+        let dummy = CString::new("x").unwrap();
+        unsafe {
+            // i32-returning functions → -1 on null handle
+            assert_eq!(tom_node_start(std::ptr::null_mut(), dummy.as_ptr()), -1);
+            assert_eq!(
+                tom_node_send_message(std::ptr::null(), dummy.as_ptr(), std::ptr::null(), 0),
+                -1
+            );
+            assert_eq!(tom_node_create_group(std::ptr::null(), dummy.as_ptr()), -1);
+            assert_eq!(
+                tom_node_send_group_message(std::ptr::null(), dummy.as_ptr(), dummy.as_ptr()),
+                -1
+            );
+            assert_eq!(tom_node_add_peer_addr(std::ptr::null(), dummy.as_ptr()), -1);
+
+            // string-returning functions → null on null handle
+            assert!(tom_node_receive_messages(std::ptr::null()).is_null());
+            assert!(tom_node_status(std::ptr::null()).is_null());
+            assert!(tom_node_last_error(std::ptr::null()).is_null());
+            assert!(tom_node_connected_peers(std::ptr::null()).is_null());
+            assert!(tom_node_discovered_peers(std::ptr::null()).is_null());
+
+            // void functions on null → no-op, no crash
+            tom_node_free(std::ptr::null_mut());
+            tom_node_stop(std::ptr::null_mut());
+            tom_node_free_string(std::ptr::null_mut());
+        }
+    }
+
+    #[test]
+    fn unstarted_handle_status_is_stopped() {
+        let h = make_unstarted_handle();
+        assert!(!h.is_null());
+        unsafe {
+            let p = tom_node_status(h);
+            assert!(!p.is_null());
+            let s = CStr::from_ptr(p).to_str().unwrap().to_string();
+            tom_node_free_string(p);
+            assert!(s.contains("\"status\":\"Stopped\""), "got: {s}");
+            assert!(s.contains("\"peers_count\":0"), "got: {s}");
+            tom_node_free(h);
+        }
+    }
+
+    #[test]
+    fn unstarted_handle_queues_are_empty() {
+        let h = make_unstarted_handle();
+        assert!(!h.is_null());
+        unsafe {
+            for ptr in [
+                tom_node_receive_messages(h),
+                tom_node_connected_peers(h),
+                tom_node_discovered_peers(h),
+            ] {
+                assert!(!ptr.is_null());
+                let s = CStr::from_ptr(ptr).to_str().unwrap().to_string();
+                tom_node_free_string(ptr);
+                assert_eq!(s, "[]");
+            }
+            // No error set yet → null
+            assert!(tom_node_last_error(h).is_null());
+            tom_node_free(h);
+        }
+    }
+
+    #[test]
+    fn send_message_null_target_is_rejected() {
+        let h = make_unstarted_handle();
+        let payload = [1u8, 2, 3];
+        let rc =
+            unsafe { tom_node_send_message(h, std::ptr::null(), payload.as_ptr(), payload.len()) };
+        assert_eq!(rc, -1);
+        unsafe { tom_node_free(h) };
+    }
+
+    #[test]
+    fn send_message_null_payload_nonzero_len_is_rejected() {
+        let h = make_unstarted_handle();
+        let target = CString::new(VALID_NODE_ID).unwrap();
+        let rc = unsafe { tom_node_send_message(h, target.as_ptr(), std::ptr::null(), 5) };
+        assert_eq!(rc, -1, "null payload with non-zero len must be rejected, not UB");
+        unsafe { tom_node_free(h) };
+    }
+
+    #[test]
+    fn send_message_invalid_nodeid_is_rejected() {
+        let h = make_unstarted_handle();
+        let target = CString::new("not-a-valid-node-id").unwrap();
+        let payload = [7u8];
+        let rc =
+            unsafe { tom_node_send_message(h, target.as_ptr(), payload.as_ptr(), payload.len()) };
+        assert_eq!(rc, -1);
+        unsafe { tom_node_free(h) };
+    }
+
+    #[test]
+    fn send_message_valid_target_but_unstarted_is_rejected() {
+        // Valid NodeId, valid payload, but node not started → no runtime handle.
+        let h = make_unstarted_handle();
+        let target = CString::new(VALID_NODE_ID).unwrap();
+        let payload = [9u8, 9, 9];
+        let rc =
+            unsafe { tom_node_send_message(h, target.as_ptr(), payload.as_ptr(), payload.len()) };
+        assert_eq!(rc, -1);
+        unsafe { tom_node_free(h) };
+    }
+
+    #[test]
+    fn create_group_null_and_invalid_json_rejected() {
+        let h = make_unstarted_handle();
+        unsafe {
+            assert_eq!(tom_node_create_group(h, std::ptr::null()), -1);
+            let bad = CString::new("{bad").unwrap();
+            assert_eq!(tom_node_create_group(h, bad.as_ptr()), -1);
+            tom_node_free(h);
+        }
+    }
+
+    #[test]
+    fn create_group_unstarted_is_rejected() {
+        let h = make_unstarted_handle();
+        let cfg = format!(
+            r#"{{"name":"g","hub_relay_id":"{id}","initial_members":["{id}"],"invite_only":false}}"#,
+            id = VALID_NODE_ID
+        );
+        let cstr = CString::new(cfg).unwrap();
+        let rc = unsafe { tom_node_create_group(h, cstr.as_ptr()) };
+        assert_eq!(rc, -1);
+        unsafe { tom_node_free(h) };
+    }
+
+    #[test]
+    fn send_group_message_null_args_rejected() {
+        let h = make_unstarted_handle();
+        let ok = CString::new("group-1").unwrap();
+        unsafe {
+            assert_eq!(tom_node_send_group_message(h, std::ptr::null(), ok.as_ptr()), -1);
+            assert_eq!(tom_node_send_group_message(h, ok.as_ptr(), std::ptr::null()), -1);
+            tom_node_free(h);
+        }
+    }
+
+    #[test]
+    fn add_peer_addr_null_invalid_and_bad_id_rejected() {
+        let h = make_unstarted_handle();
+        unsafe {
+            assert_eq!(tom_node_add_peer_addr(h, std::ptr::null()), -1);
+            let bad = CString::new("{nope").unwrap();
+            assert_eq!(tom_node_add_peer_addr(h, bad.as_ptr()), -1);
+            let bad_id = CString::new(r#"{"node_id":"xxx"}"#).unwrap();
+            assert_eq!(tom_node_add_peer_addr(h, bad_id.as_ptr()), -1);
+            tom_node_free(h);
+        }
+    }
+
+    #[test]
+    fn free_string_after_status_does_not_crash() {
+        let h = make_unstarted_handle();
+        unsafe {
+            let p = tom_node_status(h);
+            assert!(!p.is_null());
+            tom_node_free_string(p);
+            tom_node_free(h);
+        }
+    }
+
+    // ── JSON wire contract between Swift and Rust ──────────────────────────
+
+    #[test]
+    fn runtime_config_deserializes_swift_json() {
+        let json = r#"{"username":"alice","encryption":true,"enable_dht":false,"relay_url":"http://127.0.0.1:3340","n0_discovery":false,"local_discovery":true}"#;
+        let cfg: RuntimeConfigFFI = serde_json::from_str(json).unwrap();
+        assert_eq!(cfg.username, "alice");
+        assert_eq!(cfg.encryption, Some(true));
+        assert_eq!(cfg.enable_dht, Some(false));
+        assert!(cfg.gossip_bootstrap_peers.is_empty());
+    }
+
+    #[test]
+    fn peer_addr_deserializes_minimal_and_full() {
+        let min: PeerAddrFFI = serde_json::from_str(r#"{"node_id":"abc"}"#).unwrap();
+        assert_eq!(min.node_id, "abc");
+        assert!(min.relay_url.is_none());
+        assert!(min.direct_addrs.is_none());
+
+        let full: PeerAddrFFI = serde_json::from_str(
+            r#"{"node_id":"abc","relay_url":"http://x:3340","direct_addrs":["192.168.0.1:3340"]}"#,
+        )
+        .unwrap();
+        assert_eq!(full.relay_url.as_deref(), Some("http://x:3340"));
+        assert_eq!(full.direct_addrs.as_ref().unwrap().len(), 1);
     }
 }
