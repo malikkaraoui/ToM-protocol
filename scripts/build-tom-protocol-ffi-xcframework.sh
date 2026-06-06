@@ -1,26 +1,33 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Builds TomProtocolFFI.xcframework bundling all platform slices (tvOS + iOS).
+# Builds TomProtocolFFI.xcframework bundling all platform slices.
 #
-# Slices:
-#   aarch64-apple-tvos       → tvOS device
-#   aarch64-apple-tvos-sim   → tvOS simulator (Apple Silicon)
-#   aarch64-apple-ios        → iOS device
-#   aarch64-apple-ios-sim    → iOS simulator (Apple Silicon)
+# Platforms (full build):
+#   tvOS device     aarch64-apple-tvos
+#   tvOS sim        aarch64-apple-tvos-sim
+#   iOS device      aarch64-apple-ios
+#   iOS sim         aarch64-apple-ios-sim
+#   macOS arm64     aarch64-apple-darwin   (M1/M2/M3)
+#   macOS x86_64    x86_64-apple-darwin    (Intel)
+#   macOS universal lipo(arm64 + x86_64)   → single slice in XCFramework
 #
 # Output: apps/tom-node-tvos/build/TomProtocolFFI.xcframework
+#         (shared by tvOS, iOS, macOS Xcode projects)
 #
 # Usage:
-#   ./scripts/build-tom-protocol-ffi-xcframework.sh           # release (default)
+#   ./scripts/build-tom-protocol-ffi-xcframework.sh           # all platforms, release
 #   PROFILE=debug ./scripts/build-tom-protocol-ffi-xcframework.sh
+#   DEVICE_ONLY=1 ./scripts/build-tom-protocol-ffi-xcframework.sh  # skip sims
+#   MACOS=0 ./scripts/build-tom-protocol-ffi-xcframework.sh        # skip macOS
 
 TOOLCHAIN="${TOOLCHAIN:-nightly-aarch64-apple-darwin}"
 PROFILE="${PROFILE:-release}"
 TV_DEPLOYMENT="${TVOS_DEPLOYMENT_TARGET:-16.3}"
 IOS_DEPLOYMENT="${IPHONEOS_DEPLOYMENT_TARGET:-16.0}"
-# DEVICE_ONLY=1 → skip simulator slices (faster builds, Xcode device targets only)
+MACOS_DEPLOYMENT="${MACOSX_DEPLOYMENT_TARGET:-13.0}"
 DEVICE_ONLY="${DEVICE_ONLY:-0}"
+BUILD_MACOS="${MACOS:-1}"
 
 MANIFEST="crates/tom-protocol-ffi/Cargo.toml"
 CRATE_TARGET_DIR="crates/tom-protocol-ffi/target"
@@ -28,26 +35,23 @@ HEADER_DIR="crates/tom-protocol-ffi/include"
 HEADER_SOURCE="${HEADER_DIR}/tom_protocol_ffi.h"
 OUT_DIR="apps/tom-node-tvos/build"
 XCFW="${OUT_DIR}/TomProtocolFFI.xcframework"
+MACOS_UNIVERSAL="${CRATE_TARGET_DIR}/macos-universal"
 
 mkdir -p "${OUT_DIR}"
 
-# ── Ensure Rust targets ────────────────────────────────────────────────────
+# ── Collect required Rust targets ──────────────────────────────────────────
 
-if [[ "${DEVICE_ONLY}" == "1" ]]; then
-    TARGETS=(
-        "aarch64-apple-tvos"
-        "aarch64-apple-ios"
-    )
-else
-    TARGETS=(
-        "aarch64-apple-tvos"
-        "aarch64-apple-tvos-sim"
-        "aarch64-apple-ios"
-        "aarch64-apple-ios-sim"
-    )
+TARGETS=("aarch64-apple-tvos" "aarch64-apple-ios")
+
+if [[ "${DEVICE_ONLY}" != "1" ]]; then
+    TARGETS+=("aarch64-apple-tvos-sim" "aarch64-apple-ios-sim")
 fi
 
-echo "[1/6] Ensuring Rust toolchain ${TOOLCHAIN} + targets"
+if [[ "${BUILD_MACOS}" == "1" ]]; then
+    TARGETS+=("aarch64-apple-darwin" "x86_64-apple-darwin")
+fi
+
+echo "[1/N] Ensuring Rust toolchain ${TOOLCHAIN} + targets"
 rustup toolchain install "${TOOLCHAIN}" >/dev/null 2>&1 || true
 for t in "${TARGETS[@]}"; do
     rustup target add "${t}" --toolchain "${TOOLCHAIN}" >/dev/null 2>&1 || true
@@ -76,45 +80,61 @@ build_slice() {
     fi
 }
 
+# ── Step counter ───────────────────────────────────────────────────────────
+STEP=1
+next_step() { echo "[${STEP}/N] $*"; STEP=$((STEP+1)); }
+
 # ── Build all slices ───────────────────────────────────────────────────────
 
-if [[ "${DEVICE_ONLY}" == "1" ]]; then
-    echo "[2/4] Building tvOS device   (aarch64-apple-tvos)"
-    TV_A=$(build_slice aarch64-apple-tvos TVOS_DEPLOYMENT_TARGET "${TV_DEPLOYMENT}")
+next_step "Building tvOS device   (aarch64-apple-tvos)"
+TV_A=$(build_slice aarch64-apple-tvos TVOS_DEPLOYMENT_TARGET "${TV_DEPLOYMENT}")
 
-    echo "[3/4] Building iOS device    (aarch64-apple-ios)"
-    IOS_A=$(build_slice aarch64-apple-ios IPHONEOS_DEPLOYMENT_TARGET "${IOS_DEPLOYMENT}")
+next_step "Building iOS device    (aarch64-apple-ios)"
+IOS_A=$(build_slice aarch64-apple-ios IPHONEOS_DEPLOYMENT_TARGET "${IOS_DEPLOYMENT}")
 
-    echo "[4/4] Assembling XCFramework (device only) → ${XCFW}"
-    rm -rf "${XCFW}"
-    xcodebuild -create-xcframework \
-        -library "${TV_A}"  -headers "${HEADER_DIR}" \
-        -library "${IOS_A}" -headers "${HEADER_DIR}" \
-        -output "${XCFW}"
-else
-    echo "[2/6] Building tvOS device   (aarch64-apple-tvos)"
-    TV_A=$(build_slice aarch64-apple-tvos TVOS_DEPLOYMENT_TARGET "${TV_DEPLOYMENT}")
+XCF_ARGS=(
+    -library "${TV_A}"  -headers "${HEADER_DIR}"
+    -library "${IOS_A}" -headers "${HEADER_DIR}"
+)
 
-    echo "[3/6] Building tvOS simulator (aarch64-apple-tvos-sim)"
+if [[ "${DEVICE_ONLY}" != "1" ]]; then
+    next_step "Building tvOS simulator (aarch64-apple-tvos-sim)"
     TVSIM_A=$(build_slice aarch64-apple-tvos-sim TVOS_DEPLOYMENT_TARGET "${TV_DEPLOYMENT}")
 
-    echo "[4/6] Building iOS device    (aarch64-apple-ios)"
-    IOS_A=$(build_slice aarch64-apple-ios IPHONEOS_DEPLOYMENT_TARGET "${IOS_DEPLOYMENT}")
-
-    echo "[5/6] Building iOS simulator  (aarch64-apple-ios-sim)"
+    next_step "Building iOS simulator  (aarch64-apple-ios-sim)"
     IOSSIM_A=$(build_slice aarch64-apple-ios-sim IPHONEOS_DEPLOYMENT_TARGET "${IOS_DEPLOYMENT}")
 
-    echo "[6/6] Assembling XCFramework → ${XCFW}"
-    rm -rf "${XCFW}"
-    xcodebuild -create-xcframework \
-        -library "${TV_A}"     -headers "${HEADER_DIR}" \
-        -library "${TVSIM_A}"  -headers "${HEADER_DIR}" \
-        -library "${IOS_A}"    -headers "${HEADER_DIR}" \
-        -library "${IOSSIM_A}" -headers "${HEADER_DIR}" \
-        -output "${XCFW}"
+    XCF_ARGS+=(
+        -library "${TVSIM_A}"  -headers "${HEADER_DIR}"
+        -library "${IOSSIM_A}" -headers "${HEADER_DIR}"
+    )
 fi
 
-# Stage header for HEADER_SEARCH_PATHS
+if [[ "${BUILD_MACOS}" == "1" ]]; then
+    next_step "Building macOS arm64    (aarch64-apple-darwin)"
+    MAC_ARM_A=$(build_slice aarch64-apple-darwin MACOSX_DEPLOYMENT_TARGET "${MACOS_DEPLOYMENT}")
+
+    next_step "Building macOS x86_64   (x86_64-apple-darwin)"
+    MAC_X86_A=$(build_slice x86_64-apple-darwin MACOSX_DEPLOYMENT_TARGET "${MACOS_DEPLOYMENT}")
+
+    next_step "Creating macOS universal binary (lipo)"
+    mkdir -p "${MACOS_UNIVERSAL}"
+    MACOS_UNIVERSAL_A="${MACOS_UNIVERSAL}/libtom_protocol_ffi.a"
+    lipo -create "${MAC_ARM_A}" "${MAC_X86_A}" -output "${MACOS_UNIVERSAL_A}"
+    echo "  → ${MACOS_UNIVERSAL_A} ($(du -sh "${MACOS_UNIVERSAL_A}" | cut -f1))"
+
+    XCF_ARGS+=(
+        -library "${MACOS_UNIVERSAL_A}" -headers "${HEADER_DIR}"
+    )
+fi
+
+# ── Assemble XCFramework ───────────────────────────────────────────────────
+
+next_step "Assembling XCFramework → ${XCFW}"
+rm -rf "${XCFW}"
+xcodebuild -create-xcframework "${XCF_ARGS[@]}" -output "${XCFW}"
+
+# Stage header for HEADER_SEARCH_PATHS (shared by all app projects)
 cp -f "${HEADER_SOURCE}" "${OUT_DIR}/tom_protocol_ffi.h"
 
 echo ""
@@ -123,3 +143,6 @@ ls -lh "${XCFW}"
 echo ""
 echo "Slices:"
 ls "${XCFW}/"
+echo ""
+echo "Usage in Xcode: add TomProtocolFFI.xcframework to Frameworks, Libraries and Embedded Content"
+echo "Header search:  \$(PROJECT_DIR)/../tom-node-tvos/build"
