@@ -158,7 +158,7 @@ final class TomNodeService: ObservableObject {
     }
 
     var bootstrapStatusLabel: String {
-        normalizedBootstrapPeers.isEmpty ? "Organic discovery only" : String(normalizedBootstrapPeers[0].prefix(12)) + "\u{2026}"
+        normalizedBootstrapPeers.isEmpty ? "Organic discovery only" : String(normalizedBootstrapPeers[0].prefix(12)) + "…"
     }
 
     // MARK: - Logging
@@ -496,7 +496,7 @@ final class TomNodeService: ObservableObject {
                             try await self.node.sendMessage(to: msg.from, payload: replyData)
                             self.echoCount += 1
                         } catch {
-                            self.appendLog(.error, "Echo failed \u{2192} \(senderShort): \(error.localizedDescription)")
+                            self.appendLog(.error, "Echo failed → \(senderShort): \(error.localizedDescription)")
                         }
                     }
                 }
@@ -540,7 +540,7 @@ final class TomNodeService: ObservableObject {
                 // Log peer count changes
                 let peerCount = currentDiscovered.count
                 if peerCount != lastPeerCount {
-                    self.appendLog(.info, "Peers: \(lastPeerCount) \u{2192} \(peerCount)")
+                    self.appendLog(.info, "Peers: \(lastPeerCount) → \(peerCount)")
                     lastPeerCount = peerCount
                 }
 
@@ -574,7 +574,7 @@ final class TomNodeService: ObservableObject {
                 let payload = Data(probe.utf8)
                 try await node.sendMessage(to: peer.nodeId, payload: payload)
                 autoMessagedPeerIds.insert(peer.nodeId)
-                appendLog(.network, "AUTO-PING \u{2192} \(targetLabel): \(probe)")
+                appendLog(.network, "AUTO-PING → \(targetLabel): \(probe)")
 
                 let sent = TomMessage(
                     id: UUID().uuidString,
@@ -588,7 +588,7 @@ final class TomNodeService: ObservableObject {
                 totalMessagesCount += 1
                 totalMessagesSentCount += 1
             } catch {
-                appendLog(.warning, "AUTO-PING failed \u{2192} \(targetLabel): \(error.localizedDescription)")
+                appendLog(.warning, "AUTO-PING failed → \(targetLabel): \(error.localizedDescription)")
             }
         }
     }
@@ -601,9 +601,9 @@ final class TomNodeService: ObservableObject {
         do {
             try await node.addPeerAddr(nodeId: nodeId, relayUrl: relayUrl)
             seededPeerIds.insert(nodeId)
-            appendLog(.network, "SEEDED ROUTE \u{2192} \(String(nodeId.prefix(8))) via relay (\(source))")
+            appendLog(.network, "SEEDED ROUTE → \(String(nodeId.prefix(8))) via relay (\(source))")
         } catch {
-            appendLog(.warning, "SEED ROUTE failed \u{2192} \(String(nodeId.prefix(8))): \(error.localizedDescription)")
+            appendLog(.warning, "SEED ROUTE failed → \(String(nodeId.prefix(8))): \(error.localizedDescription)")
         }
     }
 
@@ -678,7 +678,7 @@ final class TomNodeService: ObservableObject {
 
         udpLogAddr = addr
 
-        appendLog(.info, "UDP log export \u{2192} \(host):\(port)")
+        appendLog(.info, "UDP log export → \(host):\(port)")
     }
 
     private func stopNetworkLogExport() {

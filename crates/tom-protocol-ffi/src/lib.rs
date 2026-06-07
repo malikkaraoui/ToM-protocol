@@ -705,7 +705,7 @@ pub unsafe extern "C" fn tom_node_status(handle: *const TomNodeHandle) -> *mut c
             .unwrap_or_default();
 
         format!(
-            r#"{{"node_id":"{}","status":"{}","peers_count":{},"groups_count":{},"local_role":"{}","path_kind":"{}","path_rtt_ms":{},"relay_url_active":"{}"}}}"#,
+            r#"{{"node_id":"{}","status":"{}","peers_count":{},"groups_count":{},"local_role":"{}","path_kind":"{}","path_rtt_ms":{},"relay_url_active":"{}"}}"#,
             node_id.unwrap_or_else(|| "unknown".to_string()),
             status,
             peers_count,
@@ -1197,7 +1197,7 @@ mod tests {
     fn create_group_unstarted_is_rejected() {
         let h = make_unstarted_handle();
         let cfg = format!(
-            r#"{{"name":"g","hub_relay_id":"{id}","initial_members":["{id}"],"invite_only":false}}"}"#,
+            r#"{{"name":"g","hub_relay_id":"{id}","initial_members":["{id}"],"invite_only":false}}"#,
             id = VALID_NODE_ID
         );
         let cstr = CString::new(cfg).unwrap();
@@ -1241,7 +1241,7 @@ mod tests {
         }
     }
 
-    // ── JSON wire contract between Swift and Rust ─────────────────────────────────
+    // ── JSON wire contract between Swift and Rust ──────────────────────────
 
     #[test]
     fn runtime_config_deserializes_swift_json() {
