@@ -9,6 +9,9 @@ target/
 # Worktrees
 .worktrees/
 
+# Generated knowledge graph (graphify)
+graphify-out/
+
 # Secrets
 .env
 apps/relay-tvos/TomRelay/TomRelay/
