@@ -50,6 +50,9 @@ final class TomNodeService: ObservableObject {
     // Config — empty = auto-discovery via gossip/DHT (recommended)
     // Set an explicit URL only if you need a guaranteed bootstrap relay.
     @Published var relayUrl: String = ""
+    /// Best relay known at runtime: configured relay first, then gossip-discovered.
+    /// Updated after start and on each poll cycle. Use as relay when seeding peer routes.
+    @Published var activeRelayUrl: String = ""
     @Published var username: String = TomNodeService.defaultUsername()
     @Published var encryption: Bool = true
     @Published var enableDht: Bool = true
@@ -149,11 +152,13 @@ final class TomNodeService: ObservableObject {
     }
 
     var relayStatusLabel: String {
-        normalizedRelayUrl ?? "Automatic discovery / public fallback"
+        if let configured = normalizedRelayUrl { return configured }
+        if !activeRelayUrl.isEmpty { return "\(activeRelayUrl) (auto)" }
+        return "Automatic discovery / public fallback"
     }
 
     var bootstrapStatusLabel: String {
-        normalizedBootstrapPeers.isEmpty ? "Organic discovery only" : String(normalizedBootstrapPeers[0].prefix(12)) + "…"
+        normalizedBootstrapPeers.isEmpty ? "Organic discovery only" : String(normalizedBootstrapPeers[0].prefix(12)) + "\u{2026}"
     }
 
     // MARK: - Logging
@@ -282,15 +287,22 @@ final class TomNodeService: ObservableObject {
 
                 state = .running
                 nodeStartTime = Date()
+
+                // Resolve best relay: configured first, then gossip-discovered
+                let discoveredRelay = await self.node.getDiscoveredRelay()
+                let effectiveRelay = self.normalizedRelayUrl ?? discoveredRelay
+                if let relay = effectiveRelay { self.activeRelayUrl = relay }
+
                 appendLog(.success, "Runtime started")
                 appendLog(.network, "Local discovery: \(localDiscovery ? "enabled" : "disabled")")
+                appendLog(.network, "Active relay: \(effectiveRelay ?? "none (organic)")")
                 if !bootstrapPeers.isEmpty {
                     appendLog(.network, "Bootstrap peers: \(bootstrapPeers.map { String($0.prefix(8)) })")
                 } else {
                     appendLog(.network, "Bootstrap peers: none (organic discovery)")
                 }
 
-                if let relayUrl = self.normalizedRelayUrl {
+                if let relayUrl = effectiveRelay {
                     for peerId in bootstrapPeers {
                         await self.seedPeerRoute(nodeId: peerId, relayUrl: relayUrl, source: "bootstrap")
                     }
@@ -484,7 +496,7 @@ final class TomNodeService: ObservableObject {
                             try await self.node.sendMessage(to: msg.from, payload: replyData)
                             self.echoCount += 1
                         } catch {
-                            self.appendLog(.error, "Echo failed → \(senderShort): \(error.localizedDescription)")
+                            self.appendLog(.error, "Echo failed \u{2192} \(senderShort): \(error.localizedDescription)")
                         }
                     }
                 }
@@ -501,6 +513,12 @@ final class TomNodeService: ObservableObject {
                     if let role = status.localRole { self.localRole = role }
                     if let pk = status.pathKind { self.pathKind = pk }
                     if let rtt = status.pathRttMs { self.pathRttMs = rtt }
+                }
+                // Keep activeRelayUrl in sync — prefer configured, fallback to discovered
+                if self.normalizedRelayUrl == nil,
+                   let discovered = await self.node.getDiscoveredRelay(),
+                   !discovered.isEmpty {
+                    self.activeRelayUrl = discovered
                 }
                 let currentConnected = await self.node.connectedPeers()
                 self.connectedPeers = currentConnected
@@ -522,7 +540,7 @@ final class TomNodeService: ObservableObject {
                 // Log peer count changes
                 let peerCount = currentDiscovered.count
                 if peerCount != lastPeerCount {
-                    self.appendLog(.info, "Peers: \(lastPeerCount) → \(peerCount)")
+                    self.appendLog(.info, "Peers: \(lastPeerCount) \u{2192} \(peerCount)")
                     lastPeerCount = peerCount
                 }
 
@@ -549,13 +567,14 @@ final class TomNodeService: ObservableObject {
             let probe = Self.buildAutoProbeMessage(username: username)
 
             do {
-                if let relayUrl = normalizedRelayUrl {
+                let effectiveRelay = normalizedRelayUrl ?? (activeRelayUrl.isEmpty ? nil : activeRelayUrl)
+                if let relayUrl = effectiveRelay {
                     await seedPeerRoute(nodeId: peer.nodeId, relayUrl: relayUrl, source: "auto-discovery")
                 }
                 let payload = Data(probe.utf8)
                 try await node.sendMessage(to: peer.nodeId, payload: payload)
                 autoMessagedPeerIds.insert(peer.nodeId)
-                appendLog(.network, "AUTO-PING → \(targetLabel): \(probe)")
+                appendLog(.network, "AUTO-PING \u{2192} \(targetLabel): \(probe)")
 
                 let sent = TomMessage(
                     id: UUID().uuidString,
@@ -569,7 +588,7 @@ final class TomNodeService: ObservableObject {
                 totalMessagesCount += 1
                 totalMessagesSentCount += 1
             } catch {
-                appendLog(.warning, "AUTO-PING failed → \(targetLabel): \(error.localizedDescription)")
+                appendLog(.warning, "AUTO-PING failed \u{2192} \(targetLabel): \(error.localizedDescription)")
             }
         }
     }
@@ -582,9 +601,9 @@ final class TomNodeService: ObservableObject {
         do {
             try await node.addPeerAddr(nodeId: nodeId, relayUrl: relayUrl)
             seededPeerIds.insert(nodeId)
-            appendLog(.network, "SEEDED ROUTE → \(String(nodeId.prefix(8))) via relay (\(source))")
+            appendLog(.network, "SEEDED ROUTE \u{2192} \(String(nodeId.prefix(8))) via relay (\(source))")
         } catch {
-            appendLog(.warning, "SEED ROUTE failed → \(String(nodeId.prefix(8))): \(error.localizedDescription)")
+            appendLog(.warning, "SEED ROUTE failed \u{2192} \(String(nodeId.prefix(8))): \(error.localizedDescription)")
         }
     }
 
@@ -659,7 +678,7 @@ final class TomNodeService: ObservableObject {
 
         udpLogAddr = addr
 
-        appendLog(.info, "UDP log export → \(host):\(port)")
+        appendLog(.info, "UDP log export \u{2192} \(host):\(port)")
     }
 
     private func stopNetworkLogExport() {
