@@ -47,9 +47,9 @@ final class TomNodeService: ObservableObject {
     private var silentPlayer: AVAudioPlayer?
     #endif
 
-    // Config — defaults work out of the box, zero manual configuration
-    // Default relay = NAS Freebox (always running tom-relay --dev on port 3340)
-    @Published var relayUrl: String = "http://192.168.0.83:3340"
+    // Config — empty = auto-discovery via gossip/DHT (recommended)
+    // Set an explicit URL only if you need a guaranteed bootstrap relay.
+    @Published var relayUrl: String = ""
     @Published var username: String = TomNodeService.defaultUsername()
     @Published var encryption: Bool = true
     @Published var enableDht: Bool = true
