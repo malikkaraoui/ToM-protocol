@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-set -euo pipefail
+# shellcheck shell=bash
+set -eu
+[ -n "${BASH_VERSION:-}" ] && set -o pipefail
 
 # Skip manually when needed (example: SKIP_OBSERVABILITY_SMOKE=1 git push)
 if [ "${SKIP_OBSERVABILITY_SMOKE:-0}" = "1" ]; then
