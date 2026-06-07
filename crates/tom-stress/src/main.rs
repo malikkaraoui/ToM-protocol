@@ -10,11 +10,13 @@ mod ping;
 mod responder;
 mod scenario_backup;
 mod scenario_chaos;
+mod scenario_churn;
 mod scenario_common;
 mod scenario_e2e;
 mod scenario_endurance;
 mod scenario_failover;
 mod scenario_group;
+mod scenario_partition;
 mod scenario_roles;
 mod scenario_runner;
 
@@ -162,7 +164,13 @@ enum Command {
     /// Endurance scenario: 6h soak test with 5 nodes, churn, relay kill, and group test.
     Endurance,
 
-    /// Run all 6 protocol scenarios in sequence (e2e, group, backup, failover, roles, chaos).
+    /// Network scenario: partition (split-brain) + heal verification.
+    Partition,
+
+    /// Network scenario: node churn (departure + restart) resilience.
+    Churn,
+
+    /// Run all 8 protocol scenarios in sequence (e2e, group, backup, failover, roles, chaos, partition, churn).
     Scenarios,
 
     /// Full-protocol responder (auto-echo, auto-accept groups, auto-reply).
@@ -199,6 +207,8 @@ async fn main() -> anyhow::Result<()> {
         Command::Roles => "roles",
         Command::Chaos => "chaos",
         Command::Endurance => "endurance",
+        Command::Partition => "partition",
+        Command::Churn => "churn",
         Command::Scenarios => "scenarios",
         Command::Responder => "responder",
         Command::Campaign { .. } => "campaign",
@@ -248,7 +258,7 @@ async fn main() -> anyhow::Result<()> {
 
     // ── Protocol scenarios (spawn their own nodes) ───────────────
     match &cli.command {
-        Command::E2e | Command::Group | Command::Backup | Command::Failover | Command::Roles | Command::Chaos | Command::Endurance => {
+        Command::E2e | Command::Group | Command::Backup | Command::Failover | Command::Roles | Command::Chaos | Command::Endurance | Command::Partition | Command::Churn => {
             let result = match cli.command {
                 Command::E2e => scenario_e2e::run().await?,
                 Command::Group => scenario_group::run().await?,
@@ -257,6 +267,8 @@ async fn main() -> anyhow::Result<()> {
                 Command::Roles => scenario_roles::run().await?,
                 Command::Chaos => scenario_chaos::run().await?,
                 Command::Endurance => scenario_endurance::run().await?,
+                Command::Partition => scenario_partition::run().await?,
+                Command::Churn => scenario_churn::run().await?,
                 _ => unreachable!(),
             };
             result.print_summary();
@@ -466,7 +478,8 @@ async fn main() -> anyhow::Result<()> {
 
         // Already handled above
         Command::E2e | Command::Group | Command::Backup | Command::Failover | Command::Roles
-        | Command::Chaos | Command::Endurance | Command::Scenarios | Command::Responder | Command::Campaign { .. } => {
+        | Command::Chaos | Command::Endurance | Command::Partition | Command::Churn
+        | Command::Scenarios | Command::Responder | Command::Campaign { .. } => {
             unreachable!()
         }
     }
