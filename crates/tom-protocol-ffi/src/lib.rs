@@ -46,6 +46,8 @@ pub struct TomNodeHandle {
     last_path: Arc<Mutex<Option<(String, u64)>>>,
     /// Local node role: "Peer" or "Relay" (updated from LocalRoleChanged events)
     local_role: Arc<Mutex<String>>,
+    /// Relay URL passed at start time (stored for status reporting).
+    configured_relay_url: Arc<std::sync::Mutex<Option<String>>>,
 }
 
 /// Initialize tracing (logs) for the node
@@ -158,6 +160,7 @@ pub unsafe extern "C" fn tom_node_create(config_json: *const c_char) -> *mut Tom
         last_error: Arc::new(std::sync::Mutex::new(None)),
         last_path: Arc::new(Mutex::new(None)),
         local_role: Arc::new(Mutex::new("Peer".to_string())),
+        configured_relay_url: Arc::new(std::sync::Mutex::new(None)),
     }))
 }
 
@@ -207,7 +210,8 @@ pub unsafe extern "C" fn tom_node_start(
     let mut transport_config = TomNodeConfig::new();
 
     if let Some(relay_url) = normalized_non_empty(runtime_config.relay_url.as_deref()) {
-        if let Ok(url) = relay_url.parse() {
+        if let Ok(url) = relay_url.parse::<tom_connect::RelayUrl>() {
+            *lock_recover(&handle_ref.configured_relay_url) = Some(relay_url.clone());
             transport_config = transport_config.relay_url(url);
         }
     }
@@ -675,11 +679,17 @@ pub unsafe extern "C" fn tom_node_status(handle: *const TomNodeHandle) -> *mut c
         let node_id = handle_ref.node_id.lock().await.clone();
         let guard = handle_ref.handle.lock().await;
 
-        let (status, peers_count, groups_count) = if let Some(rh) = guard.as_ref() {
+        let (status, peers_count, groups_count, relay_url_discovered) = if let Some(rh) = guard.as_ref() {
             let m = rh.metrics();
-            ("Running", m.peers_known, m.groups_count)
+            // Pick the most recently refreshed discovered relay, if any
+            let discovered = rh.get_known_relays().await;
+            let relay_url = discovered
+                .iter()
+                .max_by_key(|e| e.refreshed_at)
+                .map(|e| e.relay_url.to_string());
+            ("Running", m.peers_known, m.groups_count, relay_url)
         } else {
-            ("Stopped", 0, 0)
+            ("Stopped", 0, 0, None)
         };
 
         let local_role = handle_ref.local_role.lock().await.clone();
@@ -688,15 +698,22 @@ pub unsafe extern "C" fn tom_node_status(handle: *const TomNodeHandle) -> *mut c
             lp.clone().unwrap_or_else(|| ("RELAY".to_string(), 0))
         };
 
+        // relay_url_active = configured relay (explicit) or first discovered relay
+        let configured = lock_recover(&handle_ref.configured_relay_url).clone();
+        let relay_url_active = configured
+            .or(relay_url_discovered)
+            .unwrap_or_default();
+
         format!(
-            r#"{{"node_id":"{}","status":"{}","peers_count":{},"groups_count":{},"local_role":"{}","path_kind":"{}","path_rtt_ms":{}}}"#,
+            r#"{{"node_id":"{}","status":"{}","peers_count":{},"groups_count":{},"local_role":"{}","path_kind":"{}","path_rtt_ms":{},"relay_url_active":"{}"}}"#,
             node_id.unwrap_or_else(|| "unknown".to_string()),
             status,
             peers_count,
             groups_count,
             local_role,
             path_kind,
-            path_rtt_ms
+            path_rtt_ms,
+            relay_url_active
         )
     });
 

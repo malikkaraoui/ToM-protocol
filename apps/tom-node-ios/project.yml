@@ -1,0 +1,67 @@
+name: TomNode
+options:
+  bundleIdPrefix: malik.karaoui
+  deploymentTarget:
+    iOS: "16.0"
+  xcodeVersion: "16.0"
+  createIntermediateGroups: true
+  useBaseGroupList: true
+  fileSystemSynchronizedGroups: true
+
+settings:
+  base:
+    SWIFT_VERSION: "5.10"
+    ENABLE_BITCODE: NO
+    ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES: YES
+
+targets:
+  TomNode:
+    type: application
+    platform: iOS
+    deploymentTarget: "16.0"
+    sources:
+      - path: TomNode
+        createIntermediateGroups: true
+    info:
+      path: TomNode/Info.plist
+      properties:
+        CFBundleName: TomNode
+        CFBundleDisplayName: TomNode
+        CFBundleIdentifier: malik.karaoui.TomNode-iOS
+        CFBundleVersion: "1"
+        CFBundleShortVersionString: "1.0"
+        UILaunchScreen:
+          UIColorName: ""
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+          UISceneConfigurations: {}
+        NSLocalNetworkUsageDescription: "ToM Protocol uses the local network for peer discovery."
+        NSBonjourServices:
+          - _iroh._udp
+        UIBackgroundModes:
+          - audio
+          - fetch
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: malik.karaoui.TomNode-iOS
+        PRODUCT_NAME: TomNode
+        SWIFT_OBJC_BRIDGING_HEADER: TomNode/TomNode-Bridging-Header.h
+        HEADER_SEARCH_PATHS:
+          - "$(PROJECT_DIR)/../tom-node-tvos/build"
+        OTHER_LDFLAGS:
+          - "-ObjC"
+        IPHONEOS_DEPLOYMENT_TARGET: "16.0"
+        SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD: YES
+    dependencies:
+      - framework: ../tom-node-tvos/build/TomProtocolFFI.xcframework
+        embed: false
+    preBuildScripts:
+      - name: Build Rust FFI (if needed)
+        script: |
+          set -e
+          XCFW="${PROJECT_DIR}/../tom-node-tvos/build/TomProtocolFFI.xcframework"
+          if [ ! -d "$XCFW" ]; then
+            echo "warning: XCFramework not found at $XCFW — run 'make ffi-xcframework' from apps/tom-node-ios"
+          fi
+        basedOnDependencyAnalysis: false
+        showEnvVars: true
