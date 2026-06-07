@@ -1198,7 +1198,7 @@ mod tests {
     fn create_group_unstarted_is_rejected() {
         let h = make_unstarted_handle();
         let cfg = format!(
-            r#"{{"name":"g","hub_relay_id":"{id}","initial_members":["{id}"],"invite_only":false}}"}"#,
+            r#"{{"name":"g","hub_relay_id":"{id}","initial_members":["{id}"],"invite_only":false}}"#,
             id = VALID_NODE_ID
         );
         let cstr = CString::new(cfg).unwrap();
@@ -1242,7 +1242,7 @@ mod tests {
         }
     }
 
-    // ── JSON wire contract between Swift and Rust ─────────────────────────────────
+    // ── JSON wire contract between Swift and Rust ──────────────────────────
 
     #[test]
     fn runtime_config_deserializes_swift_json() {
