@@ -252,6 +252,16 @@ actor TomNodeWrapper {
         }
     }
 
+    /// Returns the best available relay URL: configured relay first, then gossip-discovered.
+    /// Returns nil when no relay is known yet.
+    func getDiscoveredRelay() -> String? {
+        guard let h = handle else { return nil }
+        guard let cStr = tom_get_discovered_relay(h) else { return nil }
+        defer { tom_node_free_string(cStr) }
+        let url = String(cString: cStr)
+        return url.isEmpty ? nil : url
+    }
+
     func status() -> TomNodeStatus? {
         guard let h = handle else { return nil }
 
