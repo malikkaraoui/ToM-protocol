@@ -138,6 +138,14 @@ char* tom_node_connected_peers(const TomNodeHandle handle);
 /// Caller must free returned string with tom_node_free_string()
 char* tom_node_discovered_peers(const TomNodeHandle handle);
 
+/// Get the best available relay URL for this node.
+///
+/// Priority: (1) configured relay URL, (2) most recently discovered relay via gossip.
+///
+/// Returns: relay URL as null-terminated C string, or NULL if no relay is known yet.
+/// Caller must free returned string with tom_node_free_string()
+char* tom_get_discovered_relay(const TomNodeHandle handle);
+
 /// Free a string returned by FFI functions
 void tom_node_free_string(char* s);
 
