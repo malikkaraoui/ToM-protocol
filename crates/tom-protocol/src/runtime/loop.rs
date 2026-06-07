@@ -56,7 +56,7 @@ pub(super) async fn runtime_loop(
     let mut gossip_announce = tokio::time::interval(state.config.gossip_announce_interval);
     let mut shadow_ping = tokio::time::interval(state.config.shadow_ping_interval);
     let mut subnet_eval = tokio::time::interval(std::time::Duration::from_secs(30));
-    let mut role_eval = tokio::time::interval(std::time::Duration::from_secs(60));
+    let mut role_eval = tokio::time::interval(std::time::Duration::from_secs(300));
     let mut state_save = tokio::time::interval(std::time::Duration::from_secs(30));
     let mut dht_republish = tokio::time::interval(std::time::Duration::from_secs(30 * 60));
     let mut delivery_deadline = tokio::time::interval(std::time::Duration::from_secs(5));
