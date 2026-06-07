@@ -143,6 +143,7 @@ pub struct NodeStatusFFI {
     pub local_role: String,
     pub path_kind: String,
     pub path_rtt_ms: u64,
+    pub relay_url_active: String,
 }
 
 fn deserialize_node_id<'de, D>(deserializer: D) -> Result<NodeId, D::Error>
@@ -183,11 +184,12 @@ mod tests {
             local_role: "Peer".into(),
             path_kind: "DIRECT".into(),
             path_rtt_ms: 12,
+            relay_url_active: "http://relay.example:3340".into(),
         };
         let json = serde_json::to_string(&status).unwrap();
         assert_eq!(
             json,
-            r#"{"node_id":"n","status":"Running","peers_count":3,"groups_count":1,"local_role":"Peer","path_kind":"DIRECT","path_rtt_ms":12}"#
+            r#"{"node_id":"n","status":"Running","peers_count":3,"groups_count":1,"local_role":"Peer","path_kind":"DIRECT","path_rtt_ms":12,"relay_url_active":"http://relay.example:3340"}"#
         );
     }
 
@@ -204,6 +206,7 @@ mod tests {
             local_role: "we\"ird".into(),
             path_kind: "DIRECT".into(),
             path_rtt_ms: 0,
+            relay_url_active: "".into(),
         };
         let json = serde_json::to_string(&status).unwrap();
         let round_trip: NodeStatusFFI = serde_json::from_str(&json).unwrap();
