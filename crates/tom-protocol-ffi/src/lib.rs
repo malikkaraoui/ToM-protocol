@@ -705,7 +705,7 @@ pub unsafe extern "C" fn tom_node_status(handle: *const TomNodeHandle) -> *mut c
             .unwrap_or_default();
 
         format!(
-            r#"{{"node_id":"{}","status":"{}","peers_count":{},"groups_count":{},"local_role":"{}","path_kind":"{}","path_rtt_ms":{},"relay_url_active":"{}"}}"#,
+            r#"{{"node_id":"{}","status":"{}","peers_count":{},"groups_count":{},"local_role":"{}","path_kind":"{}","path_rtt_ms":{},"relay_url_active":"{}"}}}"#,
             node_id.unwrap_or_else(|| "unknown".to_string()),
             status,
             peers_count,
@@ -898,6 +898,52 @@ pub unsafe extern "C" fn tom_node_discovered_peers(
     }
 }
 
+/// Get the best available relay URL for this node.
+///
+/// Priority: (1) configured relay URL, (2) most recently discovered relay via gossip.
+/// Returns NULL when no relay is known yet — the runtime will still work via
+/// N0 public relays if n0_discovery is enabled.
+///
+/// # Returns
+/// * Relay URL as null-terminated C string (caller must free with `tom_node_free_string()`)
+/// * NULL if no relay is known
+///
+/// # Safety
+/// * `handle` must be a valid pointer returned by `tom_node_create()`
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn tom_get_discovered_relay(handle: *const TomNodeHandle) -> *mut c_char {
+    if handle.is_null() {
+        return std::ptr::null_mut();
+    }
+    let handle_ref = unsafe { &*handle };
+
+    let url = handle_ref.runtime.block_on(async {
+        // Priority 1: configured relay URL (explicit, set at start time)
+        let configured = lock_recover(&handle_ref.configured_relay_url).clone();
+        if configured.is_some() {
+            return configured;
+        }
+        // Priority 2: most recently refreshed relay via gossip/DHT
+        let guard = handle_ref.handle.lock().await;
+        if let Some(rh) = guard.as_ref() {
+            let relays = rh.get_known_relays().await;
+            relays.into_iter()
+                .max_by_key(|e| e.refreshed_at)
+                .map(|e| e.relay_url.to_string())
+        } else {
+            None
+        }
+    });
+
+    match url {
+        Some(s) => match CString::new(s) {
+            Ok(c) => c.into_raw(),
+            Err(_) => std::ptr::null_mut(),
+        },
+        None => std::ptr::null_mut(),
+    }
+}
+
 /// Free a string returned by FFI functions
 ///
 /// # Safety
@@ -1047,6 +1093,7 @@ mod tests {
             assert!(tom_node_last_error(std::ptr::null()).is_null());
             assert!(tom_node_connected_peers(std::ptr::null()).is_null());
             assert!(tom_node_discovered_peers(std::ptr::null()).is_null());
+            assert!(tom_get_discovered_relay(std::ptr::null()).is_null());
 
             // void functions on null → no-op, no crash
             tom_node_free(std::ptr::null_mut());
@@ -1087,6 +1134,8 @@ mod tests {
             }
             // No error set yet → null
             assert!(tom_node_last_error(h).is_null());
+            // No relay configured or discovered yet → null
+            assert!(tom_get_discovered_relay(h).is_null());
             tom_node_free(h);
         }
     }
@@ -1148,7 +1197,7 @@ mod tests {
     fn create_group_unstarted_is_rejected() {
         let h = make_unstarted_handle();
         let cfg = format!(
-            r#"{{"name":"g","hub_relay_id":"{id}","initial_members":["{id}"],"invite_only":false}}"#,
+            r#"{{"name":"g","hub_relay_id":"{id}","initial_members":["{id}"],"invite_only":false}}"}"#,
             id = VALID_NODE_ID
         );
         let cstr = CString::new(cfg).unwrap();
@@ -1192,7 +1241,7 @@ mod tests {
         }
     }
 
-    // ── JSON wire contract between Swift and Rust ──────────────────────────
+    // ── JSON wire contract between Swift and Rust ─────────────────────────────────
 
     #[test]
     fn runtime_config_deserializes_swift_json() {
