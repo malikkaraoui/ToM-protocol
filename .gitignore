@@ -9,6 +9,9 @@ target/
 # Worktrees
 .worktrees/
 
+# Graphify code knowledge graph (local index, ~22Mo)
+graphify-out/
+
 # Secrets
 .env
 apps/relay-tvos/TomRelay/TomRelay/
@@ -37,3 +40,10 @@ crates/tom-relay-ffi/target/
 patches/*/.cargo-ok
 patches/*/.cargo_vcs_info.json
 logs/
+
+# Freebox token (app_token permanent — secret)
+**/freebox_token.json
+*.freebox_token.json
+
+# Backups .claude horodatés (ne pas committer ni linter)
+.claude-backup-*/
