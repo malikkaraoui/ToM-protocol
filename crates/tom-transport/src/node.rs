@@ -274,6 +274,13 @@ impl TomNode {
             builder = builder.secret_key(key);
         }
 
+        #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
+        if let Some(addr) = config.bind_addr {
+            builder = builder
+                .bind_addr(addr)
+                .map_err(|e| TomTransportError::Bind(e.into()))?;
+        }
+
         let endpoint = builder.bind().await
             .map_err(|e| TomTransportError::Bind(e.into()))?;
 
@@ -798,6 +805,26 @@ mod tests {
         node2.shutdown().await.unwrap();
 
         assert_ne!(id1, id2, "No identity path should produce different NodeIds");
+    }
+
+    #[tokio::test]
+    async fn bind_addr_binds_fixed_port() {
+        use std::net::{Ipv6Addr, SocketAddr};
+
+        // Uncommon high port to avoid collisions with other services.
+        let port = 49737;
+        let config = TomNodeConfig::new()
+            .n0_discovery(false)
+            .bind_addr(SocketAddr::from((Ipv6Addr::UNSPECIFIED, port)));
+        let node = TomNode::bind(config).await.unwrap();
+
+        let bound = node.endpoint.bound_sockets();
+        assert!(
+            bound.iter().any(|s| s.port() == port),
+            "endpoint should bind the requested fixed port {port}, got {bound:?}"
+        );
+
+        node.shutdown().await.unwrap();
     }
 
     #[tokio::test]
