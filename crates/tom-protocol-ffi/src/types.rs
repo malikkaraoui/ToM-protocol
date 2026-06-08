@@ -126,6 +126,25 @@ pub struct DiscoveredPeerFFI {
     pub discovered_at: u64,
 }
 
+/// Node status snapshot exposed over FFI.
+///
+/// The serialized field names are the wire contract decoded by the Swift
+/// `TomNodeStatus` struct (`apps/tom-node-tvos/TomNode/Models/TomModels.swift`).
+/// Renaming a field here silently breaks the tvOS status panel: the Swift
+/// `JSONDecoder` returns `nil` and the UI stops updating. Going through serde
+/// (instead of a hand-rolled `format!`) also guarantees valid JSON escaping for
+/// every string field. Keep in sync and covered by the contract tests below.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct NodeStatusFFI {
+    pub node_id: String,
+    pub status: String,
+    pub peers_count: u64,
+    pub groups_count: u64,
+    pub local_role: String,
+    pub path_kind: String,
+    pub path_rtt_ms: u64,
+}
+
 fn deserialize_node_id<'de, D>(deserializer: D) -> Result<NodeId, D::Error>
 where
     D: serde::Deserializer<'de>,
@@ -143,4 +162,83 @@ where
         .into_iter()
         .map(|s| s.parse().map_err(serde::de::Error::custom))
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // The serialized JSON below is the wire contract decoded by the Swift
+    // `Codable` structs in `apps/tom-node-tvos/TomNode/Models/TomModels.swift`.
+    // These tests lock the exact key set + order so a Rust-side rename can no
+    // longer silently break the tvOS UI (decode failure → panel freezes).
+
+    #[test]
+    fn node_status_json_keys_match_swift_decoder() {
+        let status = NodeStatusFFI {
+            node_id: "n".into(),
+            status: "Running".into(),
+            peers_count: 3,
+            groups_count: 1,
+            local_role: "Peer".into(),
+            path_kind: "DIRECT".into(),
+            path_rtt_ms: 12,
+        };
+        let json = serde_json::to_string(&status).unwrap();
+        assert_eq!(
+            json,
+            r#"{"node_id":"n","status":"Running","peers_count":3,"groups_count":1,"local_role":"Peer","path_kind":"DIRECT","path_rtt_ms":12}"#
+        );
+    }
+
+    #[test]
+    fn node_status_json_escapes_special_chars() {
+        // A value containing a double quote corrupted the previous hand-rolled
+        // `format!` JSON, making the Swift decode fail. serde must escape it so
+        // the payload still round-trips.
+        let status = NodeStatusFFI {
+            node_id: "n".into(),
+            status: "Running".into(),
+            peers_count: 0,
+            groups_count: 0,
+            local_role: "we\"ird".into(),
+            path_kind: "DIRECT".into(),
+            path_rtt_ms: 0,
+        };
+        let json = serde_json::to_string(&status).unwrap();
+        let round_trip: NodeStatusFFI = serde_json::from_str(&json).unwrap();
+        assert_eq!(round_trip, status);
+    }
+
+    #[test]
+    fn discovered_peer_json_keys_match_swift_decoder() {
+        let peer = DiscoveredPeerFFI {
+            node_id: "abc".into(),
+            username: "alice".into(),
+            source: "Announce".into(),
+            discovered_at: 42,
+        };
+        let json = serde_json::to_string(&peer).unwrap();
+        assert_eq!(
+            json,
+            r#"{"node_id":"abc","username":"alice","source":"Announce","discovered_at":42}"#
+        );
+    }
+
+    #[test]
+    fn delivered_message_json_keys_match_swift_decoder() {
+        let msg = DeliveredMessageFFI {
+            from: "sender".into(),
+            payload: "QUJD".into(), // base64("ABC")
+            envelope_id: "env-1".into(),
+            timestamp: 100,
+            signature_valid: true,
+            was_encrypted: true,
+        };
+        let json = serde_json::to_string(&msg).unwrap();
+        assert_eq!(
+            json,
+            r#"{"from":"sender","payload":"QUJD","envelope_id":"env-1","timestamp":100,"signature_valid":true,"was_encrypted":true}"#
+        );
+    }
 }
