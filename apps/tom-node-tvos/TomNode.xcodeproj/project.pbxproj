@@ -146,8 +146,6 @@
 			outputFileListPaths = (
 			);
 			outputPaths = (
-				"$(SRCROOT)/build/TomProtocolFFI.xcframework",
-				"$(SRCROOT)/build/tom_protocol_ffi.h",
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/bash;
