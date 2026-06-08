@@ -60,3 +60,14 @@
   - **Avance livrée** : durcissement du point le plus fragile — `tom_node_status` passé d'un `format!` manuel à serde (`NodeStatusFFI`) + 4 tests de contrat Rust verrouillant les clés JSON décodées par Swift. `cargo clippy -D warnings` + tests verts.
   - **Fichiers** : `crates/tom-protocol-ffi/src/types.rs`, `crates/tom-protocol-ffi/src/lib.rs`.
 - Prochaine action : `make ffi` + `make ffi-device` pour embarquer la sérialisation durcie ; puis câbler une cible XCTest dans le `.xcodeproj` réutilisant les mêmes fixtures que les tests Rust.
+
+### 2026-06-08 — Session : port UDP fixe + cadrage app macOS [auto]
+
+- Source : Claude Code (session « on enchaine »)
+- Statut : traité — **handoff vers nouvelle fenêtre pour le chantier macOS**
+- Livré cette session :
+  - **Feature `--bind-port`/`--bind-addr`** (commit `3c7b0b5`) : `TomNodeConfig.bind_addr` + env `TOM_BIND_ADDR`, branché sur `Endpoint::bind_addr()`, flags CLI `tom-chat`. Test `bind_addr_binds_fixed_port`. Gate workspace verte.
+  - **Déploiement NAS vérifié** : `tom-node.service` mis à jour avec `--key-path /root/tom-node.key --bind-port 43925`. Identité **stable au restart** (node_id `11d5bb11…d2d759`), port `[::]:43925` persistant. → 2 blocages IPv6 du vault levés.
+  - **Cadrage app macOS** (commit `58facce`) : `docs/superpowers/specs/2026-06-08-app-macos-tom-design.md`. Portage 1:1 natif validé + anti-veille `ProcessInfo.beginActivity`.
+- **Reste à faire (NAS)** : ouverture IPv6 entrante Freebox sur 43925 → `2a01:e0a:14f:5da0:248f:5dff:fea5:8ed1` (manuel Freebox OS, §22). Puis re-test DIRECT stable.
+- **Reprise nouvelle fenêtre (macOS)** : lire la spec ci-dessus → `/superpowers:writing-plans` ou exécution directe. 5 lots : A=slice FFI darwin, B=cible Xcode (1 passage Xcode), C=portage TomNodeService (UIKit conditionnel + anti-veille), D=entitlements sandbox réseau, E=Makefile.
