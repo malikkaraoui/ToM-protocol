@@ -22,7 +22,7 @@ use tom_protocol::{DeliveredMessage, ProtocolEvent, ProtocolRuntime, RuntimeChan
 use tom_transport::TomNodeConfig;
 
 mod types;
-use types::{DeliveredMessageFFI, DiscoveredPeerFFI, GroupConfigFFI, NodeConfigFFI, PeerAddrFFI, RuntimeConfigFFI};
+use types::{DeliveredMessageFFI, DiscoveredPeerFFI, GroupConfigFFI, NodeConfigFFI, NodeStatusFFI, PeerAddrFFI, RuntimeConfigFFI};
 
 /// Hard cap for discovered peer cache exposed over FFI.
 /// Prevents unbounded growth on long-running tvOS sessions.
@@ -646,16 +646,19 @@ pub unsafe extern "C" fn tom_node_status(handle: *const TomNodeHandle) -> *mut c
             lp.clone().unwrap_or_else(|| ("RELAY".to_string(), 0))
         };
 
-        format!(
-            r#"{{"node_id":"{}","status":"{}","peers_count":{},"groups_count":{},"local_role":"{}","path_kind":"{}","path_rtt_ms":{}}}"#,
-            node_id.unwrap_or_else(|| "unknown".to_string()),
-            status,
+        // Serialize through a typed struct (not a hand-rolled `format!`) so the
+        // JSON is always valid/escaped and the key contract with the Swift
+        // `TomNodeStatus` decoder stays locked by `types::tests`.
+        let status_payload = NodeStatusFFI {
+            node_id: node_id.unwrap_or_else(|| "unknown".to_string()),
+            status: status.to_string(),
             peers_count,
             groups_count,
             local_role,
             path_kind,
-            path_rtt_ms
-        )
+            path_rtt_ms,
+        };
+        serde_json::to_string(&status_payload).unwrap_or_else(|_| "{}".to_string())
     });
 
     match CString::new(status_json) {
