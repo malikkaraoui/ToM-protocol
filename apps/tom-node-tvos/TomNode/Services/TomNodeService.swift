@@ -44,8 +44,11 @@ final class TomNodeService: ObservableObject {
     private var silentPlayer: AVAudioPlayer?
 
     // Config — defaults work out of the box, zero manual configuration
-    // Default relay = NAS Freebox (always running tom-relay --dev on port 3340)
-    @Published var relayUrl: String = "http://192.168.0.83:3340"
+    // Relais VIDE par défaut = découverte organique décentralisée (n0/Pkarr/DNS
+    // + DHT + mDNS), connexion directe IPv6/hole-punch. Aucun relais à IP fixe :
+    // chaque nœud est joignable n'importe où via son node_id. Relais publics iroh
+    // utilisés en fallback automatique. Renseigner ce champ force un relais custom.
+    @Published var relayUrl: String = ""
     @Published var username: String = TomNodeService.defaultUsername()
     @Published var encryption: Bool = true
     @Published var enableDht: Bool = true

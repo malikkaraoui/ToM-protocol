@@ -30,6 +30,8 @@
       "dist",
       "*.tsbuildinfo",
       ".claude",
+      ".claude-backup-*",
+      "graphify-out",
       "_bmad-output",
       "_bmad",
       "target",
