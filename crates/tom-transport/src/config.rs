@@ -1,3 +1,4 @@
+use std::net::SocketAddr;
 use std::path::PathBuf;
 
 /// Fallback relay list (public relays) used when discovery fails
@@ -79,6 +80,13 @@ pub struct TomNodeConfig {
     /// If set, the node loads its identity from this file (creating it on first run).
     /// If unset, a fresh ephemeral identity is generated on each bind.
     pub(crate) identity_path: Option<PathBuf>,
+    /// Fixed local UDP socket address for the QUIC endpoint.
+    ///
+    /// If set, the endpoint binds its IP socket to this address instead of an
+    /// OS-assigned ephemeral port. A stable port is required for durable
+    /// inbound firewall rules (e.g. opening IPv6 on a router). When unset
+    /// (default), the OS assigns an ephemeral port on each bind.
+    pub(crate) bind_addr: Option<SocketAddr>,
 }
 
 impl Default for TomNodeConfig {
@@ -128,6 +136,10 @@ impl TomNodeConfig {
         let relay_discovery_url = std::env::var("TOM_RELAY_DISCOVERY_URL").ok();
         let relay_dns_fallback_domain = std::env::var("TOM_RELAY_DNS_FALLBACK_DOMAIN").ok();
 
+        let bind_addr = std::env::var("TOM_BIND_ADDR")
+            .ok()
+            .and_then(|s| s.parse().ok());
+
         Self {
             alpn: crate::TOM_ALPN.to_vec(),
             max_message_size: 1024 * 1024, // 1 MB
@@ -140,6 +152,7 @@ impl TomNodeConfig {
             local_discovery: true,
             relay_only: false,
             identity_path,
+            bind_addr,
         }
     }
 
@@ -262,6 +275,16 @@ impl TomNodeConfig {
     /// ```
     pub fn identity_path(mut self, path: PathBuf) -> Self {
         self.identity_path = Some(path);
+        self
+    }
+
+    /// Set a fixed local UDP socket address for the QUIC endpoint.
+    ///
+    /// Binds the endpoint to a stable port instead of an OS-assigned ephemeral
+    /// one. Required for durable inbound firewall rules. Use `[::]:PORT` to bind
+    /// IPv6 (and IPv4 via dual-stack) or `0.0.0.0:PORT` for IPv4 only.
+    pub fn bind_addr(mut self, addr: SocketAddr) -> Self {
+        self.bind_addr = Some(addr);
         self
     }
 }

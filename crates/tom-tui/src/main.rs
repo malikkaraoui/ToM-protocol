@@ -276,6 +276,18 @@ struct Cli {
     /// Exposes a JSON endpoint showing node identity, phase, peers, roles, metrics.
     #[arg(long, value_name = "PORT")]
     status_port: Option<u16>,
+
+    /// Fixed local UDP socket address for the QUIC endpoint (e.g. "[::]:43925").
+    /// Binds a stable port instead of an OS-assigned ephemeral one — required
+    /// for durable inbound firewall rules. Takes precedence over --bind-port.
+    #[arg(long, value_name = "ADDR")]
+    bind_addr: Option<std::net::SocketAddr>,
+
+    /// Fixed local UDP port for the QUIC endpoint, bound on `[::]:PORT`
+    /// (dual-stack IPv6 + IPv4). Shorthand for --bind-addr. Ignored if
+    /// --bind-addr is set.
+    #[arg(long, value_name = "PORT")]
+    bind_port: Option<u16>,
 }
 
 // ── App State ────────────────────────────────────────────────────────────
@@ -386,6 +398,15 @@ async fn main() -> anyhow::Result<()> {
     let mut node_config = TomNodeConfig::new();
     if let Some(path) = cli.key_path.clone() {
         node_config = node_config.identity_path(path);
+    }
+    // Fixed UDP bind: explicit --bind-addr wins, else --bind-port on [::] (dual-stack).
+    let effective_bind_addr = cli.bind_addr.or_else(|| {
+        cli.bind_port.map(|port| {
+            std::net::SocketAddr::from((std::net::Ipv6Addr::UNSPECIFIED, port))
+        })
+    });
+    if let Some(addr) = effective_bind_addr {
+        node_config = node_config.bind_addr(addr);
     }
     let node = TomNode::bind(node_config).await?;
     let local_id = node.id();
