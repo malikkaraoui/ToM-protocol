@@ -4,6 +4,27 @@
 
 ## Courrier entrant
 
+### 2026-06-09 — Session : commits git + review Copilot x3 + fix CLI bind-port [auto]
+
+- Source : Claude Code
+- Statut : traité — **9 commits locaux prêts, push en attente (terminal)**
+- Livré cette session :
+  - **Commits pushables** (9 sur `main`, en avance sur `origin/main`) :
+    - `fix(ffi)` : serde via `NodeStatusFFI` — élimine le `format!` fragile pour JSON tvOS fiable
+    - `fix(xcode)` : retrait outputPaths xcframework stale dans build phase
+    - `chore(deps)` : claude-atelier devDep + sync pnpm-lock
+    - `fix(deps)` : claude-atelier épinglé au commit exact `618aef2` (supply chain)
+    - 3 commits handoff + intégration review Copilot
+    - `fix(tui)` : commentaire `--bind-port` corrigé — IPv4 reste éphémère, pas dual-stack
+  - **Review Copilot x3 intégrée** (GPT a répondu dans les fichiers, sections Intégration remplies) :
+    - FFI : contrat clés Rust↔Swift correct, zone grise `u64→Int` documentée, tests à enrichir
+    - Transport : dual-stack trop affirmatif corrigé, collision port propagée OK, test trop lâche noté
+    - Deps : pin #hash suffisant, better-sqlite3 CI risque faible documenté
+  - **xcframework** (414 Mo) exclu de git — ajout au `.gitignore` recommandé pour la prochaine session
+  - **Dette §25 soldée** : handoffs générés + intégrés
+- **Reste bloqué côté claude config** : `.claude/CLAUDE.md`, `.claude/settings.json`, `.claude/EXECUTOR.md`, `.claude/autonomy/`, `.claude/hooks/`, `.husky/post-*` — classifier auto-mode les bloque (comportement normal, ne pas débloquer)
+- Prochaine action : `git push origin main` depuis le terminal → CI GitHub → `make ffi && make ffi-device` pour rebuild xcframework → ouvrir IPv6 Freebox 43925 → lancer chantier macOS (5 lots A→E)
+
 ### 2026-06-08 — 🏆 JALON : nœud iOS en 5G sur réseau ToM décentralisé [auto]
 
 - Source : Claude Code — session test hardware réel (Apple TV + iPad + iPhone + NAS Freebox)
