@@ -12,10 +12,10 @@
 - **Phase** : Phase 3 — Convergence TS+Rust + tvOS Node (actif)
 - **Stack** : Rust 2021 · TypeScript · Swift/SwiftUI · QUIC (iroh-forked)
 - **Version** : 0.2.0 (tous crates natifs, bumped 2026-04-15)
-- **Objectif courant** : Push 9 commits locaux → CI GitHub. Puis : rebuild xcframework + lancer chantier app macOS (5 lots A→E)
-- **Prochaine action utile** : `git push origin main` (terminal) → CI → `make ffi && make ffi-device` pour embarquer serde NodeStatusFFI dans l'app tvOS
+- **Objectif courant** : Review Copilot PR #39 en attente (handoff créé) → appliquer feedback → `make ffi && make ffi-device` pour embarquer relay_url_active + app macOS (5 lots A→E)
+- **Prochaine action utile** : Copier le handoff `docs/handoffs/2026-06-09-pr39-apple-audit-ffi.md` dans Copilot/GPT → revenir avec retour → `/integrate-review`
 - **Repo** : https://github.com/malikkaraoui/ToM-protocol
-- **Dernière activité** : 2026-06-09 — review Copilot x3 intégrée, fix commentaire CLI --bind-port, 9 commits prêts à pusher
+- **Dernière activité** : 2026-06-09 11:34 — PR #39 rebased commit par commit sur main (18 commits), CI fix lockfile, relay_url_active dans NodeStatusFFI
 
 ## À lire en priorité
 

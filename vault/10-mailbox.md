@@ -4,6 +4,21 @@
 
 ## Courrier entrant
 
+### 2026-06-09 — Session : rebase PR #39 → main + fix CI lockfile [auto]
+
+- Source : Claude Code
+- Statut : traité — **main à jour, CI vert, PR #39 mergée commit par commit**
+- Livré cette session :
+  - **Fix CI** (`d4e9db6`) : `pnpm-lock.yaml` specifier `claude-atelier` aligné avec SHA dans `package.json` → `ERR_PNPM_OUTDATED_LOCKFILE` résolu
+  - **Handoff Copilot PR #39** (`7797b85`) : `docs/handoffs/2026-06-09-pr39-apple-audit-ffi.md` — 3 questions (UB FFI résiduel, race condition relay discovery, couverture double panne hub)
+  - **Rebase PR #39 → main** (18 commits, sans merge commit) :
+    - 3 conflits `lib.rs` résolus : sérialisation typée `NodeStatusFFI` (HEAD) préservée + `relay_url_active` ajouté
+    - `types.rs` : champ `relay_url_active: String` ajouté au struct + contrats de test mis à jour
+    - 1 commit déjà upstream dropped (`chore(ffi): resync Cargo.lock`)
+    - Clippy workspace ✅ · 24/24 tests FFI ✅
+  - **Pushed** : `7e8419f → ced48a9` sur `origin/main`
+- **Prochaine action** : copier le handoff dans Copilot → revenir avec réponse → `/integrate-review`
+
 ### 2026-06-09 — Session : commits git + review Copilot x3 + fix CLI bind-port [auto]
 
 - Source : Claude Code
