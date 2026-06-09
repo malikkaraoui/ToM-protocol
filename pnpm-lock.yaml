@@ -21,7 +21,7 @@ importers:
         specifier: ^1.58.2
         version: 1.58.2
       claude-atelier:
-        specifier: github:malikkaraoui/claude-atelier
+        specifier: github:malikkaraoui/claude-atelier#618aef21902bd0e92ec48d5aedf2ebc842c0eb68
         version: https://codeload.github.com/malikkaraoui/claude-atelier/tar.gz/618aef21902bd0e92ec48d5aedf2ebc842c0eb68
       husky:
         specifier: ^9.1.7
