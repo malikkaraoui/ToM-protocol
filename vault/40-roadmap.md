@@ -39,16 +39,26 @@
 ## Sur le feu
 
 ### tvOS Node — convergence code ↔ doc ↔ tests
-- [x] **Architecture Swift tranchée** (2026-06-07) : on garde le wrapper local `TomNodeWrapper`/`TomNodeService`. `TomCoreKit` abandonné (ne débloque rien). Cf. 20-decisions.
-- [x] **Premier filet de sécurité contrat FFI** (2026-06-07) : `tom_node_status` passé sur serde (`NodeStatusFFI`) + 4 tests de contrat Rust verrouillant les clés JSON décodées par Swift (status, peer, message). `cargo clippy`+tests verts.
-- [ ] **Rebuild xcframework** (`make ffi` + `make ffi-device`) pour embarquer la sérialisation durcie dans l'app (sortie byte-identique pour valeurs normales → pas de régression).
-- [ ] **Mettre `docs/TOM-TVOS-NODE-PLAN.md` à jour** pour refléter l'état réel (app Xcode + FFI + tabs SwiftUI déjà en place)
-- [ ] **Tests Swift/tvOS** : nécessite de câbler une cible de test dans le `.xcodeproj` (absente aujourd'hui) — XCTest sur decode `TomModels` (mêmes fixtures que les tests Rust) + lifecycle Service
-- [ ] **Durcir la couche tvOS** : flux messages/groupes, persistance, handling reprise après veille, packaging/release
+- [x] **Architecture Swift tranchée** (2026-06-07) : on garde le wrapper local `TomNodeWrapper`/`TomNodeService`. `TomCoreKit` abandonné.
+- [x] **Premier filet de sécurité contrat FFI** (2026-06-07/09) : `tom_node_status` sur serde (`NodeStatusFFI`) + tests de contrat. **Review Copilot confirmée** : contrat clés correct, zone grise `u64→Int Swift` documentée.
+- [x] **Fix commentaire CLI `--bind-port`** (2026-06-09) : "dual-stack IPv6+IPv4" remplacé par la réalité (IPv4 reste éphémère).
+- [x] **Review Copilot x3 soldée** (2026-06-09) : handoffs FFI + transport + deps intégrés. Dette §25 effacée.
+- [ ] **Push 9 commits** → `git push origin main` (terminal) → surveiller CI GitHub
+- [ ] **Rebuild xcframework** (`make ffi && make ffi-device`) pour embarquer serde NodeStatusFFI dans l'app tvOS
+- [ ] **Ouvrir IPv6 entrante Freebox** — port 43925 → `2a01:e0a:14f:5da0:248f:5dff:fea5:8ed1` (Freebox OS, règle pare-feu manuelle). Débloque connexion DIRECT QUIC NAS.
+- [ ] **Mettre `docs/TOM-TVOS-NODE-PLAN.md` à jour** — refléter l'état réel
+- [ ] **Tests Swift/tvOS** — câbler XCTest dans `.xcodeproj` (fixtures identiques aux tests Rust)
+- [ ] **Durcir couche tvOS** : messages/groupes, persistance, reprise après veille
 
-### Dette review
-- Handoff Copilot dû : 4 commits · +88 lignes · 12j (signalé hook 2026-05-22)
-- Validation globale encore floue côté JS : `runTests` déclenche l'e2e Playwright et échoue si le port 5173 est déjà pris
+### Chantier macOS (5 lots — prêt à démarrer)
+
+> Spec complète : `docs/superpowers/specs/2026-06-08-app-macos-tom-design.md`
+
+- [ ] **Lot A** — Slice Rust FFI `aarch64-apple-darwin` + mise à jour `build-ffi.sh`
+- [ ] **Lot B** — Cible Xcode macOS (1 passage Xcode obligatoire — signing + entitlements)
+- [ ] **Lot C** — Portage `TomNodeService.swift` (UIKit conditionnel → `ProcessInfo.beginActivity` anti-veille)
+- [ ] **Lot D** — App Sandbox entitlements réseau (`network.client` + `network.server`)
+- [ ] **Lot E** — Makefile cibles `ffi-macos`, `build-macos`
 
 ## Ensuite
 
