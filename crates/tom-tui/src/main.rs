@@ -284,8 +284,8 @@ struct Cli {
     bind_addr: Option<std::net::SocketAddr>,
 
     /// Fixed local UDP port for the QUIC endpoint, bound on `[::]:PORT`
-    /// (dual-stack IPv6 + IPv4). Shorthand for --bind-addr. Ignored if
-    /// --bind-addr is set.
+    /// (fixe le socket IPv6 ; le socket IPv4 reste sur port éphémère).
+    /// Shorthand for --bind-addr. Ignored if --bind-addr is set.
     #[arg(long, value_name = "PORT")]
     bind_port: Option<u16>,
 }
