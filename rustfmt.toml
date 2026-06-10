@@ -1,0 +1,5 @@
+# rustfmt — configuration explicite du workspace (chantier S0.7, roadmap SDK)
+# Choix délibéré : défauts rustfmt stables, aucune option custom.
+# Le fichier existe pour figer ce choix avant l'ouverture aux contributions
+# externes (un rustfmt.toml absent laisse la porte aux configs implicites d'IDE).
+# Toute option ajoutée ici doit être stable (pas d'unstable_features).
