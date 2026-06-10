@@ -171,6 +171,29 @@ jobs:
         working-directory: crates/tom-protocol-ffi
         run: cargo clippy --locked -- -D warnings
 
+  # La cible SDK n°1 est Apple (décision D2) : ce job garantit que la couche
+  # FFI builde sur macOS — jamais vérifié en CI auparavant (ubuntu only).
+  rust-macos:
+    name: Rust macOS (FFI build)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            .
+            crates/tom-protocol-ffi
+
+      - name: Build tom-relay-ffi
+        run: cargo build -p tom-relay-ffi
+
+      - name: Build tom-protocol-ffi (excluded crate)
+        working-directory: crates/tom-protocol-ffi
+        run: cargo build --locked
+
   rust-stress:
     name: Rust stress (build + clippy + localhost test)
     runs-on: ubuntu-latest
