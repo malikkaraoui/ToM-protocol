@@ -1,0 +1,227 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "version": "1.0.0",
+  "description": "Manifeste typé de tous les hooks claude-atelier. Source de vérité — toute modif d'un hook doit synchroniser cette entrée. Vérifié par test/lint-hooks-manifest.js.",
+  "lastUpdated": "2026-04-14",
+  "hooks": [
+    {
+      "name": "_parse-input",
+      "file": "hooks/_parse-input.sh",
+      "type": "helper",
+      "trigger": null,
+      "purpose": "Helper partagé — parse le JSON stdin des hooks Claude Code en variables shell",
+      "exposes": [
+        "HOOK_COMMAND",
+        "HOOK_EXIT_CODE",
+        "HOOK_FILE_PATH",
+        "HOOK_MODEL",
+        "HOOK_PROMPT"
+      ],
+      "rule": null,
+      "test": null,
+      "exitCodes": {
+        "0": "always (sourced, never executed standalone)"
+      },
+      "sha256": "22e37ceb14ed4aaf"
+    },
+    {
+      "name": "session-model",
+      "file": "hooks/session-model.sh",
+      "type": "SessionStart",
+      "trigger": "session.start",
+      "purpose": "Capture le modèle actif au démarrage et le persiste dans /tmp pour les hooks suivants",
+      "inputs": [
+        "model (from session JSON)"
+      ],
+      "outputs": [
+        "writes /tmp/claude-atelier-current-model"
+      ],
+      "rule": "§1 Horodatage + Modèle",
+      "test": "test/hooks.js → session-model.sh (1 test)",
+      "exitCodes": {
+        "0": "always (silent capture)"
+      },
+      "sha256": "c87679e6522674d8"
+    },
+    {
+      "name": "routing-check",
+      "file": "hooks/routing-check.sh",
+      "type": "UserPromptSubmit",
+      "trigger": "every user prompt",
+      "purpose": "Injecte [HORODATAGE] + [ROUTING] dans le contexte. Détecte la stack du projet. Diagnostic périodique (30 min throttle).",
+      "inputs": [
+        "prompt",
+        "model (if available in hook JSON)",
+        "transcript_path",
+        "current-model from /tmp"
+      ],
+      "outputs": [
+        "additionalContext: [HORODATAGE] + [ROUTING] + source modèle + warnings éventuels"
+      ],
+      "rule": "§1 + §15 + §10",
+      "test": "test/hooks.js → routing-check.sh (4 tests)",
+      "exitCodes": {
+        "0": "always (injection only, never blocks)"
+      },
+      "sha256": "859a040e766b94c6"
+    },
+    {
+      "name": "guard-no-sign",
+      "file": "hooks/guard-no-sign.sh",
+      "type": "PreToolUse",
+      "trigger": "Bash tool with `git commit` command",
+      "purpose": "Bloque tout commit contenant Co-Authored-By, Signed-off-by, --signoff ou -s",
+      "inputs": [
+        "HOOK_COMMAND"
+      ],
+      "outputs": [
+        "allow (exit 0) | block (exit 2 + message)"
+      ],
+      "rule": "§13 Git Workflow — jamais signer",
+      "test": "test/hooks.js → guard-no-sign.sh (5 tests)",
+      "exitCodes": {
+        "0": "allow",
+        "2": "block — signature détectée"
+      },
+      "sha256": "87a910ecda6411f7"
+    },
+    {
+      "name": "guard-commit-french",
+      "file": "hooks/guard-commit-french.sh",
+      "type": "PreToolUse",
+      "trigger": "Bash tool with `git commit -m` command",
+      "purpose": "Bloque les messages de commit purement anglais (≥ 2 mots EN détectés, 0 mot FR)",
+      "inputs": [
+        "HOOK_COMMAND"
+      ],
+      "outputs": [
+        "allow (exit 0) | block (exit 2 + message)"
+      ],
+      "rule": "§13 Git Workflow — commits en français",
+      "test": "test/hooks.js → guard-commit-french.sh (5 tests)",
+      "exitCodes": {
+        "0": "allow",
+        "2": "block — message anglais détecté"
+      },
+      "sha256": "18837b34f16dbb96"
+    },
+    {
+      "name": "guard-qmd-first",
+      "file": "hooks/guard-qmd-first.sh",
+      "type": "PreToolUse",
+      "trigger": "Read tool on `.md` file",
+      "purpose": "Redirige les lectures de .md projet vers QMD MCP. Ignore les fichiers de guidage système (CLAUDE.md, README.md, /.claude/, /hooks/, etc.)",
+      "inputs": [
+        "HOOK_FILE_PATH"
+      ],
+      "outputs": [
+        "allow (exit 0) + injection rappel QMD si applicable"
+      ],
+      "rule": "§15 QMD-first",
+      "test": "test/hooks.js → guard-qmd-first.sh (silencieux sur fichiers système)",
+      "exitCodes": {
+        "0": "always (warning only, never blocks)"
+      },
+      "sha256": "49a86d50ed1ad8e3"
+    },
+    {
+      "name": "guard-anti-loop",
+      "file": "hooks/guard-anti-loop.sh",
+      "type": "PostToolUse",
+      "trigger": "any Bash tool execution",
+      "purpose": "Détecte > 3 tentatives identiques échouées de la même commande (boucle infernale)",
+      "inputs": [
+        "HOOK_COMMAND",
+        "HOOK_EXIT_CODE"
+      ],
+      "outputs": [
+        "allow (exit 0) + warning si seuil atteint"
+      ],
+      "rule": "§6 Gestion des erreurs — ne jamais itérer à l'identique",
+      "test": null,
+      "exitCodes": {
+        "0": "always (warning only)"
+      },
+      "sha256": "b5162ea040f7a0ba"
+    },
+    {
+      "name": "guard-tests-before-push",
+      "file": "hooks/guard-tests-before-push.sh",
+      "type": "PreToolUse + PostToolUse",
+      "trigger": "Bash tool with test runner OR `git push`",
+      "purpose": "Marque qu'une suite de tests a tourné. Bloque `git push` si aucun test n'a tourné depuis le dernier push.",
+      "inputs": [
+        "HOOK_COMMAND"
+      ],
+      "outputs": [
+        "allow (exit 0) | block (exit 2) si push sans tests préalables"
+      ],
+      "rule": "§11 Tests + §24 Pre-push gate",
+      "test": "test/hooks.js → guard-tests-before-push.sh (3 tests)",
+      "exitCodes": {
+        "0": "allow",
+        "2": "block — push sans tests"
+      },
+      "sha256": "35b0571aafc1b329"
+    },
+    {
+      "name": "guard-review-auto",
+      "file": "hooks/guard-review-auto.sh",
+      "type": "PostToolUse",
+      "trigger": "Bash tool with `git commit` command",
+      "purpose": "Système Challenger — 5 triggers (volume lignes, feature, endurance, architecture, bug bloquant) qui proposent /review-copilot ou un handoff",
+      "inputs": [
+        "HOOK_COMMAND",
+        "git diff stats"
+      ],
+      "outputs": [
+        "allow (exit 0) + injection suggestion review si trigger atteint"
+      ],
+      "rule": "§25 Inter-agents — Review Copilot auto",
+      "test": null,
+      "exitCodes": {
+        "0": "always (suggestion only, never blocks)"
+      },
+      "sha256": "824fec3d985b97c5"
+    },
+    {
+      "name": "guard-hooks-reload",
+      "file": "hooks/guard-hooks-reload.sh",
+      "type": "PostToolUse",
+      "trigger": "Edit/Write tool on hooks/, settings.json, .mcp",
+      "purpose": "Rappelle qu'un redémarrage VS Code est requis pour recharger les hooks/settings/MCP modifiés",
+      "inputs": [
+        "HOOK_FILE_PATH"
+      ],
+      "outputs": [
+        "allow (exit 0) + injection rappel reload si applicable"
+      ],
+      "rule": "Exploitation — éviter état désynchronisé",
+      "test": null,
+      "exitCodes": {
+        "0": "always (warning only)"
+      },
+      "sha256": "fdc812990fe124ed"
+    }
+  ],
+  "stats": {
+    "total": 10,
+    "byType": {
+      "helper": 1,
+      "SessionStart": 1,
+      "UserPromptSubmit": 1,
+      "PreToolUse": 3,
+      "PostToolUse": 3,
+      "PreToolUse + PostToolUse": 1
+    },
+    "blocking": 3,
+    "warningOnly": 6,
+    "withTests": 2
+  },
+  "conventions": {
+    "sourcing": "Tous les hooks (sauf session-model et routing-check qui parsent eux-mêmes le stdin) sourcent _parse-input.sh pour l'extraction des variables.",
+    "exit2": "Exit code 2 = block + le stderr est affiché à Claude. Tout autre exit code = allow.",
+    "tmpFiles": "État inter-hooks via /tmp/claude-atelier-* (jamais dans le repo).",
+    "testing": "Hooks bloquants doivent avoir un test dans test/hooks.js. Hooks warning-only sont optionnels."
+  }
+}
