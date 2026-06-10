@@ -139,11 +139,20 @@ fn spawn_status_server(port: u16, handle: RuntimeHandle, node_label: String) {
                     format!("{{\"nom\":\"{}\",\"membres\":{}}}", g.name, g.members.len())
                 }).collect();
 
+                let platform = if cfg!(target_os = "macos") { "macos" }
+                    else if cfg!(target_os = "linux") { "linux" }
+                    else if cfg!(target_os = "windows") { "windows" }
+                    else { "unknown" };
+                let relay_url = std::env::var("TOM_RELAY_URL").unwrap_or_default();
+
                 let body = format!(
                     concat!(
                         "{{",
+                        "\"schema_version\":1,",
                         "\"node\":\"{label}\",",
                         "\"node_id\":\"{node_id}\",",
+                        "\"platform\":\"{platform}\",",
+                        "\"relay_url_active\":\"{relay}\",",
                         "\"phase\":\"{phase}\",",
                         "\"taille_reseau\":{taille},",
                         "\"role\":\"{role:?}\",",
@@ -158,6 +167,8 @@ fn spawn_status_server(port: u16, handle: RuntimeHandle, node_label: String) {
                     ),
                     label = label,
                     node_id = handle.local_id(),
+                    platform = platform,
+                    relay = relay_url,
                     phase = snap.phase,
                     taille = snap.taille_reseau,
                     role = snap.role_local,
