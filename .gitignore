@@ -35,6 +35,11 @@ DerivedData/
 # Cargo lock for excluded crates (each has own target dir)
 crates/tom-protocol-ffi/target/
 crates/tom-relay-ffi/target/
+# Locks des crates buildables exclus (tom-protocol-ffi, iroh-poc) : VERSIONNÉS
+# volontairement — les pins pre-release dalek cassent sans lock (E0432 constaté).
+# Seuls les locks des patches/ (librairies consommées via [patch], lock ignoré
+# par cargo) sont exclus du versioning.
+patches/*/Cargo.lock
 
 # Patch crate metadata (not needed in VCS)
 patches/*/.cargo-ok
