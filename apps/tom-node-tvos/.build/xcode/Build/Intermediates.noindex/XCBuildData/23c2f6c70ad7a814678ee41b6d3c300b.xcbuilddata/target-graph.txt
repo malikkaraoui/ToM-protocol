@@ -1,2 +1,0 @@
-Target dependency graph (1 target)
-Target 'TomNode' in project 'TomNode' (no dependencies)

@@ -28,9 +28,9 @@ deploy/macos/usb-mac-air-relay/bin/
 *.xcuserstate
 xcuserdata/
 DerivedData/
-.build/xcode/
-.build/logs/
-.build/archive/
+# **/.build/ : les patterns avec slash (.build/xcode/) sont ancrés à la racine
+# et ne matchaient pas apps/*/.build/ — cause du commit accidentel d'artefacts tvOS
+**/.build/
 
 # Cargo lock for excluded crates (each has own target dir)
 crates/tom-protocol-ffi/target/
@@ -47,3 +47,4 @@ logs/
 
 # Backups .claude horodatés (ne pas committer ni linter)
 .claude-backup-*/
+apps/tom-node-tvos/build/
