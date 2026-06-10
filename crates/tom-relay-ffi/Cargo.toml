@@ -4,7 +4,7 @@ version = "0.2.0"
 edition = "2024"
 description = "FFI wrapper for tom-relay — exposes C API for Swift/tvOS"
 license = "MIT"
-rust-version = "1.89"
+rust-version.workspace = true
 
 [lib]
 crate-type = ["staticlib", "cdylib"]
@@ -19,3 +19,6 @@ anyhow = "1"
 [features]
 default = ["metrics"]
 metrics = ["tom-relay/metrics"]
+
+[lints]
+workspace = true

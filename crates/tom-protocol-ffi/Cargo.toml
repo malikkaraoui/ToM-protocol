@@ -2,6 +2,7 @@
 name = "tom-protocol-ffi"
 version = "0.1.0"
 edition = "2021"
+rust-version = "1.89" # explicite : crate hors workspace, pas d'heritage possible
 license = "MIT"
 
 [lib]

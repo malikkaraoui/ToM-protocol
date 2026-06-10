@@ -6,3 +6,14 @@ members = ["crates/tom-transport", "crates/tom-protocol", "crates/tom-stress", "
 # Couvert en CI par le job rust-ffi (build via son propre manifeste).
 exclude = ["experiments/iroh-poc", "crates/tom-quinn-udp", "crates/tom-protocol-ffi"]
 resolver = "2"
+
+# Hérité par les crates originaux via rust-version.workspace = true.
+# Les forks (tom-base, tom-quinn*, tom-connect, tom-relay, tom-gossip) gardent
+# leur MSRV propre (1.88/1.89), alignée sur l'upstream iroh.
+[workspace.package]
+rust-version = "1.89"
+
+# Lints communs aux crates originaux ([lints] workspace = true).
+# Les forks gardent leurs lints hérités de l'upstream.
+[workspace.lints.clippy]
+unused_async = "warn"

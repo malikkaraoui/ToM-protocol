@@ -2,6 +2,7 @@
 name = "tom-protocol"
 version = "0.2.0"
 edition = "2021"
+rust-version.workspace = true
 description = "ToM Protocol layer — routing, encryption, discovery on top of tom-transport"
 
 [dependencies]
@@ -51,3 +52,6 @@ tom-connect = { path = "../tom-connect" }
 rand = "0.9"
 tempfile = "3"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[lints]
+workspace = true
