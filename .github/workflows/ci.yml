@@ -125,6 +125,19 @@ jobs:
       - name: Clippy
         run: cargo clippy -p tom-base -p tom-metrics -p tom-quinn-proto -p tom-quinn -p tom-connect -p tom-relay -p tom-gossip -- -D warnings
 
+  rust-security:
+    name: Rust supply chain (cargo-deny)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # advisories couvre la base RustSec (équivalent cargo-audit) ;
+      # 10 advisories préexistantes ignorées dans deny.toml (triage dû),
+      # toute nouvelle advisory fait échouer ce job.
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check advisories bans sources
+
   rust-ffi:
     name: Rust FFI (build + clippy)
     runs-on: ubuntu-latest

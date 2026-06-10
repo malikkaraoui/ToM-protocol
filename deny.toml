@@ -1,0 +1,35 @@
+# cargo-deny — supply chain du workspace (chantier S0.5, roadmap SDK)
+# Périmètre initial : advisories (CVE RustSec) + bans + sources.
+# Le check `licenses` est volontairement différé : l'allowlist doit être
+# constituée crate par crate (forks iroh inclus) — backlog S0.
+# Usage local : cargo deny check advisories bans sources
+
+[advisories]
+# Politique v2 par défaut : toute advisory non ignorée = erreur.
+yanked = "warn"
+# État initial relevé le 2026-06-10 (chantier S0.5) : 10 advisories préexistantes
+# dans l'arbre de deps hérité du fork iroh 0.96. Ignorées pour ne pas bloquer la CI,
+# TRIAGE CORRECTIF DÛ — voir docs/plans/2026-06-10-chantier-s0-suivi.md.
+# Toute NOUVELLE advisory fera échouer la CI (comportement voulu).
+ignore = [
+    "RUSTSEC-2026-0119", # hickory-proto 0.24.4/0.25.2 — DoS O(n²) name compression ; fix = 0.26.1 (bump majeur)
+    "RUSTSEC-2026-0118", # hickory-proto 0.25.2 — boucle infinie validation NSEC3 ; fix = hickory-net 0.26 (bump majeur)
+    "RUSTSEC-2026-0049", # rustls-webpki 0.103.9 — CRL distribution point ; fix probable: cargo update -p rustls-webpki (>=0.103.10)
+    "RUSTSEC-2026-0098", # rustls-webpki — name constraints URI (cf. triage)
+    "RUSTSEC-2026-0099", # rustls-webpki — name constraints wildcard (cf. triage)
+    "RUSTSEC-2026-0104", # rustls-webpki — panic parsing CRL (cf. triage)
+    "RUSTSEC-2026-0097", # rand 0.9.2 — unsound avec logger custom (pas notre cas, à confirmer au triage)
+    "RUSTSEC-2026-0002", # IterMut unsound (slab) — exposition à évaluer au triage
+    "RUSTSEC-2024-0436", # paste unmaintained — dep transitive, remplaçant: pastey
+    "RUSTSEC-2023-0089", # atomic-polyfill unmaintained — dep transitive
+]
+
+[bans]
+# Duplications de versions assumées (forks iroh : hickory 0.24/0.25, etc.)
+multiple-versions = "allow"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+# Pas de dépendance git aujourd'hui — toute apparition doit être délibérée.
+allow-git = []
