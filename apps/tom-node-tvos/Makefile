@@ -3,7 +3,9 @@
 
 PROJECT         = TomNode.xcodeproj
 SCHEME          = TomNode
+SCHEME_MACOS    = TomNode-macOS
 BUNDLE_ID       = malik.karaoui.TomNode
+BUNDLE_ID_MACOS = malik.karaoui.TomNode.macos
 
 TVOS_SIM_NAME   = Apple TV 4K (3rd generation)
 TVOS_DEST       = platform=tvOS Simulator,name=$(TVOS_SIM_NAME)
@@ -18,12 +20,16 @@ FFI_SCRIPT      = scripts/build-tom-protocol-ffi-tvos.sh
 
 .PHONY: help
 help:
-	@echo "TomNode tvOS+iOS — Available commands:"
+	@echo "TomNode tvOS+iOS+macOS — Available commands:"
 	@echo "  make tvsim          — build tvOS simulator"
 	@echo "  make tvrun          — build + install + launch tvOS simulator"
 	@echo "  make tvdevice       — build for physical Apple TV"
 	@echo "  make tvtest         — run unit tests on simulator"
-	@echo "  make ffi-xcframework — rebuild Rust XCFramework (tvOS + iOS, all variants)"
+	@echo "  make macffi         — rebuild Rust XCFramework with macOS slice"
+	@echo "  make macbuild       — build macOS app (requires TomNode-macOS Xcode target)"
+	@echo "  make macrun         — build + open macOS app"
+	@echo "  make macdoctor      — diagnostic macOS setup"
+	@echo "  make ffi-xcframework — rebuild Rust XCFramework (all platforms)"
 	@echo "  make ffi            — rebuild Rust FFI (tvOS simulator only)"
 	@echo "  make ffi-device     — rebuild Rust FFI (tvOS device only)"
 	@echo "  make devices        — list available devices"
@@ -85,6 +91,51 @@ tvtest:
 		-derivedDataPath $(BUILD_DIR) \
 		| tee $(LOG_DIR)/tests.log \
 		| xcpretty --color 2>/dev/null || tail -20 $(LOG_DIR)/tests.log
+
+.PHONY: macffi
+macffi:
+	@echo "▶ Building Rust XCFramework with macOS slice (arm64 + x86_64)..."
+	cd $(REPO_ROOT) && bash scripts/build-tom-protocol-ffi-xcframework.sh
+	@echo "✅ macOS slice ready:"
+	@ls build/TomProtocolFFI.xcframework/ | grep -i mac || echo "  ⚠ Slice macos-arm64 absent — check build output"
+
+.PHONY: macbuild
+macbuild:
+	@echo "▶ Build macOS app ($(SCHEME_MACOS))..."
+	@mkdir -p $(LOG_DIR)
+	xcodebuild \
+		-project $(PROJECT) \
+		-scheme $(SCHEME_MACOS) \
+		-destination 'platform=macOS,arch=arm64' \
+		-configuration Debug \
+		-derivedDataPath $(BUILD_DIR) \
+		| tee $(LOG_DIR)/macos_build.log \
+		| xcpretty --color 2>/dev/null || tail -30 $(LOG_DIR)/macos_build.log
+	@echo "✅ macOS build done"
+
+.PHONY: macrun
+macrun: macbuild
+	@APP_PATH=$$(find $(BUILD_DIR) -name "$(SCHEME_MACOS).app" | head -1); \
+	if [ -z "$$APP_PATH" ]; then echo "❌ App not found — run make macbuild first"; exit 1; fi; \
+	echo "▶ Launch $$APP_PATH"; \
+	open "$$APP_PATH"
+
+.PHONY: macdoctor
+macdoctor:
+	@echo "▶ Xcode"
+	@xcodebuild -version || true
+	@echo ""
+	@echo "▶ Rust toolchain macOS"
+	@rustup target list --installed | grep darwin || echo "  ⚠ aarch64-apple-darwin not installed — run: rustup target add aarch64-apple-darwin"
+	@echo ""
+	@echo "▶ XCFramework macOS slice"
+	@ls build/TomProtocolFFI.xcframework/ 2>/dev/null | grep -i mac || echo "  ⚠ Slice absent — run: make macffi"
+	@echo ""
+	@echo "▶ Xcode scheme"
+	@xcodebuild -project $(PROJECT) -list 2>/dev/null | grep -i "$(SCHEME_MACOS)" || echo "  ⚠ Scheme '$(SCHEME_MACOS)' absent — créer la cible dans Xcode (Lot B)"
+	@echo ""
+	@echo "▶ Entitlements"
+	@ls TomNode-macOS.entitlements 2>/dev/null && echo "  ✅ TomNode-macOS.entitlements présent" || echo "  ⚠ Manquant"
 
 .PHONY: ffi-xcframework
 ffi-xcframework:

@@ -310,6 +310,7 @@ final class TomNodeService: ObservableObject {
 
                 startAntiSleep()
                 startPolling()
+                startStatusServer()
                 log.info("Node started — identity: \(self.identityPath ?? "ephemeral"), data: \(self.dataDir ?? "none")")
 
             } catch {
@@ -326,6 +327,8 @@ final class TomNodeService: ObservableObject {
         state = .stopping
         pollTask?.cancel()
         pollTask = nil
+        statusServer?.stop()
+        statusServer = nil
         autoMessagedPeerIds.removeAll()
         autoMessageAttemptedAt.removeAll()
         seededPeerIds.removeAll()
@@ -631,6 +634,7 @@ final class TomNodeService: ObservableObject {
 
     private var udpLogSocket: Int32 = -1
     private var udpLogAddr: sockaddr_in?
+    private var statusServer: StatusServer?
 
     private func startNetworkLogExportIfNeeded() {
         guard udpLogExportEnabled else { return }
@@ -687,6 +691,51 @@ final class TomNodeService: ObservableObject {
             udpLogSocket = -1
         }
         udpLogAddr = nil
+    }
+
+    // MARK: - Status Server (dev dashboard)
+
+    private func startStatusServer() {
+        statusServer?.stop()
+        statusServer = StatusServer { [weak self] in
+            await MainActor.run { self?.buildStatusJSON() ?? "{}" }
+        }
+        statusServer?.start()
+        let ip = Self.getLocalIPv4() ?? "127.0.0.1"
+        appendLog(.info, "Status server: http://\(ip):\(StatusServer.defaultPort)/")
+    }
+
+    @MainActor
+    func buildStatusJSON() -> String {
+        let phase: String
+        if state == .running {
+            phase = peersCount >= 2 ? "Converged" : "RelayAssist"
+        } else {
+            phase = state.rawValue
+        }
+        let uptimeSec = nodeStartTime.map { Int(-$0.timeIntervalSinceNow) } ?? 0
+        let sentCount = totalMessagesSentCount
+        let recvCount = max(0, totalMessagesCount - totalMessagesSentCount)
+        let dict: [String: Any] = [
+            "schema_version": 1,
+            "node": username,
+            "node_id": nodeId,
+            "platform": Self.appareil,
+            "relay_url_active": activeRelayUrl,
+            "phase": phase,
+            "taille_reseau": peersCount,
+            "role": localRole,
+            "relayeurs": connectedPeers.count,
+            "pairs_connectes": connectedPeers,
+            "groupes": [[String: Any]](),
+            "messages_envoyes": sentCount,
+            "messages_recus": recvCount,
+            "messages_echoues": 0,
+            "uptime_secondes": uptimeSec
+        ]
+        guard let data = try? JSONSerialization.data(withJSONObject: dict, options: [.sortedKeys]),
+              let str = String(data: data, encoding: .utf8) else { return "{}" }
+        return str
     }
 
     /// Send a JSON log line over UDP (fire-and-forget)
