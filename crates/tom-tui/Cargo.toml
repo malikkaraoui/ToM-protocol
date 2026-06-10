@@ -2,6 +2,7 @@
 name = "tom-tui"
 version = "0.2.0"
 edition = "2021"
+rust-version.workspace = true
 
 [[bin]]
 name = "tom-chat"
@@ -22,3 +23,6 @@ clap = { version = "4", features = ["derive"] }
 [dev-dependencies]
 tom-base = { path = "../tom-base", features = ["key"] }
 rand = "0.9"
+
+[lints]
+workspace = true
