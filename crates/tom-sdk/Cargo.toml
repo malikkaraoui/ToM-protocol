@@ -1,0 +1,23 @@
+[package]
+name = "tom-sdk"
+version = "0.1.0"
+edition = "2021"
+rust-version.workspace = true
+description = "High-level SDK for the ToM Protocol — decentralized P2P messaging (façade over tom-protocol)"
+license = "MIT"
+repository = "https://github.com/malikkaraoui/ToM-protocol"
+keywords = ["p2p", "messaging", "protocol", "decentralized", "quic"]
+categories = ["network-programming"]
+
+[dependencies]
+tom-protocol = { path = "../tom-protocol" }
+tom-transport = { path = "../tom-transport" }
+tokio = { version = "1", features = ["sync", "rt", "macros", "time"] }
+thiserror = "2"
+serde_json = "1"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }
+
+[lints]
+workspace = true
