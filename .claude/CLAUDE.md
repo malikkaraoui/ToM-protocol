@@ -8,13 +8,13 @@
 
 ## §1 Horodatage + Modèle — EXIGENCE non négociable
 
-Extraire MODEL-ID de la ligne `[ROUTING] modèle actif: MODEL-ID` injectée par `routing-check.sh` (jamais du system prompt — stale).
-**Ta réponse DOIT commencer par cette ligne, AVANT tout texte ou tool call** : `` `[YYYY-MM-DD HH:MM:SS | MODEL-ID]` ``.
-L'horodatage du hook = contexte, **pas** ta sortie. Aucune exception. Modèle indispo → `[date estimée | modèle inconnu]`.
+Extraire MODEL-ID de `[ROUTING] modèle actif: MODEL-ID` (jamais du system prompt — stale).
+**Réponse DOIT commencer par** : `` `[YYYY-MM-DD HH:MM:SS | MODEL-ID]` `` — AVANT tout texte ou tool call.
+Hook = contexte, **pas** ta sortie. Modèle indispo → `[date estimée | modèle inconnu]`.
 
 ## §2 Langue & Ton
 
-Français. Direct. Actionnable. Zéro pédagogie inutile. Pas de preamble, hedge ni platitude. **≤ 25 mots entre deux tool calls. ≤ 100 mots pour une réponse finale.** Mise en scène contextuelle → `./runtime/theatre.md` (5 figures, micro-ouvertures sur moments forts uniquement).
+Français. Direct. Actionnable. Zéro pédagogie. Pas de preamble, hedge, platitude. **≤ 25 mots entre tool calls. ≤ 100 mots réponse finale.** Mise en scène → `./runtime/theatre.md`.
 
 ## §3 Flow de traitement
 
@@ -22,10 +22,10 @@ Français. Direct. Actionnable. Zéro pédagogie inutile. Pas de preamble, hedge
 
 - **Explore** : fichiers concernés uniquement (subagent Haiku si large)
 - **Plan** : impacts + dépendances avant d'écrire
-- **Implement** : minimal viable · Edit ciblé toujours — jamais réécriture complète si > 20 lignes non modifiées
+- **Implement** : minimal viable · Edit ciblé — jamais réécriture complète si > 20 lignes non modifiées
 - **Verify** : tests + gate pré-push
 
-Mode rapide (< 2 fichiers, non critique) : Implement → Verify seulement. `Shift+Tab × 2` = Plan Mode.
+Mode rapide (< 2 fichiers, non critique) : Implement → Verify. `Shift+Tab × 2` = Plan Mode.
 
 ## §4 Format de réponse
 
@@ -38,24 +38,24 @@ Outils : checklists, tableaux, blocs copier-coller.
 ## §5 Anti-hallucination — règle absolue
 
 Interdit d'inventer : faits, commandes, API, options, chiffres, comportements non vus.
-Si incertain → « Je ne peux pas l'affirmer » + 2–3 hypothèses étiquetées + comment vérifier.
-Info récente ou instable → signaler explicitement.
+Incertain → « Je ne peux pas l'affirmer » + 2–3 hypothèses étiquetées + comment vérifier.
+Info récente ou instable → signaler.
 
 ## §6 Gestion des erreurs
 
-Une tentative corrective directe. Échec → changer d'approche, jamais itérer à l'identique. Produire hypothèses + points de rupture + stratégie alternative.
+1 tentative corrective directe. Échec → nouvelle approche (jamais identique). Hypothèses + points de rupture + alternative.
 
 ## §7 Qualité du code
 
-Prêt prod, pas sur-ingénié : validation d'inputs, erreurs propres, logs utiles, commentaires si non trivial. Plusieurs approches → recommander la plus robuste, 2 lignes de justification max.
+Prêt prod, pas sur-ingénié : inputs validés, erreurs propres, logs utiles, commentaires si non trivial. Plusieurs approches → recommander la plus robuste, 2 lignes max.
 
 ## §8 Anti-patterns
 
-Refus : duplication, sur-ingénierie, optimisation prématurée, fonctions > 30 lignes sans raison, logique dispersée. Règle : logique réutilisée ≥ 2 fois → extraire.
+Refus : duplication, sur-ingénierie, optimisation prématurée, fonctions > 30 lignes sans raison, logique dispersée. Logique réutilisée ≥ 2 fois → extraire.
 
 ## §9 Architecture → `../templates/project-structure.md`
 
-Template par défaut : `/core` · `/modules` · `/services` · `/utils` · `/tests`. Projets opinionnés (Next.js, Django…) → suivre la convention du framework.
+Défaut : `/core` · `/modules` · `/services` · `/utils` · `/tests`. Projets opinionnés → convention framework.
 
 ## §10 Standards par stack → `../stacks/`
 
@@ -63,15 +63,15 @@ Chargement conditionnel selon §0 « Stack ». Disponibles : `javascript` · `py
 
 ## §11 Tests
 
-Obligatoires si logique métier, transformation, comportement critique. Couvrir nominal + edge cases + erreurs. Pour tout hook : MAJ `test/hooks.js` + `.claude/hooks-manifest.json`. `npm test` doit passer avant chaque push.
+Obligatoires si logique métier, transformation, comportement critique. Couvrir nominal + edge cases + erreurs. Tout hook : MAJ `test/hooks.js` + `.claude/hooks-manifest.json`. `npm test` avant push.
 
 ## §12 Code Review → `./runtime/code-review.md`
 
-Déclenchement : après feature, audit global, blocage. **§5 prime** : jamais de critique inventée pour remplir une section.
+Déclenchement : feature, audit global, blocage. **§5 prime** : jamais critique inventée.
 
 ## §13 Git Workflow
 
-Commits atomiques, messages en français, **jamais signer** (pas de trailer `Co-Authored-By`). Checkpoint avant action risquée. `git push` toujours précédé de la gate (§24).
+Commits atomiques, messages français, **jamais signer** (pas de `Co-Authored-By`). Checkpoint avant risque. `git push` → gate §24 obligatoire.
 
 ## §14 Cloud / CI-CD
 
@@ -79,9 +79,9 @@ Stateless, idempotent, secrets externalisés, IaC, fail fast, tests locaux avant
 
 ## §15 Token Management → `../templates/settings.json`
 
-Input : ne pas relire un fichier déjà lu dans la session sauf si modifié. Settings consolidé (env + permissions + budget). Routing : Haiku exploration / Sonnet standard / Opus architecture. **En début de session, signaler le modèle actif et recommander `/model sonnet` ou `/model haiku` si surdimensionné** (ex: Opus pour du dev standard → « tu tournes sur Opus — tape `/model sonnet` pour descendre »). Compaction : `/compact` à **~60% de la fenêtre** (ne pas attendre 75-98% — résumé agressif garantit perte d'info). Déclencher aussi après explore, après feature, avant switch.
+Ne pas relire un fichier déjà lu sauf si modifié. Routing : Haiku explore / Sonnet dev / Opus archi. Début session : signaler modèle, recommander `/model sonnet`|`/model haiku` si surdimensionné. Compaction : `/compact` à **~60%** (pas 75-98% — perte d'info). Déclencher : après explore, après feature, avant switch.
 
-**QMD-first** : pour tout fichier `.md` du projet, utiliser `mcp__qmd__get` ou `mcp__qmd__query` avant `Read`. `Read` sur un `.md` n'est autorisé que si la ligne exacte est connue (offset+limit obligatoire).
+**QMD-first** : tout `.md` projet → `mcp__qmd__get` ou `mcp__qmd__query` avant `Read`. `Read` sur `.md` : ligne exacte connue uniquement (offset+limit obligatoire).
 
 ## §16 Orchestration → `./orchestration/`
 
@@ -89,19 +89,19 @@ Fork · Teammate · Worktree. Refactor > 3 fichiers → `isolation: worktree`. D
 
 ## §17 Todo & Session → `./runtime/todo-session.md`
 
-Tracking obligatoire si > 3 fichiers ou agents multiples. **Les todos survivent aux compactions** (stockés hors flux messages). Reprise : dernier `[→]` ou premier `[ ]` pending.
+Tracking obligatoire si > 3 fichiers ou agents multiples. **Todos survivent aux compactions.** Reprise : dernier `[→]` ou premier `[ ]` pending.
 
 ## §18 Extended Thinking → `./runtime/extended-thinking.md`
 
-Défaut `MAX_THINKING_TOKENS: 10000`. **Auto-montée** : architecture, plan, conception, migration, schéma DB → `high` + signaler. **Auto-descente** : tâche terminée → revenir en `medium` + signaler. Night-mode : forcer `low` sur l'exploration, `medium` sur l'implémentation.
+Défaut `MAX_THINKING_TOKENS: 10000`. Auto-montée : archi/plan/migration/schéma DB → `high`. Auto-descente : tâche finie → `medium`. Night-mode : explore `low`, impl `medium`.
 
 ## §19 MCP → `./orchestration/mcp-lifecycle.md`
 
-Charger uniquement les MCPs nécessaires. Lister dans §0. Purger en fin de session. Trop de MCPs : fenêtre 200k → ~70k.
+Charger uniquement MCPs nécessaires. Lister §0. Purger en fin session. Trop de MCPs : 200k → ~70k.
 
 ## §20 Mémoire & Évolution
 
-Ce fichier évolue sur instruction explicite. Immuables sans validation : §5, §21, §22.
+Évolue sur instruction explicite. Immuables sans validation : §5, §21, §22.
 
 | Événement | Section |
 | --- | --- |
@@ -109,6 +109,7 @@ Ce fichier évolue sur instruction explicite. Immuables sans validation : §5, �
 | Nouvel endpoint | §0 |
 | Décision archi | §9 + note §0 |
 | MCP ajouté | §0 + §19 |
+
 ## §21 Hiérarchie des règles
 
 ```text
@@ -121,16 +122,16 @@ Ce fichier évolue sur instruction explicite. Immuables sans validation : §5, �
 
 ## §22 Secrets & Sécurité Git → `./security/`
 
-Non négociable : jamais de clé/token en dur, `.gitignore` + `.claudeignore` obligatoires, `git push` interdit sans gate, pattern suspect → stopper. Détails : `secrets-rules.md` · `emergency.md`.
+Non négociable : jamais clé/token en dur, `.gitignore` + `.claudeignore` obligatoires, `git push` interdit sans gate, pattern suspect → stopper. Détails : `secrets-rules.md` · `emergency.md`.
 
 ## §23 Autonomie & Mode Nuit → `./autonomy/`
 
-Plan Pro → `acceptEdits` + allow/deny, `maxBudgetUsd` défini. Push autonome autorisé après gate verte. Détails : `permission-modes.md` · `night-mode.md` · `loop-watchers.md`.
+Plan Pro → `acceptEdits` + allow/deny, `maxBudgetUsd` défini. Push autonome après gate verte. Détails : `permission-modes.md` · `night-mode.md` · `loop-watchers.md`.
 
 ## §24 Pre-push Gate → `./security/pre-push-gate.md`
 
-`bash scripts/pre-push-gate.sh` — 5 étapes : secrets → fichiers sensibles → lint → build → tests. Jamais de `--no-verify`.
+`bash scripts/pre-push-gate.sh` — 5 étapes : secrets → fichiers sensibles → lint → build → tests. Jamais `--no-verify`.
 
 ## §25 Inter-agents — Review Copilot auto
 
-Proposer un handoff Copilot (`docs/handoffs/`) **sans attendre** si : feature terminée, bug fix critique, 100+ lignes modifiées, ou 3+ tentatives échouées. « Malik, je prépare un handoff review ? » = réflexe, pas un choix.
+Handoff Copilot (`docs/handoffs/`) **sans attendre** si : feature finie, bug fix critique, 100+ lignes modifiées, 3+ tentatives échouées. Réflexe, pas un choix.

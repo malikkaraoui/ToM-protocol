@@ -1,0 +1,14 @@
+code,skill,display-name,description,phase,required
+HE,atelier-help,Aide Atelier,"Affiche cette aide et l'état du projet",anytime,false
+SU,atelier-setup,Setup Atelier,"Onboarding interactif post-install",setup,true
+RC,review-copilot,Review Copilot,"Génère un handoff review pour Copilot/GPT",review,false
+AM,angle-mort,Angle Mort,"Demande à Copilot de chercher les angles morts",review,false
+AS,audit-safe,Audit Safe,"Audit sécurité complet (secrets, gate, permissions)",security,false
+NL,night-launch,Night Launch,"Prépare et vérifie le night-mode",autonomy,false
+DR,atelier-doctor,Doctor,"Diagnostic de santé de l'installation",diagnostic,false
+IR,integrate-review,Intégrer Review,"Ferme la boucle handoff: lit réponse Copilot, trie, génère checklist",review,false
+TR,token-routing,Token Routing,"Explique et configure le routing Haiku/Sonnet/Opus",config,false
+BI,bmad-init,BMAD Init,"Installe BMAD-METHOD (optionnel, gros projets)",setup,false
+QI,qmd-init,QMD Init,"Installe QMD (optionnel, >= 5 fichiers .md)",setup,false
+CO,compress,Compress,"Compresse CLAUDE.md pour réduire les tokens input (backup auto)",tokens,false
+IS,ios-setup,iOS Setup,"Configure le workflow iOS/tvOS : VS Code + Claude Code + Xcode + Makefile V4",setup,false
