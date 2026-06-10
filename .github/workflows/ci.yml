@@ -125,6 +125,39 @@ jobs:
       - name: Clippy
         run: cargo clippy -p tom-base -p tom-metrics -p tom-quinn-proto -p tom-quinn -p tom-connect -p tom-relay -p tom-gossip -- -D warnings
 
+  rust-ffi:
+    name: Rust FFI (build + clippy)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            .
+            crates/tom-protocol-ffi
+
+      - name: Build tom-relay-ffi (workspace member)
+        run: cargo build -p tom-relay-ffi
+
+      - name: Clippy tom-relay-ffi
+        run: cargo clippy -p tom-relay-ffi -- -D warnings
+
+      # tom-protocol-ffi est exclu du workspace ([patch.crates-io] tvOS local)
+      # → buildé via son propre manifeste, cf. Cargo.toml racine.
+      # --locked : son Cargo.lock est versionné exprès (dérive dalek pre-release sinon)
+      - name: Build tom-protocol-ffi (excluded crate)
+        working-directory: crates/tom-protocol-ffi
+        run: cargo build --locked
+
+      - name: Clippy tom-protocol-ffi
+        working-directory: crates/tom-protocol-ffi
+        run: cargo clippy --locked -- -D warnings
+
   rust-stress:
     name: Rust stress (build + clippy + localhost test)
     runs-on: ubuntu-latest
