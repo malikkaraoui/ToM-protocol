@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>ToM Infra Validation Client</title>
+    <title>ToM Dev Dashboard</title>
     <style>
       :root {
         color-scheme: dark;
@@ -24,15 +24,23 @@
         color: var(--txt);
       }
       .wrap {
-        max-width: 1100px;
+        max-width: 1200px;
         margin: 0 auto;
         padding: 24px;
       }
-      h1 { margin: 0 0 8px; font-size: 24px; }
-      p { margin: 0 0 16px; color: var(--muted); }
+      h1 { margin: 0 0 4px; font-size: 22px; }
+      h2 { margin: 0 0 10px; font-size: 15px; }
+      h3 { margin: 0 0 12px; font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
+      p { margin: 0 0 16px; color: var(--muted); font-size: 13px; }
       .controls {
         display: grid;
         grid-template-columns: 1fr 1fr auto auto;
+        gap: 10px;
+        margin-bottom: 16px;
+      }
+      .node-controls {
+        display: grid;
+        grid-template-columns: 1fr auto;
         gap: 10px;
         margin-bottom: 16px;
       }
@@ -51,15 +59,74 @@
         grid-template-columns: repeat(2, minmax(0, 1fr));
         gap: 14px;
       }
+      .nodes-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+        gap: 14px;
+      }
       .card {
         background: var(--panel);
         border: 1px solid #243251;
         border-radius: 14px;
         padding: 14px;
       }
-      .card h2 { margin: 0 0 10px; font-size: 16px; }
+      .node-card[data-health="ok"]  { border-color: #00513a; }
+      .node-card[data-health="warn"] { border-color: #5a3e00; }
+      .node-card[data-health="ko"]  { border-color: #5a1a1a; }
+      .node-header {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 10px;
+      }
+      .node-dot { font-size: 14px; }
+      .node-label { font-size: 14px; font-weight: 600; }
+      .node-remove {
+        margin-left: 4px;
+        background: transparent;
+        border: none;
+        color: var(--muted);
+        padding: 0 4px;
+        font-size: 16px;
+        line-height: 1;
+        cursor: pointer;
+      }
+      .node-remove:hover { color: var(--ko); background: transparent; }
+      .node-error { color: var(--ko); font-size: 12px; margin-bottom: 8px; }
+      .node-grid {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 6px;
+        margin-bottom: 8px;
+      }
+      .node-stat {
+        background: var(--panel-2);
+        border-radius: 8px;
+        padding: 6px 8px;
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        font-size: 12px;
+      }
+      .node-stat .k { color: var(--muted); font-size: 11px; }
+      .node-groups { font-size: 12px; }
+      .badge {
+        display: inline-block;
+        background: #1d2b4f;
+        border: 1px solid #2d3a5a;
+        border-radius: 6px;
+        padding: 2px 7px;
+        margin-right: 4px;
+        font-size: 11px;
+      }
+      .section-sep {
+        border: none;
+        border-top: 1px solid #1e2d4a;
+        margin: 24px 0;
+      }
       .line { display: flex; justify-content: space-between; margin: 6px 0; font-size: 13px; }
       .k { color: var(--muted); }
+      .muted { color: var(--muted); }
       .status-ok { color: var(--ok); }
       .status-ko { color: var(--ko); }
       .status-warn { color: var(--warn); }
@@ -76,14 +143,28 @@
       @media (max-width: 900px) {
         .controls { grid-template-columns: 1fr; }
         .grid { grid-template-columns: 1fr; }
+        .nodes-grid { grid-template-columns: 1fr; }
+        .node-grid { grid-template-columns: repeat(2, 1fr); }
       }
     </style>
   </head>
   <body>
     <div class="wrap">
-      <h1>ToM — Infra Validation Client (C4 MVP)</h1>
-      <p>Validation opérationnelle relay + discovery (health, metrics, status, relays).</p>
+      <h1>ToM — Dev Dashboard</h1>
+      <p>Nœuds actifs · relay · discovery — dev mode uniquement.</p>
 
+      <!-- ── Nœuds ── -->
+      <h3>Nœuds (status-port)</h3>
+      <div class="node-controls">
+        <input id="nodeUrlInput" placeholder="http://localhost:8080 ou http://192.168.0.21:9090" />
+        <button id="addNodeBtn">Ajouter</button>
+      </div>
+      <div id="nodeCards" class="nodes-grid"></div>
+
+      <hr class="section-sep" />
+
+      <!-- ── Infra ── -->
+      <h3>Infra (relay · discovery)</h3>
       <div class="controls">
         <input id="relayUrl" placeholder="Relay URL" />
         <input id="discoveryUrl" placeholder="Discovery URL" />
@@ -117,7 +198,9 @@
       </div>
 
       <div class="footer">
-        Tip: query params supportés → <span class="mono">?relay=http://127.0.0.1:3340&discovery=http://127.0.0.1:8080</span>
+        Tip : <span class="mono">?relay=http://127.0.0.1:3340&discovery=http://127.0.0.1:8080</span>
+        · Nœuds persistés dans <span class="mono">localStorage</span>
+        · Lancer un nœud : <span class="mono">cargo run -p tom-tui -- --username malik --status-port 8080</span>
       </div>
     </div>
 
