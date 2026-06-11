@@ -7,10 +7,10 @@
 | Phase | Description | Status |
 |-------|-------------|--------|
 | **Phase 1** | TypeScript protocol stack (WebRTC, signaling) | ✅ 8/8 epics (legacy) |
-| **Phase 2** | Rust native protocol (QUIC, hole punching, E2E crypto, groups) | ✅ R1–R11 complete |
+| **Phase 2** | Rust native protocol (QUIC, hole punching, E2E crypto, groups) | ✅ All 11 build phases complete ([phase table](CLAUDE.md#current-status)) |
 | **Phase 3** | SDKs & public specs — make ToM yours | 🚀 Rust SDK, Swift Package and wire specs shipped |
 
-**1089+ tests** (771 TypeScript + 318 Rust) | **E2E encrypted** | **NAT traversal validated** | **Cross-border Suisse↔France** | **Hub failover validated**
+**1987+ tests** (1216 Rust + 771 TypeScript legacy) | **E2E encrypted** | **NAT traversal validated** | **Cross-border Suisse↔France** | **Hub failover validated**
 
 ## TL;DR
 
@@ -20,7 +20,7 @@ ToM is a transport layer protocol (not a blockchain) that transforms every conne
 
 ## 🚪 Integrate ToM — three doors
 
-### 1 · Rust — `tom-sdk` (10 lines to a live node)
+### 1 · Rust — `tom-sdk` (15 lines to a live node)
 
 ```toml
 [dependencies]
@@ -140,6 +140,8 @@ Channel Architecture:
 ### Rust SDK (recommended)
 
 ```bash
+git clone https://github.com/malikkaraoui/ToM-protocol.git && cd ToM-protocol
+
 # Two local nodes exchange an E2E-encrypted message via tickets — no infra
 cargo run -p tom-sdk --example 01_send_message
 # Group chat: invite, join, fan-out
