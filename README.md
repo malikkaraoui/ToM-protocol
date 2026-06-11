@@ -2,13 +2,13 @@
 
 **The Open Messaging** — a decentralized P2P transport protocol where every device is the network.
 
-## Status: Phase 2 — Native Transport
+## Status: Phase 3 — SDK & Adoption
 
 | Phase | Description | Status |
 |-------|-------------|--------|
-| **Phase 1** | TypeScript protocol stack (WebRTC, signaling) | ✅ 8/8 epics |
-| **Phase 2** | Rust native transport (QUIC, hole punching, E2E crypto) | ✅ Validated |
-| **Phase 3** | Protocol convergence (TS + Rust unified) | In progress |
+| **Phase 1** | TypeScript protocol stack (WebRTC, signaling) | ✅ 8/8 epics (legacy) |
+| **Phase 2** | Rust native protocol (QUIC, hole punching, E2E crypto, groups) | ✅ R1–R11 complete |
+| **Phase 3** | SDKs & public specs — make ToM yours | 🚀 Rust SDK, Swift Package and wire specs shipped |
 
 **1089+ tests** (771 TypeScript + 318 Rust) | **E2E encrypted** | **NAT traversal validated** | **Cross-border Suisse↔France** | **Hub failover validated**
 
@@ -17,6 +17,54 @@
 ToM is a transport layer protocol (not a blockchain) that transforms every connected device into both client and relay. No data centers, no speculative tokens, no infinite history.
 
 **The idea:** leverage the dormant power of billions of devices to create a global communication BUS that's resilient and virtually free.
+
+## 🚪 Integrate ToM — three doors
+
+### 1 · Rust — `tom-sdk` (10 lines to a live node)
+
+```toml
+[dependencies]
+tom-sdk = { git = "https://github.com/malikkaraoui/ToM-protocol", tag = "v0.3.0" }
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+```
+
+```rust
+use tom_sdk::{Event, TomClientBuilder};
+
+#[tokio::main]
+async fn main() -> Result<(), tom_sdk::TomSdkError> {
+    let mut client = TomClientBuilder::new().username("alice").connect().await?;
+    println!("my identity: {}", client.id());
+    while let Some(event) = client.next_event().await {
+        if let Event::MessageReceived(msg) = event {
+            client.send_text(msg.from, "got it!").await?; // E2E encrypted, signed
+        }
+    }
+    Ok(())
+}
+```
+
+No infrastructure needed on a LAN: exchange opaque **connectivity tickets** (`client.ticket()` ↔ `client.add_peer_ticket(...)`) — QR code or copy/paste. Full guide: [`crates/tom-sdk/README.md`](crates/tom-sdk/README.md) · runnable examples in [`crates/tom-sdk/examples/`](crates/tom-sdk/examples/).
+
+### 2 · Apple — `TomProtocolKit` (iOS 16+ / tvOS 16+ / macOS 13+)
+
+Swift Package wrapping the Rust core (XCFramework, 5 slices). Build once, add as a local package in Xcode:
+
+```bash
+bash scripts/build-tom-protocol-ffi-xcframework.sh
+bash scripts/sync-xcframework-to-package.sh
+# Xcode → File → Add Package Dependencies → Add Local… → sdk/swift/TomProtocolKit
+```
+
+Releases (zip + SPM checksum) are automated on `sdk-swift/v*` tags. Guide: [`sdk/swift/TomProtocolKit/README.md`](sdk/swift/TomProtocolKit/README.md).
+
+### 3 · Any language — implement the protocol
+
+Normative specs, no Rust required, byte-for-byte verifiable:
+
+- [`docs/spec/tom-wire-v1.md`](docs/spec/tom-wire-v1.md) — envelope wire format (MessagePack), signatures, TTL, relay rules
+- [`docs/spec/tom-crypto-v1.md`](docs/spec/tom-crypto-v1.md) — Ed25519/X25519, HKDF, XChaCha20-Poly1305, encrypt-then-sign
+- [`docs/spec/vectors/tom-vectors-v1.json`](docs/spec/vectors/tom-vectors-v1.json) — 7 self-verified test vectors (expected bytes + intermediate values)
 
 ## What's proven (with data)
 
