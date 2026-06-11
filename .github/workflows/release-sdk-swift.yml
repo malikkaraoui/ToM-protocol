@@ -1,0 +1,55 @@
+# Release du SDK Apple (chantier S2.3, roadmap SDK)
+# Déclencheur : tag sdk-swift/vX.Y.Z
+# Produit : TomProtocolFFI.xcframework.zip + checksum SPM, attachés à la
+# GitHub Release. Le Package.swift publié pointera URL + checksum.
+name: Release SDK Swift
+
+on:
+  push:
+    tags: ["sdk-swift/v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build XCFramework + GitHub Release
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # tvOS = cibles tier 3 : le script de build utilise nightly (+ rust-src
+      # pour build-std) et installe les targets lui-même.
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: rust-src
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: crates/tom-protocol-ffi
+
+      - name: Build XCFramework (5 slices)
+        run: bash scripts/build-tom-protocol-ffi-xcframework.sh
+
+      - name: Zip (ditto) + checksum SPM
+        run: |
+          cd apps/tom-node-tvos/build
+          ditto -c -k --keepParent TomProtocolFFI.xcframework TomProtocolFFI.xcframework.zip
+          swift package compute-checksum TomProtocolFFI.xcframework.zip | tee TomProtocolFFI.xcframework.zip.checksum
+
+      - name: Validate Swift package against fresh artifact
+        run: |
+          bash scripts/sync-xcframework-to-package.sh
+          cd sdk/swift/TomProtocolKit
+          swift build
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            apps/tom-node-tvos/build/TomProtocolFFI.xcframework.zip \
+            apps/tom-node-tvos/build/TomProtocolFFI.xcframework.zip.checksum \
+            --title "$GITHUB_REF_NAME" \
+            --notes "XCFramework ToM Protocol FFI (iOS/tvOS/macOS, device+sim).
+          Checksum SPM dans le fichier .checksum — à reporter dans le binaryTarget(url:checksum:) de Package.swift."
