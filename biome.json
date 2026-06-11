@@ -39,6 +39,8 @@
       "apps/relay-tvos/**/Assets.xcassets/**",
       "apps/tom-node-tvos/**/Assets.xcassets/**",
       "apps/tom-node-tvos/.build/**",
+      "sdk/swift/**/.build/**",
+      "sdk/swift/**/Artifacts/**",
       "patches/**",
       "graphify-out"
     ]
