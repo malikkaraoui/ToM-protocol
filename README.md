@@ -232,14 +232,17 @@ Stress test on highway (A40, France↔Switzerland): **99.85%** reliability over 
 ## Testing
 
 ```bash
-# TypeScript tests (771 tests)
-pnpm test
-
-# Rust tests (236 tests)
+# Rust tests (1200+ across the workspace)
 cargo test --workspace
 
-# E2E browser tests (Playwright)
-pnpm test:e2e
+# Lint gate (mandatory before push)
+cargo clippy --workspace -- -D warnings
+
+# TypeScript tests (771 tests, legacy stack)
+pnpm test
+
+# Supply chain (RustSec advisories, sources, bans)
+cargo deny check advisories bans sources
 ```
 
 ## Core Concepts
@@ -273,9 +276,12 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for details.
 
 ## Documentation
 
+- [docs/spec/](docs/spec/) — **Normative protocol specs + test vectors** (implement ToM in any language)
+- [crates/tom-sdk/README.md](crates/tom-sdk/README.md) — Rust SDK guide
+- [sdk/swift/TomProtocolKit/README.md](sdk/swift/TomProtocolKit/README.md) — Apple SDK guide
+- [docs/FORK-GOVERNANCE.md](docs/FORK-GOVERNANCE.md) — iroh fork governance & wire invariants
 - [CLAUDE.md](CLAUDE.md) — Implementation guide for AI assistants
 - [llms.txt](llms.txt) — Protocol quick reference
-- [docs/](docs/) — GitBook documentation
 - [Architecture](_bmad-output/planning-artifacts/architecture.md) — ADRs and design decisions
 - [Design Decisions](_bmad-output/planning-artifacts/design-decisions.md) — 7 locked invariants
 
