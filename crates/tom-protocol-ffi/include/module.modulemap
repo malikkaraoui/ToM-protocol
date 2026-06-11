@@ -1,0 +1,4 @@
+module TomProtocolFFI {
+    header "tom_protocol_ffi.h"
+    export *
+}
