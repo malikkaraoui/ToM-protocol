@@ -82,27 +82,23 @@ Normative specs, no Rust required, byte-for-byte verifiable:
 ```
 tom-protocol/
 ├── crates/                          # Rust native stack
-│   ├── tom-transport/               # QUIC transport (iroh), connection pool
-│   ├── tom-protocol/                # Protocol logic (crypto, routing, groups, discovery, backup)
+│   ├── tom-sdk/                     # 🚪 High-level SDK (start here)
+│   ├── tom-protocol/                # Protocol engine (crypto, routing, groups, discovery, backup)
+│   ├── tom-transport/               # QUIC transport, hole punching
+│   ├── tom-connect/ tom-relay/ …    # Forked iroh stack (tom-* namespace, see docs/FORK-GOVERNANCE.md)
+│   ├── tom-protocol-ffi/            # C ABI for native apps (cbindgen header)
 │   ├── tom-tui/                     # TUI chat client + bot mode
-│   └── tom-stress/                  # Stress test binary
+│   └── tom-stress/                  # Stress test campaigns
 │
-├── packages/                        # TypeScript stack (Phase 1)
-│   ├── core/                        # Protocol primitives (tom-protocol)
-│   └── sdk/                         # Developer SDK (tom-sdk)
+├── sdk/swift/TomProtocolKit/        # 🚪 Swift Package (iOS/tvOS/macOS)
 │
-├── apps/
-│   └── demo/                        # Browser demo with multiplayer Snake
+├── docs/spec/                       # 🚪 Normative specs + test vectors
 │
-├── experiments/
-│   └── iroh-poc/                    # NAT traversal PoC (4 scenarios validated)
+├── apps/                            # Native apps (iOS, tvOS, dev dashboard)
 │
-├── tools/
-│   ├── signaling-server/            # Bootstrap server (being replaced by QUIC)
-│   ├── mcp-server/                  # MCP server for LLM interaction
-│   └── vscode-extension/            # VS Code extension
+├── packages/                        # TypeScript stack (Phase 1 — legacy, archive planned)
 │
-├── docs/                            # Documentation (GitBook)
+├── docs/plans/                      # Design docs + chantier journals
 ├── llms.txt                         # LLM quick reference
 ├── CLAUDE.md                        # Detailed LLM guide
 └── CONTRIBUTING.md                  # Micro-session contribution model
@@ -141,7 +137,19 @@ Channel Architecture:
 
 ## Quick Start
 
-### TypeScript Demo (browser)
+### Rust SDK (recommended)
+
+```bash
+# Two local nodes exchange an E2E-encrypted message via tickets — no infra
+cargo run -p tom-sdk --example 01_send_message
+# Group chat: invite, join, fan-out
+cargo run -p tom-sdk --example 02_group_chat
+# Self-hosted relay, zero external dependency
+cargo run -p tom-relay -- --dev   # then:
+RELAY=http://localhost:3340 cargo run -p tom-sdk --example 03_own_relay
+```
+
+### TypeScript Demo (browser, legacy)
 
 ```bash
 git clone https://github.com/malikkaraoui/ToM-protocol.git
