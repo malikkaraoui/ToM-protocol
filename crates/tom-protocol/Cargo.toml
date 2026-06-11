@@ -34,7 +34,7 @@ serde_json = "1"
 tom-metrics = { path = "../tom-metrics" }
 
 # Anti-spam (Phase R11.1)
-lru = "0.16"
+lru = "0.16.3" # min requise : RUSTSEC-2026-0002 corrigee a partir de 0.16.3 (review copilot PR #43)
 
 # Gossip discovery (Phase 3)
 tom-connect = { path = "../tom-connect" }
