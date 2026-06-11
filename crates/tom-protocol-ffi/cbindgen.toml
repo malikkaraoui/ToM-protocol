@@ -1,0 +1,16 @@
+# cbindgen — génération du header C public (chantier S2.1)
+# Le header include/tom_protocol_ffi.h est GÉNÉRÉ : ne pas l'éditer à la main.
+# Régénération : scripts/generate-ffi-header.sh (check de drift en CI).
+language = "C"
+include_guard = "TOM_PROTOCOL_FFI_H"
+cpp_compat = true
+documentation = true
+documentation_style = "c99"
+header = "/* tom-protocol-ffi — header généré par cbindgen, ne pas éditer. */"
+
+[parse]
+parse_deps = false
+
+[export]
+# Le handle reste opaque : seul le pointeur traverse la frontière.
+include = ["TomNodeHandle"]
