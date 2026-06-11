@@ -1,0 +1,76 @@
+{
+  "source": "crates/tom-protocol/examples/gen_test_vectors.rs (déterministe, auto-vérifié)",
+  "spec": "tom-protocol test vectors",
+  "vectors": [
+    {
+      "description": "Le NodeId est l'encodage hex minuscule de la clé publique Ed25519 (32 octets).",
+      "ed25519_public_key": "ff87a0b0a3c7c0ce827e9cada5ff79e75a44a0633bfcb5b50f99307ddb26b337",
+      "ed25519_seed": "611830d3641a68f94a690dcc25d1f4b0dac948325ac18f6dd32564371735f32c",
+      "name": "identity",
+      "node_id": "ff87a0b0a3c7c0ce827e9cada5ff79e75a44a0633bfcb5b50f99307ddb26b337"
+    },
+    {
+      "description": "Enveloppe Chat signée. wire_msgpack = rmp_serde::to_vec(Envelope). signing_bytes = rmp_serde::to_vec(SignableEnvelope) — exclut signature et ttl. signature = Ed25519(signing_bytes), vérification stricte (verify_strict).",
+      "envelope": {
+        "encrypted": false,
+        "from": "ff87a0b0a3c7c0ce827e9cada5ff79e75a44a0633bfcb5b50f99307ddb26b337",
+        "id": "00000000-0000-4000-8000-000000000001",
+        "msg_type": "Chat",
+        "payload_utf8": "salut bob",
+        "timestamp": 1700000000000,
+        "to": "191fc38f134aaf1b7fdb1f86330b9d03e94bd4ba884f490389de964448e89b3f",
+        "ttl": 4,
+        "via": [
+          "c5bbbb60e412879bbec7bb769804fa8e36e68af10d5477280b63deeaca931bed"
+        ]
+      },
+      "name": "signed_envelope",
+      "signature_hex": "0b0d9bf6cb05d2e990c454ed902d5ad20f4b69c185b6628bdf33bcd255557b9e26e861951c642214ae03d3429899f742410b7a96e81081d247b90f59be14c909",
+      "signing_bytes_hex": "98d92430303030303030302d303030302d343030302d383030302d303030303030303030303031d94066663837613062306133633763306365383237653963616461356666373965373561343461303633336266636235623530663939333037646462323662333337d9403139316663333866313334616166316237666462316638363333306239643033653934626434626138383466343930333839646539363434343865383962336691d94063356262626236306534313238373962626563376262373639383034666138653336653638616631306435343737323830623633646565616361393331626564a4436861749973616c757420626f62cf0000018bcfe56800c2",
+      "wire_msgpack_hex": "9ad92430303030303030302d303030302d343030302d383030302d303030303030303030303031d94066663837613062306133633763306365383237653963616461356666373965373561343461303633336266636235623530663939333037646462323662333337d9403139316663333866313334616166316237666462316638363333306239643033653934626434626138383466343930333839646539363434343865383962336691d94063356262626236306534313238373962626563376262373639383034666138653336653638616631306435343737323830623633646565616361393331626564a4436861749973616c757420626f62cf0000018bcfe56800dc00400b0dcc9bccf6cccb05ccd2cce9cc90ccc454ccedcc902d5accd20f4b69ccc1cc85ccb662cc8bccdf33ccbcccd255557bcc9e26cce861cc951c642214ccae03ccd342cc98cc99ccf742410b7acc96cce810cc81ccd247ccb90f59ccbe14ccc90904c2"
+    },
+    {
+      "description": "Le relais décrémente ttl sans casser la signature (ttl exclu de signing_bytes). Mêmes signing_bytes que vector 2, ttl différent sur le wire.",
+      "name": "ttl_mutation_in_transit",
+      "signing_bytes_hex_unchanged": true,
+      "ttl_after_one_hop": 3,
+      "wire_msgpack_hex": "9ad92430303030303030302d303030302d343030302d383030302d303030303030303030303031d94066663837613062306133633763306365383237653963616461356666373965373561343461303633336266636235623530663939333037646462323662333337d9403139316663333866313334616166316237666462316638363333306239643033653934626434626138383466343930333839646539363434343865383962336691d94063356262626236306534313238373962626563376262373639383034666138653336653638616631306435343737323830623633646565616361393331626564a4436861749973616c757420626f62cf0000018bcfe56800dc00400b0dcc9bccf6cccb05ccd2cce9cc90ccc454ccedcc902d5accd20f4b69ccc1cc85ccb662cc8bccdf33ccbcccd255557bcc9e26cce861cc951c642214ccae03ccd342cc98cc99ccf742410b7acc96cce810cc81ccd247ccb90f59ccbe14ccc90903c2"
+    },
+    {
+      "description": "Conversions identiques à libsodium : pk = Edwards→Montgomery (birational map) ; sk = SHA-512(seed)[0..32] avec clamping (b[0]&=248, b[31]&=127, b[31]|=64).",
+      "ed25519_public_key": "191fc38f134aaf1b7fdb1f86330b9d03e94bd4ba884f490389de964448e89b3f",
+      "ed25519_seed": "1fbec814b18b1d4c3eaa7cec41007e04bf0a98453b06ec7582aa29882c52eb7e",
+      "name": "ed25519_to_x25519",
+      "x25519_public_key": "52d9e77b457f8c8050a8c893ac641c2d23cd0442d7f7c54796aa8a349f6de858",
+      "x25519_secret": "282ac103a00b2d77be68a6ae414693f25835b6e0cdfdc3062180fca75f9c2f49"
+    },
+    {
+      "ciphertext_hex": "2b276600646312500b2d2ab1647ad1f21e1a936aaa992f64817d8aa7d7",
+      "description": "DH X25519 (éphémère fixé) → HKDF-SHA256 (salt absent, info='tom-protocol-e2e-xchacha20poly1305-v1') → XChaCha20-Poly1305. EncryptedPayload{ciphertext, nonce[24], ephemeral_pk[32]} sérialisé en MessagePack. Vérifié contre crypto::decrypt() du crate.",
+      "dh_shared_secret": "9ff709459aad59fcf317ff9015913554a19c7dbd917400e005f2d4d874a2e175",
+      "encrypted_payload_msgpack_hex": "93dc001d2b276600646312500b2d2accb1647accd1ccf21e1acc936accaacc992f64cc817dcc8acca7ccd7dc0018242424242424242424242424242424242424242424242424dc0020132c442bcce010ccfbccd57e72603328ccaa76cce71fccccccc1503accae21cc9327ccd14dcc9ccc99cc93ccf472",
+      "ephemeral_x25519_public": "132c442be010fbd57e72603328aa76e71fccc1503aae219327d14d9c9993f472",
+      "ephemeral_x25519_secret": "4042424242424242424242424242424242424242424242424242424242424242",
+      "hkdf_derived_key": "d9fbd0aa7e584aa9f8dc38fa0a203cda7f4184339c669f18a2607ad9909be275",
+      "name": "e2e_decrypt",
+      "nonce": "242424242424242424242424242424242424242424242424",
+      "plaintext_utf8": "vector e2e v1",
+      "recipient_ed25519_seed": "1fbec814b18b1d4c3eaa7cec41007e04bf0a98453b06ec7582aa29882c52eb7e"
+    },
+    {
+      "ciphertext_hex": "b5ae7c2d188dcfd7497c19291a2c8d3a00f0b88bd7a8ed39edb28b306841e6fb97",
+      "description": "Chiffrement de groupe : XChaCha20-Poly1305 symétrique avec Sender Key 32 octets, nonce aléatoire 24 octets. Vérifié contre crypto::decrypt_group_message().",
+      "name": "group_sender_key",
+      "nonce": "070707070707070707070707070707070707070707070707",
+      "plaintext_utf8": "message de groupe",
+      "sender_key": "7777777777777777777777777777777777777777777777777777777777777777"
+    },
+    {
+      "description": "ADR-004 : encrypt_and_sign chiffre le payload PUIS signe — la signature couvre le ciphertext, un relais vérifie l'authenticité sans déchiffrer. Non déterministe (éphémère/nonce aléatoires) : vector de propriété, pas d'octets attendus.",
+      "holds": true,
+      "name": "encrypt_then_sign_order",
+      "property": "verify_signature() == ok && encrypted == true"
+    }
+  ],
+  "version": "v1"
+}

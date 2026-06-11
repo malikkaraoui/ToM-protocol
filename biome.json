@@ -41,6 +41,7 @@
       "apps/tom-node-tvos/.build/**",
       "sdk/swift/**/.build/**",
       "sdk/swift/**/Artifacts/**",
+      "docs/spec/vectors/**",
       "patches/**",
       "graphify-out"
     ]
