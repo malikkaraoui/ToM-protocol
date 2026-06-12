@@ -40,7 +40,7 @@ z32 = "1.0"
 n0-error = "0.1"
 blake3 = "1.8"
 serde_bytes = "0.11"
-hickory-resolver = { version = "0.25", features = ["tokio", "https-ring"] }
+hickory-resolver = { version = "0.26", features = ["tokio", "https-ring"] }
 tokio-websockets = { version = "0.12", features = ["rustls-bring-your-own-connector", "ring", "getrandom", "rand", "client", "server"] }
 
 # Server feature dependencies

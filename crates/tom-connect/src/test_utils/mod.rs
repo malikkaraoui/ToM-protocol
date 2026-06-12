@@ -173,7 +173,7 @@ pub(crate) mod dns_server {
     };
 
     use hickory_resolver::proto::{
-        op::{Message, header::MessageType},
+        op::Message,
         serialize::binary::BinDecodable,
     };
     use n0_future::future::Boxed as BoxFuture;
@@ -249,13 +249,19 @@ pub(crate) mod dns_server {
         }
 
         async fn handle_datagram(&self, from: SocketAddr, buf: &[u8]) -> std::io::Result<()> {
-            let packet = Message::from_bytes(buf)?;
-            debug!(queries = ?packet.queries(), %from, "received query");
+            debug!("Parsing {} bytes from {}", buf.len(), from);
+            let packet = Message::from_bytes(buf).map_err(std::io::Error::other)?;
+            debug!(queries = ?packet.queries, %from, "received query");
             let mut reply = packet.clone();
-            reply.set_message_type(MessageType::Response);
+            reply.metadata = hickory_resolver::proto::op::Metadata::response_from_request(&packet.metadata);
+            // Clear answer/authority/additionals sections from the query for the response
+            reply.answers.clear();
+            reply.authorities.clear();
+            reply.additionals.clear();
             self.resolver.resolve(&packet, &mut reply).await?;
             debug!(?reply, %from, "send reply");
-            let buf = reply.to_vec()?;
+            let buf = reply.to_vec().map_err(std::io::Error::other)?;
+            debug!("Sending {} bytes to {}", buf.len(), from);
             let len = self.socket.send_to(&buf, from).await?;
             assert_eq!(len, buf.len(), "failed to send complete packet");
             Ok(())
@@ -435,7 +441,7 @@ pub(crate) mod pkarr_dns_state {
             reply: &mut hickory_resolver::proto::op::Message,
             ttl: u32,
         ) -> std::io::Result<()> {
-            for query in query.queries() {
+            for query in &query.queries {
                 let domain_name = query.name().to_string();
                 let Some(endpoint_id) = endpoint_id_from_domain_name(&domain_name) else {
                     continue;
