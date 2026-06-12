@@ -7,129 +7,145 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		840170AA2FD83E5F001573A1 /* TomProtocolFFI.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = AA000001000000000000F010 /* TomProtocolFFI.xcframework */; };
-		840170AB2FD83E5F001573A1 /* TomProtocolFFI.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = AA000001000000000000F010 /* TomProtocolFFI.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
-		AA000001000000000000F011 /* TomProtocolFFI.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = AA000001000000000000F010 /* TomProtocolFFI.xcframework */; settings = {ATTRIBUTES = (Required, ); }; };
+		1B672B941B8F95B44C05DDE6 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45813363A1382F72D7F0947A /* SettingsView.swift */; };
+		25229C6EC822AFC091BC5DCA /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 191922F2C94FA0A68AA6A4DE /* ContentView.swift */; };
+		2ABA5356362C4130D4A2FED1 /* MessagesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D12F7C0E8531E573AFA7F76D /* MessagesView.swift */; };
+		43A4B27CFE16608F4F27BD02 /* TomNodeService.swift in Sources */ = {isa = PBXBuildFile; fileRef = C926A58ED0A7305353329EDE /* TomNodeService.swift */; };
+		59161C155E01FAFDEEC1F40E /* LogView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A3C9EC9FECD7D5F3D08002E /* LogView.swift */; };
+		5A2C4926DE8C969B7EE9E93C /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 0683CB2C9158A7A4DD53F8E3 /* Assets.xcassets */; };
+		5B2D544A1B725C97C60868BB /* StatusServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3DFEBD198070CBB779377E39 /* StatusServer.swift */; };
+		603BA64BA7B15900CC0F2AEC /* StatusServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3DFEBD198070CBB779377E39 /* StatusServer.swift */; };
+		64130DB531BC6232846956C6 /* TomProtocolKit in Frameworks */ = {isa = PBXBuildFile; productRef = 8DD2D18964FF90C8DC1BBFAA /* TomProtocolKit */; };
+		7C43DDC1CDD0FD83CDAE6916 /* LogView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A3C9EC9FECD7D5F3D08002E /* LogView.swift */; };
+		864C23517DE9D6DEE9D9319D /* StatusView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 814BD1CD6DC34B6DCEFCF11A /* StatusView.swift */; };
+		A7EA762D18C39084554B9175 /* TomNodeService.swift in Sources */ = {isa = PBXBuildFile; fileRef = C926A58ED0A7305353329EDE /* TomNodeService.swift */; };
+		B9AB948FCE7BB4AAB2FB24AE /* TomNodeApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6569590ED64EBF49A3B8D91 /* TomNodeApp.swift */; };
+		BD2114F89C380E7B74D3AABE /* StatusView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 814BD1CD6DC34B6DCEFCF11A /* StatusView.swift */; };
+		BE0C6B04B1CC543A03173E65 /* TomNodeApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6569590ED64EBF49A3B8D91 /* TomNodeApp.swift */; };
+		D2CCDA29BE3692E254BDE874 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 191922F2C94FA0A68AA6A4DE /* ContentView.swift */; };
+		D86B4B98B44357B876971DF9 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45813363A1382F72D7F0947A /* SettingsView.swift */; };
+		DFA7C7F0800C7B9EDCE4E655 /* GroupsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A454C3C1E1A233EB5354BAF0 /* GroupsView.swift */; };
+		EE1633F67985ECEF9C667D04 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = C69FBBC4BEE7CCCB36F7E618 /* Assets.xcassets */; };
+		F1366121ED23AEDC98B8700B /* TomProtocolKit in Frameworks */ = {isa = PBXBuildFile; productRef = 08CC3D7D44BE1D35D6362419 /* TomProtocolKit */; };
+		F5AD7B2F4470FE1629492359 /* MessagesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D12F7C0E8531E573AFA7F76D /* MessagesView.swift */; };
+		FB01859E27E6D87514966B1F /* GroupsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A454C3C1E1A233EB5354BAF0 /* GroupsView.swift */; };
 /* End PBXBuildFile section */
 
-/* Begin PBXCopyFilesBuildPhase section */
-		840170AC2FD83E5F001573A1 /* Embed Frameworks */ = {
-			isa = PBXCopyFilesBuildPhase;
-			buildActionMask = 2147483647;
-			dstPath = "";
-			dstSubfolderSpec = 10;
-			files = (
-				840170AB2FD83E5F001573A1 /* TomProtocolFFI.xcframework in Embed Frameworks */,
-			);
-			name = "Embed Frameworks";
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-/* End PBXCopyFilesBuildPhase section */
-
 /* Begin PBXFileReference section */
-		840170912FD82754001573A1 /* TomNode-macOS.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "TomNode-macOS.app"; sourceTree = BUILT_PRODUCTS_DIR; };
-		8401709C2FD829C4001573A1 /* TomNode-macOS */ = {isa = PBXFileReference; lastKnownFileType = folder; path = "TomNode-macOS"; sourceTree = "<group>"; };
-		AA000001000000000000F001 /* TomNode.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = TomNode.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		AA000001000000000000F010 /* TomProtocolFFI.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = TomProtocolFFI.xcframework; path = build/TomProtocolFFI.xcframework; sourceTree = "<group>"; };
+		0683CB2C9158A7A4DD53F8E3 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		0A3C9EC9FECD7D5F3D08002E /* LogView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LogView.swift; sourceTree = "<group>"; };
+		1255105B8B6B673672779244 /* TomNode-macOS.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "TomNode-macOS.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		191922F2C94FA0A68AA6A4DE /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		3DFEBD198070CBB779377E39 /* StatusServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatusServer.swift; sourceTree = "<group>"; };
+		45813363A1382F72D7F0947A /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		544B0854790671AF4F82D577 /* TomNode.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = TomNode.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		814BD1CD6DC34B6DCEFCF11A /* StatusView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatusView.swift; sourceTree = "<group>"; };
+		A454C3C1E1A233EB5354BAF0 /* GroupsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroupsView.swift; sourceTree = "<group>"; };
+		C69FBBC4BEE7CCCB36F7E618 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		C926A58ED0A7305353329EDE /* TomNodeService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TomNodeService.swift; sourceTree = "<group>"; };
+		D12F7C0E8531E573AFA7F76D /* MessagesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessagesView.swift; sourceTree = "<group>"; };
+		E6569590ED64EBF49A3B8D91 /* TomNodeApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TomNodeApp.swift; sourceTree = "<group>"; };
+		E80EDCA3688FEC8E3148EB09 /* TomProtocolKit */ = {isa = PBXFileReference; lastKnownFileType = folder; name = TomProtocolKit; path = ../../sdk/swift/TomProtocolKit; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
-/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
-		8401709E2FD83BE0001573A1 /* Exceptions for "TomNode" folder in "TomNode-macOS" target */ = {
-			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
-			membershipExceptions = (
-				Models/TomError.swift,
-				Models/TomModels.swift,
-				Models/TomNodeWrapper.swift,
-				Services/StatusServer.swift,
-				Services/TomNodeService.swift,
-				TomNodeApp.swift,
-				Views/ContentView.swift,
-				Views/GroupsView.swift,
-				Views/LogView.swift,
-				Views/MessagesView.swift,
-				Views/SettingsView.swift,
-				Views/StatusView.swift,
-			);
-			target = 840170902FD82754001573A1 /* TomNode-macOS */;
-		};
-/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
-
-/* Begin PBXFileSystemSynchronizedRootGroup section */
-		AA000001000000000000F002 /* TomNode */ = {
-			isa = PBXFileSystemSynchronizedRootGroup;
-			exceptions = (
-				8401709E2FD83BE0001573A1 /* Exceptions for "TomNode" folder in "TomNode-macOS" target */,
-			);
-			path = TomNode;
-			sourceTree = "<group>";
-		};
-/* End PBXFileSystemSynchronizedRootGroup section */
-
 /* Begin PBXFrameworksBuildPhase section */
-		8401708E2FD82754001573A1 /* Frameworks */ = {
+		025433F7F72BC3DF242223ED /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				AA000001000000000000F011 /* TomProtocolFFI.xcframework in Frameworks */,
+				64130DB531BC6232846956C6 /* TomProtocolKit in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		AA000001000000000000F003 /* Frameworks */ = {
+		DB9241E41D3ABDD41A2C5CC7 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				840170AA2FD83E5F001573A1 /* TomProtocolFFI.xcframework in Frameworks */,
+				F1366121ED23AEDC98B8700B /* TomProtocolKit in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
-		840170A92FD83E5D001573A1 /* Frameworks */ = {
+		00145F6C3AB001B3512458A3 /* Services */ = {
 			isa = PBXGroup;
 			children = (
+				3DFEBD198070CBB779377E39 /* StatusServer.swift */,
+				C926A58ED0A7305353329EDE /* TomNodeService.swift */,
 			);
-			name = Frameworks;
+			path = Services;
 			sourceTree = "<group>";
 		};
-		AA000001000000000000F004 = {
+		5D6D4CC251C9235EFED10A7F = {
 			isa = PBXGroup;
 			children = (
-				AA000001000000000000F002 /* TomNode */,
-				8401709C2FD829C4001573A1 /* TomNode-macOS */,
-				AA000001000000000000F005 /* Products */,
-				AA000001000000000000F012 /* Libraries */,
-				840170A92FD83E5D001573A1 /* Frameworks */,
+				E0E228CA8E01CB6C5C152FE4 /* Packages */,
+				E8BF4FB42EBCD2574F219BCD /* TomNode */,
+				F3ED593F0FCFBEC36C139262 /* TomNode-macOS */,
+				A5B55A4F9BC273FF8A5FAE3C /* Products */,
 			);
 			sourceTree = "<group>";
 		};
-		AA000001000000000000F005 /* Products */ = {
+		83DB760BEF699356DBC81026 /* Views */ = {
 			isa = PBXGroup;
 			children = (
-				AA000001000000000000F001 /* TomNode.app */,
-				840170912FD82754001573A1 /* TomNode-macOS.app */,
+				191922F2C94FA0A68AA6A4DE /* ContentView.swift */,
+				A454C3C1E1A233EB5354BAF0 /* GroupsView.swift */,
+				0A3C9EC9FECD7D5F3D08002E /* LogView.swift */,
+				D12F7C0E8531E573AFA7F76D /* MessagesView.swift */,
+				45813363A1382F72D7F0947A /* SettingsView.swift */,
+				814BD1CD6DC34B6DCEFCF11A /* StatusView.swift */,
+			);
+			path = Views;
+			sourceTree = "<group>";
+		};
+		A5B55A4F9BC273FF8A5FAE3C /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				1255105B8B6B673672779244 /* TomNode-macOS.app */,
+				544B0854790671AF4F82D577 /* TomNode.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
 		};
-		AA000001000000000000F012 /* Libraries */ = {
+		E0E228CA8E01CB6C5C152FE4 /* Packages */ = {
 			isa = PBXGroup;
 			children = (
-				AA000001000000000000F010 /* TomProtocolFFI.xcframework */,
+				E80EDCA3688FEC8E3148EB09 /* TomProtocolKit */,
 			);
-			name = Libraries;
+			name = Packages;
+			sourceTree = "<group>";
+		};
+		E8BF4FB42EBCD2574F219BCD /* TomNode */ = {
+			isa = PBXGroup;
+			children = (
+				0683CB2C9158A7A4DD53F8E3 /* Assets.xcassets */,
+				E6569590ED64EBF49A3B8D91 /* TomNodeApp.swift */,
+				00145F6C3AB001B3512458A3 /* Services */,
+				83DB760BEF699356DBC81026 /* Views */,
+			);
+			path = TomNode;
+			sourceTree = "<group>";
+		};
+		F3ED593F0FCFBEC36C139262 /* TomNode-macOS */ = {
+			isa = PBXGroup;
+			children = (
+				C69FBBC4BEE7CCCB36F7E618 /* Assets.xcassets */,
+			);
+			path = "TomNode-macOS";
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		840170902FD82754001573A1 /* TomNode-macOS */ = {
+		E5E4B9A7E555F20A5B021C18 /* TomNode-macOS */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = 8401709B2FD82756001573A1 /* Build configuration list for PBXNativeTarget "TomNode-macOS" */;
+			buildConfigurationList = 5865EF1A091142E733CA3105 /* Build configuration list for PBXNativeTarget "TomNode-macOS" */;
 			buildPhases = (
-				8401708D2FD82754001573A1 /* Sources */,
-				8401708E2FD82754001573A1 /* Frameworks */,
-				8401708F2FD82754001573A1 /* Resources */,
+				98A2C49FF61C43ACB275A160 /* Sources */,
+				DADDAF70297346EEAF9703DF /* Resources */,
+				025433F7F72BC3DF242223ED /* Frameworks */,
 			);
 			buildRules = (
 			);
@@ -137,240 +153,137 @@
 			);
 			name = "TomNode-macOS";
 			packageProductDependencies = (
+				8DD2D18964FF90C8DC1BBFAA /* TomProtocolKit */,
 			);
 			productName = "TomNode-macOS";
-			productReference = 840170912FD82754001573A1 /* TomNode-macOS.app */;
+			productReference = 1255105B8B6B673672779244 /* TomNode-macOS.app */;
 			productType = "com.apple.product-type.application";
 		};
-		AA000001000000000000F006 /* TomNode */ = {
+		FD760943EB4D4477DF4A9197 /* TomNode */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = AA000001000000000000F00D /* Build configuration list for PBXNativeTarget "TomNode" */;
+			buildConfigurationList = ABEF9305C5FB977107618F79 /* Build configuration list for PBXNativeTarget "TomNode" */;
 			buildPhases = (
-				AA000001000000000000F013 /* Build Rust FFI */,
-				AA000001000000000000F007 /* Sources */,
-				AA000001000000000000F003 /* Frameworks */,
-				AA000001000000000000F008 /* Resources */,
-				840170AC2FD83E5F001573A1 /* Embed Frameworks */,
+				2B00DF7202BC89AAA1D57442 /* Sources */,
+				FAE36B310BDB3442C88A368D /* Resources */,
+				DB9241E41D3ABDD41A2C5CC7 /* Frameworks */,
 			);
 			buildRules = (
 			);
 			dependencies = (
 			);
-			fileSystemSynchronizedGroups = (
-				AA000001000000000000F002 /* TomNode */,
-			);
 			name = TomNode;
 			packageProductDependencies = (
+				08CC3D7D44BE1D35D6362419 /* TomProtocolKit */,
 			);
 			productName = TomNode;
-			productReference = AA000001000000000000F001 /* TomNode.app */;
+			productReference = 544B0854790671AF4F82D577 /* TomNode.app */;
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
-		AA000001000000000000F009 /* Project object */ = {
+		724AB4808D9E03996769E160 /* Project object */ = {
 			isa = PBXProject;
 			attributes = {
-				BuildIndependentTargetsInParallel = 1;
-				LastSwiftUpdateCheck = 2640;
-				LastUpgradeCheck = 2630;
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1600;
 				TargetAttributes = {
-					840170902FD82754001573A1 = {
-						CreatedOnToolsVersion = 26.4.1;
+					E5E4B9A7E555F20A5B021C18 = {
+						DevelopmentTeam = K22558HU63;
+						ProvisioningStyle = Automatic;
 					};
-					AA000001000000000000F006 = {
-						CreatedOnToolsVersion = 26.3;
+					FD760943EB4D4477DF4A9197 = {
+						DevelopmentTeam = K22558HU63;
+						ProvisioningStyle = Automatic;
 					};
 				};
 			};
-			buildConfigurationList = AA000001000000000000F00A /* Build configuration list for PBXProject "TomNode" */;
+			buildConfigurationList = FF2F5AD0293942CB1A552569 /* Build configuration list for PBXProject "TomNode" */;
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
 			knownRegions = (
-				en,
 				Base,
+				en,
 			);
-			mainGroup = AA000001000000000000F004;
+			mainGroup = 5D6D4CC251C9235EFED10A7F;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				D6EEB0AB072F18F1BC1AAC20 /* XCLocalSwiftPackageReference "../../sdk/swift/TomProtocolKit" */,
+			);
 			preferredProjectObjectVersion = 77;
-			productRefGroup = AA000001000000000000F005 /* Products */;
+			productRefGroup = A5B55A4F9BC273FF8A5FAE3C /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
-				AA000001000000000000F006 /* TomNode */,
-				840170902FD82754001573A1 /* TomNode-macOS */,
+				FD760943EB4D4477DF4A9197 /* TomNode */,
+				E5E4B9A7E555F20A5B021C18 /* TomNode-macOS */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
-		8401708F2FD82754001573A1 /* Resources */ = {
+		DADDAF70297346EEAF9703DF /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				EE1633F67985ECEF9C667D04 /* Assets.xcassets in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		AA000001000000000000F008 /* Resources */ = {
+		FAE36B310BDB3442C88A368D /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				5A2C4926DE8C969B7EE9E93C /* Assets.xcassets in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
 
-/* Begin PBXShellScriptBuildPhase section */
-		AA000001000000000000F013 /* Build Rust FFI */ = {
-			isa = PBXShellScriptBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			inputFileListPaths = (
-			);
-			inputPaths = (
-				"$(SRCROOT)/TomNode/Services/build_ffi.sh",
-				"$(SRCROOT)/../../scripts/build-tom-protocol-ffi-xcframework.sh",
-			);
-			name = "Build Rust FFI";
-			outputFileListPaths = (
-			);
-			outputPaths = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-			shellPath = /bin/bash;
-			shellScript = "\"${SRCROOT}/TomNode/Services/build_ffi.sh\"\n";
-		};
-/* End PBXShellScriptBuildPhase section */
-
 /* Begin PBXSourcesBuildPhase section */
-		8401708D2FD82754001573A1 /* Sources */ = {
+		2B00DF7202BC89AAA1D57442 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				25229C6EC822AFC091BC5DCA /* ContentView.swift in Sources */,
+				DFA7C7F0800C7B9EDCE4E655 /* GroupsView.swift in Sources */,
+				59161C155E01FAFDEEC1F40E /* LogView.swift in Sources */,
+				2ABA5356362C4130D4A2FED1 /* MessagesView.swift in Sources */,
+				1B672B941B8F95B44C05DDE6 /* SettingsView.swift in Sources */,
+				5B2D544A1B725C97C60868BB /* StatusServer.swift in Sources */,
+				864C23517DE9D6DEE9D9319D /* StatusView.swift in Sources */,
+				B9AB948FCE7BB4AAB2FB24AE /* TomNodeApp.swift in Sources */,
+				43A4B27CFE16608F4F27BD02 /* TomNodeService.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		AA000001000000000000F007 /* Sources */ = {
+		98A2C49FF61C43ACB275A160 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				D2CCDA29BE3692E254BDE874 /* ContentView.swift in Sources */,
+				FB01859E27E6D87514966B1F /* GroupsView.swift in Sources */,
+				7C43DDC1CDD0FD83CDAE6916 /* LogView.swift in Sources */,
+				F5AD7B2F4470FE1629492359 /* MessagesView.swift in Sources */,
+				D86B4B98B44357B876971DF9 /* SettingsView.swift in Sources */,
+				603BA64BA7B15900CC0F2AEC /* StatusServer.swift in Sources */,
+				BD2114F89C380E7B74D3AABE /* StatusView.swift in Sources */,
+				BE0C6B04B1CC543A03173E65 /* TomNodeApp.swift in Sources */,
+				A7EA762D18C39084554B9175 /* TomNodeService.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin XCBuildConfiguration section */
-		840170992FD82756001573A1 /* Debug */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
-				CODE_SIGN_ENTITLEMENTS = "TomNode-macOS.entitlements";
-				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
-				CODE_SIGN_STYLE = Automatic;
-				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = K22558HU63;
-				ENABLE_APP_SANDBOX = YES;
-				ENABLE_HARDENED_RUNTIME = YES;
-				ENABLE_PREVIEWS = YES;
-				ENABLE_USER_SELECTED_FILES = readonly;
-				GENERATE_INFOPLIST_FILE = YES;
-				HEADER_SEARCH_PATHS = "$(PROJECT_DIR)/build";
-				INFOPLIST_KEY_NSHumanReadableCopyright = "";
-				LD_RUNPATH_SEARCH_PATHS = (
-					"$(inherited)",
-					"@executable_path/../Frameworks",
-				);
-				MACOSX_DEPLOYMENT_TARGET = 26.4;
-				MARKETING_VERSION = 1.0;
-				OTHER_LDFLAGS = (
-					"$(inherited)",
-					"-lz",
-					"-lresolv",
-					"-framework",
-					Network,
-					"-framework",
-					Security,
-					"-framework",
-					SystemConfiguration,
-				);
-				PRODUCT_BUNDLE_IDENTIFIER = "malik.karaoui.TomNode-macOS";
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				REGISTER_APP_GROUPS = YES;
-				SDKROOT = macosx;
-				STRING_CATALOG_GENERATE_SYMBOLS = YES;
-				SWIFT_APPROACHABLE_CONCURRENCY = YES;
-				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
-				SWIFT_EMIT_LOC_STRINGS = YES;
-				SWIFT_ENABLE_EXPLICIT_MODULES = YES;
-				SWIFT_OBJC_BRIDGING_HEADER = "TomNode/TomNode-Bridging-Header.h";
-				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
-				SWIFT_VERSION = 5.0;
-			};
-			name = Debug;
-		};
-		8401709A2FD82756001573A1 /* Release */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
-				CODE_SIGN_ENTITLEMENTS = "TomNode-macOS.entitlements";
-				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
-				CODE_SIGN_STYLE = Automatic;
-				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = K22558HU63;
-				ENABLE_APP_SANDBOX = YES;
-				ENABLE_HARDENED_RUNTIME = YES;
-				ENABLE_PREVIEWS = YES;
-				ENABLE_USER_SELECTED_FILES = readonly;
-				GENERATE_INFOPLIST_FILE = YES;
-				HEADER_SEARCH_PATHS = "$(PROJECT_DIR)/build";
-				INFOPLIST_KEY_NSHumanReadableCopyright = "";
-				LD_RUNPATH_SEARCH_PATHS = (
-					"$(inherited)",
-					"@executable_path/../Frameworks",
-				);
-				MACOSX_DEPLOYMENT_TARGET = 26.4;
-				MARKETING_VERSION = 1.0;
-				OTHER_LDFLAGS = (
-					"$(inherited)",
-					"-lz",
-					"-lresolv",
-					"-framework",
-					Network,
-					"-framework",
-					Security,
-					"-framework",
-					SystemConfiguration,
-				);
-				PRODUCT_BUNDLE_IDENTIFIER = "malik.karaoui.TomNode-macOS";
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				REGISTER_APP_GROUPS = YES;
-				SDKROOT = macosx;
-				STRING_CATALOG_GENERATE_SYMBOLS = YES;
-				SWIFT_APPROACHABLE_CONCURRENCY = YES;
-				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
-				SWIFT_EMIT_LOC_STRINGS = YES;
-				SWIFT_ENABLE_EXPLICIT_MODULES = YES;
-				SWIFT_OBJC_BRIDGING_HEADER = "TomNode/TomNode-Bridging-Header.h";
-				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
-				SWIFT_VERSION = 5.0;
-			};
-			name = Release;
-		};
-		AA000001000000000000F00B /* Debug */ = {
+		3CB61913F7B52F844FDAAD1F /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
 				CLANG_ANALYZER_NONNULL = YES;
 				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
-				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
 				CLANG_ENABLE_MODULES = YES;
 				CLANG_ENABLE_OBJC_ARC = YES;
 				CLANG_ENABLE_OBJC_WEAK = YES;
@@ -396,19 +309,20 @@
 				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				DEVELOPMENT_TEAM = K22558HU63;
+				ENABLE_PREVIEWS = YES;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
-				ENABLE_USER_SCRIPT_SANDBOXING = YES;
-				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
 				GCC_DYNAMIC_NO_PIC = NO;
 				GCC_NO_COMMON_BLOCKS = YES;
 				GCC_OPTIMIZATION_LEVEL = 0;
 				GCC_PREPROCESSOR_DEFINITIONS = (
-					"DEBUG=1",
 					"$(inherited)",
+					"DEBUG=1",
 				);
 				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
 				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
@@ -416,27 +330,124 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 26.4;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
-				SDKROOT = appletvos;
-				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
 				TVOS_DEPLOYMENT_TARGET = 16.3;
 			};
 			name = Debug;
 		};
-		AA000001000000000000F00C /* Release */ = {
+		4CBB6120FE860E2CFAE21D5C /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = "App Icon & Top Shelf Image";
+				ASSETCATALOG_COMPILER_LAUNCHIMAGE_NAME = LaunchImage;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UIUserInterfaceStyle = Automatic;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = malik.karaoui.TomNode;
+				PRODUCT_NAME = TomNode;
+				SDKROOT = appletvos;
+				SUPPORTED_PLATFORMS = "appletvos appletvsimulator iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				TARGETED_DEVICE_FAMILY = "1,2,3";
+				TVOS_DEPLOYMENT_TARGET = 16.3;
+			};
+			name = Release;
+		};
+		4F58EE9F7474B8CF6E3297CF /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = "TomNode-macOS.entitlements";
+				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
+				COMBINE_HIDPI_IMAGES = YES;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_USER_SELECTED_FILES = readonly;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 26.4;
+				PRODUCT_BUNDLE_IDENTIFIER = "malik.karaoui.TomNode-macOS";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				REGISTER_APP_GROUPS = YES;
+				SDKROOT = macosx;
+				SWIFT_ENABLE_EXPLICIT_MODULES = YES;
+			};
+			name = Debug;
+		};
+		7F52DC178D19B9C9B27D45A9 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = "TomNode-macOS.entitlements";
+				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
+				COMBINE_HIDPI_IMAGES = YES;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_USER_SELECTED_FILES = readonly;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 26.4;
+				PRODUCT_BUNDLE_IDENTIFIER = "malik.karaoui.TomNode-macOS";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				REGISTER_APP_GROUPS = YES;
+				SDKROOT = macosx;
+				SWIFT_ENABLE_EXPLICIT_MODULES = YES;
+			};
+			name = Release;
+		};
+		893BC3D433775C8527FC5082 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = "App Icon & Top Shelf Image";
+				ASSETCATALOG_COMPILER_LAUNCHIMAGE_NAME = LaunchImage;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UIUserInterfaceStyle = Automatic;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = malik.karaoui.TomNode;
+				PRODUCT_NAME = TomNode;
+				SDKROOT = appletvos;
+				SUPPORTED_PLATFORMS = "appletvos appletvsimulator iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				TARGETED_DEVICE_FAMILY = "1,2,3";
+				TVOS_DEPLOYMENT_TARGET = 16.3;
+			};
+			name = Debug;
+		};
+		C53C6164850ED8205BD3BF95 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				"ASSETCATALOG_COMPILER_APPICON_NAME[sdk=iphoneos*]" = AppIcon;
-				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
 				CLANG_ANALYZER_NONNULL = YES;
 				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
-				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
 				CLANG_ENABLE_MODULES = YES;
 				CLANG_ENABLE_OBJC_ARC = YES;
 				CLANG_ENABLE_OBJC_WEAK = YES;
@@ -462,13 +473,14 @@
 				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				DEVELOPMENT_TEAM = K22558HU63;
 				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_PREVIEWS = YES;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
-				ENABLE_USER_SCRIPT_SANDBOXING = YES;
-				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
 				GCC_NO_COMMON_BLOCKS = YES;
 				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
 				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
@@ -476,145 +488,72 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 26.4;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
-				SDKROOT = appletvos;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
 				TVOS_DEPLOYMENT_TARGET = 16.3;
-				VALIDATE_PRODUCT = YES;
-			};
-			name = Release;
-		};
-		AA000001000000000000F00E /* Debug */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
-				CODE_SIGN_ENTITLEMENTS = TomNode.entitlements;
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = K22558HU63;
-				ENABLE_PREVIEWS = YES;
-				GENERATE_INFOPLIST_FILE = YES;
-				HEADER_SEARCH_PATHS = (
-					"$(inherited)",
-					"$(PROJECT_DIR)/build",
-				);
-				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
-				INFOPLIST_KEY_UIUserInterfaceStyle = Automatic;
-				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
-				LD_RUNPATH_SEARCH_PATHS = (
-					"$(inherited)",
-					"@executable_path/Frameworks",
-				);
-				MARKETING_VERSION = 1.0;
-				OTHER_LDFLAGS = (
-					"$(inherited)",
-					"-lz",
-					"-lresolv",
-					"-framework",
-					Network,
-					"-framework",
-					Security,
-					"-framework",
-					SystemConfiguration,
-				);
-				PRODUCT_BUNDLE_IDENTIFIER = malik.karaoui.TomNode;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				STRING_CATALOG_GENERATE_SYMBOLS = YES;
-				SUPPORTED_PLATFORMS = "appletvos appletvsimulator iphoneos iphonesimulator";
-				SUPPORTS_MACCATALYST = NO;
-				SWIFT_APPROACHABLE_CONCURRENCY = YES;
-				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
-				SWIFT_EMIT_LOC_STRINGS = YES;
-				SWIFT_OBJC_BRIDGING_HEADER = "TomNode/TomNode-Bridging-Header.h";
-				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
-				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2,3";
-			};
-			name = Debug;
-		};
-		AA000001000000000000F00F /* Release */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
-				CODE_SIGN_ENTITLEMENTS = TomNode.entitlements;
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = K22558HU63;
-				ENABLE_PREVIEWS = YES;
-				GENERATE_INFOPLIST_FILE = YES;
-				HEADER_SEARCH_PATHS = (
-					"$(inherited)",
-					"$(PROJECT_DIR)/build",
-				);
-				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
-				INFOPLIST_KEY_UIUserInterfaceStyle = Automatic;
-				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
-				LD_RUNPATH_SEARCH_PATHS = (
-					"$(inherited)",
-					"@executable_path/Frameworks",
-				);
-				MARKETING_VERSION = 1.0;
-				OTHER_LDFLAGS = (
-					"$(inherited)",
-					"-lz",
-					"-lresolv",
-					"-framework",
-					Network,
-					"-framework",
-					Security,
-					"-framework",
-					SystemConfiguration,
-				);
-				PRODUCT_BUNDLE_IDENTIFIER = malik.karaoui.TomNode;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				STRING_CATALOG_GENERATE_SYMBOLS = YES;
-				SUPPORTED_PLATFORMS = "appletvos appletvsimulator iphoneos iphonesimulator";
-				SUPPORTS_MACCATALYST = NO;
-				SWIFT_APPROACHABLE_CONCURRENCY = YES;
-				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
-				SWIFT_EMIT_LOC_STRINGS = YES;
-				SWIFT_OBJC_BRIDGING_HEADER = "TomNode/TomNode-Bridging-Header.h";
-				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
-				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2,3";
 			};
 			name = Release;
 		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		8401709B2FD82756001573A1 /* Build configuration list for PBXNativeTarget "TomNode-macOS" */ = {
+		5865EF1A091142E733CA3105 /* Build configuration list for PBXNativeTarget "TomNode-macOS" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
-				840170992FD82756001573A1 /* Debug */,
-				8401709A2FD82756001573A1 /* Release */,
+				4F58EE9F7474B8CF6E3297CF /* Debug */,
+				7F52DC178D19B9C9B27D45A9 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Release;
+			defaultConfigurationName = Debug;
 		};
-		AA000001000000000000F00A /* Build configuration list for PBXProject "TomNode" */ = {
+		ABEF9305C5FB977107618F79 /* Build configuration list for PBXNativeTarget "TomNode" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
-				AA000001000000000000F00B /* Debug */,
-				AA000001000000000000F00C /* Release */,
+				893BC3D433775C8527FC5082 /* Debug */,
+				4CBB6120FE860E2CFAE21D5C /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Release;
+			defaultConfigurationName = Debug;
 		};
-		AA000001000000000000F00D /* Build configuration list for PBXNativeTarget "TomNode" */ = {
+		FF2F5AD0293942CB1A552569 /* Build configuration list for PBXProject "TomNode" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
-				AA000001000000000000F00E /* Debug */,
-				AA000001000000000000F00F /* Release */,
+				3CB61913F7B52F844FDAAD1F /* Debug */,
+				C53C6164850ED8205BD3BF95 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Release;
+			defaultConfigurationName = Debug;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		D6EEB0AB072F18F1BC1AAC20 /* XCLocalSwiftPackageReference "../../sdk/swift/TomProtocolKit" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = ../../sdk/swift/TomProtocolKit;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		08CC3D7D44BE1D35D6362419 /* TomProtocolKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = TomProtocolKit;
+		};
+		8DD2D18964FF90C8DC1BBFAA /* TomProtocolKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = TomProtocolKit;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
-	rootObject = AA000001000000000000F009 /* Project object */;
+	rootObject = 724AB4808D9E03996769E160 /* Project object */;
 }

@@ -1,4 +1,5 @@
 import SwiftUI
+import TomProtocolKit
 
 struct GroupsView: View {
     @EnvironmentObject var nodeService: TomNodeService
