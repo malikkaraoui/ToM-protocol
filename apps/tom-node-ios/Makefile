@@ -3,8 +3,8 @@ PROJECT         = TomNode.xcodeproj
 SCHEME          = TomNode
 BUNDLE_ID       = malik.karaoui.TomNode-iOS
 
-IOS_SIM_NAME    = iPhone 16
-IOS_SIM_IPAD    = iPad Pro 13-inch (M4)
+IOS_SIM_NAME    = iPhone 17
+IOS_SIM_IPAD    = iPad Pro 13-inch (M5)
 IOS_DEST        = platform=iOS Simulator,name=$(IOS_SIM_NAME)
 IPAD_DEST       = platform=iOS Simulator,name=$(IOS_SIM_IPAD)
 
@@ -13,7 +13,8 @@ LOG_DIR         = .build/logs
 ARCHIVE_DIR     = .build/archive
 
 REPO_ROOT       = ../..
-FFI_XCFW        = ../tom-node-tvos/build/TomProtocolFFI.xcframework
+# FFI consommée via le Swift Package TomProtocolKit (S2.4).
+FFI_XCFW        = ../../sdk/swift/TomProtocolKit/Artifacts/TomProtocolFFI.xcframework
 
 .PHONY: help
 help:
@@ -102,8 +103,9 @@ device:
 
 .PHONY: ffi-xcframework
 ffi-xcframework:
-	@echo "▶ Building Rust XCFramework (all platforms)..."
+	@echo "▶ Building Rust XCFramework (all platforms) + sync to TomProtocolKit..."
 	cd $(REPO_ROOT) && bash scripts/build-tom-protocol-ffi-xcframework.sh
+	cd $(REPO_ROOT) && bash scripts/sync-xcframework-to-package.sh
 
 .PHONY: devices
 devices:
@@ -124,11 +126,11 @@ doctor:
 	@echo "▶ Xcode project"
 	@ls -d $(PROJECT) 2>/dev/null && echo "  ✅ project exists" || echo "  ⚠ Not generated. Run: make gen"
 	@echo ""
-	@echo "▶ Rust XCFramework"
-	@ls -lh $(FFI_XCFW) 2>/dev/null && echo "  ✅ XCFramework OK" || echo "  ⚠ Not built. Run: make ffi-xcframework"
+	@echo "▶ Rust XCFramework (package TomProtocolKit)"
+	@ls -d $(FFI_XCFW) 2>/dev/null && echo "  ✅ XCFramework OK" || echo "  ⚠ Not built. Run: make ffi-xcframework"
 	@echo ""
-	@echo "▶ FFI Header"
-	@ls -lh ../tom-node-tvos/build/tom_protocol_ffi.h 2>/dev/null && echo "  ✅ header OK" || echo "  ⚠ Header missing"
+	@echo "▶ FFI Header (cbindgen)"
+	@ls -lh $(REPO_ROOT)/crates/tom-protocol-ffi/include/tom_protocol_ffi.h 2>/dev/null && echo "  ✅ header OK" || echo "  ⚠ Header missing — run scripts/generate-ffi-header.sh"
 	@echo ""
 	@echo "▶ iOS Simulators"
 	@xcrun simctl list devices available | grep -E "iPhone 1[5-9]|iPad Pro" | head -5 || true

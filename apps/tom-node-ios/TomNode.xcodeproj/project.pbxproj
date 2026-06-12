@@ -7,38 +7,31 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		18271DEFED253E7CEBADBDFD /* TomNodeWrapper.swift in Sources */ = {isa = PBXBuildFile; fileRef = 76C8BF6CC3D49BE722159AE8 /* TomNodeWrapper.swift */; };
 		1B672B941B8F95B44C05DDE6 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45813363A1382F72D7F0947A /* SettingsView.swift */; };
 		25229C6EC822AFC091BC5DCA /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 191922F2C94FA0A68AA6A4DE /* ContentView.swift */; };
 		2ABA5356362C4130D4A2FED1 /* MessagesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D12F7C0E8531E573AFA7F76D /* MessagesView.swift */; };
 		43A4B27CFE16608F4F27BD02 /* TomNodeService.swift in Sources */ = {isa = PBXBuildFile; fileRef = C926A58ED0A7305353329EDE /* TomNodeService.swift */; };
-		53A6AB1D7910C16076056007 /* TomProtocolFFI.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 282B574851E1703A14C53482 /* TomProtocolFFI.xcframework */; };
 		59161C155E01FAFDEEC1F40E /* LogView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A3C9EC9FECD7D5F3D08002E /* LogView.swift */; };
 		5B2D544A1B725C97C60868BB /* StatusServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3DFEBD198070CBB779377E39 /* StatusServer.swift */; };
 		864C23517DE9D6DEE9D9319D /* StatusView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 814BD1CD6DC34B6DCEFCF11A /* StatusView.swift */; };
-		87FA0E826B345F8E1C531F39 /* TomModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C18423A5F72F218C322971D /* TomModels.swift */; };
-		A1DD0B2759C010EC96791083 /* TomError.swift in Sources */ = {isa = PBXBuildFile; fileRef = 652B1B1E9DFD5D616995B869 /* TomError.swift */; };
 		B9AB948FCE7BB4AAB2FB24AE /* TomNodeApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6569590ED64EBF49A3B8D91 /* TomNodeApp.swift */; };
 		DFA7C7F0800C7B9EDCE4E655 /* GroupsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A454C3C1E1A233EB5354BAF0 /* GroupsView.swift */; };
+		F1366121ED23AEDC98B8700B /* TomProtocolKit in Frameworks */ = {isa = PBXBuildFile; productRef = 08CC3D7D44BE1D35D6362419 /* TomProtocolKit */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 		0A3C9EC9FECD7D5F3D08002E /* LogView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LogView.swift; sourceTree = "<group>"; };
 		15754AD9C019101D91FA4B62 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		191922F2C94FA0A68AA6A4DE /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
-		282B574851E1703A14C53482 /* TomProtocolFFI.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = TomProtocolFFI.xcframework; path = "../tom-node-tvos/build/TomProtocolFFI.xcframework"; sourceTree = "<group>"; };
 		3DFEBD198070CBB779377E39 /* StatusServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatusServer.swift; sourceTree = "<group>"; };
 		45813363A1382F72D7F0947A /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		544B0854790671AF4F82D577 /* TomNode.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = TomNode.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		652B1B1E9DFD5D616995B869 /* TomError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TomError.swift; sourceTree = "<group>"; };
-		76C8BF6CC3D49BE722159AE8 /* TomNodeWrapper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TomNodeWrapper.swift; sourceTree = "<group>"; };
-		7C18423A5F72F218C322971D /* TomModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TomModels.swift; sourceTree = "<group>"; };
 		814BD1CD6DC34B6DCEFCF11A /* StatusView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatusView.swift; sourceTree = "<group>"; };
 		A454C3C1E1A233EB5354BAF0 /* GroupsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroupsView.swift; sourceTree = "<group>"; };
 		C926A58ED0A7305353329EDE /* TomNodeService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TomNodeService.swift; sourceTree = "<group>"; };
-		CE2DA91450DB697BD4610B65 /* TomNode-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "TomNode-Bridging-Header.h"; sourceTree = "<group>"; };
 		D12F7C0E8531E573AFA7F76D /* MessagesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessagesView.swift; sourceTree = "<group>"; };
 		E6569590ED64EBF49A3B8D91 /* TomNodeApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TomNodeApp.swift; sourceTree = "<group>"; };
+		E80EDCA3688FEC8E3148EB09 /* TomProtocolKit */ = {isa = PBXFileReference; lastKnownFileType = folder; name = TomProtocolKit; path = ../../sdk/swift/TomProtocolKit; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -46,7 +39,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				53A6AB1D7910C16076056007 /* TomProtocolFFI.xcframework in Frameworks */,
+				F1366121ED23AEDC98B8700B /* TomProtocolKit in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -62,19 +55,11 @@
 			path = Services;
 			sourceTree = "<group>";
 		};
-		230DF576A9F1405E0CCD9933 /* Frameworks */ = {
-			isa = PBXGroup;
-			children = (
-				282B574851E1703A14C53482 /* TomProtocolFFI.xcframework */,
-			);
-			name = Frameworks;
-			sourceTree = "<group>";
-		};
 		5D6D4CC251C9235EFED10A7F = {
 			isa = PBXGroup;
 			children = (
+				E0E228CA8E01CB6C5C152FE4 /* Packages */,
 				E8BF4FB42EBCD2574F219BCD /* TomNode */,
-				230DF576A9F1405E0CCD9933 /* Frameworks */,
 				A5B55A4F9BC273FF8A5FAE3C /* Products */,
 			);
 			sourceTree = "<group>";
@@ -92,16 +77,6 @@
 			path = Views;
 			sourceTree = "<group>";
 		};
-		9CC3B5C088A10FE4410BFEE1 /* Models */ = {
-			isa = PBXGroup;
-			children = (
-				652B1B1E9DFD5D616995B869 /* TomError.swift */,
-				7C18423A5F72F218C322971D /* TomModels.swift */,
-				76C8BF6CC3D49BE722159AE8 /* TomNodeWrapper.swift */,
-			);
-			path = Models;
-			sourceTree = "<group>";
-		};
 		A5B55A4F9BC273FF8A5FAE3C /* Products */ = {
 			isa = PBXGroup;
 			children = (
@@ -110,13 +85,19 @@
 			name = Products;
 			sourceTree = "<group>";
 		};
+		E0E228CA8E01CB6C5C152FE4 /* Packages */ = {
+			isa = PBXGroup;
+			children = (
+				E80EDCA3688FEC8E3148EB09 /* TomProtocolKit */,
+			);
+			name = Packages;
+			sourceTree = "<group>";
+		};
 		E8BF4FB42EBCD2574F219BCD /* TomNode */ = {
 			isa = PBXGroup;
 			children = (
 				15754AD9C019101D91FA4B62 /* Info.plist */,
-				CE2DA91450DB697BD4610B65 /* TomNode-Bridging-Header.h */,
 				E6569590ED64EBF49A3B8D91 /* TomNodeApp.swift */,
-				9CC3B5C088A10FE4410BFEE1 /* Models */,
 				00145F6C3AB001B3512458A3 /* Services */,
 				83DB760BEF699356DBC81026 /* Views */,
 			);
@@ -130,7 +111,7 @@
 			isa = PBXNativeTarget;
 			buildConfigurationList = ABEF9305C5FB977107618F79 /* Build configuration list for PBXNativeTarget "TomNode" */;
 			buildPhases = (
-				3297B14EE91CCE46139DC0CF /* Build Rust FFI (if needed) */,
+				8CB049E56FA2494B7106DF1F /* Check TomProtocolKit artifact */,
 				2B00DF7202BC89AAA1D57442 /* Sources */,
 				DB9241E41D3ABDD41A2C5CC7 /* Frameworks */,
 			);
@@ -140,6 +121,7 @@
 			);
 			name = TomNode;
 			packageProductDependencies = (
+				08CC3D7D44BE1D35D6362419 /* TomProtocolKit */,
 			);
 			productName = TomNode;
 			productReference = 544B0854790671AF4F82D577 /* TomNode.app */;
@@ -165,6 +147,9 @@
 			);
 			mainGroup = 5D6D4CC251C9235EFED10A7F;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				D6EEB0AB072F18F1BC1AAC20 /* XCLocalSwiftPackageReference "../../sdk/swift/TomProtocolKit" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = A5B55A4F9BC273FF8A5FAE3C /* Products */;
 			projectDirPath = "";
@@ -176,7 +161,7 @@
 /* End PBXProject section */
 
 /* Begin PBXShellScriptBuildPhase section */
-		3297B14EE91CCE46139DC0CF /* Build Rust FFI (if needed) */ = {
+		8CB049E56FA2494B7106DF1F /* Check TomProtocolKit artifact */ = {
 			isa = PBXShellScriptBuildPhase;
 			alwaysOutOfDate = 1;
 			buildActionMask = 2147483647;
@@ -186,14 +171,14 @@
 			);
 			inputPaths = (
 			);
-			name = "Build Rust FFI (if needed)";
+			name = "Check TomProtocolKit artifact";
 			outputFileListPaths = (
 			);
 			outputPaths = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "set -e\nXCFW=\"${PROJECT_DIR}/../tom-node-tvos/build/TomProtocolFFI.xcframework\"\nif [ ! -d \"$XCFW\" ]; then\n  echo \"warning: XCFramework not found at $XCFW — run 'make ffi-xcframework' from apps/tom-node-ios\"\nfi\n";
+			shellScript = "set -e\nXCFW=\"${PROJECT_DIR}/../../sdk/swift/TomProtocolKit/Artifacts/TomProtocolFFI.xcframework\"\nif [ ! -d \"$XCFW\" ]; then\n  echo \"warning: XCFramework absent du package — lancer scripts/build-tom-protocol-ffi-xcframework.sh puis scripts/sync-xcframework-to-package.sh\"\nfi\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 
@@ -209,11 +194,8 @@
 				1B672B941B8F95B44C05DDE6 /* SettingsView.swift in Sources */,
 				5B2D544A1B725C97C60868BB /* StatusServer.swift in Sources */,
 				864C23517DE9D6DEE9D9319D /* StatusView.swift in Sources */,
-				A1DD0B2759C010EC96791083 /* TomError.swift in Sources */,
-				87FA0E826B345F8E1C531F39 /* TomModels.swift in Sources */,
 				B9AB948FCE7BB4AAB2FB24AE /* TomNodeApp.swift in Sources */,
 				43A4B27CFE16608F4F27BD02 /* TomNodeService.swift in Sources */,
-				18271DEFED253E7CEBADBDFD /* TomNodeWrapper.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -290,27 +272,16 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				FRAMEWORK_SEARCH_PATHS = (
-					"$(inherited)",
-					"\"../tom-node-tvos/build\"",
-				);
-				HEADER_SEARCH_PATHS = (
-					"$(PROJECT_DIR)/../tom-node-tvos/build",
-				);
 				INFOPLIST_FILE = TomNode/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				OTHER_LDFLAGS = (
-					"-ObjC",
-				);
 				PRODUCT_BUNDLE_IDENTIFIER = "malik.karaoui.TomNode-iOS";
 				PRODUCT_NAME = TomNode;
 				SDKROOT = iphoneos;
 				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = YES;
-				SWIFT_OBJC_BRIDGING_HEADER = "TomNode/TomNode-Bridging-Header.h";
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Release;
@@ -320,27 +291,16 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				FRAMEWORK_SEARCH_PATHS = (
-					"$(inherited)",
-					"\"../tom-node-tvos/build\"",
-				);
-				HEADER_SEARCH_PATHS = (
-					"$(PROJECT_DIR)/../tom-node-tvos/build",
-				);
 				INFOPLIST_FILE = TomNode/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				OTHER_LDFLAGS = (
-					"-ObjC",
-				);
 				PRODUCT_BUNDLE_IDENTIFIER = "malik.karaoui.TomNode-iOS";
 				PRODUCT_NAME = TomNode;
 				SDKROOT = iphoneos;
 				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = YES;
-				SWIFT_OBJC_BRIDGING_HEADER = "TomNode/TomNode-Bridging-Header.h";
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Debug;
@@ -425,6 +385,20 @@
 			defaultConfigurationName = Debug;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		D6EEB0AB072F18F1BC1AAC20 /* XCLocalSwiftPackageReference "../../sdk/swift/TomProtocolKit" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = ../../sdk/swift/TomProtocolKit;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		08CC3D7D44BE1D35D6362419 /* TomProtocolKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = TomProtocolKit;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 724AB4808D9E03996769E160 /* Project object */;
 }
