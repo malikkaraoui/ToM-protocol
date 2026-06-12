@@ -2,21 +2,69 @@
 
 **The Open Messaging** — a decentralized P2P transport protocol where every device is the network.
 
-## Status: Phase 2 — Native Transport
+## Status: Phase 3 — SDK & Adoption
 
 | Phase | Description | Status |
 |-------|-------------|--------|
-| **Phase 1** | TypeScript protocol stack (WebRTC, signaling) | ✅ 8/8 epics |
-| **Phase 2** | Rust native transport (QUIC, hole punching, E2E crypto) | ✅ Validated |
-| **Phase 3** | Protocol convergence (TS + Rust unified) | In progress |
+| **Phase 1** | TypeScript protocol stack (WebRTC, signaling) | ✅ 8/8 epics (legacy) |
+| **Phase 2** | Rust native protocol (QUIC, hole punching, E2E crypto, groups) | ✅ All 11 build phases complete ([phase table](CLAUDE.md#current-status)) |
+| **Phase 3** | SDKs & public specs — make ToM yours | 🚀 Rust SDK, Swift Package and wire specs shipped |
 
-**1089+ tests** (771 TypeScript + 318 Rust) | **E2E encrypted** | **NAT traversal validated** | **Cross-border Suisse↔France** | **Hub failover validated**
+**1987+ tests** (1216 Rust + 771 TypeScript legacy) | **E2E encrypted** | **NAT traversal validated** | **Cross-border Suisse↔France** | **Hub failover validated**
 
 ## TL;DR
 
 ToM is a transport layer protocol (not a blockchain) that transforms every connected device into both client and relay. No data centers, no speculative tokens, no infinite history.
 
 **The idea:** leverage the dormant power of billions of devices to create a global communication BUS that's resilient and virtually free.
+
+## 🚪 Integrate ToM — three doors
+
+### 1 · Rust — `tom-sdk` (15 lines to a live node)
+
+```toml
+[dependencies]
+tom-sdk = { git = "https://github.com/malikkaraoui/ToM-protocol", tag = "v0.3.0" }
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+```
+
+```rust
+use tom_sdk::{Event, TomClientBuilder};
+
+#[tokio::main]
+async fn main() -> Result<(), tom_sdk::TomSdkError> {
+    let mut client = TomClientBuilder::new().username("alice").connect().await?;
+    println!("my identity: {}", client.id());
+    while let Some(event) = client.next_event().await {
+        if let Event::MessageReceived(msg) = event {
+            client.send_text(msg.from, "got it!").await?; // E2E encrypted, signed
+        }
+    }
+    Ok(())
+}
+```
+
+No infrastructure needed on a LAN: exchange opaque **connectivity tickets** (`client.ticket()` ↔ `client.add_peer_ticket(...)`) — QR code or copy/paste. Full guide: [`crates/tom-sdk/README.md`](crates/tom-sdk/README.md) · runnable examples in [`crates/tom-sdk/examples/`](crates/tom-sdk/examples/).
+
+### 2 · Apple — `TomProtocolKit` (iOS 16+ / tvOS 16+ / macOS 13+)
+
+Swift Package wrapping the Rust core (XCFramework, 5 slices). Build once, add as a local package in Xcode:
+
+```bash
+bash scripts/build-tom-protocol-ffi-xcframework.sh
+bash scripts/sync-xcframework-to-package.sh
+# Xcode → File → Add Package Dependencies → Add Local… → sdk/swift/TomProtocolKit
+```
+
+Releases (zip + SPM checksum) are automated on `sdk-swift/v*` tags. Guide: [`sdk/swift/TomProtocolKit/README.md`](sdk/swift/TomProtocolKit/README.md).
+
+### 3 · Any language — implement the protocol
+
+Normative specs, no Rust required, byte-for-byte verifiable:
+
+- [`docs/spec/tom-wire-v1.md`](docs/spec/tom-wire-v1.md) — envelope wire format (MessagePack), signatures, TTL, relay rules
+- [`docs/spec/tom-crypto-v1.md`](docs/spec/tom-crypto-v1.md) — Ed25519/X25519, HKDF, XChaCha20-Poly1305, encrypt-then-sign
+- [`docs/spec/vectors/tom-vectors-v1.json`](docs/spec/vectors/tom-vectors-v1.json) — 7 self-verified test vectors (expected bytes + intermediate values)
 
 ## What's proven (with data)
 
@@ -34,27 +82,23 @@ ToM is a transport layer protocol (not a blockchain) that transforms every conne
 ```
 tom-protocol/
 ├── crates/                          # Rust native stack
-│   ├── tom-transport/               # QUIC transport (iroh), connection pool
-│   ├── tom-protocol/                # Protocol logic (crypto, routing, groups, discovery, backup)
+│   ├── tom-sdk/                     # 🚪 High-level SDK (start here)
+│   ├── tom-protocol/                # Protocol engine (crypto, routing, groups, discovery, backup)
+│   ├── tom-transport/               # QUIC transport, hole punching
+│   ├── tom-connect/ tom-relay/ …    # Forked iroh stack (tom-* namespace, see docs/FORK-GOVERNANCE.md)
+│   ├── tom-protocol-ffi/            # C ABI for native apps (cbindgen header)
 │   ├── tom-tui/                     # TUI chat client + bot mode
-│   └── tom-stress/                  # Stress test binary
+│   └── tom-stress/                  # Stress test campaigns
 │
-├── packages/                        # TypeScript stack (Phase 1)
-│   ├── core/                        # Protocol primitives (tom-protocol)
-│   └── sdk/                         # Developer SDK (tom-sdk)
+├── sdk/swift/TomProtocolKit/        # 🚪 Swift Package (iOS/tvOS/macOS)
 │
-├── apps/
-│   └── demo/                        # Browser demo with multiplayer Snake
+├── docs/spec/                       # 🚪 Normative specs + test vectors
 │
-├── experiments/
-│   └── iroh-poc/                    # NAT traversal PoC (4 scenarios validated)
+├── apps/                            # Native apps (iOS, tvOS, dev dashboard)
 │
-├── tools/
-│   ├── signaling-server/            # Bootstrap server (being replaced by QUIC)
-│   ├── mcp-server/                  # MCP server for LLM interaction
-│   └── vscode-extension/            # VS Code extension
+├── packages/                        # TypeScript stack (Phase 1 — legacy, archive planned)
 │
-├── docs/                            # Documentation (GitBook)
+├── docs/plans/                      # Design docs + chantier journals
 ├── llms.txt                         # LLM quick reference
 ├── CLAUDE.md                        # Detailed LLM guide
 └── CONTRIBUTING.md                  # Micro-session contribution model
@@ -93,7 +137,21 @@ Channel Architecture:
 
 ## Quick Start
 
-### TypeScript Demo (browser)
+### Rust SDK (recommended)
+
+```bash
+git clone https://github.com/malikkaraoui/ToM-protocol.git && cd ToM-protocol
+
+# Two local nodes exchange an E2E-encrypted message via tickets — no infra
+cargo run -p tom-sdk --example 01_send_message
+# Group chat: invite, join, fan-out
+cargo run -p tom-sdk --example 02_group_chat
+# Self-hosted relay, zero external dependency
+cargo run -p tom-relay -- --dev   # then:
+RELAY=http://localhost:3340 cargo run -p tom-sdk --example 03_own_relay
+```
+
+### TypeScript Demo (browser, legacy)
 
 ```bash
 git clone https://github.com/malikkaraoui/ToM-protocol.git
@@ -176,14 +234,17 @@ Stress test on highway (A40, France↔Switzerland): **99.85%** reliability over 
 ## Testing
 
 ```bash
-# TypeScript tests (771 tests)
-pnpm test
-
-# Rust tests (236 tests)
+# Rust tests (1200+ across the workspace)
 cargo test --workspace
 
-# E2E browser tests (Playwright)
-pnpm test:e2e
+# Lint gate (mandatory before push)
+cargo clippy --workspace -- -D warnings
+
+# TypeScript tests (771 tests, legacy stack)
+pnpm test
+
+# Supply chain (RustSec advisories, sources, bans)
+cargo deny check advisories bans sources
 ```
 
 ## Core Concepts
@@ -217,9 +278,12 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for details.
 
 ## Documentation
 
+- [docs/spec/](docs/spec/) — **Normative protocol specs + test vectors** (implement ToM in any language)
+- [crates/tom-sdk/README.md](crates/tom-sdk/README.md) — Rust SDK guide
+- [sdk/swift/TomProtocolKit/README.md](sdk/swift/TomProtocolKit/README.md) — Apple SDK guide
+- [docs/FORK-GOVERNANCE.md](docs/FORK-GOVERNANCE.md) — iroh fork governance & wire invariants
 - [CLAUDE.md](CLAUDE.md) — Implementation guide for AI assistants
 - [llms.txt](llms.txt) — Protocol quick reference
-- [docs/](docs/) — GitBook documentation
 - [Architecture](_bmad-output/planning-artifacts/architecture.md) — ADRs and design decisions
 - [Design Decisions](_bmad-output/planning-artifacts/design-decisions.md) — 7 locked invariants
 
