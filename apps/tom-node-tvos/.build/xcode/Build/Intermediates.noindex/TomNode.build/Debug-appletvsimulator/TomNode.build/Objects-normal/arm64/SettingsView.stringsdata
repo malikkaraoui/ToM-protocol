@@ -1,5 +1,5 @@
 {
-  "source": "/Users/malik/Documents/tom-protocol/apps/tom-node-tvos/TomNode/Views/SettingsView.swift",
+  "source": "/Users/malik/Documents/ATELIER PROJETS/tom-protocol/apps/tom-node-tvos/TomNode/Views/SettingsView.swift",
   "tables": {
     "Localizable": [
       {
@@ -7,7 +7,7 @@
         "key": "Settings",
         "location": {
           "startingColumn": 18,
-          "startingLine": 31
+          "startingLine": 32
         }
       },
       {
@@ -15,7 +15,7 @@
         "key": "Node Identity",
         "location": {
           "startingColumn": 25,
-          "startingLine": 39
+          "startingLine": 40
         }
       },
       {
@@ -23,7 +23,15 @@
         "key": "Network",
         "location": {
           "startingColumn": 25,
-          "startingLine": 47
+          "startingLine": 48
+        }
+      },
+      {
+        "comment": "",
+        "key": "Observability",
+        "location": {
+          "startingColumn": 25,
+          "startingLine": 84
         }
       },
       {
@@ -31,7 +39,15 @@
         "key": "Peers",
         "location": {
           "startingColumn": 25,
-          "startingLine": 69
+          "startingLine": 110
+        }
+      },
+      {
+        "comment": "",
+        "key": "Stress Testing",
+        "location": {
+          "startingColumn": 25,
+          "startingLine": 135
         }
       },
       {
@@ -39,7 +55,7 @@
         "key": "Profile",
         "location": {
           "startingColumn": 25,
-          "startingLine": 89
+          "startingLine": 144
         }
       },
       {
@@ -47,7 +63,23 @@
         "key": "Info",
         "location": {
           "startingColumn": 25,
-          "startingLine": 93
+          "startingLine": 148
+        }
+      },
+      {
+        "comment": "",
+        "key": "Relay URL (optional live seed)",
+        "location": {
+          "startingColumn": 31,
+          "startingLine": 52
+        }
+      },
+      {
+        "comment": "",
+        "key": "Bootstrap Peer ID (optional live seed)",
+        "location": {
+          "startingColumn": 31,
+          "startingLine": 58
         }
       },
       {
@@ -55,7 +87,7 @@
         "key": "N0 Discovery",
         "location": {
           "startingColumn": 28,
-          "startingLine": 50
+          "startingLine": 65
         }
       },
       {
@@ -63,7 +95,7 @@
         "key": "DHT",
         "location": {
           "startingColumn": 28,
-          "startingLine": 56
+          "startingLine": 71
         }
       },
       {
@@ -71,15 +103,39 @@
         "key": "Encryption",
         "location": {
           "startingColumn": 28,
-          "startingLine": 62
+          "startingLine": 77
         }
       },
       {
         "comment": "",
-        "key": "NAS Peer Node ID",
+        "key": "UDP Log Export",
+        "location": {
+          "startingColumn": 28,
+          "startingLine": 85
+        }
+      },
+      {
+        "comment": "",
+        "key": "IPv4 host (optional)",
         "location": {
           "startingColumn": 31,
-          "startingLine": 70
+          "startingLine": 91
+        }
+      },
+      {
+        "comment": "",
+        "key": "Port",
+        "location": {
+          "startingColumn": 31,
+          "startingLine": 97
+        }
+      },
+      {
+        "comment": "",
+        "key": "Auto-Echo (respond to all messages)",
+        "location": {
+          "startingColumn": 28,
+          "startingLine": 136
         }
       }
     ]

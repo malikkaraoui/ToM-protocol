@@ -5,7 +5,7 @@ PROJECT         = TomNode.xcodeproj
 SCHEME          = TomNode
 SCHEME_MACOS    = TomNode-macOS
 BUNDLE_ID       = malik.karaoui.TomNode
-BUNDLE_ID_MACOS = malik.karaoui.TomNode.macos
+BUNDLE_ID_MACOS = malik.karaoui.TomNode-macOS
 
 TVOS_SIM_NAME   = Apple TV 4K (3rd generation)
 TVOS_DEST       = platform=tvOS Simulator,name=$(TVOS_SIM_NAME)
@@ -14,29 +14,34 @@ BUILD_DIR       = .build/xcode
 LOG_DIR         = .build/logs
 ARCHIVE_DIR     = .build/archive
 
-# Rust FFI build (from repo root)
+# Rust FFI : consommée via le Swift Package TomProtocolKit (S2.4).
+# L'artefact binaire vit dans le package ; rebuild : make ffi-xcframework.
 REPO_ROOT       = ../..
-FFI_SCRIPT      = scripts/build-tom-protocol-ffi-tvos.sh
+PKG_XCFW        = ../../sdk/swift/TomProtocolKit/Artifacts/TomProtocolFFI.xcframework
 
 .PHONY: help
 help:
 	@echo "TomNode tvOS+iOS+macOS — Available commands:"
+	@echo "  make gen            — generate Xcode project from project.yml (requires xcodegen)"
 	@echo "  make tvsim          — build tvOS simulator"
 	@echo "  make tvrun          — build + install + launch tvOS simulator"
 	@echo "  make tvdevice       — build for physical Apple TV"
 	@echo "  make tvtest         — run unit tests on simulator"
-	@echo "  make macffi         — rebuild Rust XCFramework with macOS slice"
-	@echo "  make macbuild       — build macOS app (requires TomNode-macOS Xcode target)"
+	@echo "  make macbuild       — build macOS app (TomNode-macOS target)"
 	@echo "  make macrun         — build + open macOS app"
 	@echo "  make macdoctor      — diagnostic macOS setup"
-	@echo "  make ffi-xcframework — rebuild Rust XCFramework (all platforms)"
-	@echo "  make ffi            — rebuild Rust FFI (tvOS simulator only)"
-	@echo "  make ffi-device     — rebuild Rust FFI (tvOS device only)"
+	@echo "  make ffi-xcframework — rebuild Rust XCFramework + sync to TomProtocolKit"
 	@echo "  make devices        — list available devices"
 	@echo "  make doctor         — diagnostic"
 	@echo "  make logs           — show build logs"
 	@echo "  make clean          — clean build artifacts"
 	@echo "  make archive        — archive for App Store"
+
+.PHONY: gen
+gen:
+	@which xcodegen >/dev/null 2>&1 || (echo "❌ xcodegen not found. Install: brew install xcodegen"; exit 1)
+	xcodegen generate
+	@echo "✅ TomNode.xcodeproj generated"
 
 .PHONY: tvsim
 tvsim:
@@ -92,13 +97,6 @@ tvtest:
 		| tee $(LOG_DIR)/tests.log \
 		| xcpretty --color 2>/dev/null || tail -20 $(LOG_DIR)/tests.log
 
-.PHONY: macffi
-macffi:
-	@echo "▶ Building Rust XCFramework with macOS slice (arm64 + x86_64)..."
-	cd $(REPO_ROOT) && bash scripts/build-tom-protocol-ffi-xcframework.sh
-	@echo "✅ macOS slice ready:"
-	@ls build/TomProtocolFFI.xcframework/ | grep -i mac || echo "  ⚠ Slice macos-arm64 absent — check build output"
-
 .PHONY: macbuild
 macbuild:
 	@echo "▶ Build macOS app ($(SCHEME_MACOS))..."
@@ -128,8 +126,8 @@ macdoctor:
 	@echo "▶ Rust toolchain macOS"
 	@rustup target list --installed | grep darwin || echo "  ⚠ aarch64-apple-darwin not installed — run: rustup target add aarch64-apple-darwin"
 	@echo ""
-	@echo "▶ XCFramework macOS slice"
-	@ls build/TomProtocolFFI.xcframework/ 2>/dev/null | grep -i mac || echo "  ⚠ Slice absent — run: make macffi"
+	@echo "▶ XCFramework macOS slice (package TomProtocolKit)"
+	@ls $(PKG_XCFW)/ 2>/dev/null | grep -i mac || echo "  ⚠ Slice absent — run: make ffi-xcframework"
 	@echo ""
 	@echo "▶ Xcode scheme"
 	@xcodebuild -project $(PROJECT) -list 2>/dev/null | grep -i "$(SCHEME_MACOS)" || echo "  ⚠ Scheme '$(SCHEME_MACOS)' absent — créer la cible dans Xcode (Lot B)"
@@ -139,18 +137,9 @@ macdoctor:
 
 .PHONY: ffi-xcframework
 ffi-xcframework:
-	@echo "▶ Building Rust XCFramework (tvOS + iOS, all variants)..."
+	@echo "▶ Building Rust XCFramework (all platforms) + sync to TomProtocolKit..."
 	cd $(REPO_ROOT) && bash scripts/build-tom-protocol-ffi-xcframework.sh
-
-.PHONY: ffi
-ffi:
-	@echo "▶ Building Rust FFI for tvOS simulator..."
-	cd $(REPO_ROOT) && TVOS_TARGET=aarch64-apple-tvos-sim $(FFI_SCRIPT)
-
-.PHONY: ffi-device
-ffi-device:
-	@echo "▶ Building Rust FFI for tvOS device..."
-	cd $(REPO_ROOT) && TVOS_TARGET=aarch64-apple-tvos $(FFI_SCRIPT)
+	cd $(REPO_ROOT) && bash scripts/sync-xcframework-to-package.sh
 
 .PHONY: devices
 devices:
@@ -168,11 +157,11 @@ doctor:
 	@echo "▶ Swift"
 	@swift --version || true
 	@echo ""
-	@echo "▶ Rust XCFramework"
-	@ls -lh build/TomProtocolFFI.xcframework 2>/dev/null || echo "  ⚠ Not built yet. Run: make ffi-xcframework"
+	@echo "▶ Rust XCFramework (package TomProtocolKit)"
+	@ls -d $(PKG_XCFW) 2>/dev/null || echo "  ⚠ Not built yet. Run: make ffi-xcframework"
 	@echo ""
-	@echo "▶ FFI Header"
-	@ls -lh build/tom_protocol_ffi.h 2>/dev/null || echo "  ⚠ Header missing"
+	@echo "▶ FFI Header (cbindgen)"
+	@ls -lh $(REPO_ROOT)/crates/tom-protocol-ffi/include/tom_protocol_ffi.h 2>/dev/null || echo "  ⚠ Header missing — run scripts/generate-ffi-header.sh"
 	@echo ""
 	@echo "▶ tvOS Simulators"
 	@xcrun simctl list devices available | grep -i "tv" | head -5 || true

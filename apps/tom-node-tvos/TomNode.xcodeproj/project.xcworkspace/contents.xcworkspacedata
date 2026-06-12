@@ -4,10 +4,4 @@
    <FileRef
       location = "self:">
    </FileRef>
-   <FileRef
-      location = "group:fix_appicon.py">
-   </FileRef>
-   <FileRef
-      location = "group:fix_appicon.sh">
-   </FileRef>
 </Workspace>

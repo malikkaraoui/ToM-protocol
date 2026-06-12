@@ -2,25 +2,27 @@
 
 ## Project
 - Name: TomNode
-- Platform: tvOS 16.0+
+- Platform: tvOS 16.3+ (target multi-plateforme : Apple TV + iPhone/iPad) + target macOS dédié
 - Language: Swift 5.9+
 - UI: SwiftUI (MVVM)
-- Architecture: MVVM + Services + Rust FFI
+- Architecture: MVVM + Services + Swift Package TomProtocolKit
 
-## Core Stack
-- **Rust FFI**: `libtom_protocol_ffi.a` (tom-protocol-ffi crate)
-- **Bridging Header**: `TomNode/TomNode-Bridging-Header.h`
-- **C Header**: `build/tom_protocol_ffi.h`
-- **Static library**: `build/libtom_protocol_ffi.a`
+## Core Stack (S2.4 — migration package)
+- **SDK**: Swift Package local `TomProtocolKit` (`sdk/swift/TomProtocolKit`)
+- **FFI Rust**: portée par le package (binaryTarget `TomProtocolFFI.xcframework` + linkerSettings)
+- **Projet Xcode**: généré par xcodegen depuis `project.yml` — ne jamais éditer le `.xcodeproj` à la main
+- Plus de bridging header, plus de `build/TomProtocolFFI.xcframework` embarqué
 
-## Scheme
+## Schemes
 - TomNode (tvOS app)
+- TomNode-macOS (macOS app, mêmes sources Swift + assets dédiés)
 
 ## Simulator
 - Apple TV 4K (3rd generation)
 
-## Bundle ID
-- malik.karaoui.TomNode
+## Bundle IDs
+- malik.karaoui.TomNode (tvOS)
+- malik.karaoui.TomNode-macOS (macOS)
 
 ## Dev Team
 - K22558HU63
@@ -33,55 +35,57 @@ ViewModels (ObservableObject)
     ↓
 TomNodeService (singleton, @MainActor)
     ↓
-TomNodeWrapper (actor, FFI bridge)
+TomProtocolKit (Swift Package : TomNodeWrapper actor, TomModels, TomError)
     ↓
-tom_protocol_ffi.h (C ABI)
+TomProtocolFFI.xcframework (C ABI, binaryTarget du package)
     ↓
-libtom_protocol_ffi.a (Rust)
-    ↓
-tom-protocol (ProtocolRuntime)
+tom-protocol (ProtocolRuntime, Rust)
 ```
 
 ## File Structure
 ```
+project.yml                   — source de vérité du projet (xcodegen)
 TomNode/
 ├── TomNodeApp.swift          — @main entry
-├── TomNode-Bridging-Header.h — FFI bridge
 ├── Views/
 │   ├── ContentView.swift     — TabView (4 tabs)
 │   ├── StatusView.swift      — Node status + start/stop
 │   ├── MessagesView.swift    — 1-1 messages
 │   ├── GroupsView.swift      — Group messaging
+│   ├── LogView.swift         — Logs
 │   └── SettingsView.swift    — Config + identity
 ├── ViewModels/               — (future extraction from Service)
-├── Models/
-│   ├── TomModels.swift       — TomPeer, TomMessage, TomGroup, TomNodeStatus
-│   ├── TomError.swift        — Error enum
-│   └── TomNodeWrapper.swift  — FFI actor wrapper
 ├── Services/
-│   └── TomNodeService.swift  — Singleton orchestrator
+│   ├── TomNodeService.swift  — Singleton orchestrator
+│   └── StatusServer.swift    — HTTP status endpoint
 └── Assets.xcassets/
+TomNode-macOS/
+└── Assets.xcassets/          — assets macOS (AppIcon dédié)
 ```
+Les anciens `Models/` (TomModels, TomError, TomNodeWrapper) vivent dans le
+package : `sdk/swift/TomProtocolKit/Sources/TomProtocolKit/`.
 
 ## Commands
+- `make gen` — régénérer le projet Xcode depuis project.yml
 - `make tvsim` — build for simulator
 - `make tvrun` — build + install + launch
-- `make tvtest` — run unit tests
-- `make ffi` — rebuild Rust FFI (simulator)
-- `make ffi-device` — rebuild Rust FFI (device)
+- `make macbuild` / `make macrun` — target macOS
+- `make ffi-xcframework` — rebuild Rust XCFramework + sync vers le package
 - `make doctor` — check setup
 - `make clean` — clean builds
 
 ## Rules
 - async/await preferred (no Combine legacy)
-- TomNodeWrapper is an actor (thread-safe FFI access)
+- TomNodeWrapper is an actor (thread-safe FFI access) — fourni par TomProtocolKit
 - TomNodeService is @MainActor (UI updates on main thread)
 - Message polling: 500ms interval via Task
-- All FFI strings freed with tom_node_free_string()
+- `SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY` est actif : tout fichier
+  utilisant des membres ToM (même un case d'enum comme `.running`) doit faire
+  `import TomProtocolKit`
 - Preview per View with mock data
 
 ## Do Not Modify
-- project.pbxproj signing settings
-- Bridging header path
-- Library/header search paths
-- Bundle identifier
+- `.xcodeproj` à la main → toujours passer par `project.yml` + `make gen`
+- Signing settings (DEVELOPMENT_TEAM K22558HU63, CODE_SIGN_STYLE Automatic dans project.yml)
+- Bundle identifiers
+- Sources du package TomProtocolKit sans passer par le chantier SDK

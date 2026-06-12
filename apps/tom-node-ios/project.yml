@@ -14,6 +14,12 @@ settings:
     ENABLE_BITCODE: NO
     ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES: YES
 
+# SDK Apple ToM — package local (S2.4). L'artefact binaire est injecté dans
+# le package par scripts/sync-xcframework-to-package.sh (cf. sdk/swift/TomProtocolKit).
+packages:
+  TomProtocolKit:
+    path: ../../sdk/swift/TomProtocolKit
+
 targets:
   TomNode:
     type: application
@@ -45,23 +51,17 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: malik.karaoui.TomNode-iOS
         PRODUCT_NAME: TomNode
-        SWIFT_OBJC_BRIDGING_HEADER: TomNode/TomNode-Bridging-Header.h
-        HEADER_SEARCH_PATHS:
-          - "$(PROJECT_DIR)/../tom-node-tvos/build"
-        OTHER_LDFLAGS:
-          - "-ObjC"
         IPHONEOS_DEPLOYMENT_TARGET: "16.0"
         SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD: YES
     dependencies:
-      - framework: ../tom-node-tvos/build/TomProtocolFFI.xcframework
-        embed: false
+      - package: TomProtocolKit
     preBuildScripts:
-      - name: Build Rust FFI (if needed)
+      - name: Check TomProtocolKit artifact
         script: |
           set -e
-          XCFW="${PROJECT_DIR}/../tom-node-tvos/build/TomProtocolFFI.xcframework"
+          XCFW="${PROJECT_DIR}/../../sdk/swift/TomProtocolKit/Artifacts/TomProtocolFFI.xcframework"
           if [ ! -d "$XCFW" ]; then
-            echo "warning: XCFramework not found at $XCFW — run 'make ffi-xcframework' from apps/tom-node-ios"
+            echo "warning: XCFramework absent du package — lancer scripts/build-tom-protocol-ffi-xcframework.sh puis scripts/sync-xcframework-to-package.sh"
           fi
         basedOnDependencyAnalysis: false
         showEnvVars: true

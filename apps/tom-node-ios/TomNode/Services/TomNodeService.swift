@@ -1,4 +1,5 @@
 import Foundation
+import TomProtocolKit
 import os.log
 #if !os(macOS)
 import UIKit
