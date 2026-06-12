@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.5.0](https://github.com/malikkaraoui/ToM-protocol/compare/v0.4.0...v0.5.0) (2026-06-12)
+
+
+### Features
+
+* **ios:** migrer TomNode iOS vers le package TomProtocolKit (S2.4) ([9345774](https://github.com/malikkaraoui/ToM-protocol/commit/9345774d5d45d2b9286389183543272e09f9c193))
+* S2.4 — migration des apps iOS/tvOS/macOS vers TomProtocolKit ([96fa1a9](https://github.com/malikkaraoui/ToM-protocol/commit/96fa1a90ab4aba15eecca772b60526f20b03caf7))
+* **sdk-swift:** porter les exigences de link de la lib Rust dans le package ([6deb282](https://github.com/malikkaraoui/ToM-protocol/commit/6deb2820cf5a23eb7fb572078edeae2377349c61))
+* **tvos:** sortir du pbxproj manuel et migrer vers TomProtocolKit (S2.4) ([e909074](https://github.com/malikkaraoui/ToM-protocol/commit/e9090743af592f71db6ba81753fa8620409ae228))
+
+
+### Bug Fixes
+
+* **s2.4:** traiter les findings de la review adversariale ([c210848](https://github.com/malikkaraoui/ToM-protocol/commit/c210848543cbdd7cea25bacdca21845bef4231c1))
+* **securite:** bump hickory-resolver 0.24/0.25 vers 0.26.1 + swarm-discovery 0.6.1 ([c7d7370](https://github.com/malikkaraoui/ToM-protocol/commit/c7d7370a496969bc2f5ad961e335bb531ddcebde))
+* **securite:** hickory 0.26 — RUSTSEC-2026-0119 + 0118 corrigées (PR [#45](https://github.com/malikkaraoui/ToM-protocol/issues/45)) ([463c779](https://github.com/malikkaraoui/ToM-protocol/commit/463c779553392e40df7de44651d6fa6eccd52057))
+* **securite:** retire les ignores hickory de deny.toml + resynchronise le lock FFI ([5e89d6c](https://github.com/malikkaraoui/ToM-protocol/commit/5e89d6cd0a55b08d4a7f7747c805067c245f0ce9))
+* **tom-connect,tom-transport:** adapte serveur DNS de test et resolver à hickory 0.26 ([4e285a6](https://github.com/malikkaraoui/ToM-protocol/commit/4e285a61a99df638e2c24d987b03a9675abc7b70))
+* **tom-relay:** adapte le resolver DNS à l'API hickory 0.26 ([7cbc8f2](https://github.com/malikkaraoui/ToM-protocol/commit/7cbc8f2ea9450c88e10d503ffa9cb3799fb49b83))
+
 ## [0.4.0](https://github.com/malikkaraoui/ToM-protocol/compare/v0.3.0...v0.4.0) (2026-06-12)
 
 
