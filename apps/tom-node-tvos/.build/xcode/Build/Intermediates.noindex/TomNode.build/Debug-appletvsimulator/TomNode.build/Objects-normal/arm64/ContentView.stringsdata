@@ -1,5 +1,5 @@
 {
-  "source": "/Users/malik/Documents/tom-protocol/apps/tom-node-tvos/TomNode/Views/ContentView.swift",
+  "source": "/Users/malik/Documents/ATELIER PROJETS/tom-protocol/apps/tom-node-tvos/TomNode/Views/ContentView.swift",
   "tables": {
     "Localizable": [
       {
@@ -7,7 +7,15 @@
         "key": "Status",
         "location": {
           "startingColumn": 27,
-          "startingLine": 10
+          "startingLine": 11
+        }
+      },
+      {
+        "comment": "",
+        "key": "Live Log",
+        "location": {
+          "startingColumn": 27,
+          "startingLine": 16
         }
       },
       {
@@ -15,7 +23,7 @@
         "key": "Messages",
         "location": {
           "startingColumn": 27,
-          "startingLine": 15
+          "startingLine": 21
         }
       },
       {
@@ -23,7 +31,7 @@
         "key": "Groups",
         "location": {
           "startingColumn": 27,
-          "startingLine": 20
+          "startingLine": 26
         }
       },
       {
@@ -31,7 +39,7 @@
         "key": "Settings",
         "location": {
           "startingColumn": 27,
-          "startingLine": 25
+          "startingLine": 31
         }
       }
     ]
