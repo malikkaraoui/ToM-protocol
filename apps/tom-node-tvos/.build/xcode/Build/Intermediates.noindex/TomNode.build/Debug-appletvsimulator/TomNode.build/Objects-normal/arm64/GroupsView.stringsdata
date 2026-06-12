@@ -1,5 +1,5 @@
 {
-  "source": "/Users/malik/Documents/tom-protocol/apps/tom-node-tvos/TomNode/Views/GroupsView.swift",
+  "source": "/Users/malik/Documents/ATELIER PROJETS/tom-protocol/apps/tom-node-tvos/TomNode/Views/GroupsView.swift",
   "tables": {
     "Localizable": [
       {
@@ -7,7 +7,7 @@
         "key": "Groups",
         "location": {
           "startingColumn": 30,
-          "startingLine": 46
+          "startingLine": 47
         }
       },
       {
@@ -15,7 +15,7 @@
         "key": "No groups yet",
         "location": {
           "startingColumn": 30,
-          "startingLine": 22
+          "startingLine": 23
         }
       },
       {
@@ -23,7 +23,7 @@
         "key": "Create a group or wait for an invitation",
         "location": {
           "startingColumn": 34,
-          "startingLine": 26
+          "startingLine": 27
         }
       },
       {
@@ -31,7 +31,7 @@
         "key": "%lld messages",
         "location": {
           "startingColumn": 22,
-          "startingLine": 84
+          "startingLine": 85
         }
       },
       {
@@ -39,7 +39,7 @@
         "key": "Message...",
         "location": {
           "startingColumn": 27,
-          "startingLine": 105
+          "startingLine": 106
         }
       },
       {
@@ -47,7 +47,7 @@
         "key": "Send",
         "location": {
           "startingColumn": 24,
-          "startingLine": 106
+          "startingLine": 107
         }
       },
       {
@@ -55,7 +55,7 @@
         "key": "Create Group",
         "location": {
           "startingColumn": 30,
-          "startingLine": 134
+          "startingLine": 135
         }
       },
       {
@@ -63,7 +63,7 @@
         "key": "Group Name",
         "location": {
           "startingColumn": 25,
-          "startingLine": 126
+          "startingLine": 127
         }
       },
       {
@@ -71,7 +71,7 @@
         "key": "Members (comma-separated Node IDs)",
         "location": {
           "startingColumn": 25,
-          "startingLine": 129
+          "startingLine": 130
         }
       },
       {
@@ -79,7 +79,7 @@
         "key": "My Group",
         "location": {
           "startingColumn": 31,
-          "startingLine": 127
+          "startingLine": 128
         }
       },
       {
@@ -87,7 +87,7 @@
         "key": "abc123..., def456...",
         "location": {
           "startingColumn": 31,
-          "startingLine": 130
+          "startingLine": 131
         }
       },
       {
@@ -95,7 +95,7 @@
         "key": "Create",
         "location": {
           "startingColumn": 28,
-          "startingLine": 137
+          "startingLine": 138
         }
       }
     ]
