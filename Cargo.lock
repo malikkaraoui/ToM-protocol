@@ -5514,6 +5514,7 @@ dependencies = [
  "tokio",
  "tom-protocol",
  "tom-transport",
+ "tracing",
 ]
 
 [[package]]
