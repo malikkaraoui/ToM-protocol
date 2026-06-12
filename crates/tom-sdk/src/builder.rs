@@ -11,6 +11,12 @@ use crate::error::TomSdkError;
 use crate::event::{map_message, map_protocol_event, map_status};
 
 /// Buffer size of the unified event channel handed to the application.
+///
+/// Backpressure: when the application stops draining events, the merger task
+/// awaits on `send` (no drop on the SDK side) and the upstream runtime
+/// channels fill in turn. 4096 absorbs bursts (gossip waves, group fan-out)
+/// for a consumer that polls at least every few seconds. Making this
+/// configurable is tracked in the S0→S3 review backlog.
 const EVENT_BUFFER: usize = 4096;
 
 /// Builds and connects a [`TomClient`].
@@ -146,6 +152,11 @@ impl TomClientBuilder {
 /// Merges the three runtime channels into the single SDK event stream.
 /// Stops when the application drops the client (send fails) or when all
 /// runtime channels close (shutdown).
+///
+/// Internal protocol events (forwarding, backups, roles, subnets, gossip,
+/// anti-spam, relay lifecycle) are filtered out of the façade — each drop is
+/// traced at debug level. Applications that need full access should depend
+/// on `tom-protocol` directly.
 fn spawn_event_merger(
     mut messages: mpsc::Receiver<tom_protocol::DeliveredMessage>,
     mut statuses: mpsc::Receiver<tom_protocol::StatusChange>,
