@@ -53,3 +53,6 @@ logs/
 # Backups .claude horodatés (ne pas committer ni linter)
 .claude-backup-*/
 apps/tom-node-tvos/build/
+
+# Apps macOS packagées (binaires) — ne pas versionner, builder via xcodegen/make
+deploy/macos/*.app/
