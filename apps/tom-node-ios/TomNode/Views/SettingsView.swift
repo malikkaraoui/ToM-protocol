@@ -1,4 +1,5 @@
 import SwiftUI
+import TomProtocolKit
 
 struct SettingsRow: View {
     let label: String

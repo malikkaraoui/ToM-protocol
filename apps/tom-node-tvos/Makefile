@@ -5,7 +5,7 @@ PROJECT         = TomNode.xcodeproj
 SCHEME          = TomNode
 SCHEME_MACOS    = TomNode-macOS
 BUNDLE_ID       = malik.karaoui.TomNode
-BUNDLE_ID_MACOS = malik.karaoui.TomNode.macos
+BUNDLE_ID_MACOS = malik.karaoui.TomNode-macOS
 
 TVOS_SIM_NAME   = Apple TV 4K (3rd generation)
 TVOS_DEST       = platform=tvOS Simulator,name=$(TVOS_SIM_NAME)

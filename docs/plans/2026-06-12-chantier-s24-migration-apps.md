@@ -84,9 +84,20 @@ aucun `OTHER_LDFLAGS` à connaître.
 - macOS : xcodebuild arm64 ✅
 - Gates Rust workspace : aucune crate Rust touchée — gate pre-push standard avant push.
 
+## Review de substitution (Copilot HS jusqu'au 2026-07-01)
+
+Review adversariale par subagent local — 6 findings, traitement :
+
+| # | Sévérité | Finding | Traitement |
+|---|---|---|---|
+| 1 | CRITIQUE | Views iOS (LogView, SettingsView, StatusView) utilisent des membres ToM sans import — casserait si MEMBER_IMPORT_VISIBILITY était activé côté iOS | ✅ imports ajoutés (ContentView : 0 usage vérifié, pas d'import) |
+| 2 | CRITIQUE | Clone frais : package non buildable sans Artifacts/ | Acté sans changement — design assumé depuis S2.2 (artefact local gitignoré, bascule `binaryTarget(url:checksum:)` prévue à la 1re release `sdk-swift/v*`), documenté SETUP.md + DEPLOY-APPLE.md |
+| 3 | MOYEN | docs/DEPLOY-APPLE.md décrivait l'ancien monde (bridging header, câblage manuel) | ✅ réécrit : flux package (steps 1-3, architecture, troubleshooting, layout) |
+| 4 | MOYEN | scripts/build-tom-protocol-ffi-tvos.sh mort (plus aucune cible ne l'appelle) | ✅ supprimé |
+| 5 | MINEUR | BUNDLE_ID_MACOS du Makefile tvOS ≠ project.yml | ✅ aligné (malik.karaoui.TomNode-macOS) |
+| 6 | MINEUR | .xcodeproj généré versionné (source de vérité ambiguë) | Réfuté — convention du repo (l'iOS le versionnait déjà), project.yml documenté comme source de vérité dans CLAUDE.md/SETUP.md |
+
 ## Notes
 
-- Review Copilot indisponible (quota épuisé jusqu'au 2026-07-01) — review de substitution
-  par subagent local avant merge, conformément à la discipline « code challengé avant main ».
 - Backlog : test sur device physique (Apple TV / iPhone) avec signing — à faire par Malik
   dans Xcode à l'occasion ; dé-dup éventuelle de TomNodeService/StatusServer (hors scope S2.4).
