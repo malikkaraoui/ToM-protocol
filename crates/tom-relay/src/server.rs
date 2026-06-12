@@ -852,7 +852,7 @@ mod tests {
             else {
                 continue;
             };
-            return Ok(res?);
+            return res;
         }
         panic!("failed to send and recv message");
     }

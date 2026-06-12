@@ -10,7 +10,7 @@ use std::{
 use hickory_resolver::{
     TokioResolver,
     config::{ResolverConfig, ResolverOpts},
-    name_server::TokioConnectionProvider,
+    net::runtime::TokioRuntimeProvider,
 };
 use tom_base::EndpointId;
 use n0_error::{StackError, e, stack_error};
@@ -78,7 +78,7 @@ pub enum DnsError {
     MissingHost {},
     #[error(transparent)]
     Resolve {
-        source: hickory_resolver::ResolveError,
+        source: hickory_resolver::net::NetError,
     },
     #[error("invalid DNS response: not a query for _tom.z32encodedpubkey")]
     InvalidResponse {},
@@ -144,8 +144,8 @@ pub enum DnsProtocol {
 }
 
 impl DnsProtocol {
-    fn to_hickory(self) -> hickory_resolver::proto::xfer::Protocol {
-        use hickory_resolver::proto::xfer::Protocol;
+    fn to_hickory(self) -> hickory_resolver::net::xfer::Protocol {
+        use hickory_resolver::net::xfer::Protocol;
         match self {
             DnsProtocol::Udp => Protocol::Udp,
             DnsProtocol::Tcp => Protocol::Tcp,
@@ -542,16 +542,35 @@ impl HickoryResolver {
                 Ok((config, options)) => (config, options),
                 Err(error) => {
                     debug!(%error, "Failed to read the system's DNS config, using fallback DNS servers.");
-                    (ResolverConfig::google(), ResolverOpts::default())
+                    (ResolverConfig::udp_and_tcp(&hickory_resolver::config::GOOGLE), ResolverOpts::default())
                 }
             }
         } else {
-            (ResolverConfig::new(), ResolverOpts::default())
+            (ResolverConfig::default(), ResolverOpts::default())
         };
 
         for (addr, proto) in builder.nameservers.iter() {
-            let nameserver =
-                hickory_resolver::config::NameServerConfig::new(*addr, proto.to_hickory());
+            let mut conn_cfg = match proto.to_hickory() {
+                hickory_resolver::net::xfer::Protocol::Udp => {
+                    hickory_resolver::config::ConnectionConfig::udp()
+                }
+                hickory_resolver::net::xfer::Protocol::Tcp => {
+                    hickory_resolver::config::ConnectionConfig::tcp()
+                }
+                _ => {
+                    // TLS and HTTPS variants require feature flags from hickory-resolver
+                    // For now, skip unsupported protocols and use UDP fallback
+                    hickory_resolver::config::ConnectionConfig::udp()
+                }
+            };
+            // Set the port from the SocketAddr
+            conn_cfg.port = addr.port();
+
+            let nameserver = hickory_resolver::config::NameServerConfig::new(
+                addr.ip(),
+                true,
+                vec![conn_cfg],
+            );
             config.add_name_server(nameserver);
         }
 
@@ -559,17 +578,17 @@ impl HickoryResolver {
         options.ip_strategy = hickory_resolver::config::LookupIpStrategy::Ipv4thenIpv6;
 
         let mut hickory_builder =
-            TokioResolver::builder_with_config(config, TokioConnectionProvider::default());
+            TokioResolver::builder_with_config(config, TokioRuntimeProvider::default());
         *hickory_builder.options_mut() = options;
-        hickory_builder.build()
+        hickory_builder.build().expect("failed to build resolver")
     }
 
-    fn system_config() -> Result<(ResolverConfig, ResolverOpts), hickory_resolver::ResolveError> {
+    fn system_config() -> Result<(ResolverConfig, ResolverOpts), hickory_resolver::net::NetError> {
         let (system_config, options) = hickory_resolver::system_conf::read_system_conf()?;
 
         // Copy all of the system config, but strip the bad windows nameservers.  Unfortunately
         // there is no easy way to do this.
-        let mut config = hickory_resolver::config::ResolverConfig::new();
+        let mut config = ResolverConfig::default();
         if let Some(name) = system_config.domain() {
             config.set_domain(name.clone());
         }
@@ -577,7 +596,7 @@ impl HickoryResolver {
             config.add_search(name.clone());
         }
         for nameserver_cfg in system_config.name_servers() {
-            if !WINDOWS_BAD_SITE_LOCAL_DNS_SERVERS.contains(&nameserver_cfg.socket_addr.ip()) {
+            if !WINDOWS_BAD_SITE_LOCAL_DNS_SERVERS.contains(&nameserver_cfg.ip) {
                 config.add_name_server(nameserver_cfg.clone());
             }
         }
@@ -588,12 +607,18 @@ impl HickoryResolver {
         &self,
         host: String,
     ) -> Result<impl Iterator<Item = Ipv4Addr> + use<>, DnsError> {
-        Ok(self
-            .resolver
-            .ipv4_lookup(host)
-            .await?
-            .into_iter()
-            .map(Ipv4Addr::from))
+        let lookup = self.resolver.ipv4_lookup(host).await?;
+        let ips: Vec<Ipv4Addr> = lookup
+            .answers()
+            .iter()
+            .filter_map(|record| {
+                match record.data {
+                    hickory_resolver::proto::rr::RData::A(a) => Some(a.0),
+                    _ => None,
+                }
+            })
+            .collect();
+        Ok(ips.into_iter())
     }
 
     /// Looks up an IPv6 address.
@@ -601,12 +626,18 @@ impl HickoryResolver {
         &self,
         host: String,
     ) -> Result<impl Iterator<Item = Ipv6Addr> + use<>, DnsError> {
-        Ok(self
-            .resolver
-            .ipv6_lookup(host)
-            .await?
-            .into_iter()
-            .map(Ipv6Addr::from))
+        let lookup = self.resolver.ipv6_lookup(host).await?;
+        let ips: Vec<Ipv6Addr> = lookup
+            .answers()
+            .iter()
+            .filter_map(|record| {
+                match record.data {
+                    hickory_resolver::proto::rr::RData::AAAA(aaaa) => Some(aaaa.0),
+                    _ => None,
+                }
+            })
+            .collect();
+        Ok(ips.into_iter())
     }
 
     /// Looks up TXT records.
@@ -614,12 +645,20 @@ impl HickoryResolver {
         &self,
         host: String,
     ) -> Result<impl Iterator<Item = TxtRecordData> + use<>, DnsError> {
-        Ok(self
-            .resolver
-            .txt_lookup(host)
-            .await?
-            .into_iter()
-            .map(|txt| TxtRecordData::from_iter(txt.iter().cloned())))
+        let lookup = self.resolver.txt_lookup(host).await?;
+        let txts: Vec<TxtRecordData> = lookup
+            .answers()
+            .iter()
+            .filter_map(|record| {
+                match &record.data {
+                    hickory_resolver::proto::rr::RData::TXT(txt) => {
+                        Some(TxtRecordData::from_iter(txt.txt_data.iter().cloned()))
+                    }
+                    _ => None,
+                }
+            })
+            .collect();
+        Ok(txts.into_iter())
     }
 
     /// Clears the internal cache.

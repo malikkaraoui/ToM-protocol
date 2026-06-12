@@ -658,15 +658,14 @@ pub(crate) fn endpoint_domain(endpoint_id: &EndpointId, origin: &str) -> String 
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::BTreeSet, str::FromStr, sync::Arc};
+    use std::{collections::BTreeSet, str::FromStr};
 
     use hickory_resolver::{
-        Name,
         lookup::Lookup,
         proto::{
             op::Query,
             rr::{
-                RData, Record, RecordType,
+                domain::Name, RData, Record, RecordType,
                 rdata::{A, TXT},
             },
         },
@@ -766,13 +765,16 @@ mod tests {
                 ])),
             ),
         ];
-        let lookup = Lookup::new_with_max_ttl(query, Arc::new(records));
-        let lookup = hickory_resolver::lookup::TxtLookup::from(lookup);
-        let lookup = lookup
-            .into_iter()
-            .map(|txt| TxtRecordData::from_iter(txt.iter().cloned()));
+        let lookup = Lookup::new_with_max_ttl(query, records);
+        let txt_lookup = lookup
+            .answers()
+            .iter()
+            .filter_map(|record| match &record.data {
+                RData::TXT(txt) => Some(TxtRecordData::from_iter(txt.txt_data.iter().cloned())),
+                _ => None,
+            });
 
-        let endpoint_info = EndpointInfo::from_txt_lookup(name.to_string(), lookup)?;
+        let endpoint_info = EndpointInfo::from_txt_lookup(name.to_string(), txt_lookup)?;
 
         let expected_endpoint_info = EndpointInfo::new(EndpointId::from_str(
             "1992d53c02cdc04566e5c0edb1ce83305cd550297953a047a445ea3264b54b18",
