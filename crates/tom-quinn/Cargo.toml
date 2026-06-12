@@ -146,10 +146,6 @@ version = "1"
 version = "0.3.19"
 optional = true
 
-[dependencies.gcc]
-version = "0.3.55"
-optional = true
-
 [dependencies.http]
 version = "1.1.0"
 optional = true
