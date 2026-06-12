@@ -22,7 +22,17 @@ let package = Package(
         ),
         .target(
             name: "TomProtocolKit",
-            dependencies: ["TomProtocolFFI"]
+            dependencies: ["TomProtocolFFI"],
+            // Exigences de link de la lib statique Rust (libtom_protocol_ffi.a) :
+            // portées par le package pour que les apps consommatrices n'aient
+            // aucun OTHER_LDFLAGS à déclarer (S2.4).
+            linkerSettings: [
+                .linkedLibrary("z"),
+                .linkedLibrary("resolv"),
+                .linkedFramework("Network"),
+                .linkedFramework("Security"),
+                .linkedFramework("SystemConfiguration"),
+            ]
         ),
     ]
 )
