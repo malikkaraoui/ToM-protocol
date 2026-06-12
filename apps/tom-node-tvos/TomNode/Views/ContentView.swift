@@ -1,4 +1,5 @@
 import SwiftUI
+import TomProtocolKit
 
 struct ContentView: View {
     @EnvironmentObject var nodeService: TomNodeService
