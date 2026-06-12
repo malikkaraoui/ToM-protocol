@@ -1,4 +1,5 @@
 import SwiftUI
+import TomProtocolKit
 
 @main
 struct TomNodeApp: App {

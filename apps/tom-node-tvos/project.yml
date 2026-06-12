@@ -1,0 +1,105 @@
+# TomNode tvOS+macOS — projet généré par xcodegen (S2.4).
+# Remplace le pbxproj maintenu à la main. Régénérer : make gen (ou xcodegen generate).
+# La FFI Rust est consommée via le Swift Package TomProtocolKit (plus de bridging
+# header ni de XCFramework embarqué — les flags de link sont portés par le package).
+name: TomNode
+options:
+  bundleIdPrefix: malik.karaoui
+  deploymentTarget:
+    tvOS: "16.3"
+    macOS: "26.4"
+  xcodeVersion: "16.0"
+  createIntermediateGroups: true
+  useBaseGroupList: true
+  fileSystemSynchronizedGroups: true
+
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    DEVELOPMENT_TEAM: K22558HU63
+    CODE_SIGN_STYLE: Automatic
+    SWIFT_APPROACHABLE_CONCURRENCY: YES
+    SWIFT_DEFAULT_ACTOR_ISOLATION: MainActor
+    SWIFT_EMIT_LOC_STRINGS: YES
+    SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY: YES
+    STRING_CATALOG_GENERATE_SYMBOLS: YES
+    GENERATE_INFOPLIST_FILE: YES
+    ENABLE_PREVIEWS: YES
+
+packages:
+  TomProtocolKit:
+    path: ../../sdk/swift/TomProtocolKit
+
+targets:
+  TomNode:
+    type: application
+    platform: tvOS
+    deploymentTarget: "16.3"
+    sources:
+      - path: TomNode
+        createIntermediateGroups: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: malik.karaoui.TomNode
+        PRODUCT_NAME: TomNode
+        # Target historique multi-plateforme (Apple TV + iPhone/iPad).
+        SUPPORTED_PLATFORMS: "appletvos appletvsimulator iphoneos iphonesimulator"
+        SUPPORTS_MACCATALYST: NO
+        IPHONEOS_DEPLOYMENT_TARGET: "16.0"
+        TARGETED_DEVICE_FAMILY: "1,2,3"
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_UIUserInterfaceStyle: Automatic
+        LD_RUNPATH_SEARCH_PATHS:
+          - "$(inherited)"
+          - "@executable_path/Frameworks"
+    dependencies:
+      - package: TomProtocolKit
+
+  TomNode-macOS:
+    type: application
+    platform: macOS
+    deploymentTarget: "26.4"
+    sources:
+      # Mêmes sources Swift que le target tvOS, mais assets macOS dédiés.
+      - path: TomNode
+        createIntermediateGroups: true
+        excludes:
+          - "Assets.xcassets"
+      - path: TomNode-macOS
+        createIntermediateGroups: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: malik.karaoui.TomNode-macOS
+        PRODUCT_NAME: "$(TARGET_NAME)"
+        CODE_SIGN_ENTITLEMENTS: TomNode-macOS.entitlements
+        "CODE_SIGN_IDENTITY[sdk=macosx*]": "Apple Development"
+        ENABLE_APP_SANDBOX: YES
+        ENABLE_HARDENED_RUNTIME: YES
+        ENABLE_USER_SELECTED_FILES: readonly
+        REGISTER_APP_GROUPS: YES
+        COMBINE_HIDPI_IMAGES: YES
+        SWIFT_ENABLE_EXPLICIT_MODULES: YES
+        INFOPLIST_KEY_NSHumanReadableCopyright: ""
+        LD_RUNPATH_SEARCH_PATHS:
+          - "$(inherited)"
+          - "@executable_path/../Frameworks"
+    dependencies:
+      - package: TomProtocolKit
+
+schemes:
+  TomNode:
+    build:
+      targets:
+        TomNode: all
+    run:
+      config: Debug
+    archive:
+      config: Release
+  TomNode-macOS:
+    build:
+      targets:
+        TomNode-macOS: all
+    run:
+      config: Debug
+    archive:
+      config: Release
