@@ -230,6 +230,12 @@ pub(crate) fn map_protocol_event(e: ProtocolEvent) -> Option<Event> {
             description: format!("message rejected: {reason}"),
         }),
         ProtocolEvent::Error { description } => Some(Event::Error { description }),
-        _ => None,
+        // Variantes internes volontairement non exposées par le SDK (backup,
+        // rôles, etc.) : on trace leur passage pour que la perte ne soit
+        // jamais silencieuse (review S0→S3, finding critique).
+        other => {
+            tracing::debug!(event = ?other, "protocol event not mapped to SDK Event, dropped");
+            None
+        }
     }
 }
