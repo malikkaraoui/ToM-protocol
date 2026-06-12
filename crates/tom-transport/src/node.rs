@@ -69,8 +69,10 @@ fn parse_dns_txt_relays(records: &[String]) -> Vec<tom_connect::RelayUrl> {
 async fn fetch_dns_fallback_relays(
     domain: &str,
 ) -> Result<Vec<tom_connect::RelayUrl>, TomTransportError> {
-    let resolver = hickory_resolver::TokioAsyncResolver::tokio_from_system_conf()
-        .map_err(|e| TomTransportError::Config(format!("dns resolver init failed: {e}")))?;
+    let resolver = hickory_resolver::TokioResolver::builder_tokio()
+        .map_err(|e| TomTransportError::Config(format!("dns resolver init failed: {e}")))?
+        .build()
+        .map_err(|e| TomTransportError::Config(format!("dns resolver build failed: {e}")))?;
 
     let lookup = resolver
         .txt_lookup(domain)
@@ -78,8 +80,17 @@ async fn fetch_dns_fallback_relays(
         .map_err(|e| TomTransportError::Config(format!("dns txt lookup failed: {e}")))?;
 
     let lines: Vec<String> = lookup
+        .answers()
         .iter()
-        .flat_map(|txt| txt.txt_data().iter())
+        .filter_map(|record| {
+            match &record.data {
+                hickory_resolver::proto::rr::RData::TXT(txt) => {
+                    Some(txt.txt_data.iter())
+                }
+                _ => None,
+            }
+        })
+        .flatten()
         .filter_map(|bytes| std::str::from_utf8(bytes).ok())
         .map(ToOwned::to_owned)
         .collect();
