@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.4.0](https://github.com/malikkaraoui/ToM-protocol/compare/v0.3.0...v0.4.0) (2026-06-12)
+
+
+### Features
+
+* **ffi:** header c généré par cbindgen + check de drift en ci ([02eea51](https://github.com/malikkaraoui/ToM-protocol/commit/02eea51643061e99e68a36c3af113226879e2bd3))
+* **sdk-swift:** package TomProtocolKit — wrappers dé-dupliqués ([3194ed2](https://github.com/malikkaraoui/ToM-protocol/commit/3194ed2f6113f60ebf1114d1ae8d71ffea799cb7))
+* **spec:** test vectors protocole — générateur déterministe auto-vérifié ([25da859](https://github.com/malikkaraoui/ToM-protocol/commit/25da8595db3f3de2a1a4dd2e3368727936ee0af6))
+
+
+### Bug Fixes
+
+* **ffi:** resynchronise le Cargo.lock de tom-protocol-ffi après unification lru 0.16.3 ([0bf440c](https://github.com/malikkaraoui/ToM-protocol/commit/0bf440c5d9bb0508528eedd10065e264206fa345))
+* **securite:** 4 vulnérabilités rustls-webpki corrigées — RUSTSEC 0049/0098/0099/0104 (PR [#42](https://github.com/malikkaraoui/ToM-protocol/issues/42)) ([a2496c6](https://github.com/malikkaraoui/ToM-protocol/commit/a2496c604a4f6dd0497b07154a530338ad7e6d23))
+* **securite:** aligne rustls-webpki 0.103.13 dans le lock de tom-protocol-ffi ([54f23ca](https://github.com/malikkaraoui/ToM-protocol/commit/54f23cab085866ea49364b8de12ca7d8b2d24a76))
+* **securite:** batch advisories aws-lc du 2026-06-11 — ci débloquée ([f892be4](https://github.com/malikkaraoui/ToM-protocol/commit/f892be4c38ac0fc0602e7c58b2c0d7b52d0d2879))
+* **securite:** batch advisories aws-lc du 2026-06-11 + gcc unmaintained (PR [#44](https://github.com/malikkaraoui/ToM-protocol/issues/44)) ([375193d](https://github.com/malikkaraoui/ToM-protocol/commit/375193d95f49dbee1e028940dee643af5f544eb5))
+* **securite:** corrige 4 vulnérabilités rustls-webpki via cargo update ([21fe1d2](https://github.com/malikkaraoui/ToM-protocol/commit/21fe1d2504f6794647cd80f4991489ed5dcbb879))
+* **securite:** pin lru &gt;=0.16.3 — applique la review copilot (PR [#43](https://github.com/malikkaraoui/ToM-protocol/issues/43)) ([c5b4e95](https://github.com/malikkaraoui/ToM-protocol/commit/c5b4e950c60757e0f7e9f9b86e12bc51d8723393))
+* **securite:** supprime la dépendance morte gcc 0.3.55 de tom-quinn ([c8c5dc3](https://github.com/malikkaraoui/ToM-protocol/commit/c8c5dc3caffc50d0919ea7510ce8641ef2d127a8))
+* **securite:** triage rand + lru — RUSTSEC-2026-0002 corrigé (PR [#43](https://github.com/malikkaraoui/ToM-protocol/issues/43)) ([084dde7](https://github.com/malikkaraoui/ToM-protocol/commit/084dde7c389e06bcada1ddf4a1a11faf7fe1dc3d))
+* **securite:** triage rand + lru — usage direct lru corrigé (0.12→0.16) ([5c4163b](https://github.com/malikkaraoui/ToM-protocol/commit/5c4163b27a9b553c0d38bc3dcf5911a65cbd7249))
+
 ## 1.0.0 (2026-02-05)
 
 
