@@ -14,10 +14,8 @@ yanked = "warn"
 ignore = [
     "RUSTSEC-2026-0119", # hickory-proto 0.24.4/0.25.2 — DoS O(n²) name compression ; fix = 0.26.1 (bump majeur)
     "RUSTSEC-2026-0118", # hickory-proto 0.25.2 — boucle infinie validation NSEC3 ; fix = hickory-net 0.26 (bump majeur)
-    "RUSTSEC-2026-0049", # rustls-webpki 0.103.9 — CRL distribution point ; fix probable: cargo update -p rustls-webpki (>=0.103.10)
-    "RUSTSEC-2026-0098", # rustls-webpki — name constraints URI (cf. triage)
-    "RUSTSEC-2026-0099", # rustls-webpki — name constraints wildcard (cf. triage)
-    "RUSTSEC-2026-0104", # rustls-webpki — panic parsing CRL (cf. triage)
+    # rustls-webpki 0049/0098/0099/0104 : CORRIGÉES le 2026-06-11 par
+    # cargo update -p rustls-webpki (0.103.9 → 0.103.13) — ignores retirés.
     "RUSTSEC-2026-0097", # rand 0.9.2 — unsound avec logger custom. Fix annoncé >=0.9.3 PAS ENCORE PUBLIÉ (cargo update sans effet, vérifié 2026-06-11). Exposition faible : pas de logger custom dans le workspace. À re-vérifier périodiquement. Nota : la contrainte rand de tom-gossip ("0.9.2" = caret ^0.9.2) acceptera 0.9.3 sans modification.
     "RUSTSEC-2026-0002", # lru IterMut unsound (le commentaire initial disait slab — erreur corrigée 2026-06-11). Usage DIRECT corrigé : tom-protocol bumpe lru 0.12→0.16.3. Reste lru 0.12.5 via ratatui 0.29 (tom-tui, UI seulement) — exposition : IterMut non utilisé par notre code.
     "RUSTSEC-2024-0436", # paste unmaintained — dep transitive, remplaçant: pastey
