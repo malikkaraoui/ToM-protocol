@@ -133,7 +133,11 @@ version = "0.13.10"
 optional = true
 
 [dependencies.aws-lc-sys]
-version = "0.34.0"
+# 0.34 -> 0.41 : RUSTSEC 2026-0042..0048 (batch advisories AWS-LC du 2026-06-11).
+# Dep optionnelle (feature aws-lc-rs, non utilisee par les builds ToM) heritee
+# de l upstream iroh-quinn - bump de securite, cf. docs/FORK-GOVERNANCE.md
+# (chemin relatif a la racine du depot).
+version = "0.41"
 optional = true
 
 [dependencies.bytes]
@@ -141,10 +145,6 @@ version = "1"
 
 [dependencies.futures-io]
 version = "0.3.19"
-optional = true
-
-[dependencies.gcc]
-version = "0.3.55"
 optional = true
 
 [dependencies.http]
