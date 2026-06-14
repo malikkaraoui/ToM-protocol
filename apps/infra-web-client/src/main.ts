@@ -1,16 +1,12 @@
-type EndpointResult = {
-  ok: boolean;
-  status?: number;
-  latencyMs?: number;
-  error?: string;
-  body?: unknown;
-};
+// ToM · Réseau — tableau de bord zéro-config.
+// Sonde une liste de "seeds" (Mac local + NAS), lit chaque /status, puis
+// reconstruit tout le réseau à partir des pairs déclarés. Aucune saisie.
 
 type NodeStatus = {
-  schema_version?: number;
   node?: string;
   node_id?: string;
   platform?: string;
+  node_appareil?: string;
   relay_url_active?: string;
   phase?: string;
   taille_reseau?: number;
@@ -24,281 +20,349 @@ type NodeStatus = {
   uptime_secondes?: number;
 };
 
-const relayUrlInput = document.getElementById('relayUrl') as HTMLInputElement;
-const discoveryUrlInput = document.getElementById('discoveryUrl') as HTMLInputElement;
-const refreshBtn = document.getElementById('refreshBtn') as HTMLButtonElement;
-const autoBtn = document.getElementById('autoBtn') as HTMLButtonElement;
-const nodeUrlInput = document.getElementById('nodeUrlInput') as HTMLInputElement;
-const addNodeBtn = document.getElementById('addNodeBtn') as HTMLButtonElement;
-const nodeCards = document.getElementById('nodeCards') as HTMLElement;
+// Endpoints sondés silencieusement. Couvre l'app Mac, des nœuds CLI locaux
+// courants, et le NAS. Un seed muet est simplement ignoré.
+const SEEDS = [
+  'http://localhost:9091',
+  'http://127.0.0.1:8085',
+  'http://127.0.0.1:8086',
+  'http://127.0.0.1:8080',
+  'http://192.168.0.83:8085',
+];
 
-const relaySummary = document.getElementById('relaySummary') as HTMLElement;
-const relayLines = document.getElementById('relayLines') as HTMLElement;
-const discSummary = document.getElementById('discSummary') as HTMLElement;
-const discLines = document.getElementById('discLines') as HTMLElement;
-const relayCount = document.getElementById('relayCount') as HTMLElement;
-const relayList = document.getElementById('relayList') as HTMLElement;
-const snapshot = document.getElementById('snapshot') as HTMLElement;
+const REFRESH_MS = 2500;
+const TIMEOUT_MS = 1400;
 
-const params = new URLSearchParams(window.location.search);
-relayUrlInput.value = params.get('relay') ?? 'http://127.0.0.1:3340';
-discoveryUrlInput.value = params.get('discovery') ?? 'http://127.0.0.1:8080';
+type LiveNode = { url: string; data: NodeStatus; latencyMs: number };
 
-const NODES_KEY = 'tom_node_endpoints';
+const $ = <T extends Element = HTMLElement>(id: string) => document.getElementById(id) as unknown as T;
+const verdictEl = $('verdict');
+const sublineEl = $('subline');
+const liveCountEl = $('liveCount');
+const pauseBtn = $('pauseBtn') as HTMLButtonElement;
+const stageEl = $('stage');
+const topoEl = $('topo') as unknown as SVGSVGElement;
+const emptyHintEl = $('emptyHint');
+const stripEl = $('strip');
+const nodesEl = $('nodes');
+const nodesHintEl = $('nodesHint');
+const footEl = $('foot');
 
-function loadNodeEndpoints(): string[] {
-  try {
-    return JSON.parse(localStorage.getItem(NODES_KEY) ?? '[]') as string[];
-  } catch {
-    return [];
-  }
-}
+const ESC: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+const esc = (s: unknown) => String(s ?? '').replace(/[&<>"']/g, (c) => ESC[c]!);
 
-function saveNodeEndpoints(endpoints: string[]): void {
-  localStorage.setItem(NODES_KEY, JSON.stringify(endpoints));
-}
-
-function removeNode(url: string): void {
-  const endpoints = loadNodeEndpoints().filter((e) => e !== url);
-  saveNodeEndpoints(endpoints);
-  void refresh();
-}
-
-let timer: number | null = null;
-
-function fmtStatus(ok: boolean): string {
-  return ok ? '<span class="status-ok">OK</span>' : '<span class="status-ko">KO</span>';
-}
-
-function normalize(url: string): string {
-  return url.trim().replace(/\/$/, '');
-}
-
-const ESC_MAP: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
-function esc(s: unknown): string {
-  return String(s ?? '').replace(/[&<>"']/g, (c) => ESC_MAP[c]!);
-}
-
-async function probeJson(url: string): Promise<EndpointResult> {
+async function probe(url: string): Promise<LiveNode | null> {
+  const ctrl = new AbortController();
+  const t = window.setTimeout(() => ctrl.abort(), TIMEOUT_MS);
   const started = performance.now();
   try {
-    const res = await fetch(url, { method: 'GET' });
-    const latencyMs = Math.round(performance.now() - started);
-    const text = await res.text();
-    let body: unknown = text;
-    try {
-      body = JSON.parse(text);
-    } catch {
-      // keep raw text
-    }
-    return { ok: res.ok, status: res.status, latencyMs, body };
-  } catch (error) {
-    return {
-      ok: false,
-      error: error instanceof Error ? error.message : String(error),
-      latencyMs: Math.round(performance.now() - started),
-    };
+    const res = await fetch(`${url}/status`, { signal: ctrl.signal });
+    if (!res.ok) return null;
+    const data = (await res.json()) as NodeStatus;
+    if (!data || !data.node_id) return null;
+    return { url, data, latencyMs: Math.round(performance.now() - started) };
+  } catch {
+    return null;
+  } finally {
+    window.clearTimeout(t);
   }
 }
 
-function setSummary(el: HTMLElement, label: string, okCount: number, total: number): void {
-  const ratio = `${okCount}/${total}`;
-  const cls = okCount === total ? 'status-ok' : okCount > 0 ? 'status-warn' : 'status-ko';
-  el.innerHTML = `<span class="k">${label}</span><span class="${cls}">${ratio}</span>`;
+function appearance(label: string): { icon: string; kind: string } {
+  const l = label.toLowerCase();
+  if (l.includes('nas') || l.includes('relay') || l.includes('serv')) return { icon: '🛰️', kind: 'nas' };
+  if (l.includes('mac')) return { icon: '💻', kind: 'mac' };
+  if (l.includes('tv') || l.includes('apple tv')) return { icon: '📺', kind: 'tv' };
+  if (l.includes('pad')) return { icon: '▢', kind: 'ipad' };
+  if (l.includes('phone')) return { icon: '📱', kind: 'iphone' };
+  return { icon: '📡', kind: 'peer' };
 }
 
-function endpointLine(name: string, res: EndpointResult): string {
-  const status = res.ok ? `HTTP ${res.status}` : (res.error ?? `HTTP ${res.status ?? 'ERR'}`);
-  return `<div class="line"><span class="k">${name}</span><span>${fmtStatus(res.ok)} <span class="mono">${status} · ${res.latencyMs ?? '-'}ms</span></span></div>`;
+// Phase brute du protocole → langage humain.
+function humanPhase(phase?: string, peers = 0): { txt: string; health: 'ok' | 'warn' | 'down' } {
+  const p = (phase ?? '').toLowerCase();
+  if (p.includes('converg') || p === 'connecte' || p.includes('connect')) {
+    return { txt: peers > 0 ? 'Connecté' : 'En ligne (seul)', health: peers > 0 ? 'ok' : 'warn' };
+  }
+  if (p.includes('relay')) return { txt: 'Via relais', health: 'ok' };
+  if (p.includes('amorc') || p.includes('boot') || p.includes('discov')) return { txt: 'Démarrage…', health: 'warn' };
+  if (!p) return { txt: 'En ligne', health: peers > 0 ? 'ok' : 'warn' };
+  return { txt: phase as string, health: peers > 0 ? 'ok' : 'warn' };
 }
 
-function nodeHealth(data: NodeStatus | null): 'ok' | 'warn' | 'ko' {
-  if (!data) return 'ko';
-  if ((data.taille_reseau ?? 0) >= 2 && data.phase === 'Converged') return 'ok';
-  if ((data.taille_reseau ?? 0) >= 1 || data.phase === 'RelayAssist') return 'warn';
-  return 'ko';
-}
+const STATE_VARS: Record<string, string> = {
+  ok: '--state:var(--ok);--state-glow:var(--glow-ok);--state-bg:var(--ok-dim);',
+  warn: '--state:var(--warn);--state-glow:rgba(255,183,77,.4);--state-bg:var(--warn-dim);',
+  down: '--state:var(--ko);--state-glow:rgba(255,97,120,.4);--state-bg:var(--ko-dim);',
+};
 
-function fmtUptime(s: number): string {
+function fmtUptime(s?: number): string {
+  if (typeof s !== 'number') return '—';
   if (s < 60) return `${s}s`;
-  if (s < 3600) return `${Math.floor(s / 60)}m ${s % 60}s`;
-  return `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m`;
+  if (s < 3600) return `${Math.floor(s / 60)}min`;
+  if (s < 86400) return `${Math.floor(s / 3600)}h${String(Math.floor((s % 3600) / 60)).padStart(2, '0')}`;
+  return `${Math.floor(s / 86400)}j ${Math.floor((s % 86400) / 3600)}h`;
 }
 
-function renderNodeCard(url: string, result: EndpointResult): string {
-  const data = result.ok ? (result.body as NodeStatus) : null;
-  const health = result.ok ? nodeHealth(data) : 'ko';
-  const dot = health === 'ok' ? '🟢' : health === 'warn' ? '🟡' : '🔴';
-  const label = esc(data?.node ?? url);
-  const shortId = esc(data?.node_id ? data.node_id.slice(0, 8) : '—');
-  const phase = esc(data?.phase ?? '—');
-  const peers = esc(data?.taille_reseau ?? '—');
-  const role = esc(data?.role ?? '—');
-  const uptime = esc(typeof data?.uptime_secondes === 'number' ? fmtUptime(data.uptime_secondes) : '—');
-  const sent = esc(data?.messages_envoyes ?? '—');
-  const recv = esc(data?.messages_recus ?? '—');
-  const dropped = esc(data?.messages_echoues ?? '—');
-  const platform = esc(data?.platform ?? '—');
-  const relay = esc(data?.relay_url_active ?? '—');
-  const latency = result.latencyMs != null ? `${result.latencyMs}ms` : '—';
-  const groupsHtml =
-    Array.isArray(data?.groupes) && data.groupes.length > 0
-      ? data.groupes.map((g) => `<span class="badge">${esc(g.nom)} (${esc(g.membres)})</span>`).join(' ')
-      : '<span class="k">—</span>';
-  const errorHtml = !result.ok
-    ? `<div class="node-error mono">${esc(result.error ?? `HTTP ${result.status ?? 'ERR'}`)}</div>`
-    : '';
-
-  return `
-    <section class="card node-card" data-health="${health}">
-      <div class="node-header">
-        <span class="node-dot">${dot}</span>
-        <span class="node-label">${label}</span>
-        <span class="mono muted" style="font-size:11px">${shortId}</span>
-        <span class="mono muted" style="font-size:11px;margin-left:auto">${platform} · ${latency}</span>
-        <button class="node-remove" data-url="${esc(url)}" title="Retirer">×</button>
-      </div>
-      ${errorHtml}
-      <div class="node-grid">
-        <div class="node-stat"><span class="k">Phase</span><span>${phase}</span></div>
-        <div class="node-stat"><span class="k">Peers</span><span>${peers}</span></div>
-        <div class="node-stat"><span class="k">Rôle</span><span>${role}</span></div>
-        <div class="node-stat"><span class="k">Uptime</span><span>${uptime}</span></div>
-        <div class="node-stat"><span class="k">Envoyés</span><span>${sent}</span></div>
-        <div class="node-stat"><span class="k">Reçus</span><span>${recv}</span></div>
-        <div class="node-stat"><span class="k">Échoués</span><span>${dropped}</span></div>
-        <div class="node-stat"><span class="k">Relay</span><span class="mono" style="font-size:11px">${relay}</span></div>
-      </div>
-      <div class="node-groups">${groupsHtml}</div>
-    </section>`;
+function fmtNum(n?: number): string {
+  if (typeof n !== 'number') return '—';
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
+  return String(n);
 }
 
-async function refreshNodes(): Promise<void> {
-  const endpoints = loadNodeEndpoints();
-  if (endpoints.length === 0) {
-    nodeCards.innerHTML =
-      '<div class="muted mono" style="padding:8px">Aucun nœud configuré — ajoutez une URL ci-dessus.</div>';
+type ResolvedNode = {
+  id: string;
+  short: string;
+  label: string;
+  icon: string;
+  live: LiveNode | null;
+  health: 'ok' | 'warn' | 'down';
+  phaseTxt: string;
+  peers: number;
+};
+
+// Agrège seeds joignables + pairs déclarés → vue unifiée du réseau.
+function buildNetwork(live: LiveNode[]): ResolvedNode[] {
+  const byId = new Map<string, LiveNode>();
+  for (const ln of live) byId.set(ln.data.node_id!, ln);
+
+  const ids = new Set<string>();
+  for (const ln of live) {
+    ids.add(ln.data.node_id!);
+    for (const p of ln.data.pairs_connectes ?? []) ids.add(p);
+  }
+
+  const nodes: ResolvedNode[] = [];
+  for (const id of ids) {
+    const ln = byId.get(id) ?? null;
+    const label = ln?.data.node ?? 'Pair distant';
+    const { icon } = appearance(label);
+    const peers = ln ? (ln.data.taille_reseau ?? ln.data.pairs_connectes?.length ?? 0) : 0;
+    const ph = ln ? humanPhase(ln.data.phase, peers) : { txt: 'Vu par le réseau', health: 'ok' as const };
+    nodes.push({
+      id,
+      short: id.slice(0, 8),
+      label: ln ? label : `Pair · ${id.slice(0, 6)}`,
+      icon: ln ? icon : '📡',
+      live: ln,
+      health: ph.health,
+      phaseTxt: ph.txt,
+      peers,
+    });
+  }
+  // Live d'abord, puis par label.
+  nodes.sort((a, b) => (a.live ? 0 : 1) - (b.live ? 0 : 1) || a.label.localeCompare(b.label));
+  return nodes;
+}
+
+function uniqueEdges(live: LiveNode[]): Array<[string, string]> {
+  const seen = new Set<string>();
+  const edges: Array<[string, string]> = [];
+  for (const ln of live) {
+    const a = ln.data.node_id!;
+    for (const b of ln.data.pairs_connectes ?? []) {
+      const key = [a, b].sort().join('|');
+      if (seen.has(key)) continue;
+      seen.add(key);
+      edges.push([a, b]);
+    }
+  }
+  return edges;
+}
+
+const SVGNS = 'http://www.w3.org/2000/svg';
+function svg(tag: string, attrs: Record<string, string | number>): SVGElement {
+  const el = document.createElementNS(SVGNS, tag);
+  for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, String(v));
+  return el;
+}
+
+function renderTopology(nodes: ResolvedNode[], edges: Array<[string, string]>): void {
+  topoEl.innerHTML = '';
+  const W = 1000;
+  const H = 380;
+  const cx = W / 2;
+  const cy = H / 2;
+  const R = nodes.length <= 1 ? 0 : Math.min(150, 90 + nodes.length * 12);
+  const pos = new Map<string, { x: number; y: number }>();
+  nodes.forEach((n, i) => {
+    if (nodes.length === 1) {
+      pos.set(n.id, { x: cx, y: cy });
+      return;
+    }
+    const a = (i / nodes.length) * Math.PI * 2 - Math.PI / 2;
+    pos.set(n.id, { x: cx + Math.cos(a) * R, y: cy + Math.sin(a) * R });
+  });
+
+  // Edges (sous les nœuds)
+  for (const [a, b] of edges) {
+    const pa = pos.get(a);
+    const pb = pos.get(b);
+    if (!pa || !pb) continue;
+    const line = svg('line', { x1: pa.x, y1: pa.y, x2: pb.x, y2: pb.y });
+    line.setAttribute('class', 'edge lit');
+    topoEl.appendChild(line);
+    // Pulse qui voyage le long du lien
+    const dot = svg('circle', { r: 2.6, class: 'pulse' });
+    const anim = svg('animateMotion', { dur: `${2.2 + Math.random()}s`, repeatCount: 'indefinite' });
+    anim.setAttribute('path', `M ${pa.x} ${pa.y} L ${pb.x} ${pb.y}`);
+    dot.appendChild(anim);
+    topoEl.appendChild(dot);
+  }
+
+  // Nodes
+  for (const n of nodes) {
+    const p = pos.get(n.id)!;
+    const color = n.health === 'ok' ? 'var(--ok)' : n.health === 'warn' ? 'var(--warn)' : 'var(--ko)';
+    const g = svg('g', { class: 'node-hit' });
+    const ring = svg('circle', { cx: p.x, cy: p.y, r: 26 });
+    ring.setAttribute('class', 'node-ring');
+    ring.setAttribute('stroke', color);
+    const core = svg('circle', { cx: p.x, cy: p.y, r: n.live ? 19 : 13 });
+    core.setAttribute('class', 'node-core');
+    core.setAttribute('fill', n.live ? color : 'var(--faint)');
+    core.setAttribute('color', color);
+    core.setAttribute('opacity', n.live ? '0.95' : '0.5');
+    const ico = svg('text', { x: p.x, y: p.y + 6, 'text-anchor': 'middle', 'font-size': 18 });
+    ico.textContent = n.icon;
+    const name = svg('text', { x: p.x, y: p.y + 46, 'text-anchor': 'middle' });
+    name.setAttribute('class', 'node-name');
+    name.textContent = n.label;
+    const meta = svg('text', { x: p.x, y: p.y + 61, 'text-anchor': 'middle' });
+    meta.setAttribute('class', 'node-meta');
+    meta.textContent = n.short;
+    g.append(ring, core, ico, name, meta);
+    topoEl.appendChild(g);
+  }
+}
+
+function renderStrip(nodes: ResolvedNode[], live: LiveNode[]): void {
+  const online = nodes.length;
+  const reachable = live.length;
+  const sent = live.reduce((s, l) => s + (l.data.messages_envoyes ?? 0), 0);
+  const recv = live.reduce((s, l) => s + (l.data.messages_recus ?? 0), 0);
+  const groups = new Set<string>();
+  for (const l of live) for (const g of l.data.groupes ?? []) groups.add(g.nom);
+
+  const cells = [
+    { lab: 'Nœuds sur le réseau', val: String(online), unit: '', spark: '🌐' },
+    { lab: 'Avec métriques', val: String(reachable), unit: `/ ${online}`, spark: '📊' },
+    { lab: 'Messages échangés', val: fmtNum(sent + recv), unit: '', spark: '✉️' },
+    { lab: 'Groupes actifs', val: String(groups.size), unit: '', spark: '👥' },
+  ];
+  stripEl.innerHTML = cells
+    .map(
+      (c) => `<div class="metric"><span class="spark">${c.spark}</span>
+        <div class="lab">${c.lab}</div>
+        <div class="val">${c.val}${c.unit ? `<small>${c.unit}</small>` : ''}</div></div>`,
+    )
+    .join('');
+}
+
+function renderNodeCard(n: ResolvedNode, i: number): string {
+  const stateCss = STATE_VARS[n.health];
+  const d = n.live?.data;
+  if (!n.live || !d) {
+    return `<article class="node seen" style="${stateCss};animation-delay:${i * 45}ms">
+      <div class="node-top">
+        <div class="avatar">${n.icon}</div>
+        <div class="node-id"><div class="nm">${esc(n.label)}</div>
+          <div class="sub mono">${esc(n.short)}</div></div>
+        <span class="pill">vu</span>
+      </div>
+      <div class="node-body"><div class="seen-note">
+        Présent sur le réseau (annoncé par un autre nœud). Pas de page d'état exposée —
+        normal pour un iPhone, iPad ou Apple&nbsp;TV.</div></div>
+    </article>`;
+  }
+  const sent = fmtNum(d.messages_envoyes);
+  const recv = fmtNum(d.messages_recus);
+  const groups =
+    Array.isArray(d.groupes) && d.groupes.length
+      ? `<div class="groups">${d.groupes
+          .map((g) => `<span class="gchip">${esc(g.nom)} · ${esc(g.membres)}</span>`)
+          .join('')}</div>`
+      : '';
+  const relay = d.relay_url_active ? esc(d.relay_url_active) : 'auto (découverte)';
+  return `<article class="node" style="${stateCss};animation-delay:${i * 45}ms">
+    <div class="node-top">
+      <div class="avatar">${n.icon}</div>
+      <div class="node-id">
+        <div class="nm">${esc(n.label)}</div>
+        <div class="sub mono">${esc(n.short)} · ${esc(n.live.latencyMs)}ms</div>
+      </div>
+      <span class="pill">${esc(n.phaseTxt)}</span>
+    </div>
+    <div class="node-body">
+      <div class="duo">
+        <div class="stat"><div class="k">Pairs connectés</div><div class="v">${esc(n.peers)}</div></div>
+        <div class="stat"><div class="k">En ligne depuis</div><div class="v">${fmtUptime(d.uptime_secondes)}</div></div>
+        <div class="stat"><div class="k">Envoyés</div><div class="v">${sent}</div></div>
+        <div class="stat"><div class="k">Reçus</div><div class="v">${recv}</div></div>
+      </div>
+      <div class="meta-row"><span>Rôle · ${esc(d.role ?? '—')}</span><span class="mono">${relay}</span></div>
+      ${groups}
+    </div>
+  </article>`;
+}
+
+function setVerdict(nodes: ResolvedNode[], live: LiveNode[]): void {
+  if (live.length === 0) {
+    stageEl.classList.add('is-empty');
+    verdictEl.className = 'verdict is-down';
+    verdictEl.innerHTML = '<em>Hors ligne</em>';
+    sublineEl.textContent = 'Aucun nœud joignable depuis ce Mac.';
+    liveCountEl.textContent = '0 nœud';
     return;
   }
-  const results = await Promise.all(endpoints.map((url) => probeJson(url)));
-  nodeCards.innerHTML = results.map((res, i) => renderNodeCard(endpoints[i]!, res)).join('');
+  stageEl.classList.remove('is-empty');
+  const total = nodes.length;
+  const healthy = nodes.filter((n) => n.health === 'ok').length;
+  const warn = nodes.some((n) => n.health === 'warn');
+  verdictEl.className = `verdict${warn && healthy < total ? ' is-warn' : ''}`;
+  verdictEl.innerHTML = `<em>${total}</em> nœud${total > 1 ? 's' : ''} sur le réseau`;
+  sublineEl.textContent =
+    total > 1
+      ? `Les nœuds se voient mutuellement${warn ? ' — un ou plusieurs sont encore en démarrage.' : ' et échangent des messages.'}`
+      : 'Un seul nœud en ligne pour l’instant — lance-en un autre pour voir le maillage.';
+  liveCountEl.textContent = `${live.length} actif${live.length > 1 ? 's' : ''}`;
 }
 
-async function refresh(): Promise<void> {
-  const relay = normalize(relayUrlInput.value);
-  const discovery = normalize(discoveryUrlInput.value);
+let paused = false;
+let timer: number | null = null;
 
-  const [rReady, rHealth, rHealthz, dHealth, dRelays, dMetrics, dStatus] = await Promise.all([
-    probeJson(`${relay}/ready`),
-    probeJson(`${relay}/health`),
-    probeJson(`${relay}/healthz`),
-    probeJson(`${discovery}/health`),
-    probeJson(`${discovery}/relays`),
-    probeJson(`${discovery}/metrics`),
-    probeJson(`${discovery}/status`),
-  ]);
+async function tick(): Promise<void> {
+  const probes = await Promise.all(SEEDS.map(probe));
+  const live = probes.filter((x): x is LiveNode => x !== null);
+  // Dédoublonne les seeds qui pointent le même node_id (ex. localhost vs IP).
+  const seenIds = new Set<string>();
+  const uniqLive = live.filter((l) => (seenIds.has(l.data.node_id!) ? false : seenIds.add(l.data.node_id!)));
 
-  const relayResults = [rReady, rHealth, rHealthz];
-  const discResults = [dHealth, dRelays, dMetrics, dStatus];
+  const nodes = buildNetwork(uniqLive);
+  const edges = uniqueEdges(uniqLive);
 
-  setSummary(relaySummary, 'State', relayResults.filter((x) => x.ok).length, relayResults.length);
-  setSummary(discSummary, 'State', discResults.filter((x) => x.ok).length, discResults.length);
-
-  relayLines.innerHTML = [
-    endpointLine('/ready', rReady),
-    endpointLine('/health', rHealth),
-    endpointLine('/healthz', rHealthz),
-  ].join('');
-
-  discLines.innerHTML = [
-    endpointLine('/health', dHealth),
-    endpointLine('/relays', dRelays),
-    endpointLine('/metrics', dMetrics),
-    endpointLine('/status', dStatus),
-  ].join('');
-
-  const relaysPayload = dRelays.body as {
-    relays?: Array<{ url?: string; region?: string; load?: number; latency_hint_ms?: number }>;
-    ttl_seconds?: number;
-  };
-  const relays = Array.isArray(relaysPayload?.relays) ? relaysPayload.relays : [];
-
-  relayCount.innerHTML = `<span class="k">Count</span><span>${relays.length}</span>`;
-  relayList.innerHTML = relays.length
-    ? relays
-        .map((r) => {
-          const region = r.region ?? 'unknown';
-          const load = typeof r.load === 'number' ? r.load.toFixed(2) : '-';
-          const lat = typeof r.latency_hint_ms === 'number' ? `${r.latency_hint_ms}ms` : '-';
-          return `<div class="relay"><div><strong>${r.url ?? 'n/a'}</strong></div><div class="mono">region=${region} · load=${load} · latency_hint=${lat}</div></div>`;
-        })
-        .join('')
-    : '<div class="mono">No relay discovered.</div>';
-
-  const statusPayload = dStatus.body as Record<string, unknown>;
-  snapshot.textContent = JSON.stringify(
-    {
-      timestamp: new Date().toISOString(),
-      relay_ok: relayResults.every((r) => r.ok),
-      discovery_ok: discResults.every((r) => r.ok),
-      discovered_relays: relays.length,
-      relays_ttl_seconds: relaysPayload?.ttl_seconds ?? null,
-      status_endpoint: statusPayload ?? null,
-    },
-    null,
-    2,
-  );
-
-  await refreshNodes();
+  setVerdict(nodes, uniqLive);
+  renderTopology(nodes, edges);
+  renderStrip(nodes, uniqLive);
+  nodesEl.innerHTML = nodes.map(renderNodeCard).join('');
+  nodesHintEl.textContent = `découverte auto · maj ${new Date().toLocaleTimeString('fr-FR')}`;
+  footEl.innerHTML = `ToM · réseau pair-à-pair décentralisé — chaque appareil est nœud et relais. Rafraîchissement toutes les ${REFRESH_MS / 1000}s.`;
+  emptyHintEl.textContent = 'Lance l’app TomNode sur ce Mac (port 9091) ou vérifie que le NAS est en ligne.';
 }
 
-nodeCards.addEventListener('click', (e) => {
-  const btn = (e.target as HTMLElement).closest<HTMLElement>('.node-remove');
-  if (btn) {
-    const url = btn.getAttribute('data-url');
-    if (url) removeNode(url);
-  }
+function loop(): void {
+  if (paused) return;
+  void tick();
+  timer = window.setTimeout(loop, REFRESH_MS);
+}
+
+pauseBtn.addEventListener('click', () => {
+  paused = !paused;
+  pauseBtn.textContent = paused ? 'reprendre' : 'pause';
+  if (!paused) loop();
+  else if (timer) window.clearTimeout(timer);
 });
 
-addNodeBtn.addEventListener('click', () => {
-  const url = normalize(nodeUrlInput.value);
-  if (!url) return;
-  const endpoints = loadNodeEndpoints();
-  if (!endpoints.includes(url)) {
-    endpoints.push(url);
-    saveNodeEndpoints(endpoints);
-  }
-  nodeUrlInput.value = '';
-  void refresh();
-});
-
-nodeUrlInput.addEventListener('keydown', (e) => {
-  if (e.key === 'Enter') addNodeBtn.click();
-});
-
-refreshBtn.addEventListener('click', () => {
-  void refresh();
-});
-
-autoBtn.addEventListener('click', () => {
-  if (timer !== null) {
-    window.clearInterval(timer);
-    timer = null;
-    autoBtn.textContent = 'Auto: OFF';
-    return;
-  }
-  timer = window.setInterval(() => {
-    void refresh();
-  }, 5000);
-  autoBtn.textContent = 'Auto: ON (5s)';
-});
-
-relayUrlInput.addEventListener('change', () => {
-  void refresh();
-});
-
-discoveryUrlInput.addEventListener('change', () => {
-  void refresh();
-});
-
-void refresh();
+void tick();
+timer = window.setTimeout(loop, REFRESH_MS);
