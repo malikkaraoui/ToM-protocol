@@ -3,205 +3,218 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>ToM Dev Dashboard</title>
+    <title>ToM · Réseau</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400..800&family=JetBrains+Mono:wght@400;500;700&display=swap"
+      rel="stylesheet"
+    />
     <style>
       :root {
         color-scheme: dark;
-        --bg: #0b1020;
-        --panel: #121a2f;
-        --panel-2: #17213d;
-        --ok: #00d18f;
-        --warn: #f5a524;
-        --ko: #ef4444;
-        --txt: #e6edf3;
-        --muted: #8aa0b8;
+        --bg: #060912;
+        --bg-2: #0a0f1d;
+        --ink: #eaf1fb;
+        --muted: #6f8099;
+        --faint: #3a465f;
+        --line: #18223a;
+        --card: #0c1322;
+        --card-2: #0f1830;
+        --ok: #2fe5a8;
+        --ok-dim: #0d3b30;
+        --warn: #ffb74d;
+        --warn-dim: #3d2e0c;
+        --ko: #ff6178;
+        --ko-dim: #3a1420;
+        --beam: #54d6ff;
+        --beam-dim: #0e3550;
+        --glow-ok: rgba(47, 229, 168, 0.55);
+        --glow-beam: rgba(84, 214, 255, 0.5);
+        font-synthesis: none;
       }
       * { box-sizing: border-box; }
+      html, body { height: 100%; }
       body {
         margin: 0;
-        font-family: Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
-        background: linear-gradient(180deg, #0b1020, #0f172a);
-        color: var(--txt);
+        font-family: "Bricolage Grotesque", ui-sans-serif, system-ui, sans-serif;
+        color: var(--ink);
+        background:
+          radial-gradient(1200px 700px at 78% -8%, rgba(84, 214, 255, 0.08), transparent 60%),
+          radial-gradient(900px 600px at 10% 110%, rgba(47, 229, 168, 0.06), transparent 55%),
+          linear-gradient(180deg, var(--bg), var(--bg-2));
+        background-attachment: fixed;
+        -webkit-font-smoothing: antialiased;
       }
-      .wrap {
-        max-width: 1200px;
-        margin: 0 auto;
-        padding: 24px;
+      .mono { font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; }
+
+      .app { max-width: 1180px; margin: 0 auto; padding: 34px 28px 60px; }
+
+      /* ── Hero ── */
+      .hero {
+        display: flex; align-items: flex-end; justify-content: space-between;
+        gap: 24px; flex-wrap: wrap; margin-bottom: 26px;
+        animation: rise 0.7s cubic-bezier(0.2, 0.7, 0.2, 1) both;
       }
-      h1 { margin: 0 0 4px; font-size: 22px; }
-      h2 { margin: 0 0 10px; font-size: 15px; }
-      h3 { margin: 0 0 12px; font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
-      p { margin: 0 0 16px; color: var(--muted); font-size: 13px; }
-      .controls {
-        display: grid;
-        grid-template-columns: 1fr 1fr auto auto;
-        gap: 10px;
-        margin-bottom: 16px;
+      .brand {
+        font-weight: 800; font-size: 13px; letter-spacing: 0.32em; text-transform: uppercase;
+        color: var(--muted); display: flex; align-items: center; gap: 9px; margin-bottom: 14px;
       }
-      .node-controls {
-        display: grid;
-        grid-template-columns: 1fr auto;
-        gap: 10px;
-        margin-bottom: 16px;
+      .brand .pip {
+        width: 8px; height: 8px; border-radius: 50%; background: var(--beam);
+        box-shadow: 0 0 14px var(--glow-beam); animation: blink 2.4s ease-in-out infinite;
       }
-      input, button {
-        border-radius: 10px;
-        border: 1px solid #243251;
-        background: var(--panel);
-        color: var(--txt);
-        padding: 10px 12px;
-        font-size: 14px;
+      .verdict { font-size: clamp(30px, 5vw, 52px); line-height: 1.02; font-weight: 700; letter-spacing: -0.02em; }
+      .verdict em { font-style: normal; color: var(--ok); }
+      .verdict.is-warn em { color: var(--warn); }
+      .verdict.is-down em { color: var(--ko); }
+      .subline { color: var(--muted); font-size: 15px; margin-top: 10px; max-width: 46ch; }
+
+      .live {
+        display: flex; align-items: center; gap: 10px; padding: 11px 16px;
+        border: 1px solid var(--line); border-radius: 999px; background: rgba(12, 19, 34, 0.6);
+        font-size: 12.5px; color: var(--muted); white-space: nowrap;
       }
-      button { cursor: pointer; background: #1d2b4f; }
-      button:hover { background: #253865; }
-      .grid {
-        display: grid;
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-        gap: 14px;
+      .live .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 12px var(--glow-ok); animation: blink 1.8s ease-in-out infinite; }
+      .live b { color: var(--ink); font-weight: 600; }
+      .live button {
+        border: none; background: transparent; color: var(--muted); cursor: pointer;
+        font: inherit; padding: 0 0 0 6px; border-left: 1px solid var(--line); margin-left: 4px;
       }
-      .nodes-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
-        gap: 14px;
+      .live button:hover { color: var(--beam); }
+
+      /* ── Topologie ── */
+      .stage {
+        position: relative; border: 1px solid var(--line); border-radius: 22px;
+        background:
+          radial-gradient(700px 360px at 50% 18%, rgba(84, 214, 255, 0.06), transparent 70%),
+          var(--card);
+        overflow: hidden; margin-bottom: 14px;
+        animation: rise 0.8s 0.06s cubic-bezier(0.2, 0.7, 0.2, 1) both;
       }
-      .card {
-        background: var(--panel);
-        border: 1px solid #243251;
-        border-radius: 14px;
-        padding: 14px;
+      .stage::before {
+        content: ""; position: absolute; inset: 0; pointer-events: none;
+        background-image: radial-gradient(circle at center, rgba(255,255,255,0.025) 1px, transparent 1.4px);
+        background-size: 26px 26px; mask-image: radial-gradient(70% 70% at 50% 40%, #000, transparent);
       }
-      .node-card[data-health="ok"]  { border-color: #00513a; }
-      .node-card[data-health="warn"] { border-color: #5a3e00; }
-      .node-card[data-health="ko"]  { border-color: #5a1a1a; }
-      .node-header {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        margin-bottom: 10px;
+      #topo { display: block; width: 100%; height: 380px; }
+      .stage-empty {
+        position: absolute; inset: 0; display: none; flex-direction: column;
+        align-items: center; justify-content: center; gap: 8px; text-align: center; padding: 24px;
       }
-      .node-dot { font-size: 14px; }
-      .node-label { font-size: 14px; font-weight: 600; }
-      .node-remove {
-        margin-left: 4px;
-        background: transparent;
-        border: none;
-        color: var(--muted);
-        padding: 0 4px;
-        font-size: 16px;
-        line-height: 1;
-        cursor: pointer;
+      .stage-empty .big { font-size: 19px; font-weight: 600; }
+      .stage-empty .small { color: var(--muted); font-size: 13.5px; max-width: 42ch; }
+      .stage.is-empty .stage-empty { display: flex; }
+
+      .edge { stroke: var(--beam-dim); stroke-width: 1.4; }
+      .edge.lit { stroke: var(--beam); filter: drop-shadow(0 0 4px var(--glow-beam)); }
+      .pulse { fill: var(--beam); }
+      .node-hit { cursor: default; }
+      .node-ring { fill: none; stroke-width: 2; }
+      .node-core { filter: drop-shadow(0 0 10px currentColor); }
+      .node-name { font-family: "Bricolage Grotesque"; font-weight: 600; font-size: 13px; fill: var(--ink); }
+      .node-meta { font-family: "JetBrains Mono"; font-size: 10px; fill: var(--muted); }
+
+      /* ── Strip stats ── */
+      .strip {
+        display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 30px;
+        animation: rise 0.8s 0.12s cubic-bezier(0.2, 0.7, 0.2, 1) both;
       }
-      .node-remove:hover { color: var(--ko); background: transparent; }
-      .node-error { color: var(--ko); font-size: 12px; margin-bottom: 8px; }
-      .node-grid {
-        display: grid;
-        grid-template-columns: repeat(4, 1fr);
-        gap: 6px;
-        margin-bottom: 8px;
+      .metric {
+        border: 1px solid var(--line); border-radius: 16px; background: var(--card);
+        padding: 16px 18px; position: relative; overflow: hidden;
       }
-      .node-stat {
-        background: var(--panel-2);
-        border-radius: 8px;
-        padding: 6px 8px;
-        display: flex;
-        flex-direction: column;
-        gap: 2px;
-        font-size: 12px;
+      .metric .lab { color: var(--muted); font-size: 12px; letter-spacing: 0.02em; }
+      .metric .val { font-size: 32px; font-weight: 700; letter-spacing: -0.02em; margin-top: 6px; line-height: 1; }
+      .metric .val small { font-size: 14px; font-weight: 500; color: var(--muted); margin-left: 4px; }
+      .metric .spark { position: absolute; right: 14px; top: 16px; font-size: 17px; opacity: 0.85; }
+
+      /* ── Nodes ── */
+      .nodes-head { display: flex; align-items: baseline; justify-content: space-between; margin: 0 2px 14px; }
+      .nodes-head h2 { font-size: 16px; font-weight: 700; margin: 0; letter-spacing: -0.01em; }
+      .nodes-head .hint { color: var(--muted); font-size: 12.5px; }
+      .nodes { display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 14px; }
+
+      .node {
+        border: 1px solid var(--line); border-radius: 18px; background: linear-gradient(180deg, var(--card-2), var(--card));
+        padding: 0; overflow: hidden; position: relative;
+        animation: rise 0.6s cubic-bezier(0.2, 0.7, 0.2, 1) both;
       }
-      .node-stat .k { color: var(--muted); font-size: 11px; }
-      .node-groups { font-size: 12px; }
-      .badge {
-        display: inline-block;
-        background: #1d2b4f;
-        border: 1px solid #2d3a5a;
-        border-radius: 6px;
-        padding: 2px 7px;
-        margin-right: 4px;
-        font-size: 11px;
+      .node::after {
+        content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
+        background: var(--state, var(--faint)); box-shadow: 0 0 16px var(--state-glow, transparent);
       }
-      .section-sep {
-        border: none;
-        border-top: 1px solid #1e2d4a;
-        margin: 24px 0;
+      .node-top { display: flex; align-items: center; gap: 12px; padding: 16px 18px 12px; }
+      .avatar {
+        width: 42px; height: 42px; border-radius: 12px; display: grid; place-items: center;
+        font-size: 21px; background: var(--card); border: 1px solid var(--line); flex-shrink: 0;
       }
-      .line { display: flex; justify-content: space-between; margin: 6px 0; font-size: 13px; }
-      .k { color: var(--muted); }
-      .muted { color: var(--muted); }
-      .status-ok { color: var(--ok); }
-      .status-ko { color: var(--ko); }
-      .status-warn { color: var(--warn); }
-      .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
-      .list { max-height: 260px; overflow: auto; padding-right: 6px; }
-      .relay {
-        background: var(--panel-2);
-        border: 1px solid #2d3a5a;
-        border-radius: 10px;
-        padding: 10px;
-        margin-bottom: 8px;
+      .node-id { min-width: 0; flex: 1; }
+      .node-id .nm { font-size: 16px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+      .node-id .sub { color: var(--muted); font-size: 11.5px; margin-top: 2px; }
+      .pill {
+        font-size: 11px; font-weight: 600; padding: 3px 9px; border-radius: 999px; white-space: nowrap;
+        border: 1px solid var(--state, var(--faint)); color: var(--state, var(--muted));
+        background: var(--state-bg, transparent);
       }
-      .footer { margin-top: 12px; color: var(--muted); font-size: 12px; }
-      @media (max-width: 900px) {
-        .controls { grid-template-columns: 1fr; }
-        .grid { grid-template-columns: 1fr; }
-        .nodes-grid { grid-template-columns: 1fr; }
-        .node-grid { grid-template-columns: repeat(2, 1fr); }
+      .node-body { padding: 4px 18px 18px; }
+      .duo { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px; }
+      .stat { background: rgba(255,255,255,0.018); border: 1px solid var(--line); border-radius: 12px; padding: 11px 13px; }
+      .stat .k { color: var(--muted); font-size: 11px; }
+      .stat .v { font-size: 22px; font-weight: 700; margin-top: 3px; line-height: 1; letter-spacing: -0.01em; }
+      .stat .v small { font-size: 12px; color: var(--muted); font-weight: 500; }
+      .meta-row { display: flex; justify-content: space-between; gap: 10px; font-size: 12px; color: var(--muted); padding-top: 4px; border-top: 1px solid var(--line); margin-top: 4px; }
+      .meta-row .mono { color: var(--ink); }
+      .groups { margin-top: 10px; display: flex; flex-wrap: wrap; gap: 6px; }
+      .gchip { font-size: 11px; padding: 3px 9px; border-radius: 8px; background: var(--beam-dim); color: var(--beam); border: 1px solid transparent; }
+      .node.seen { opacity: 0.96; }
+      .node.seen .node-body { color: var(--muted); }
+      .seen-note { font-size: 12.5px; color: var(--muted); padding: 2px 0 4px; }
+
+      .foot { margin-top: 34px; color: var(--faint); font-size: 12px; text-align: center; }
+      .foot .mono { color: var(--muted); }
+
+      @keyframes rise { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
+      @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+      @media (max-width: 720px) {
+        .strip { grid-template-columns: repeat(2, 1fr); }
+        #topo { height: 320px; }
       }
     </style>
   </head>
   <body>
-    <div class="wrap">
-      <h1>ToM — Dev Dashboard</h1>
-      <p>Nœuds actifs · relay · discovery — dev mode uniquement.</p>
+    <div class="app">
+      <header class="hero">
+        <div>
+          <div class="brand"><span class="pip"></span> ToM · réseau pair-à-pair</div>
+          <div class="verdict" id="verdict">Connexion…</div>
+          <div class="subline" id="subline">Détection des nœuds en cours.</div>
+        </div>
+        <div class="live">
+          <span class="dot"></span> live · <b id="liveCount">—</b>
+          <button id="pauseBtn" title="Mettre en pause">pause</button>
+        </div>
+      </header>
 
-      <!-- ── Nœuds ── -->
-      <h3>Nœuds (status-port)</h3>
-      <div class="node-controls">
-        <input id="nodeUrlInput" placeholder="http://localhost:8080 ou http://192.168.0.21:9090" />
-        <button id="addNodeBtn">Ajouter</button>
-      </div>
-      <div id="nodeCards" class="nodes-grid"></div>
-
-      <hr class="section-sep" />
-
-      <!-- ── Infra ── -->
-      <h3>Infra (relay · discovery)</h3>
-      <div class="controls">
-        <input id="relayUrl" placeholder="Relay URL" />
-        <input id="discoveryUrl" placeholder="Discovery URL" />
-        <button id="refreshBtn">Refresh</button>
-        <button id="autoBtn">Auto: OFF</button>
-      </div>
-
-      <div class="grid">
-        <section class="card">
-          <h2>Relay endpoints</h2>
-          <div id="relaySummary" class="line"><span class="k">State</span><span>—</span></div>
-          <div id="relayLines"></div>
-        </section>
-
-        <section class="card">
-          <h2>Discovery endpoints</h2>
-          <div id="discSummary" class="line"><span class="k">State</span><span>—</span></div>
-          <div id="discLines"></div>
-        </section>
-
-        <section class="card">
-          <h2>Discovered relays</h2>
-          <div id="relayCount" class="line"><span class="k">Count</span><span>0</span></div>
-          <div id="relayList" class="list"></div>
-        </section>
-
-        <section class="card">
-          <h2>Snapshot</h2>
-          <div id="snapshot" class="mono">Waiting first refresh…</div>
-        </section>
+      <div class="stage" id="stage">
+        <svg id="topo" viewBox="0 0 1000 380" preserveAspectRatio="xMidYMid meet"></svg>
+        <div class="stage-empty">
+          <div class="big">Aucun nœud joignable</div>
+          <div class="small" id="emptyHint">
+            Lance l'app TomNode sur ce Mac, ou vérifie que le NAS est en ligne.
+          </div>
+        </div>
       </div>
 
-      <div class="footer">
-        Tip : <span class="mono">?relay=http://127.0.0.1:3340&discovery=http://127.0.0.1:8080</span>
-        · Nœuds persistés dans <span class="mono">localStorage</span>
-        · Lancer un nœud : <span class="mono">cargo run -p tom-tui -- --username malik --status-port 8080</span>
+      <section class="strip" id="strip"></section>
+
+      <div class="nodes-head">
+        <h2>Nœuds du réseau</h2>
+        <span class="hint" id="nodesHint">découverte automatique</span>
       </div>
+      <section class="nodes" id="nodes"></section>
+
+      <div class="foot" id="foot"></div>
     </div>
 
     <script type="module" src="/src/main.ts"></script>
