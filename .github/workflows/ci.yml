@@ -150,6 +150,7 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
         with:
+          prefix-key: "ffi-v2"
           workspaces: |
             .
             crates/tom-protocol-ffi
@@ -193,6 +194,7 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
         with:
+          prefix-key: "ffi-v2"
           workspaces: |
             .
             crates/tom-protocol-ffi
