@@ -390,7 +390,9 @@ final class TomNodeService: ObservableObject {
 
     func stop() {
         guard state == .running else { return }
-        state = .stopping
+        // Flip UI state IMMEDIATELY — never leave the user stuck on "Stopping".
+        // The node teardown is I/O (QUIC/DHT close) and must not gate the UI.
+        state = .stopped
         pollTask?.cancel()
         pollTask = nil
         statusServer?.stop()
@@ -400,21 +402,17 @@ final class TomNodeService: ObservableObject {
         seededPeerIds.removeAll()
         firstBootstrapSource = nil
         stopAntiSleep()
+        stopNetworkLogExport()
+        nodeId = ""
+        peersCount = 0
+        groupsCount = 0
+        nodeStartTime = nil
+        totalMessagesSentCount = 0
+        appendLog(.info, "Node stopped. Echo count: \(echoCount)")
+        log.info("Node stopped")
 
-        appendLog(.info, "Stopping node...")
-
-        Task {
-            await node.stop()
-            state = .stopped
-            nodeId = ""
-            peersCount = 0
-            groupsCount = 0
-            nodeStartTime = nil
-            totalMessagesSentCount = 0
-            appendLog(.info, "Node stopped. Echo count: \(echoCount)")
-            stopNetworkLogExport()
-            log.info("Node stopped")
-        }
+        // Tear down the runtime in the background; the UI is already updated.
+        Task { await node.stop() }
     }
 
     func sendMessage(to target: NodeId, text: String) {
