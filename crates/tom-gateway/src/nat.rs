@@ -243,6 +243,27 @@ pub fn print_lan_hosts(hosts: &[LanHost]) {
     }
 }
 
+/// Supprimer toutes les règles NAT pour un port relay donné.
+pub async fn teardown(client: &FreeboxClient, port: u16) -> Result<()> {
+    let rules = client.list_nat_rules().await?;
+    let targets: Vec<&NatRule> = rules.iter().filter(|r| r.wan_port_start == port).collect();
+
+    if targets.is_empty() {
+        println!("Aucune règle NAT pour le port {port} — rien à supprimer.");
+        return Ok(());
+    }
+
+    for rule in targets {
+        let proto = rule.ip_proto.to_uppercase();
+        let comment = rule.comment.as_deref().unwrap_or("");
+        client.delete_nat_rule(rule.id).await?;
+        println!("  Supprimé: [{proto}] id={} port {} -> {}:{} ({})",
+            rule.id, port, rule.lan_ip, rule.lan_port, comment);
+    }
+    println!("Nœud NAS déconnecté du réseau public.");
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
