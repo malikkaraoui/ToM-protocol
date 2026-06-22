@@ -583,6 +583,14 @@ impl RuntimeState {
         if !matches!(self.embedded_relay_state, super::LocalEmbeddedRelayState::Healthy { .. }) {
             return Vec::new();
         }
+        // Universal reachability rule (no profile, env-driven): only advertise a
+        // relay to the *global* gossip if its address is reachable from outside
+        // the LAN. A relay bound to a private/loopback IP is usable locally but
+        // would trap remote peers in an unreachable rendezvous, so it stays unpublished.
+        if !relay_url_is_globally_reachable(&url) {
+            tracing::info!(%url, "embedded relay bound to a non-global address — LAN-only, not published");
+            return Vec::new();
+        }
 
         let now = now_ms();
         let announce = crate::discovery::RelayReadyAnnounce::new(
@@ -2529,6 +2537,84 @@ impl RuntimeState {
     }
 }
 
+// ── Relay reachability (universal, environment-driven) ─────────────────────
+
+/// Whether a relay URL is reachable from outside the local network.
+///
+/// One rule for every node, decided purely from the address the embedded relay
+/// bound to — no per-device profile, no configuration:
+/// - DNS-name hosts → assumed globally resolvable (e.g. a public relay domain).
+/// - Public IP literals → reachable.
+/// - Private / loopback / link-local / CGNAT IP literals → LAN-only.
+///
+/// Used to gate *global* gossip publication: a LAN-only relay stays usable
+/// locally but is never advertised to remote peers it could not serve.
+fn relay_url_is_globally_reachable(url: &tom_connect::RelayUrl) -> bool {
+    let Some(host) = url.host_str() else {
+        return false;
+    };
+    // url::host_str() brackets IPv6 literals; strip them before parsing.
+    let host = host
+        .strip_prefix('[')
+        .and_then(|h| h.strip_suffix(']'))
+        .unwrap_or(host);
+
+    match host.parse::<std::net::IpAddr>() {
+        Ok(std::net::IpAddr::V4(ip)) => ipv4_is_global(ip),
+        Ok(std::net::IpAddr::V6(ip)) => ipv6_is_global(ip),
+        // Not an IP literal → a DNS name. Assume globally resolvable EXCEPT for
+        // names that are non-routable by definition (loopback alias, mDNS/LAN
+        // and private TLDs). Those would trap remote peers just like a private IP.
+        Err(_) => !host_is_local_only(host),
+    }
+}
+
+/// Hostnames that never resolve outside the local network (case-insensitive).
+fn host_is_local_only(host: &str) -> bool {
+    let h = host.trim_end_matches('.').to_ascii_lowercase();
+    h == "localhost"
+        || h.ends_with(".localhost")
+        || h.ends_with(".local") // mDNS / Bonjour
+        || h.ends_with(".internal")
+        || h.ends_with(".lan")
+        || h.ends_with(".home.arpa") // RFC 8375 home networks
+        || h.ends_with(".intranet")
+}
+
+fn ipv4_is_global(ip: std::net::Ipv4Addr) -> bool {
+    if ip.is_private()
+        || ip.is_loopback()
+        || ip.is_link_local()
+        || ip.is_unspecified()
+        || ip.is_broadcast()
+        || ip.is_documentation()
+    {
+        return false;
+    }
+    // CGNAT shared address space 100.64.0.0/10 (Ipv4Addr::is_shared is unstable).
+    let o = ip.octets();
+    if o[0] == 100 && (64..=127).contains(&o[1]) {
+        return false;
+    }
+    true
+}
+
+fn ipv6_is_global(ip: std::net::Ipv6Addr) -> bool {
+    if ip.is_loopback() || ip.is_unspecified() {
+        return false;
+    }
+    let seg = ip.segments();
+    // Unique local fc00::/7.
+    if (seg[0] & 0xfe00) == 0xfc00 {
+        return false;
+    }
+    // Link-local fe80::/10.
+    if (seg[0] & 0xffc0) == 0xfe80 {
+        return false;
+    }
+    true
+}
+
 // ── Tests ────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -3016,8 +3102,8 @@ mod tests {
             },
         );
 
-        // Simulate embedded relay becoming healthy
-        let relay_url: tom_connect::RelayUrl = "http://127.0.0.1:9999".parse().unwrap();
+        // Simulate embedded relay becoming healthy (public IP → publishable)
+        let relay_url: tom_connect::RelayUrl = "http://82.67.95.8:9999".parse().unwrap();
         state.embedded_relay_state = LocalEmbeddedRelayState::Healthy {
             bound_relay_url: relay_url.clone(),
         };
@@ -4252,7 +4338,7 @@ mod tests {
         state.config.enable_embedded_relay = true;
         state.config.enable_embedded_relay_publication = true;
 
-        let url: tom_connect::RelayUrl = "http://127.0.0.1:3340".parse().unwrap();
+        let url: tom_connect::RelayUrl = "http://82.67.95.8:3340".parse().unwrap();
         state.embedded_relay_state = LocalEmbeddedRelayState::Healthy {
             bound_relay_url: url.clone(),
         };
@@ -4280,7 +4366,7 @@ mod tests {
         state.config.enable_embedded_relay = true;
         state.config.enable_embedded_relay_publication = true;
 
-        let url: tom_connect::RelayUrl = "http://127.0.0.1:3340".parse().unwrap();
+        let url: tom_connect::RelayUrl = "http://82.67.95.8:3340".parse().unwrap();
         let effects = state.handle_command(RuntimeCommand::EmbeddedRelayStarted { url: url.clone() });
 
         // Should have: Emit(EmbeddedRelayStarted) + BroadcastRelayReady
@@ -4292,6 +4378,57 @@ mod tests {
         assert!(matches!(&state.embedded_relay_state,
             LocalEmbeddedRelayState::Healthy { bound_relay_url }
             if bound_relay_url == &url));
+    }
+
+    #[test]
+    fn relay_with_private_ip_is_healthy_but_not_published() {
+        // Universal rule: a relay bound to a LAN/private IP stays healthy and
+        // usable locally, but is NEVER advertised to the global gossip mesh.
+        let mut state = default_state(63);
+        state.config.enable_embedded_relay = true;
+        state.config.enable_embedded_relay_publication = true;
+
+        let url: tom_connect::RelayUrl = "http://192.168.0.70:65127".parse().unwrap();
+        let effects = state.handle_command(RuntimeCommand::EmbeddedRelayStarted { url: url.clone() });
+
+        // Healthy event emitted, but NO BroadcastRelayReady.
+        assert!(matches!(&effects[0], RuntimeEffect::Emit(ProtocolEvent::EmbeddedRelayStarted { .. })));
+        assert!(
+            !effects.iter().any(|e| matches!(e, RuntimeEffect::BroadcastRelayReady(_))),
+            "private-IP relay must not be published to global gossip"
+        );
+        assert!(matches!(&state.embedded_relay_state,
+            LocalEmbeddedRelayState::Healthy { .. }), "relay still healthy/usable on LAN");
+        assert!(matches!(&state.embedded_relay_publication,
+            EmbeddedRelayPublicationState::NotPublished), "must remain unpublished");
+    }
+
+    #[test]
+    fn reachability_rule_covers_all_environments() {
+        let pub_v4: tom_connect::RelayUrl = "http://82.67.95.8:3340".parse().unwrap();
+        let dns: tom_connect::RelayUrl = "https://relay.example.com:443".parse().unwrap();
+        let priv_v4: tom_connect::RelayUrl = "http://192.168.0.70:3340".parse().unwrap();
+        let ten: tom_connect::RelayUrl = "http://10.0.0.1:3340".parse().unwrap();
+        let cgnat: tom_connect::RelayUrl = "http://100.64.1.1:3340".parse().unwrap();
+        let loop_v4: tom_connect::RelayUrl = "http://127.0.0.1:3340".parse().unwrap();
+        let link: tom_connect::RelayUrl = "http://169.254.1.1:3340".parse().unwrap();
+        let loop_v6: tom_connect::RelayUrl = "http://[::1]:3340".parse().unwrap();
+        // Non-routable DNS names must NOT be treated as global.
+        let localhost: tom_connect::RelayUrl = "http://localhost:3340".parse().unwrap();
+        let mdns: tom_connect::RelayUrl = "http://nas.local:3340".parse().unwrap();
+        let intern: tom_connect::RelayUrl = "http://relay.internal:3340".parse().unwrap();
+
+        assert!(relay_url_is_globally_reachable(&pub_v4));
+        assert!(relay_url_is_globally_reachable(&dns));
+        assert!(!relay_url_is_globally_reachable(&priv_v4));
+        assert!(!relay_url_is_globally_reachable(&ten));
+        assert!(!relay_url_is_globally_reachable(&cgnat));
+        assert!(!relay_url_is_globally_reachable(&loop_v4));
+        assert!(!relay_url_is_globally_reachable(&link));
+        assert!(!relay_url_is_globally_reachable(&loop_v6));
+        assert!(!relay_url_is_globally_reachable(&localhost), "localhost n'est pas global");
+        assert!(!relay_url_is_globally_reachable(&mdns), "mDNS .local n'est pas global");
+        assert!(!relay_url_is_globally_reachable(&intern), ".internal n'est pas global");
     }
 
     #[test]
@@ -4700,12 +4837,12 @@ mod tests {
         config.relay_publish_interval = std::time::Duration::from_millis(100);
         config.heartbeat_interval = std::time::Duration::from_millis(50);
         let mut state = RuntimeState::new(id, secret, config);
-        // Simulate healthy relay
+        // Simulate healthy relay (public IP → publishable to global gossip)
         state.embedded_relay_state = LocalEmbeddedRelayState::Healthy {
-            bound_relay_url: "http://127.0.0.1:3340".parse().unwrap(),
+            bound_relay_url: "http://82.67.95.8:3340".parse().unwrap(),
         };
         state.embedded_relay_publication = EmbeddedRelayPublicationState::Published {
-            url: "http://127.0.0.1:3340".parse().unwrap(),
+            url: "http://82.67.95.8:3340".parse().unwrap(),
             published_at: now_ms(),
         };
         state
@@ -4716,7 +4853,7 @@ mod tests {
         let mut state = state_with_relay_publication(90);
         // Set published_at to well before interval threshold
         state.embedded_relay_publication = EmbeddedRelayPublicationState::Published {
-            url: "http://127.0.0.1:3340".parse().unwrap(),
+            url: "http://82.67.95.8:3340".parse().unwrap(),
             published_at: now_ms().saturating_sub(200), // 200ms ago, interval is 100ms
         };
         let effects = state.tick_heartbeat();
