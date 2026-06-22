@@ -56,3 +56,6 @@ apps/tom-node-tvos/build/
 
 # Apps macOS packagées (binaires) — ne pas versionner, builder via xcodegen/make
 deploy/macos/*.app/
+
+# Xcode derived data (builds locaux app)
+build/
