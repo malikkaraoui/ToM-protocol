@@ -606,9 +606,12 @@ pub(super) async fn runtime_loop(
     // Stop embedded relay if running
     embedded_relay.stop().await;
 
-    // Graceful shutdown
-    if let Err(e) = node.shutdown().await {
-        tracing::warn!("runtime shutdown error: {e}");
+    // Graceful shutdown — bounded: a slow QUIC/relay close must never hang the
+    // caller (the UI Stop blocks on the runtime teardown).
+    match tokio::time::timeout(std::time::Duration::from_secs(2), node.shutdown()).await {
+        Ok(Ok(())) => {}
+        Ok(Err(e)) => tracing::warn!("runtime shutdown error: {e}"),
+        Err(_) => tracing::warn!("runtime shutdown timed out after 2s — forcing"),
     }
 }
 
