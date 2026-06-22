@@ -390,20 +390,24 @@ pub unsafe extern "C" fn tom_node_stop(handle: *mut TomNodeHandle) {
 
     let handle_box = unsafe { Box::from_raw(handle) };
 
-    // Signal the loop to break, persist state and close gracefully.
-    handle_box.runtime.block_on(async {
-        if let Some(runtime_handle) = handle_box.handle.lock().await.take() {
-            tracing::info!("Shutting down TOM protocol node...");
-            let _ = runtime_handle.shutdown().await;
-        }
+    // Tear down on a DETACHED thread so the caller (the UI Stop) returns
+    // immediately. Dropping the Runtime / joining the DHT (mainline) background
+    // thread can block for seconds — and a synchronous Drop can't be bounded by
+    // shutdown_timeout — so we never do it on the calling thread.
+    std::thread::spawn(move || {
+        // Signal the loop to break + persist state (bounded), then force teardown.
+        handle_box.runtime.block_on(async {
+            if let Some(runtime_handle) = handle_box.handle.lock().await.take() {
+                tracing::info!("Shutting down TOM protocol node...");
+                let _ =
+                    tokio::time::timeout(std::time::Duration::from_secs(3), runtime_handle.shutdown())
+                        .await;
+            }
+        });
+        let TomNodeHandle { runtime, .. } = *handle_box;
+        runtime.shutdown_timeout(std::time::Duration::from_secs(3));
+        tracing::info!("Node stopped (background teardown done)");
     });
-
-    // Bounded teardown: dropping the Runtime would block until every task AND
-    // background thread (QUIC close, DHT/mainline) joins — which can hang the UI
-    // Stop indefinitely. shutdown_timeout caps the wait, then forces it.
-    let TomNodeHandle { runtime, .. } = *handle_box;
-    runtime.shutdown_timeout(std::time::Duration::from_secs(3));
-    tracing::info!("Node stopped (bounded)");
 }
 
 /// Free a TomNodeHandle without stopping (if already stopped separately)
@@ -416,11 +420,13 @@ pub unsafe extern "C" fn tom_node_free(handle: *mut TomNodeHandle) {
         return;
     }
     let handle_box = unsafe { Box::from_raw(handle) };
-    // Bounded teardown: a plain drop blocks until the Runtime and every
-    // background thread (QUIC/DHT) joins — which can hang forceReset (called on
-    // foreground return). Cap it.
-    let TomNodeHandle { runtime, .. } = *handle_box;
-    runtime.shutdown_timeout(std::time::Duration::from_secs(2));
+    // Detached teardown: a plain drop blocks until the Runtime and every
+    // background thread (QUIC/DHT mainline) joins — which can hang forceReset
+    // (called on foreground return). Never block the caller.
+    std::thread::spawn(move || {
+        let TomNodeHandle { runtime, .. } = *handle_box;
+        runtime.shutdown_timeout(std::time::Duration::from_secs(3));
+    });
 }
 
 /// Send a 1-1 message to a peer
