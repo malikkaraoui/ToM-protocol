@@ -46,6 +46,10 @@ final class TomNodeService: ObservableObject {
     // Anti-sleep audio player (iOS/tvOS only)
     #if !os(macOS)
     private var silentPlayer: AVAudioPlayer?
+    /// Cached silent WAV so the keepalive can be rebuilt after an interruption.
+    private var antiSleepWav: Data?
+    /// Guard so audio-session observers are installed only once.
+    private var audioObserversInstalled = false
     #else
     private var sleepAssertion: NSObjectProtocol?
     #endif
@@ -210,17 +214,9 @@ final class TomNodeService: ObservableObject {
         wavHeader.append(contentsOf: withUnsafeBytes(of: dataSize.littleEndian) { Array($0) })
         wavHeader.append(silenceData)
 
-        do {
-            try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default)
-            try AVAudioSession.sharedInstance().setActive(true)
-            silentPlayer = try AVAudioPlayer(data: wavHeader)
-            silentPlayer?.numberOfLoops = -1
-            silentPlayer?.volume = 0.01
-            silentPlayer?.play()
-            appendLog(.info, "Anti-sleep: silent audio loop started")
-        } catch {
-            appendLog(.warning, "Anti-sleep failed: \(error.localizedDescription)")
-        }
+        antiSleepWav = wavHeader
+        activateSilentAudio()
+        installAudioObserversIfNeeded()
         #else
         sleepAssertion = ProcessInfo.processInfo.beginActivity(
             options: [.idleSystemSleepDisabled, .suddenTerminationDisabled],
@@ -228,6 +224,64 @@ final class TomNodeService: ObservableObject {
         appendLog(.info, "Anti-sleep: system sleep disabled via ProcessInfo")
         #endif
     }
+
+    #if !os(macOS)
+    /// (Re)activate the silent-audio keepalive. Safe to call repeatedly — used
+    /// both at startup and to RESUME after an audio-session interruption.
+    private func activateSilentAudio() {
+        guard let wav = antiSleepWav else { return }
+        do {
+            try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default, options: [.mixWithOthers])
+            try AVAudioSession.sharedInstance().setActive(true)
+            if silentPlayer == nil {
+                silentPlayer = try AVAudioPlayer(data: wav)
+            }
+            silentPlayer?.numberOfLoops = -1
+            silentPlayer?.volume = 0.01
+            if silentPlayer?.isPlaying != true {
+                silentPlayer?.play()
+            }
+        } catch {
+            appendLog(.warning, "Anti-sleep activate failed: \(error.localizedDescription)")
+        }
+    }
+
+    /// Resume the keepalive after any audio interruption (call, Siri, another
+    /// app, the system reclaiming the session). Without this the keepalive stops
+    /// and iOS suspends the whole node within ~30s — doing nothing until the next
+    /// foreground.
+    private func installAudioObserversIfNeeded() {
+        guard !audioObserversInstalled else { return }
+        audioObserversInstalled = true
+        let nc = NotificationCenter.default
+
+        nc.addObserver(
+            forName: AVAudioSession.interruptionNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] note in
+            guard let self,
+                  let raw = note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt,
+                  let type = AVAudioSession.InterruptionType(rawValue: raw)
+            else { return }
+            if type == .ended {
+                self.appendLog(.info, "Anti-sleep: interruption ended — resuming keepalive")
+                self.activateSilentAudio()
+            }
+        }
+
+        nc.addObserver(
+            forName: AVAudioSession.mediaServicesWereResetNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            guard let self else { return }
+            self.appendLog(.warning, "Anti-sleep: media services reset — rebuilding keepalive")
+            self.silentPlayer = nil
+            self.activateSilentAudio()
+        }
+    }
+    #endif
 
     func stopAntiSleep() {
         #if !os(macOS)
