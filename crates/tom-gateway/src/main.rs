@@ -55,6 +55,13 @@ enum Command {
         port: u16,
     },
 
+    /// Supprimer les règles NAT du relay (coupe le nœud NAS du réseau public).
+    Teardown {
+        /// Port relay à couper.
+        #[arg(long, default_value = "3340")]
+        port: u16,
+    },
+
     /// List LAN devices (useful to find the NAS IP).
     Lan,
 }
@@ -121,6 +128,16 @@ async fn main() -> Result<()> {
                     .await?;
 
             nat::status(&client, port).await?;
+        }
+
+        Command::Teardown { port } => {
+            let stored = token::load(&token_path)?;
+            let (base_url, api_base) =
+                freebox::discover(Some(&stored.freebox_url)).await?;
+            let client =
+                freebox::open_session(&base_url, &api_base, &stored.app_id, &stored.app_token)
+                    .await?;
+            nat::teardown(&client, port).await?;
         }
 
         Command::Lan => {
