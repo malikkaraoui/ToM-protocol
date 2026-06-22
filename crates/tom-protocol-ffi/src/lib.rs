@@ -238,6 +238,10 @@ pub unsafe extern "C" fn tom_node_start(
         enable_dht: runtime_config.enable_dht.unwrap_or(true),
         data_dir: runtime_config.data_dir.map(|p| p.into()),
         gossip_bootstrap_peers: gossip_peers,
+        // Full-node mode: every node is simultaneously a relay server
+        enable_embedded_relay: runtime_config.enable_embedded_relay.unwrap_or(true),
+        enable_embedded_relay_publication: runtime_config.enable_embedded_relay_publication.unwrap_or(true),
+        enable_transport_relay_discovery: runtime_config.enable_transport_relay_discovery.unwrap_or(true),
         ..Default::default()
     };
 
@@ -386,15 +390,20 @@ pub unsafe extern "C" fn tom_node_stop(handle: *mut TomNodeHandle) {
 
     let handle_box = unsafe { Box::from_raw(handle) };
 
+    // Signal the loop to break, persist state and close gracefully.
     handle_box.runtime.block_on(async {
         if let Some(runtime_handle) = handle_box.handle.lock().await.take() {
             tracing::info!("Shutting down TOM protocol node...");
             let _ = runtime_handle.shutdown().await;
-            tracing::info!("Node stopped successfully");
         }
     });
 
-    drop(handle_box);
+    // Bounded teardown: dropping the Runtime would block until every task AND
+    // background thread (QUIC close, DHT/mainline) joins — which can hang the UI
+    // Stop indefinitely. shutdown_timeout caps the wait, then forces it.
+    let TomNodeHandle { runtime, .. } = *handle_box;
+    runtime.shutdown_timeout(std::time::Duration::from_secs(3));
+    tracing::info!("Node stopped (bounded)");
 }
 
 /// Free a TomNodeHandle without stopping (if already stopped separately)
@@ -403,9 +412,15 @@ pub unsafe extern "C" fn tom_node_stop(handle: *mut TomNodeHandle) {
 /// * `handle` must be a valid pointer returned by `tom_node_create()`
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn tom_node_free(handle: *mut TomNodeHandle) {
-    if !handle.is_null() {
-        let _ = unsafe { Box::from_raw(handle) };
+    if handle.is_null() {
+        return;
     }
+    let handle_box = unsafe { Box::from_raw(handle) };
+    // Bounded teardown: a plain drop blocks until the Runtime and every
+    // background thread (QUIC/DHT) joins — which can hang forceReset (called on
+    // foreground return). Cap it.
+    let TomNodeHandle { runtime, .. } = *handle_box;
+    runtime.shutdown_timeout(std::time::Duration::from_secs(2));
 }
 
 /// Send a 1-1 message to a peer
