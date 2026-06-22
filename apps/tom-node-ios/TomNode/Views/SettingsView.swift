@@ -146,6 +146,7 @@ struct SettingsView: View {
                 }
 
                 Section("Info") {
+                    SettingsRow(label: "Version", value: TomVersion.display, monospaced: true)
                     SettingsRow(label: "Status", value: nodeService.state.rawValue, valueColor: stateColor)
                     SettingsRow(label: "Peers", value: "\(nodeService.peersCount)")
                     SettingsRow(label: "Groups", value: "\(nodeService.groupsCount)")
