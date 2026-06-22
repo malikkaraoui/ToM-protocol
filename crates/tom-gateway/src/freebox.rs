@@ -86,11 +86,47 @@ pub struct L3Connectivity {
 }
 
 #[derive(Debug, Serialize)]
+struct AppPermissions {
+    parental: bool,
+    contacts: bool,
+    calls: bool,
+    explorer: bool,
+    downloader: bool,
+    pvr: bool,
+    home: bool,
+    tv: bool,
+    player: bool,
+    camera: bool,
+    settings: bool,
+    vm: bool,
+}
+
+impl AppPermissions {
+    fn all() -> Self {
+        Self {
+            parental: true,
+            contacts: true,
+            calls: true,
+            explorer: true,
+            downloader: true,
+            pvr: true,
+            home: true,
+            tv: true,
+            player: true,
+            camera: true,
+            settings: true,
+            vm: true,
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
 struct AuthRequest {
     app_id: String,
     app_name: String,
     app_version: String,
     device_name: String,
+    app_permissions: AppPermissions,
 }
 
 #[derive(Debug, Serialize)]
@@ -251,6 +287,7 @@ pub async fn authorize(base_url: &str, api_base: &str, app_name: &str) -> Result
         app_name: app_name.to_string(),
         app_version: env!("CARGO_PKG_VERSION").to_string(),
         device_name: hostname(),
+        app_permissions: AppPermissions::all(),
     };
 
     let resp: FreeboxResponse<AuthResult> = client
