@@ -7,10 +7,12 @@
 | Phase | Description | Status |
 |-------|-------------|--------|
 | **Phase 1** | TypeScript protocol stack (WebRTC, signaling) | ✅ 8/8 epics (legacy) |
-| **Phase 2** | Rust native protocol (QUIC, hole punching, E2E crypto, groups) | ✅ All 11 build phases complete ([phase table](CLAUDE.md#current-status)) |
+| **Phase 2** | Rust native protocol (QUIC, hole punching, E2E crypto, groups) | ✅ R1–R11 complete · 🚧 R12 zero-config DHT rendezvous + resilience ([phases](CLAUDE.md#current-status) · [known limitations](CLAUDE.md#known-limitations-audit-adversarial-2026-06-22)) |
 | **Phase 3** | SDKs & public specs — make ToM yours | 🚀 Rust SDK, Swift Package and wire specs shipped |
 
-**1987+ tests** (1216 Rust + 771 TypeScript legacy) | **E2E encrypted** | **NAT traversal validated** | **Cross-border Suisse↔France** | **Hub failover validated**
+**~1200 Rust + 771 TypeScript tests** | **E2E encrypted** | **NAT traversal validated** | **Cross-border Suisse↔France** | **Hub failover validated**
+
+> Audit adversarial 2026-06-22 : trous ouverts connus (zombies, squatting DHT, suspension iOS…) — voir [Known Limitations](CLAUDE.md#known-limitations-audit-adversarial-2026-06-22).
 
 ## TL;DR
 

@@ -26,7 +26,7 @@ tom-protocol/
 │   ├── tom-quinn-proto/      # QUIC protocol (forked from iroh-quinn-proto, 41K LOC)
 │   ├── tom-base/             # Base types: PublicKey, SecretKey, NodeAddr (forked, 831 LOC)
 │   ├── tom-metrics/          # Simplified metrics (Counter struct, ~100 LOC)
-│   ├── tom-dht/              # DHT discovery wrapper (Mainline BEP-0044)
+│   ├── tom-dht/              # DHT discovery (Mainline BEP-0044) + rendez-vous partagé zéro-config (ADR-010)
 │   ├── tom-protocol/         # Protocol layer (original)
 │   │   └── src/
 │   │       ├── backup/       # Message backup (virus metaphor, TTL 24h)
@@ -138,6 +138,14 @@ Every node runs identical code. Role is determined by network topology, not conf
 
 ### ADR-009: Message Backup (Virus Metaphor)
 Messages for offline recipients self-replicate across backup nodes, self-delete when delivered or after 24h TTL.
+
+### ADR-010: Zero-config DHT Rendezvous + Resilience (Phase R12 — 2026-06-22)
+- **DHT rendezvous** (`tom-dht`): a constant namespace (`tom-protocol-rendezvous-v1`) derives 8 shared ed25519 "slot" keypairs. Every node publishes `{node_id, addrs}` into slot `hash(node_id) % 8` (BEP-0044 mutable, `seq = timestamp`); any node reads all slots to discover live peers with ZERO prior knowledge — no bootstrap peer, no privileged node. Fills the BEP-0044 enumeration gap (lookup-by-known-key only).
+- **Relay reachability gate** (`state.rs::relay_url_is_globally_reachable`): an embedded relay is published to the *global* gossip ONLY if its address is reachable from outside the LAN. Private/loopback/link-local/CGNAT IPs and non-routable DNS (localhost, `.local`, `.internal`) stay LAN-only.
+- **Isolation recovery** (`loop.rs` reconnect_check 15s + `bootstrap.rs::on_isolated`): on loss of connectivity the phase reverts `Converged → RelayAssist` and a fresh discovery round runs (reprobe relays + DHT republish + rendezvous + rejoin).
+- **Bounded FFI teardown** (`tom-protocol-ffi`): `tom_node_stop`/`tom_node_free` tear down on a detached thread so the UI Stop never blocks.
+- **iOS/tvOS anti-sleep**: silent-audio keepalive now resumes after audio interruptions (`interruptionNotification` + `mediaServicesWereReset`).
+- ⚠️ Open gaps tracked in **Known Limitations** below (rendezvous squatting, zombie connections, iOS suspension).
 
 ## Foundational Design Decisions (LOCKED)
 
@@ -342,13 +350,16 @@ cargo run -p tom-stress -- campaign --responder-addr <NAS_ADDR>
 cargo zigbuild -p tom-stress --target aarch64-unknown-linux-musl --release
 ```
 
-### Test Counts
-- 355 tests (tom-protocol) + 14 integration tests
+### Test Counts (à jour 2026-06-22)
+- 520 tests (tom-protocol lib) + integration tests
+- 20 tests (tom-dht — dont chaos churn + récupération blackout, Testnet réel)
 - 322 tests (tom-quinn-proto)
 - 76 tests (tom-connect)
 - 22 tests (tom-quinn)
 - 9 tests (tom-relay) + 12 tests (tom-gossip) + 7 tests (tom-metrics) + 2 tests (tom-base)
 - 771 tests (TypeScript core, legacy)
+
+> `tom-protocol-ffi` est **exclu du workspace** (build `--locked`) → non couvert par `cargo test/clippy --workspace`. Le valider via `bash scripts/check-ffi.sh` (ou un `git worktree` propre) AVANT tout push touchant le FFI.
 
 ## Deployment
 
@@ -405,11 +416,32 @@ TomNodeConfig::new().n0_discovery(false).bind().await?;
 | R9 | Consolidation (DHT, delivery reliability) | ✅ Complete |
 | R10 | Group Recovery (rejoin, tracker persistence, liveness reset) | ✅ Complete |
 | R11 | Security & Admin (antispam, nonce anti-replay, group admin controls) | ✅ Complete |
+| R12 | Zero-config DHT rendezvous + resilience (isolation recovery, anti-sleep, bounded stop) | 🚧 Livré, trous ouverts (voir Known Limitations) |
 
 ### Stress Test Results
 - Campaign V5: 250/250 Mac ↔ NAS (100% success)
 - Campaign self-send fix: 232/232 Mac ↔ NAS (SSH tunnel)
 - PoC hole punch: 100% across LAN/4G CGNAT/cross-border
+
+## Known Limitations (audit adversarial 2026-06-22)
+
+Trous **confirmés** (review multi-agent, file:line). À traiter par phases ; ne pas prétendre "complete".
+
+**Critique (Phase 1) :**
+1. **Connexions zombies** (`runtime/loop.rs` reconnect_check) — l'isolement teste `connected_peers().is_empty()`, pas la vivacité réelle : un pair "connecté" sans trafic gèle le nœud en `Converged`. Fix : heartbeat/RTT liveness → marquer Offline.
+2. **Rendez-vous DHT squattable** (`tom-dht`) — slots à clés partagées dérivées d'une constante publique, sans **preuve-de-possession** : un attaquant occupe les 8 slots / injecte de faux pairs. Fix : signer chaque entrée par la clé du node_id et vérifier avant acceptation ; augmenter le nombre de slots.
+3. **FFI double-teardown** (`tom-protocol-ffi` `tom_node_stop`/`tom_node_free`) — deux threads détachés à logique identique → risque de double-drop. Fix : fusionner ou garde `Once`/`AtomicBool`.
+
+**Haut risque (Phase 2) :**
+4. **Suspension iOS/tvOS** — l'anti-veille audio empêche la veille *device*, pas la *suspension app* : runtime gelé jusqu'à ~1h30 au réveil. Fix : observer `scenePhase`, reprobe forcé ; à terme push APNs/VoIP.
+5. **Livraison (décision #1)** — ACK non signé ; backup SQLite pouvant dépasser le TTL 24h (décision #2). Fix : signer l'ACK, garantir la purge TTL côté backup.
+6. **Adresses directes DHT non filtrées** (`loop.rs`) — IP privées injectées sans `relay_url_is_globally_reachable`. Fix : unifier le filtrage.
+7. **Nonce anti-replay sans purge TTL** (`router.rs`). Fix : `(nonce, ts)` + purge > 24h.
+
+**Conception (Phase 3) :**
+8. **ProtocolEvent fuite d'état interne** (`SenderThrottled{score}`, `RolePromoted`…) — viole décision #6 (invisible utilisateur).
+9. **Détection relay offline lente** (45-105s) — pas de health-check actif.
+10. **Meshing partiel** — `join_peers` ne force pas de dial direct ; nœuds en bordure.
 
 ## Important Notes for LLMs
 
@@ -422,6 +454,8 @@ TomNodeConfig::new().n0_discovery(false).bind().await?;
 7. **Wire invariants are sacred**: Never change `_iroh` prefixes, ALPN, TLS SNI
 8. **ed25519-dalek pin**: MUST use `=3.0.0-pre.1` (crypto type compat with quinn)
 9. **Signaling server is DEPRECATED**: Use own relay + Pkarr/DNS
+10. **FFI validation before push**: `tom-protocol-ffi` is excluded from the workspace (built `--locked`). `cargo test/clippy --workspace` does NOT cover it. Run `bash scripts/check-ffi.sh` — or build from a clean `git worktree` at HEAD — before any push touching the FFI/cross-crate. The working copy masks committed-state compile errors.
+11. **Zero-config discovery**: nodes find each other via the shared DHT rendezvous (ADR-010), no privileged node. Anti-sleep / iOS suspension caveats apply (Known Limitations).
 
 ## Quick Commands
 
