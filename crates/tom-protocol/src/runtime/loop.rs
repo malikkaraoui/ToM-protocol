@@ -7,7 +7,7 @@ use tokio::sync::{broadcast, mpsc};
 use tom_transport::{BootstrapHint, TomNode};
 
 use crate::discovery::DiscoverySource;
-use crate::types::NodeId;
+use crate::types::{now_ms, NodeId};
 
 use super::bootstrap::{BootstrapPhase, BootstrapSource};
 use super::effect::RuntimeEffect;
@@ -62,6 +62,8 @@ pub(super) async fn runtime_loop(
     let mut delivery_deadline = tokio::time::interval(std::time::Duration::from_secs(5));
     let mut hub_cleanup = tokio::time::interval(std::time::Duration::from_secs(60));
     let mut reconnect_check = tokio::time::interval(std::time::Duration::from_secs(15));
+    // Shared DHT rendezvous: periodic re-announce + zero-config peer discovery.
+    let mut rendezvous_tick = tokio::time::interval(std::time::Duration::from_secs(60));
 
     // Skip the immediate first tick
     cache_cleanup.tick().await;
@@ -78,6 +80,7 @@ pub(super) async fn runtime_loop(
     delivery_deadline.tick().await;
     hub_cleanup.tick().await;
     reconnect_check.tick().await;
+    rendezvous_tick.tick().await;
 
     // ── Gossip subscription ──────────────────────────────────────────
     let topic_id = tom_gossip::TopicId::from_bytes(TOM_GOSSIP_TOPIC);
@@ -109,6 +112,19 @@ pub(super) async fn runtime_loop(
         let (relay_urls, direct_addrs) = extract_node_addrs(&node);
         state.publish_to_dht(&secret_seed, relay_urls, direct_addrs).await;
     }
+
+    // Monotonic floor for rendezvous publication timestamps (see build_self_dht_addr).
+    let mut rendezvous_ts_floor: u64 = 0;
+
+    // Announce into the shared rendezvous + pull live peers immediately, so a
+    // node with no prior knowledge starts finding the network from the first tick.
+    spawn_rendezvous_round(
+        &node,
+        &state.local_id,
+        dht_handle.as_ref(),
+        &cmd_tx,
+        &mut rendezvous_ts_floor,
+    );
 
     // ── PeerPresent receiver from relay ────────────────────────────────
     let mut peer_present_rx = node.take_peer_present_rx();
@@ -405,13 +421,14 @@ pub(super) async fn runtime_loop(
                 metrics.set_groups_count(state.group_manager.group_count() as u64);
                 metrics.set_peers_known(state.topology.len() as u64);
                 // Fallback phase advance: relay-only nodes may never receive a mDNS/PeerPresent
-                // hint, but they still discover peers via received messages. If topology has any
-                // peer (Online, Stale, or Offline), we are past the amorçage stage.
-                if bootstrap_phase != BootstrapPhase::Converged && !state.topology.is_empty() {
+                // hint, but they still discover peers via received messages. Converge only on
+                // a LIVE (online) peer — a topology full of stale/offline entries means we are
+                // isolated, not converged, and must stay in amorçage (see reconnect_check).
+                if bootstrap_phase != BootstrapPhase::Converged && state.topology.online_count() > 0 {
                     bootstrap_phase.on_hint_accepted();
                     tracing::info!(
-                        peers = state.topology.len(),
-                        "bootstrap: converged via topology peers (relay-only path)"
+                        online = state.topology.online_count(),
+                        "bootstrap: converged via live topology peer"
                     );
                 }
                 metrics.set_phase(bootstrap_phase);
@@ -431,22 +448,72 @@ pub(super) async fn runtime_loop(
             // ── 15. Timer: delivery deadline check (5s) ────
             _ = delivery_deadline.tick() => state.tick_delivery_deadlines(),
 
-            // ── 16. Timer: reconnect known peers (15s) ──
+            // ── 15b. Timer: DHT rendezvous (60s) — zero-config discovery ──
+            _ = rendezvous_tick.tick() => {
+                spawn_rendezvous_round(
+                    &node,
+                    &state.local_id,
+                    dht_handle.as_ref(),
+                    &cmd_tx,
+                    &mut rendezvous_ts_floor,
+                );
+                Vec::new()
+            }
+
+            // ── 16. Timer: reconnect known peers + isolation recovery (15s) ──
             // Periodically rejoin all known peers so that discovered-but-unconnected
             // peers get a fresh connection attempt. Cheap if already connected.
+            // If we have ZERO live connections, treat it as isolation: re-enter the
+            // bootstrap phase and actively re-run discovery instead of freezing in a
+            // stale Converged state because a relay/peer disappeared.
             _ = reconnect_check.tick() => {
                 if let Some(ref sender) = gossip_sender {
-                    let known: Vec<_> = state.topology.peers()
-                        .map(|p| *p.node_id.as_endpoint_id())
-                        .collect();
-                    if !known.is_empty() {
-                        let _ = sender.join_peers(known).await;
-                    } else {
-                        // Topology is empty — re-probe relays to trigger PeerPresent
-                        // and recover from full isolation (e.g. after relay cut).
-                        node.reprobe_relays().await;
-                        tracing::info!("reconnect_check: topology empty — relay reprobe triggered");
+                    let known_node_ids: Vec<_> =
+                        state.topology.peers().map(|p| p.node_id).collect();
+                    let known_eids: Vec<_> =
+                        known_node_ids.iter().map(|n| *n.as_endpoint_id()).collect::<Vec<_>>();
+
+                    // Isolation: no live QUIC connection means we lost the network.
+                    let connected = node.connected_peers().await;
+                    if connected.is_empty() {
+                        if bootstrap_phase.on_isolated() {
+                            tracing::info!(
+                                "reconnect_check: isolé (0 connexion) — retour en amorçage, redécouverte active"
+                            );
+                        }
+                        // Re-announce ourselves and re-resolve known peers via DHT to
+                        // pick up fresh addresses (old ones may be dead after a change).
+                        let (relay_urls, direct_addrs) = extract_node_addrs(&node);
+                        state.publish_to_dht(&secret_seed, relay_urls, direct_addrs).await;
+                        // Zero-config recovery: hit the shared rendezvous NOW (don't wait
+                        // for the 60s tick) to find live peers we never heard of.
+                        spawn_rendezvous_round(
+                            &node,
+                            &state.local_id,
+                            dht_handle.as_ref(),
+                            &cmd_tx,
+                            &mut rendezvous_ts_floor,
+                        );
+                        if let Some(dht_client) = dht_handle.as_ref() {
+                            for node_id in &known_node_ids {
+                                let dht_clone = dht_client.clone();
+                                let pk = node_id.as_bytes();
+                                let tx = cmd_tx.clone();
+                                tokio::spawn(async move {
+                                    if let Ok(Some(addr)) = tom_dht::dht_lookup(&dht_clone, &pk).await {
+                                        let _ = tx.send(RuntimeCommand::DhtLookupResult { addr }).await;
+                                    }
+                                });
+                            }
+                        }
                     }
+
+                    if !known_eids.is_empty() {
+                        let _ = sender.join_peers(known_eids).await;
+                    }
+                    // Always reprobe relays: triggers PeerPresent even when topology has
+                    // known-but-offline peers (e.g. after relay cut or network change).
+                    node.reprobe_relays().await;
                 }
                 Vec::new()
             }
@@ -587,6 +654,63 @@ fn dht_addr_to_endpoint_addr(addr: &tom_dht::DhtNodeAddr) -> Option<tom_connect:
         id: *node_id.as_endpoint_id(),
         addrs,
     })
+}
+
+/// Build this node's rendezvous record from its current transport addresses.
+///
+/// `ts_floor` makes the published timestamp monotonic per node: since the
+/// rendezvous uses `seq = timestamp` (BEP-0044), a backward clock step (NTP,
+/// VM resume) must NOT lower our seq — that would get our update silently
+/// rejected and leave a stale address in our slot. We never publish a timestamp
+/// below the last one we used. It stays wall-clock-aligned in steady state.
+fn build_self_dht_addr(
+    node: &TomNode,
+    local_id: &NodeId,
+    ts_floor: &mut u64,
+) -> tom_dht::DhtNodeAddr {
+    let (relay_urls, direct_addrs) = extract_node_addrs(node);
+    let ts = now_ms().max(ts_floor.saturating_add(1));
+    *ts_floor = ts;
+    tom_dht::DhtNodeAddr {
+        node_id: local_id.to_string(),
+        relay_urls,
+        direct_addrs,
+        timestamp: ts,
+    }
+}
+
+/// Publish ourselves into the shared DHT rendezvous and inject any peers found.
+///
+/// Runs off-loop (spawned) so DHT latency never blocks the runtime. Discovered
+/// peers are fed back as `DhtLookupResult` commands → the existing handler dials
+/// them and joins gossip. This is what lets a node with ZERO prior knowledge
+/// (e.g. a phone on cellular that lost its only peer) find the live network with
+/// no bootstrap peer, no relay, and no privileged node.
+fn spawn_rendezvous_round(
+    node: &TomNode,
+    local_id: &NodeId,
+    dht_handle: Option<&tom_dht::AsyncDht>,
+    cmd_tx: &mpsc::Sender<RuntimeCommand>,
+    ts_floor: &mut u64,
+) {
+    let Some(dht) = dht_handle.cloned() else {
+        return;
+    };
+    let self_addr = build_self_dht_addr(node, local_id, ts_floor);
+    let own_id = self_addr.node_id.clone();
+    let tx = cmd_tx.clone();
+    tokio::spawn(async move {
+        if let Err(e) = tom_dht::rendezvous_publish(&dht, &self_addr).await {
+            tracing::debug!("rendezvous publish failed: {e}");
+        }
+        let peers = tom_dht::rendezvous_discover(&dht, &own_id).await;
+        if !peers.is_empty() {
+            tracing::info!(count = peers.len(), "rendezvous: injecting discovered peers");
+        }
+        for addr in peers {
+            let _ = tx.send(RuntimeCommand::DhtLookupResult { addr }).await;
+        }
+    });
 }
 
 async fn bootstrap_join_peer(
