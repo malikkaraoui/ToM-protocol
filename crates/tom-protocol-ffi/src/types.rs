@@ -97,6 +97,18 @@ pub struct RuntimeConfigFFI {
     /// Gossip bootstrap peers (hex NodeId strings)
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub gossip_bootstrap_peers: Vec<String>,
+
+    /// Start an embedded relay server inside this node process (full-node mode)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub enable_embedded_relay: Option<bool>,
+
+    /// Publish this node's relay URL via gossip so peers can discover it
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub enable_embedded_relay_publication: Option<bool>,
+
+    /// Inject gossip-discovered relay URLs into the QUIC transport layer
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub enable_transport_relay_discovery: Option<bool>,
 }
 
 /// Group creation config
