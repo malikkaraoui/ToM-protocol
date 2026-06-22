@@ -31,6 +31,22 @@ impl BootstrapPhase {
     pub(crate) fn on_hint_accepted(&mut self) {
         *self = BootstrapPhase::Converged;
     }
+
+    /// Revert to active discovery when the node loses all live connections.
+    ///
+    /// Bootstrap must NOT be a one-way latch: if a converged node drops back to
+    /// zero peers (e.g. its only relay/peer disappeared), it has to re-enter the
+    /// discovery sequence and keep actively seeking a rendezvous instead of
+    /// freezing in a stale `Converged` state. Returns `true` if a transition
+    /// happened (so the caller can trigger a fresh discovery round + log it).
+    pub(crate) fn on_isolated(&mut self) -> bool {
+        if *self == BootstrapPhase::Converged {
+            *self = BootstrapPhase::RelayAssist;
+            true
+        } else {
+            false
+        }
+    }
 }
 
 /// Source that produced a bootstrap hint.
@@ -92,6 +108,42 @@ mod tests {
         let mut phase = BootstrapPhase::Converged;
         phase.on_hint_accepted();
         assert_eq!(phase, BootstrapPhase::Converged);
+    }
+
+    // ── BootstrapPhase — retour en amorçage sur isolement ────────────────
+
+    #[test]
+    fn on_isolated_from_converged_reverts_to_relay_assist() {
+        let mut phase = BootstrapPhase::Converged;
+        let changed = phase.on_isolated();
+        assert!(changed, "une transition doit avoir eu lieu");
+        assert_eq!(phase, BootstrapPhase::RelayAssist);
+        assert_eq!(phase.to_string(), "amorcage");
+    }
+
+    #[test]
+    fn on_isolated_when_not_converged_is_noop() {
+        for start in [
+            BootstrapPhase::LanProbe,
+            BootstrapPhase::RelayAssist,
+            BootstrapPhase::DhtAssist,
+        ] {
+            let mut phase = start;
+            let changed = phase.on_isolated();
+            assert!(!changed, "pas de transition hors Converged");
+            assert_eq!(phase, start);
+        }
+    }
+
+    #[test]
+    fn converge_then_isolate_then_reconverge() {
+        let mut phase = BootstrapPhase::LanProbe;
+        phase.on_hint_accepted();
+        assert_eq!(phase, BootstrapPhase::Converged);
+        assert!(phase.on_isolated());
+        assert_eq!(phase, BootstrapPhase::RelayAssist); // replonge en amorçage
+        phase.on_hint_accepted();
+        assert_eq!(phase, BootstrapPhase::Converged); // reconverge sur nouveau hint
     }
 
     // ── BootstrapPhase — Display ─────────────────────────────────────────
