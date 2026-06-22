@@ -48,8 +48,7 @@ final class TomNodeService: ObservableObject {
     private var silentPlayer: AVAudioPlayer?
     #endif
 
-    // Config — empty = auto-discovery via gossip/DHT (recommended)
-    // Set an explicit URL only if you need a guaranteed bootstrap relay.
+    // Relay vide = full-node mode, relay embarqué dans chaque nœud.
     @Published var relayUrl: String = ""
     /// Best relay known at runtime: configured relay first, then gossip-discovered.
     /// Updated after start and on each poll cycle. Use as relay when seeding peer routes.
@@ -139,6 +138,7 @@ final class TomNodeService: ObservableObject {
 
     /// Track if the node was running before the app went to background
     private var wasRunningBeforeSleep = false
+    private static let cachedPeerKey = "tom_bg_peers"
 
     private init() {}
 
@@ -307,6 +307,15 @@ final class TomNodeService: ObservableObject {
                     for peerId in bootstrapPeers {
                         await self.seedPeerRoute(nodeId: peerId, relayUrl: relayUrl, source: "bootstrap")
                     }
+                    // Reconnect vers les peers connus avant la mise en background
+                    let cachedIds = UserDefaults.standard.stringArray(forKey: Self.cachedPeerKey) ?? []
+                    let freshIds = Set(cachedIds).subtracting(Set(bootstrapPeers))
+                    if !freshIds.isEmpty {
+                        appendLog(.network, "BG-cache: seed \(freshIds.count) peer(s) connu(s)")
+                        for peerId in freshIds {
+                            await self.seedPeerRoute(nodeId: peerId, relayUrl: relayUrl, source: "bg-cache")
+                        }
+                    }
                 }
 
                 startAntiSleep()
@@ -419,12 +428,26 @@ final class TomNodeService: ObservableObject {
 
     // MARK: - Lifecycle
 
-    /// Called when the app returns to foreground (after tvOS sleep).
-    /// The old tokio runtime is dead — force-reset and auto-restart if needed.
-    func handleReturnToForeground() {
-        guard state == .running else { return }
+    /// Called when the app enters background — persist state for fast reconnect.
+    func handleEnterBackground() {
+        wasRunningBeforeSleep = (state == .running)
+        let ids = discoveredPeers.map { $0.nodeId }
+        UserDefaults.standard.set(ids, forKey: Self.cachedPeerKey)
+        appendLog(.info, "BG: \(ids.count) peer(s) mis en cache, wasRunning=\(wasRunningBeforeSleep)")
+    }
 
-        appendLog(.warning, "FOREGROUND RETURN — restarting node (connections lost)")
+    /// Called when the app returns to foreground.
+    /// QUIC connections die only when iOS *actually suspends* the app — i.e. after
+    /// a genuine `.background` transition (handleEnterBackground sets the flag).
+    /// Transient `.inactive` → `.active` blips (notification/control center, app
+    /// switcher peek, banners) do NOT suspend us: connections are still alive, so
+    /// restarting then would needlessly free + rebuild the whole node in a loop.
+    /// Therefore restart ONLY after a real background. Keep history + seeded peers.
+    func handleReturnToForeground() {
+        guard wasRunningBeforeSleep else { return }
+        wasRunningBeforeSleep = false
+
+        appendLog(.warning, "FOREGROUND RETURN — restarting node (connexions QUIC perdues)")
         log.info("Returning to foreground — restarting node (connections lost during sleep)")
         pollTask?.cancel()
         pollTask = nil
@@ -438,7 +461,7 @@ final class TomNodeService: ObservableObject {
             peersCount = 0
             groupsCount = 0
 
-            // Auto-restart
+            // Auto-restart — les peers du cache seront seeded dans start()
             start()
         }
     }
