@@ -682,7 +682,12 @@ fn dht_addr_to_endpoint_addr(addr: &tom_dht::DhtNodeAddr) -> Option<tom_connect:
     }
     for addr_str in &addr.direct_addrs {
         if let Ok(sa) = addr_str.parse::<std::net::SocketAddr>() {
-            addrs.insert(TransportAddr::Ip(sa));
+            // Drop never-dialable addresses injected via DHT (loopback/unspecified/
+            // link-local): dialing them wastes attempts or hits local services.
+            // KEEP private LAN ranges + public so same-LAN discovery via DHT works.
+            if direct_addr_is_dialable(sa.ip()) {
+                addrs.insert(TransportAddr::Ip(sa));
+            }
         }
     }
 
@@ -690,6 +695,26 @@ fn dht_addr_to_endpoint_addr(addr: &tom_dht::DhtNodeAddr) -> Option<tom_connect:
         id: *node_id.as_endpoint_id(),
         addrs,
     })
+}
+
+/// Whether a DHT-advertised direct IP is worth dialing. Rejects only the
+/// never-routable classes (loopback, unspecified, link-local, broadcast,
+/// documentation); private LAN ranges are kept (needed for same-LAN connect).
+fn direct_addr_is_dialable(ip: std::net::IpAddr) -> bool {
+    match ip {
+        std::net::IpAddr::V4(v4) => {
+            !(v4.is_loopback()
+                || v4.is_unspecified()
+                || v4.is_link_local()
+                || v4.is_broadcast()
+                || v4.is_documentation())
+        }
+        std::net::IpAddr::V6(v6) => {
+            let seg = v6.segments();
+            let link_local = (seg[0] & 0xffc0) == 0xfe80;
+            !(v6.is_loopback() || v6.is_unspecified() || link_local)
+        }
+    }
 }
 
 /// Build this node's rendezvous record from its current transport addresses.
@@ -876,6 +901,22 @@ mod tests {
         let (mut addr, _) = signed_rendezvous_addr(6);
         addr.sig = vec![0u8; 64];
         assert!(!rendezvous_entry_authentic(&addr));
+    }
+
+    #[test]
+    fn direct_addr_dialability() {
+        use super::direct_addr_is_dialable;
+        use std::net::IpAddr;
+        // Dialable: public + private LAN (needed for same-LAN DHT discovery).
+        assert!(direct_addr_is_dialable("82.67.95.8".parse::<IpAddr>().unwrap()));
+        assert!(direct_addr_is_dialable("192.168.0.83".parse::<IpAddr>().unwrap()));
+        assert!(direct_addr_is_dialable("10.0.0.1".parse::<IpAddr>().unwrap()));
+        // Never-dialable: dropped.
+        assert!(!direct_addr_is_dialable("127.0.0.1".parse::<IpAddr>().unwrap()));
+        assert!(!direct_addr_is_dialable("0.0.0.0".parse::<IpAddr>().unwrap()));
+        assert!(!direct_addr_is_dialable("169.254.1.1".parse::<IpAddr>().unwrap()));
+        assert!(!direct_addr_is_dialable("::1".parse::<IpAddr>().unwrap()));
+        assert!(!direct_addr_is_dialable("fe80::1".parse::<IpAddr>().unwrap()));
     }
 
     #[test]
