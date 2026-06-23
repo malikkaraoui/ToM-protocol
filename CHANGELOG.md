@@ -1,5 +1,36 @@
 # Changelog
 
+## [0.6.0](https://github.com/malikkaraoui/ToM-protocol/compare/v0.5.0...v0.6.0) (2026-06-23)
+
+
+### Features
+
+* **dashboard:** redesign UX visualisation réseau P2P zero-config ([5be51f9](https://github.com/malikkaraoui/ToM-protocol/commit/5be51f94893d817638f9597547a537089a3cebab))
+* **dht:** rendez-vous DHT partagé pour découverte zéro-config ([3858098](https://github.com/malikkaraoui/ToM-protocol/commit/385809875a87c453796ecb3c24ee47963f8ac2d1))
+* **gateway:** commande teardown des règles NAT du relais ([3f3c6f8](https://github.com/malikkaraoui/ToM-protocol/commit/3f3c6f8f1a1f1bb113ac7ba0d686e7e670937a5d))
+* **protocol:** runtime — récupération d'isolement + rendez-vous DHT ([555f5d4](https://github.com/malikkaraoui/ToM-protocol/commit/555f5d4ed8eaf6368a0855f4f829130a0bc41778))
+
+
+### Bug Fixes
+
+* **dht,protocol:** preuve-de-possession du rendez-vous DHT (audit [#2](https://github.com/malikkaraoui/ToM-protocol/issues/2)) ([7447324](https://github.com/malikkaraoui/ToM-protocol/commit/7447324f9e21e6fea8b10f5a97a0dece87a198ae))
+* **dht:** mettre à jour les lockfiles après ajout de sha2 à tom-dht ([55cde19](https://github.com/malikkaraoui/ToM-protocol/commit/55cde19ecdbc64d368be035df6e7bec6ba445c1f))
+* **ffi:** ajouter les champs full-node à RuntimeConfigFFI ([1096981](https://github.com/malikkaraoui/ToM-protocol/commit/1096981806e64e9089a6ee36ee92be301178f2fb))
+* **ffi:** teardown détaché — Stop ne bloque plus jamais ([61ca8f1](https://github.com/malikkaraoui/ToM-protocol/commit/61ca8f134836774a98c553ef72d466553b076cb5))
+* **gateway:** demander toutes les permissions Freebox à l'auth ([807ed7a](https://github.com/malikkaraoui/ToM-protocol/commit/807ed7a409eedcfe19e83d76fdf3fc3f3734de87))
+* **ios,tvos:** keepalive anti-veille résilient aux interruptions audio ([185f1b8](https://github.com/malikkaraoui/ToM-protocol/commit/185f1b84763d6405ad03f5bc4b9bb3f804490930))
+* **ios,tvos:** Stop instantané — l'UI ne bloque plus sur 'Stopping' ([9fe6121](https://github.com/malikkaraoui/ToM-protocol/commit/9fe6121b56085b018990df0ed628c771e19714ac))
+* **ios:** redémarrer le nœud seulement après un vrai arrière-plan ([b3353d2](https://github.com/malikkaraoui/ToM-protocol/commit/b3353d288a9f48a5044b9b5faae8d8aad47041a5))
+* **macos,tvos:** redémarrer le nœud seulement après un vrai arrière-plan ([893ef1d](https://github.com/malikkaraoui/ToM-protocol/commit/893ef1d22d0116f3beb3fefb5232ccbe2047bc0b))
+* **protocol,ffi:** arrêt borné — le bouton Stop ne bloque plus ([3eefe65](https://github.com/malikkaraoui/ToM-protocol/commit/3eefe655a4357977a926a70c9f1fa7e1da5b9e20))
+* **protocol:** détecter les connexions zombies via la vivacité (audit [#1](https://github.com/malikkaraoui/ToM-protocol/issues/1)) ([0b37023](https://github.com/malikkaraoui/ToM-protocol/commit/0b370235aafd3fd9e294dbcbbf463bf1e706002d))
+* **protocol:** filtrer les adresses directes DHT non joignables (audit [#6](https://github.com/malikkaraoui/ToM-protocol/issues/6)) ([007c0d5](https://github.com/malikkaraoui/ToM-protocol/commit/007c0d5a1815766b457ac433c3b4c590efeba37e))
+* **protocol:** ne jamais publier au gossip un relai non joignable globalement ([498a76b](https://github.com/malikkaraoui/ToM-protocol/commit/498a76b10dd41ac46e455a656790505796eb50bd))
+* **protocol:** phase d'amorçage réversible sur isolement ([0ceaf2f](https://github.com/malikkaraoui/ToM-protocol/commit/0ceaf2f7247e75197731d5d7027c5ed01cfa6ccc))
+* **protocol:** purge TTL du cache anti-replay nonce (audit [#7](https://github.com/malikkaraoui/ToM-protocol/issues/7)) ([e01a443](https://github.com/malikkaraoui/ToM-protocol/commit/e01a443441544c8ef3ddba41807637e226a35064))
+* **tom-sdk:** observabilité des événements droppés (review S0→S3) ([adb7935](https://github.com/malikkaraoui/ToM-protocol/commit/adb7935484ce14f4dd1f9510b2b3d0c80716b8eb))
+* **tom-sdk:** tracer les evenements protocole droppes par le merger ([c8fc481](https://github.com/malikkaraoui/ToM-protocol/commit/c8fc48127d35e925e02e93c072bab37e6721e09f))
+
 ## [0.5.0](https://github.com/malikkaraoui/ToM-protocol/compare/v0.4.0...v0.5.0) (2026-06-12)
 
 
