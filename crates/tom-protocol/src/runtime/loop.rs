@@ -27,6 +27,17 @@ use super::metrics::ProtocolMetrics;
 /// Fixed gossip topic for ToM peer discovery (all nodes share this).
 const TOM_GOSSIP_TOPIC: [u8; 32] = *b"tom-protocol-gossip-discovery-v1";
 
+/// Silence window after which "connected" peers are treated as zombies.
+/// Healthy peers emit gossip announces (~10s) + heartbeats, so 45s of total
+/// inbound silence means the links are dead even if QUIC still reports them.
+const LIVENESS_STALE_MS: u64 = 45_000;
+
+/// Whether inbound traffic has gone stale (zombie-connection detector).
+/// Saturating so a `last_inbound` slightly in the future never underflows to stale.
+fn liveness_is_stale(last_inbound: u64, now: u64, threshold_ms: u64) -> bool {
+    now.saturating_sub(last_inbound) > threshold_ms
+}
+
 /// Main event loop — thin orchestrator.
 ///
 /// All protocol logic lives in `RuntimeState`. This function only:
@@ -116,6 +127,12 @@ pub(super) async fn runtime_loop(
     // Monotonic floor for rendezvous publication timestamps (see build_self_dht_addr).
     let mut rendezvous_ts_floor: u64 = 0;
 
+    // Liveness: timestamp of the last inbound traffic (any message or gossip
+    // event). Used to detect ZOMBIE connections — peers that QUIC still reports
+    // as "connected" but that have gone silent. connected_peers() alone can't
+    // see this, so a stale inbound clock means we are effectively isolated.
+    let mut last_inbound_at = now_ms();
+
     // Announce into the shared rendezvous + pull live peers immediately, so a
     // node with no prior knowledge starts finding the network from the first tick.
     spawn_rendezvous_round(
@@ -168,6 +185,7 @@ pub(super) async fn runtime_loop(
                 match result {
                     Ok((_from, data)) => {
                         metrics.inc_messages_received();
+                        last_inbound_at = now_ms();
                         state.handle_incoming(&data)
                     }
                     Err(e) => vec![RuntimeEffect::Emit(ProtocolEvent::Error {
@@ -337,6 +355,8 @@ pub(super) async fn runtime_loop(
                 }
             } => {
                 if let Some(Ok(event)) = event {
+                    // Any gossip event is proof of a live mesh — refresh liveness.
+                    last_inbound_at = now_ms();
                     match event {
                         GossipEvent::Received(msg) => {
                             state.handle_gossip_event(
@@ -473,14 +493,23 @@ pub(super) async fn runtime_loop(
                     let known_eids: Vec<_> =
                         known_node_ids.iter().map(|n| *n.as_endpoint_id()).collect::<Vec<_>>();
 
-                    // Isolation: no live QUIC connection means we lost the network.
+                    // Isolation = no live QUIC connection OR connections that have
+                    // gone silent (zombies): connected_peers() can't see a dead-but-
+                    // open link, so a stale inbound clock is treated as isolation too.
                     let connected = node.connected_peers().await;
-                    if connected.is_empty() {
+                    let zombie = !connected.is_empty()
+                        && liveness_is_stale(last_inbound_at, now_ms(), LIVENESS_STALE_MS);
+                    if connected.is_empty() || zombie {
                         if bootstrap_phase.on_isolated() {
                             tracing::info!(
-                                "reconnect_check: isolé (0 connexion) — retour en amorçage, redécouverte active"
+                                connexions = connected.len(),
+                                zombie,
+                                "reconnect_check: isolé — retour en amorçage, redécouverte active"
                             );
                         }
+                        // Reset the liveness clock so a zombie state doesn't re-fire
+                        // every tick; give the fresh discovery a chance to reconnect.
+                        last_inbound_at = now_ms();
                         // Re-announce ourselves and re-resolve known peers via DHT to
                         // pick up fresh addresses (old ones may be dead after a change).
                         let (relay_urls, direct_addrs) = extract_node_addrs(&node);
@@ -747,5 +776,33 @@ async fn bootstrap_join_peer(
             source = %source,
             "bootstrap: phase advanced"
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{liveness_is_stale, LIVENESS_STALE_MS};
+
+    #[test]
+    fn liveness_fresh_within_window() {
+        let now = 1_000_000u64;
+        assert!(!liveness_is_stale(now, now, LIVENESS_STALE_MS));
+        assert!(!liveness_is_stale(now - 1_000, now, LIVENESS_STALE_MS));
+        assert!(!liveness_is_stale(now - LIVENESS_STALE_MS, now, LIVENESS_STALE_MS));
+    }
+
+    #[test]
+    fn liveness_stale_past_window() {
+        let now = 1_000_000u64;
+        assert!(liveness_is_stale(now - LIVENESS_STALE_MS - 1, now, LIVENESS_STALE_MS));
+        assert!(liveness_is_stale(0, now, LIVENESS_STALE_MS));
+    }
+
+    #[test]
+    fn liveness_future_inbound_never_stale() {
+        // Clock skew: last_inbound slightly ahead of now must not underflow to stale.
+        let now = 1_000_000u64;
+        assert!(!liveness_is_stale(now + 5_000, now, LIVENESS_STALE_MS));
+        assert!(!liveness_is_stale(u64::MAX, now, LIVENESS_STALE_MS));
     }
 }
