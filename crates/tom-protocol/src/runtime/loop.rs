@@ -4,6 +4,7 @@
 /// application commands, and timers. Delegates all logic to RuntimeState,
 /// executes effects via executor.
 use tokio::sync::{broadcast, mpsc};
+use ed25519_dalek::Signer;
 use tom_transport::{BootstrapHint, TomNode};
 
 use crate::discovery::DiscoverySource;
@@ -141,6 +142,7 @@ pub(super) async fn runtime_loop(
         dht_handle.as_ref(),
         &cmd_tx,
         &mut rendezvous_ts_floor,
+        &secret_seed,
     );
 
     // ── PeerPresent receiver from relay ────────────────────────────────
@@ -476,6 +478,7 @@ pub(super) async fn runtime_loop(
                     dht_handle.as_ref(),
                     &cmd_tx,
                     &mut rendezvous_ts_floor,
+                    &secret_seed,
                 );
                 Vec::new()
             }
@@ -522,6 +525,7 @@ pub(super) async fn runtime_loop(
                             dht_handle.as_ref(),
                             &cmd_tx,
                             &mut rendezvous_ts_floor,
+                            &secret_seed,
                         );
                         if let Some(dht_client) = dht_handle.as_ref() {
                             for node_id in &known_node_ids {
@@ -699,16 +703,42 @@ fn build_self_dht_addr(
     node: &TomNode,
     local_id: &NodeId,
     ts_floor: &mut u64,
+    secret_seed: &[u8; 32],
 ) -> tom_dht::DhtNodeAddr {
     let (relay_urls, direct_addrs) = extract_node_addrs(node);
     let ts = now_ms().max(ts_floor.saturating_add(1));
     *ts_floor = ts;
-    tom_dht::DhtNodeAddr {
+    let mut addr = tom_dht::DhtNodeAddr {
         node_id: local_id.to_string(),
         relay_urls,
         direct_addrs,
         timestamp: ts,
+        sig: Vec::new(),
+    };
+    // Proof-of-possession: sign with our node key so readers can prove this
+    // rendezvous entry really belongs to node_id (shared slot keys can't).
+    let sig = ed25519_dalek::SigningKey::from_bytes(secret_seed).sign(&addr.signing_bytes());
+    addr.sig = sig.to_bytes().to_vec();
+    addr
+}
+
+/// Verify a rendezvous entry's proof-of-possession signature against its node_id.
+/// Rejects unsigned, malformed, or forged entries (anti-squatting/poisoning).
+fn rendezvous_entry_authentic(addr: &tom_dht::DhtNodeAddr) -> bool {
+    use ed25519_dalek::{Signature, Verifier, VerifyingKey};
+    let Ok(node_id) = addr.node_id.parse::<NodeId>() else {
+        return false;
+    };
+    let Ok(vk) = VerifyingKey::from_bytes(&node_id.as_bytes()) else {
+        return false;
+    };
+    if addr.sig.len() != 64 {
+        return false;
     }
+    let mut sig_bytes = [0u8; 64];
+    sig_bytes.copy_from_slice(&addr.sig);
+    vk.verify(&addr.signing_bytes(), &Signature::from_bytes(&sig_bytes))
+        .is_ok()
 }
 
 /// Publish ourselves into the shared DHT rendezvous and inject any peers found.
@@ -724,20 +754,30 @@ fn spawn_rendezvous_round(
     dht_handle: Option<&tom_dht::AsyncDht>,
     cmd_tx: &mpsc::Sender<RuntimeCommand>,
     ts_floor: &mut u64,
+    secret_seed: &[u8; 32],
 ) {
     let Some(dht) = dht_handle.cloned() else {
         return;
     };
-    let self_addr = build_self_dht_addr(node, local_id, ts_floor);
+    let self_addr = build_self_dht_addr(node, local_id, ts_floor, secret_seed);
     let own_id = self_addr.node_id.clone();
     let tx = cmd_tx.clone();
     tokio::spawn(async move {
         if let Err(e) = tom_dht::rendezvous_publish(&dht, &self_addr).await {
             tracing::debug!("rendezvous publish failed: {e}");
         }
-        let peers = tom_dht::rendezvous_discover(&dht, &own_id).await;
-        if !peers.is_empty() {
-            tracing::info!(count = peers.len(), "rendezvous: injecting discovered peers");
+        let found = tom_dht::rendezvous_discover(&dht, &own_id).await;
+        // SECURITY: only inject entries with a valid proof-of-possession signature.
+        // Drops squatted/poisoned slots (forged node_id or addrs).
+        let total = found.len();
+        let peers: Vec<_> = found.into_iter().filter(rendezvous_entry_authentic).collect();
+        let rejected = total - peers.len();
+        if !peers.is_empty() || rejected > 0 {
+            tracing::info!(
+                injectés = peers.len(),
+                rejetés_sig = rejected,
+                "rendezvous: pairs découverts"
+            );
         }
         for addr in peers {
             let _ = tx.send(RuntimeCommand::DhtLookupResult { addr }).await;
@@ -781,7 +821,62 @@ async fn bootstrap_join_peer(
 
 #[cfg(test)]
 mod tests {
-    use super::{liveness_is_stale, LIVENESS_STALE_MS};
+    use super::{liveness_is_stale, rendezvous_entry_authentic, LIVENESS_STALE_MS};
+    use ed25519_dalek::{Signer, SigningKey};
+    use rand::SeedableRng;
+
+    fn signed_rendezvous_addr(seed_u64: u64) -> (tom_dht::DhtNodeAddr, [u8; 32]) {
+        let mut rng = rand::rngs::StdRng::seed_from_u64(seed_u64);
+        let secret = tom_connect::SecretKey::generate(&mut rng);
+        let seed = secret.to_bytes();
+        let node_id = secret.public().to_string();
+        let mut addr = tom_dht::DhtNodeAddr {
+            node_id,
+            relay_urls: vec!["http://82.67.95.8:3340".into()],
+            direct_addrs: vec!["82.67.95.8:43925".into()],
+            timestamp: 1_000_000,
+            sig: Vec::new(),
+        };
+        let sig = SigningKey::from_bytes(&seed).sign(&addr.signing_bytes());
+        addr.sig = sig.to_bytes().to_vec();
+        (addr, seed)
+    }
+
+    #[test]
+    fn rendezvous_valid_signature_accepted() {
+        let (addr, _) = signed_rendezvous_addr(1);
+        assert!(rendezvous_entry_authentic(&addr));
+    }
+
+    #[test]
+    fn rendezvous_unsigned_rejected() {
+        let (mut addr, _) = signed_rendezvous_addr(2);
+        addr.sig.clear();
+        assert!(!rendezvous_entry_authentic(&addr), "entrée non signée doit être rejetée");
+    }
+
+    #[test]
+    fn rendezvous_tampered_addr_rejected() {
+        let (mut addr, _) = signed_rendezvous_addr(3);
+        addr.direct_addrs = vec!["6.6.6.6:3340".into()]; // attacker swaps the address
+        assert!(!rendezvous_entry_authentic(&addr), "addr falsifiée doit être rejetée");
+    }
+
+    #[test]
+    fn rendezvous_forged_node_id_rejected() {
+        // Attacker keeps a valid signature but swaps node_id to impersonate someone.
+        let (mut addr, _) = signed_rendezvous_addr(4);
+        let (other, _) = signed_rendezvous_addr(5);
+        addr.node_id = other.node_id;
+        assert!(!rendezvous_entry_authentic(&addr), "node_id usurpé doit être rejeté");
+    }
+
+    #[test]
+    fn rendezvous_garbage_sig_rejected() {
+        let (mut addr, _) = signed_rendezvous_addr(6);
+        addr.sig = vec![0u8; 64];
+        assert!(!rendezvous_entry_authentic(&addr));
+    }
 
     #[test]
     fn liveness_fresh_within_window() {

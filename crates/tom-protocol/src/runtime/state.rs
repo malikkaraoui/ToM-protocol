@@ -268,6 +268,9 @@ impl RuntimeState {
                 relay_urls,
                 direct_addrs,
                 timestamp: now_ms(),
+                // Per-node record under the node's OWN key → already BEP-0044
+                // authenticated; no app-level signature needed here.
+                ..Default::default()
             };
 
             if let Err(e) = dht.publish(signing_key, &our_addr).await {
