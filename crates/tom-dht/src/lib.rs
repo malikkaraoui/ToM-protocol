@@ -62,7 +62,7 @@ fn slot_for_node(node_id: &str) -> u8 {
 }
 
 /// Node address stored in the DHT.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct DhtNodeAddr {
     /// Ed25519 public key as base32 string.
     pub node_id: String,
@@ -72,6 +72,36 @@ pub struct DhtNodeAddr {
     pub direct_addrs: Vec<String>,
     /// Publication timestamp (Unix ms).
     pub timestamp: u64,
+    /// Ed25519 signature (64 bytes) over `signing_bytes()`, by the key matching
+    /// `node_id`. PROOF-OF-POSSESSION for the shared rendezvous: the slot keys are
+    /// public (derived from a constant), so the BEP-0044 signature proves nothing
+    /// about node_id — this app-level signature does. Empty for per-node records
+    /// (those live under the node's OWN key, already BEP-0044-authenticated).
+    /// The crate carrying it (tom-dht) treats it as opaque; tom-protocol signs/verifies.
+    #[serde(default)]
+    pub sig: Vec<u8>,
+}
+
+impl DhtNodeAddr {
+    /// Canonical bytes signed by the node's key. EXCLUDES `sig`. Field order +
+    /// NUL separators make it unambiguous; Vec order round-trips through JSON.
+    pub fn signing_bytes(&self) -> Vec<u8> {
+        let mut b = Vec::new();
+        b.extend_from_slice(self.node_id.as_bytes());
+        b.push(0);
+        for u in &self.relay_urls {
+            b.extend_from_slice(u.as_bytes());
+            b.push(0);
+        }
+        b.push(0);
+        for a in &self.direct_addrs {
+            b.extend_from_slice(a.as_bytes());
+            b.push(0);
+        }
+        b.push(0);
+        b.extend_from_slice(&self.timestamp.to_le_bytes());
+        b
+    }
 }
 
 /// DHT discovery service — publish and lookup node addresses via BEP-0044.
@@ -341,11 +371,17 @@ mod tests {
             relay_urls: vec!["https://relay.example.com".into()],
             direct_addrs: vec!["192.168.1.100:12345".into()],
             timestamp: 1234567890,
+            ..Default::default()
         };
 
         let json = serde_json::to_string(&addr).unwrap();
         let decoded: DhtNodeAddr = serde_json::from_str(&json).unwrap();
         assert_eq!(decoded, addr);
+
+        // signing_bytes is stable and excludes the sig field.
+        let mut signed = addr.clone();
+        signed.sig = vec![1, 2, 3];
+        assert_eq!(addr.signing_bytes(), signed.signing_bytes(), "sig must not affect signing_bytes");
     }
 
     #[test]
@@ -370,6 +406,7 @@ mod tests {
                 relay_urls: vec!["http://relay.test:3340".into()],
                 direct_addrs: vec!["10.0.0.1:3340".into()],
                 timestamp: now_ms(),
+                ..Default::default()
             };
 
             publisher
@@ -419,6 +456,7 @@ mod tests {
                 relay_urls: vec![],
                 direct_addrs: vec![],
                 timestamp: now_ms(),
+                ..Default::default()
             };
 
             dht.publish(&[7u8; 32], &addr).await.unwrap();
@@ -448,6 +486,7 @@ mod tests {
                 relay_urls: vec![],
                 direct_addrs: vec![],
                 timestamp: now_ms() - 3 * 3600 * 1000,
+                ..Default::default()
             };
 
             publisher.publish(&signing_key_bytes, &addr).await.unwrap();
@@ -467,6 +506,7 @@ mod tests {
             relay_urls: vec![format!("http://relay/{node_id}")],
             direct_addrs: vec!["10.0.0.1:3340".into()],
             timestamp: now_ms(),
+            ..Default::default()
         }
     }
 
