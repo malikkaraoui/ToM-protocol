@@ -70,6 +70,11 @@ pub enum RoutingAction {
     },
     /// Rejected (TTL exhausted, chain too deep, malformed, etc.)
     Reject { reason: String },
+    /// Duplicate of an already-delivered message: do NOT re-deliver locally, but
+    /// RE-SEND the (unsigned) delivery ACK. Without this, a lost ACK would make
+    /// the sender retry forever — the recipient already has the message but never
+    /// re-confirms (breaks LOCKED decision #1: delivered ⟺ ACK).
+    ReAck { response: Envelope },
     /// Duplicate or expired — silently ignore.
     Drop,
 }
@@ -220,7 +225,11 @@ impl Router {
         // Dedup check
         let cache_key = format!("{}:{}", envelope.id, envelope.from);
         if self.message_cache.contains_key(&cache_key) {
-            return RoutingAction::Drop;
+            // Already delivered — but the sender resent it, which means our prior
+            // ACK was lost. Re-send the ACK so the sender can confirm delivery;
+            // do NOT deliver to the app again.
+            let response = self.create_delivery_ack(&envelope);
+            return RoutingAction::ReAck { response };
         }
 
         // Nonce anti-replay for encrypted messages (R11.2). Replay only if the
@@ -483,7 +492,16 @@ mod tests {
         let env2 = env.clone();
 
         assert!(matches!(router.route(env), RoutingAction::Deliver { .. }));
-        assert!(matches!(router.route(env2), RoutingAction::Drop));
+        // Duplicate: re-ACK (lost-ACK recovery), NOT silent Drop, NOT re-deliver.
+        match router.route(env2) {
+            RoutingAction::ReAck { response } => {
+                assert_eq!(response.to, sender);
+                assert_eq!(response.msg_type, MessageType::Ack);
+                let ack = AckPayload::from_bytes(&response.payload).unwrap();
+                assert_eq!(ack.ack_type, AckType::RecipientReceived);
+            }
+            other => panic!("expected ReAck on duplicate, got {:?}", other),
+        }
     }
 
     // ── Forward tests ──────────────────────────────────────────────────

@@ -821,6 +821,15 @@ impl RuntimeState {
                 effects
             }
 
+            // Duplicate delivery (sender resent after a lost ACK): re-confirm by
+            // re-sending the signed ACK, WITHOUT delivering to the app again.
+            // Guarantees delivered ⟺ ACK (decision #1) survives ACK loss.
+            RoutingAction::ReAck { response } => {
+                let mut ack = response;
+                ack.sign(&self.secret_seed);
+                vec![RuntimeEffect::SendEnvelope(ack)]
+            }
+
             RoutingAction::Forward {
                 envelope,
                 next_hop,
@@ -2899,21 +2908,27 @@ mod tests {
     }
 
     #[test]
-    fn handle_incoming_chat_dedup_drops() {
+    fn handle_incoming_chat_dedup_reacks() {
         let mut state = default_state(1);
         let (env, sig_valid) = make_signed_chat(2, state.local_id, b"once");
         let env2 = env.clone();
 
         let effects1 = state.handle_incoming_chat(env, sig_valid);
         assert!(
-            !effects1.is_empty(),
-            "first delivery should produce effects"
+            effects1.iter().any(|e| matches!(e, RuntimeEffect::DeliverMessage(_))),
+            "first delivery should deliver to the app"
         );
 
+        // Duplicate (sender resent after lost ACK): re-send the ACK, do NOT
+        // re-deliver to the app (decision #1 survives ACK loss).
         let effects2 = state.handle_incoming_chat(env2, sig_valid);
         assert!(
-            effects2.is_empty(),
-            "duplicate should be dropped, got: {effects2:?}"
+            !effects2.iter().any(|e| matches!(e, RuntimeEffect::DeliverMessage(_))),
+            "duplicate must NOT re-deliver to the app, got: {effects2:?}"
+        );
+        assert!(
+            effects2.iter().any(|e| matches!(e, RuntimeEffect::SendEnvelope(_))),
+            "duplicate must re-send an ACK, got: {effects2:?}"
         );
     }
 
