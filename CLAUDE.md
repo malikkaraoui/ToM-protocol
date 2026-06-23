@@ -433,7 +433,7 @@ Trous **confirmés** (review multi-agent, file:line). À traiter par phases ; ne
 3. **FFI double-teardown** (`tom-protocol-ffi` `tom_node_stop`/`tom_node_free`) — deux threads détachés à logique identique → risque de double-drop. Fix : fusionner ou garde `Once`/`AtomicBool`.
 
 **Haut risque (Phase 2) :**
-4. **Suspension iOS/tvOS** — l'anti-veille audio empêche la veille *device*, pas la *suspension app* : runtime gelé jusqu'à ~1h30 au réveil. Fix : observer `scenePhase`, reprobe forcé ; à terme push APNs/VoIP.
+4. 🔻 **Suspension iOS/tvOS** — RÉCUPÉRATION en place : anti-veille audio résilient aux interruptions (resume) + scenePhase observer → au retour foreground restart complet (`forceReset`+`start` → re-découverte incl. rendez-vous) + le runtime se ré-amorce sur connexion zombie (#1, 45s). Résiduel inhérent à iOS : pendant une **vraie suspension** (app en arrière-plan), le process est gelé — l'exécution continue en fond nécessite **push APNs/VoIP** (chantier futur, pas un hack BGTask). Filet anti-perte de message : backup TTL 24h.
 5. **Livraison (décision #1)** — ACK non signé ; backup SQLite pouvant dépasser le TTL 24h (décision #2). Fix : signer l'ACK, garantir la purge TTL côté backup.
 6. **Adresses directes DHT non filtrées** (`loop.rs`) — IP privées injectées sans `relay_url_is_globally_reachable`. Fix : unifier le filtrage.
 7. **Nonce anti-replay sans purge TTL** (`router.rs`). Fix : `(nonce, ts)` + purge > 24h.
