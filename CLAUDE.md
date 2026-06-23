@@ -439,7 +439,7 @@ Trous **confirmés** (review multi-agent, file:line). À traiter par phases ; ne
 7. **Nonce anti-replay sans purge TTL** (`router.rs`). Fix : `(nonce, ts)` + purge > 24h.
 
 **Conception (Phase 3) :**
-8. **ProtocolEvent fuite d'état interne** (`SenderThrottled{score}`, `RolePromoted`…) — viole décision #6 (invisible utilisateur).
+8. ✅ **ProtocolEvent fuite d'état interne** — VÉRIFIÉ non-exposé : `RolePromoted`/`RoleDemoted`/`BackupStored`/`SenderThrottled` ne traversent NI le FFI NI Swift (le Live Log des apps vient du logging Swift, pas d'eux). Ce sont des events d'observabilité interne (tom-tui). La frontière end-user (#6) est donc propre. Conservés pour le debug ; à filtrer dans un futur produit end-user, pas un bug protocole.
 9. **Détection relay offline lente** (45-105s) — pas de health-check actif.
 10. **Meshing partiel** — `join_peers` ne force pas de dial direct ; nœuds en bordure.
 
