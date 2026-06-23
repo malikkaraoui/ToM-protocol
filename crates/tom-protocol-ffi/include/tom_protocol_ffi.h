@@ -51,10 +51,11 @@ int32_t tom_node_start(struct TomNodeHandle *handle, const char *runtime_config_
 // * After calling this, `handle` is invalid and must not be used
 void tom_node_stop(struct TomNodeHandle *handle);
 
-// Free a TomNodeHandle without stopping (if already stopped separately)
+// Free a TomNodeHandle without graceful shutdown (e.g. forceReset after OS suspend).
 //
 // # Safety
-// * `handle` must be a valid pointer returned by `tom_node_create()`
+// * `handle` must be a valid pointer returned by `tom_node_create()` and not
+//   already freed/stopped (see `detached_teardown` ownership contract).
 void tom_node_free(struct TomNodeHandle *handle);
 
 // Send a 1-1 message to a peer
