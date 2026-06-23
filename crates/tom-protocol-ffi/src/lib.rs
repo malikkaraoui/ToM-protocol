@@ -388,45 +388,53 @@ pub unsafe extern "C" fn tom_node_stop(handle: *mut TomNodeHandle) {
         return;
     }
 
-    let handle_box = unsafe { Box::from_raw(handle) };
+    detached_teardown(unsafe { Box::from_raw(handle) }, true);
+}
 
-    // Tear down on a DETACHED thread so the caller (the UI Stop) returns
-    // immediately. Dropping the Runtime / joining the DHT (mainline) background
-    // thread can block for seconds — and a synchronous Drop can't be bounded by
-    // shutdown_timeout — so we never do it on the calling thread.
+/// Tear down a node handle on a DETACHED thread so the caller never blocks.
+///
+/// Dropping the Runtime / joining the DHT (mainline) background thread can block
+/// for seconds — and a synchronous `Drop` can't be bounded by `shutdown_timeout`
+/// — so we move the whole teardown off the calling thread.
+///
+/// OWNERSHIP CONTRACT: this CONSUMES the handle (single `Box::from_raw`). The
+/// caller MUST set its pointer to NULL and never pass it to `tom_node_stop` /
+/// `tom_node_free` again (double-free = UB). The Swift wrapper enforces this:
+/// `stop()`/`forceReset()` are `guard let h = handle` + `handle = nil`, on an
+/// actor (serialized) — so the second call is a no-op. There is therefore a
+/// single teardown path; `stop` and `free` differ only by `graceful`.
+fn detached_teardown(handle_box: Box<TomNodeHandle>, graceful: bool) {
     std::thread::spawn(move || {
-        // Signal the loop to break + persist state (bounded), then force teardown.
-        handle_box.runtime.block_on(async {
-            if let Some(runtime_handle) = handle_box.handle.lock().await.take() {
-                tracing::info!("Shutting down TOM protocol node...");
-                let _ =
-                    tokio::time::timeout(std::time::Duration::from_secs(3), runtime_handle.shutdown())
-                        .await;
-            }
-        });
+        if graceful {
+            // Signal the loop to break + persist state (bounded) before forcing.
+            handle_box.runtime.block_on(async {
+                if let Some(runtime_handle) = handle_box.handle.lock().await.take() {
+                    tracing::info!("Shutting down TOM protocol node...");
+                    let _ = tokio::time::timeout(
+                        std::time::Duration::from_secs(3),
+                        runtime_handle.shutdown(),
+                    )
+                    .await;
+                }
+            });
+        }
         let TomNodeHandle { runtime, .. } = *handle_box;
         runtime.shutdown_timeout(std::time::Duration::from_secs(3));
-        tracing::info!("Node stopped (background teardown done)");
+        tracing::info!(graceful, "node teardown done (background)");
     });
 }
 
-/// Free a TomNodeHandle without stopping (if already stopped separately)
+/// Free a TomNodeHandle without graceful shutdown (e.g. forceReset after OS suspend).
 ///
 /// # Safety
-/// * `handle` must be a valid pointer returned by `tom_node_create()`
+/// * `handle` must be a valid pointer returned by `tom_node_create()` and not
+///   already freed/stopped (see `detached_teardown` ownership contract).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn tom_node_free(handle: *mut TomNodeHandle) {
     if handle.is_null() {
         return;
     }
-    let handle_box = unsafe { Box::from_raw(handle) };
-    // Detached teardown: a plain drop blocks until the Runtime and every
-    // background thread (QUIC/DHT mainline) joins — which can hang forceReset
-    // (called on foreground return). Never block the caller.
-    std::thread::spawn(move || {
-        let TomNodeHandle { runtime, .. } = *handle_box;
-        runtime.shutdown_timeout(std::time::Duration::from_secs(3));
-    });
+    detached_teardown(unsafe { Box::from_raw(handle) }, false);
 }
 
 /// Send a 1-1 message to a peer
