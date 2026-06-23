@@ -27,7 +27,14 @@ const ACK_TTL: Duration = Duration::from_secs(300);
 const MAX_CACHE_SIZE: usize = 10_000;
 
 /// Maximum nonce cache entries (crypto anti-replay for encrypted 1-1 messages).
+/// Hard memory bound (LRU); a TTL also time-purges entries (see NONCE_TTL).
 const MAX_NONCE_CACHE: usize = 50_000;
+
+/// How long a nonce blocks replays — matches the 24h max message/backup lifespan
+/// (LOCKED decision #2). Without it, an LRU-only cache lets an attacker flood new
+/// nonces to evict an old one, then replay that message. Memory stays bounded by
+/// MAX_NONCE_CACHE; in normal operation 24h of nonces is far below that cap.
+const NONCE_TTL: Duration = Duration::from_secs(24 * 60 * 60);
 
 /// Maximum age for read receipt timestamps (7 days in ms).
 const READ_RECEIPT_MAX_AGE_MS: u64 = 7 * 24 * 60 * 60 * 1000;
@@ -124,7 +131,8 @@ pub struct Router {
     /// ACK anti-replay cache: "msg_id:from:ack_type" → first seen.
     ack_cache: HashMap<String, Instant>,
     /// Nonce anti-replay cache for encrypted 1-1 messages (R11.2).
-    nonce_cache: LruCache<[u8; 24], ()>,
+    /// Value = first-seen instant, for TTL-based purge on top of the LRU bound.
+    nonce_cache: LruCache<[u8; 24], Instant>,
 }
 
 impl Router {
@@ -174,13 +182,23 @@ impl Router {
         self.handle_direct_forward(envelope)
     }
 
-    /// Evict expired entries from both caches.
+    /// Evict expired entries from all caches (dedup, ACK, nonce).
     pub fn cleanup_caches(&mut self) {
         let now = Instant::now();
         self.message_cache
             .retain(|_, ts| now.duration_since(*ts) < DEDUP_TTL);
         self.ack_cache
             .retain(|_, ts| now.duration_since(*ts) < ACK_TTL);
+        // Time-purge the nonce cache (LRU has no TTL of its own).
+        let expired: Vec<[u8; 24]> = self
+            .nonce_cache
+            .iter()
+            .filter(|(_, ts)| now.duration_since(**ts) >= NONCE_TTL)
+            .map(|(k, _)| *k)
+            .collect();
+        for k in expired {
+            self.nonce_cache.pop(&k);
+        }
     }
 
     /// Current sizes of (message_cache, ack_cache, nonce_cache).
@@ -205,13 +223,17 @@ impl Router {
             return RoutingAction::Drop;
         }
 
-        // Nonce anti-replay for encrypted messages (R11.2)
+        // Nonce anti-replay for encrypted messages (R11.2). Replay only if the
+        // nonce was seen within NONCE_TTL — an expired entry no longer blocks
+        // (the message itself is past its 24h lifespan by then).
         if envelope.encrypted {
             if let Ok(enc) = crate::crypto::EncryptedPayload::from_bytes(&envelope.payload) {
-                if self.nonce_cache.contains(&enc.nonce) {
-                    return RoutingAction::Drop;
+                if let Some(seen) = self.nonce_cache.get(&enc.nonce) {
+                    if seen.elapsed() < NONCE_TTL {
+                        return RoutingAction::Drop;
+                    }
                 }
-                self.nonce_cache.push(enc.nonce, ());
+                self.nonce_cache.put(enc.nonce, Instant::now());
             }
         }
 
