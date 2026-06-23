@@ -440,8 +440,8 @@ Trous **confirmés** (review multi-agent, file:line). À traiter par phases ; ne
 
 **Conception (Phase 3) :**
 8. ✅ **ProtocolEvent fuite d'état interne** — VÉRIFIÉ non-exposé : `RolePromoted`/`RoleDemoted`/`BackupStored`/`SenderThrottled` ne traversent NI le FFI NI Swift (le Live Log des apps vient du logging Swift, pas d'eux). Ce sont des events d'observabilité interne (tom-tui). La frontière end-user (#6) est donc propre. Conservés pour le debug ; à filtrer dans un futur produit end-user, pas un bug protocole.
-9. **Détection relay offline lente** (45-105s) — pas de health-check actif.
-10. **Meshing partiel** — `join_peers` ne force pas de dial direct ; nœuds en bordure.
+9. 🔻 **Détection relay offline** — atténué par #1 (liveness 45s) + reprobe 15s (était ~105s). Un ping relais dédié 30s nécessiterait une API dans le transport forké (tom-connect) — reporté (gain marginal vs risque).
+10. ✅ **Meshing** — VÉRIFIÉ par-design : un mesh gossip est un graphe *connexe* (via hubs), pas *complet* ; forcer un full-mesh N² chargerait les appareils faibles (Apple TV). La connectivité est maximisée par le rendez-vous (#2) + le rejoin 15s. Pas de dial-direct forcé (contre-productif).
 
 ## Important Notes for LLMs
 
