@@ -77,6 +77,8 @@ UDP (iroh-quinn-udp)               ← Raw UDP I/O (not forked — netwatch comp
 
 ### Fork Status
 
+> **Indépendance (à retenir)** : ToM est **né d'un fork d'iroh 0.96**, mais le protocole est désormais **autonome et souverain**. Tous les identifiants de protocole (DNS `_tom`, SNI `.tom.invalid`, en-têtes `X-Tom-*`, ALPN `tom-*`) sont sous notre namespace. Conséquence assumée : **ToM n'est PAS — et n'a pas vocation à rester — wire-compatible avec le réseau iroh public.** iroh est notre *point de départ historique*, pas une dépendance réseau. Les seuls résidus iroh sont des hostnames de services externes n0 (`dns.iroh.link`), actifs uniquement avec le preset `n0_discovery`, et remplaçables.
+
 All critical iroh dependencies have been forked under the `tom-*` namespace (MIT license):
 
 | Original | Fork | LOC | Notes |
