@@ -256,7 +256,7 @@ async fn stability_2min() -> anyhow::Result<()> {
     while start.elapsed() < Duration::from_secs(120) {
         let elapsed_secs = start.elapsed().as_secs();
 
-        if elapsed_secs % 2 == 0 {
+        if elapsed_secs.is_multiple_of(2) {
             // A -> B
             let payload = format!("from-a-{}", sent).into_bytes();
             if alice.handle.send_message(bob.id, payload).await.is_err() {
