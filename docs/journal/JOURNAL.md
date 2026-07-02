@@ -96,3 +96,23 @@ Voir entrée précédente (partagé — même session).
 
 ### Auto-critique
 Le squat de slot (un attaquant publie des entrées **valides et auto-signées** sous ses propres clés pour occuper les 8 slots) n'est **pas** résolu par ce fix — seul le poisoning (usurpation d'identité d'autrui) l'est. C'est exactement la portée que l'audit décrivait ("PoP n'empêche pas le DoS").
+
+---
+
+## [2026-07-02 | claude-sonnet-5] — Vérification tom-sdk (formes de livraison §2) : gap d'audit corrigé, pas de code touché
+
+### Objectif
+Après la gate/commit/push ci-dessus, j'ai continué vers le chantier suivant recommandé par MISSION.md §7 ("formes de livraison §2"). L'audit notait `tom-sdk` : "0 `#[test]` détecté au grep — NON CONFIRMÉ au-delà du count".
+
+### Ce que j'ai vérifié
+`cargo test -p tom-sdk` : **1 test d'intégration réel** (`tests/two_clients.rs::two_clients_exchange_message_via_tickets`, deux clients réels échangent un message via tickets, vérifie `signature_valid`+`was_encrypted`) + 2 doctests, tous verts. L'audit avait raison d'être prudent (grep seul ne suffisait pas) mais son doute était fondé sur une limite de méthode, pas sur un vrai trou — **le SDK a bien un test end-to-end fonctionnel**, pas zéro. Corrigeant l'hypothèse plutôt que de la répéter sans vérifier (§5 anti-hallucination).
+
+### Gap réel identifié (différent de ce que l'audit disait)
+`crates/tom-sdk/src/{client,builder,event,error}.rs` n'ont **aucun test unitaire** — seulement ce test d'intégration réseau. Les chemins d'erreur les plus testables sans réseau (`ticket()`/`add_peer_ticket()` sur JSON malformé → `TomSdkError::InvalidTicket`) ne sont pas couverts isolément. Le reste (`send`, `create_group`, etc.) est une délégation fine vers `RuntimeHandle` (tom-protocol) déjà couvert par les 534 tests de tom-protocol — les re-tester ici serait redondant, pas un vrai gap.
+
+### Ce qui reste / prochain [→]
+- [ ] Test unitaire `add_peer_ticket` avec JSON malformé (rapide, pas encore fait — rendement marginal jugé faible par rapport au reste de la liste, reporté).
+- [ ] Chantier "formes de livraison" §2 dans son ensemble (binding WASM, Kotlin/JNI, Python, TestFlight, publication crates.io/npm/SPM) reste à faire en totalité — pas commencé, ampleur bien plus grande qu'un audit de test.
+
+### Auto-critique
+Je clos cette session ici (voir résumé final donné à l'utilisateur) plutôt que de commencer le chantier "formes de livraison" à moitié — un chantier de cette ampleur (nouveaux bindings, publication de packages) mérite sa propre itération complète (mesurer → planifier → implémenter → tester), pas un dernier geste précipité en fin de session déjà longue.
