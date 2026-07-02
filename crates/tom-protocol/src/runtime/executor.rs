@@ -210,17 +210,23 @@ async fn send_envelope_to<T: Transport>(
 
 /// Raw send with retry (for SendWithBackupFallback). Returns true on success.
 async fn send_with_retry<T: Transport>(transport: &T, target: NodeId, bytes: &[u8]) -> bool {
-    if transport.send_raw(target, bytes).await.is_ok() {
-        return true;
-    }
+    let mut last_err = match transport.send_raw(target, bytes).await {
+        Ok(()) => return true,
+        Err(e) => e,
+    };
 
     for delay in &RETRY_DELAYS {
         tokio::time::sleep(*delay).await;
-        if transport.send_raw(target, bytes).await.is_ok() {
-            return true;
+        match transport.send_raw(target, bytes).await {
+            Ok(()) => return true,
+            Err(e) => last_err = e,
         }
     }
 
+    tracing::warn!(
+        "send_with_retry to {target}: all {} attempts failed (prev: {last_err})",
+        1 + RETRY_DELAYS.len()
+    );
     false
 }
 
