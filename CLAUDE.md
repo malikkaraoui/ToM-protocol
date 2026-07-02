@@ -77,6 +77,8 @@ UDP (iroh-quinn-udp)               ← Raw UDP I/O (not forked — netwatch comp
 
 ### Fork Status
 
+> **Indépendance (à retenir)** : ToM est **né d'un fork d'iroh 0.96**, mais le protocole est désormais **autonome et souverain**. Tous les identifiants de protocole (DNS `_tom`, SNI `.tom.invalid`, en-têtes `X-Tom-*`, ALPN `tom-*`) sont sous notre namespace. Conséquence assumée : **ToM n'est PAS — et n'a pas vocation à rester — wire-compatible avec le réseau iroh public.** iroh est notre *point de départ historique*, pas une dépendance réseau. Les seuls résidus iroh sont des hostnames de services externes n0 (`dns.iroh.link`), actifs uniquement avec le preset `n0_discovery`, et remplaçables.
+
 All critical iroh dependencies have been forked under the `tom-*` namespace (MIT license):
 
 | Original | Fork | LOC | Notes |
@@ -93,14 +95,19 @@ All critical iroh dependencies have been forked under the `tom-*` namespace (MIT
 - `iroh-quinn-udp` — netwatch exposes its types in public API, forking creates type mismatch
 - `n0-error`, `n0-future`, `n0-watcher` — general-purpose utils, shared with external deps
 
-### Wire Invariants (NEVER change)
+### Wire Invariants (état réel — vérifié 2026-06-26)
 
-These are baked into the protocol and must stay compatible with iroh network:
-- `_iroh` DNS prefix (Pkarr/discovery)
-- `.iroh.invalid` TLS SNI
-- `X-Iroh-*` HTTP headers (relay protocol)
-- `b"/iroh-qad/0"` ALPN
-- `iroh.link` relay URLs
+⚠️ Les identifiants protocolaires ont été **migrés vers le namespace `tom-*`**. Conséquence : ToM n'est **PAS** wire-compatible avec le réseau iroh public (un nœud iroh ne peut pas parler à un nœud/relais ToM, et inversement). C'est volontaire (souveraineté du protocole), mais à ne PAS casser entre versions ToM :
+
+| Invariant | Valeur réelle | Fichier:ligne |
+|-----------|---------------|---------------|
+| DNS record prefix | `_tom` | `tom-relay/src/endpoint_info.rs:739` |
+| TLS SNI | `.tom.invalid` | `tom-connect/src/tls/name.rs:19` |
+| HTTP headers (relay) | `X-Tom-*` (`X-Tom-NodeId`, `X-Tom-Challenge`, `X-Tom-Response`) | `tom-relay/src/main.rs:35`, `server.rs:59` |
+| ALPN transport | `b"tom-protocol/transport/0"` | `tom-transport/src/lib.rs:116` |
+| ALPN gossip | `b"/tom-gossip/1"` | `tom-gossip/src/net.rs:46` |
+
+**Restent en dur sur l'infra iroh/n0 (services externes, actifs seulement avec le preset `n0_discovery`)** — PAS des invariants ToM, remplaçables : `dns.iroh.link` (`tom-relay/src/dns.rs:32`), `https://dns.iroh.link/pkarr` (`tom-connect/src/address_lookup/pkarr.rs:126`), `*.iroh-canary.iroh.link` (`tom-connect/src/endpoint.rs:1412`).
 
 ### Cargo Alias Trick
 
@@ -451,7 +458,7 @@ Trous **confirmés** (review multi-agent, file:line). À traiter par phases ; ne
 4. **Roles are network-assigned**: Nodes don't choose to be relays
 5. **No blockchain**: This is a transport protocol, not a ledger
 6. **Contribution matters**: Usage/contribution score affects role assignment
-7. **Wire invariants are sacred**: Never change `_iroh` prefixes, ALPN, TLS SNI
+7. **Wire invariants are sacred**: NE PAS changer les identifiants `tom-*` (préfixe DNS `_tom`, SNI `.tom.invalid`, en-têtes `X-Tom-*`, ALPN `tom-protocol/transport/0` et `/tom-gossip/1`) entre versions ToM. ⚠️ ToM n'est PAS compatible iroh (voir « Wire Invariants »).
 8. **ed25519-dalek pin**: MUST use `=3.0.0-pre.1` (crypto type compat with quinn)
 9. **Signaling server is DEPRECATED**: Use own relay + Pkarr/DNS
 10. **FFI validation before push**: `tom-protocol-ffi` is excluded from the workspace (built `--locked`). `cargo test/clippy --workspace` does NOT cover it. Run `bash scripts/check-ffi.sh` — or build from a clean `git worktree` at HEAD — before any push touching the FFI/cross-crate. The working copy masks committed-state compile errors.
