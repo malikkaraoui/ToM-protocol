@@ -13,8 +13,13 @@ struct TomNodeApp: App {
                     nodeService.scheduleInitialAutoStart()
                 }
                 .onChange(of: scenePhase) { newPhase in
-                    if newPhase == .active {
+                    switch newPhase {
+                    case .background:
+                        nodeService.handleEnterBackground()
+                    case .active:
                         nodeService.handleReturnToForeground()
+                    default:
+                        break
                     }
                 }
         }
