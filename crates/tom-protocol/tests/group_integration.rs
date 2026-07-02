@@ -1019,7 +1019,7 @@ fn hub_failover_shadow_promotes_on_primary_death() {
     assert!(!shadow_mgr.is_shadow_for(&gid));
 
     // ── Alice receives migration and re-routes ──
-    let alice_actions = alice_mgr.handle_hub_migration(&gid, shadow_id);
+    let alice_actions = alice_mgr.handle_hub_migration(&gid, shadow_id, shadow_id);
     assert_eq!(alice_actions.len(), 1);
     assert!(matches!(
         &alice_actions[0],
@@ -1340,7 +1340,7 @@ fn hub_orphan_recovers_on_migration_receipt() {
     let _ = shadow_mgr.record_ping_failure(&gid); // triggers migration
 
     // Alice receives HubMigration late (e.g. from another member who had gotten it)
-    let recovery_actions = alice_mgr.handle_hub_migration(&gid, shadow_id);
+    let recovery_actions = alice_mgr.handle_hub_migration(&gid, shadow_id, shadow_id);
     assert!(!recovery_actions.is_empty(), "migration receipt must produce an event");
 
     // Alice now routes to the new hub (shadow became primary)
@@ -1403,7 +1403,7 @@ fn hub_failover_cascade_shadow_becomes_hub_then_also_unreachable() {
     assert!(!shadow_mgr.is_shadow_for(&gid), "shadow promoted itself to primary");
 
     // Bob receives migration → points to shadow_id as new hub
-    bob_mgr.handle_hub_migration(&gid, shadow_id);
+    bob_mgr.handle_hub_migration(&gid, shadow_id, shadow_id);
     assert_eq!(bob_mgr.get_group(&gid).unwrap().hub_relay_id, shadow_id);
 
     // Now shadow (new hub) also crashes. Bob has no shadow to fall back to.
