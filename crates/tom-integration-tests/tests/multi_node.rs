@@ -21,14 +21,21 @@ struct TestNode {
     messages: tokio::sync::mpsc::Receiver<tom_protocol::DeliveredMessage>,
 }
 
-/// Setup: lance 2 nodes en mode local pur (pas de DHT/Pkarr/DNS).
+/// Setup: lance 2 nodes en mode local pur (pas de DHT/Pkarr/DNS, pas de mDNS).
 /// Échange les adresses pour permettre la connexion directe.
+///
+/// mDNS coupé exprès : les adresses sont échangées manuellement, donc la
+/// découverte n'apporte rien — mais laissée active, chaque paire de nodes
+/// découvre les nodes des AUTRES tests qui tournent en parallèle (et les
+/// vrais devices ToM du LAN en local), ce qui sature le runtime en peer
+/// hints et bloque un test au hasard → timeout du job CI.
 async fn setup_two_nodes() -> anyhow::Result<(TestNode, TestNode)> {
     // Permissive anti-spam for tests (default min_rate=2 msg/sec, burst=4 is too restrictive)
     let antispam = AntiSpamConfig { min_rate: 1000.0, ..AntiSpamConfig::default() };
 
     // Node A — local only, no external discovery
-    let node_a = TomNode::bind(TomNodeConfig::new().n0_discovery(false)).await?;
+    let node_a =
+        TomNode::bind(TomNodeConfig::new().n0_discovery(false).local_discovery(false)).await?;
     let id_a = node_a.id();
     let addr_a = node_a.addr();
     let config_a = RuntimeConfig {
@@ -39,7 +46,8 @@ async fn setup_two_nodes() -> anyhow::Result<(TestNode, TestNode)> {
     let channels_a = ProtocolRuntime::spawn(node_a, config_a);
 
     // Node B — local only, no external discovery
-    let node_b = TomNode::bind(TomNodeConfig::new().n0_discovery(false)).await?;
+    let node_b =
+        TomNode::bind(TomNodeConfig::new().n0_discovery(false).local_discovery(false)).await?;
     let id_b = node_b.id();
     let addr_b = node_b.addr();
     let config_b = RuntimeConfig {
@@ -320,8 +328,10 @@ async fn raw_transport_10_messages() -> anyhow::Result<()> {
         .try_init()
         .ok();
 
-    let node_a = TomNode::bind(TomNodeConfig::new().n0_discovery(false)).await?;
-    let mut node_b = TomNode::bind(TomNodeConfig::new().n0_discovery(false)).await?;
+    let node_a =
+        TomNode::bind(TomNodeConfig::new().n0_discovery(false).local_discovery(false)).await?;
+    let mut node_b =
+        TomNode::bind(TomNodeConfig::new().n0_discovery(false).local_discovery(false)).await?;
 
     let addr_a = node_a.addr();
     let addr_b = node_b.addr();
