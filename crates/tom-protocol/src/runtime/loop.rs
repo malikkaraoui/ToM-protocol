@@ -150,6 +150,12 @@ pub(super) async fn runtime_loop(
     let mut bootstrap_hint_rx = node.take_bootstrap_hint_rx();
     let mut bootstrap_phase = BootstrapPhase::LanProbe;
 
+    // Cheap cloneable send handle sharing `node`'s connection pool — network
+    // sends are spawned off this instead of the executor borrowing `node`
+    // directly, so a slow/hanging send to an unreachable peer never blocks
+    // this loop's own ticks (see execute_effects doc comment).
+    let node_sender = node.sender();
+
     // ── Embedded relay service ─────────────────────────────────────────
     let mut embedded_relay = super::EmbeddedRelayService::new();
 
@@ -166,13 +172,13 @@ pub(super) async fn runtime_loop(
             }
             Err(error) => state.handle_command(super::RuntimeCommand::EmbeddedRelayFailed { error }),
         };
-        execute_effects(startup_effects, &node, &msg_tx, &status_tx, &event_tx, &metrics).await;
+        execute_effects(startup_effects, &node_sender, &msg_tx, &status_tx, &event_tx, &metrics);
     }
 
     // ── Rejoin groups after restart (one-shot) ────────────────────────
     let rejoin_effects = state.build_rejoin_effects();
     if !rejoin_effects.is_empty() {
-        execute_effects(rejoin_effects, &node, &msg_tx, &status_tx, &event_tx, &metrics).await;
+        execute_effects(rejoin_effects, &node_sender, &msg_tx, &status_tx, &event_tx, &metrics);
     }
 
     // ── Transport relay discovery state (NOT in RuntimeState — pure transport concern)
@@ -623,7 +629,7 @@ pub(super) async fn runtime_loop(
         }
 
         // Execute remaining effects
-        execute_effects(regular_effects, &node, &msg_tx, &status_tx, &event_tx, &metrics).await;
+        execute_effects(regular_effects, &node_sender, &msg_tx, &status_tx, &event_tx, &metrics);
 
         // Sync topology metrics after every loop iteration
         metrics.set_taille_reseau(state.topology.online_count() as u64);

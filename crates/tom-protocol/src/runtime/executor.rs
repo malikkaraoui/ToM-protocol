@@ -26,8 +26,19 @@ const RETRY_DELAYS: [Duration; 2] = [
     Duration::from_millis(1000),
 ];
 
-/// Execute a list of effects using the given transport and channels.
-pub(super) async fn execute_effects<T: Transport>(
+/// Dispatch a list of effects using the given transport and channels.
+///
+/// Not `async`: every branch is either instant (a `try_send` on a bounded
+/// channel) or a network send, and network sends are spawned onto their own
+/// task rather than awaited here. `send_envelope_to`'s retry+backoff,
+/// compounded with the transport's own connect/open_bi timeouts, can block
+/// for 10s of seconds when the target is unreachable — awaiting that inline
+/// would stall every other tick (shadow-ping, hub-cleanup, reconnect-check,
+/// ...) sharing this executor's caller, which silently broke hub failover (a
+/// dead hub's undeliverable pings froze the shadow's own liveness timer).
+/// `T: Clone` so each spawned task gets its own owned transport handle
+/// instead of borrowing one tied to the caller's stack frame.
+pub(super) fn execute_effects<T: Transport + Clone + Sync + 'static>(
     effects: Vec<RuntimeEffect>,
     transport: &T,
     msg_tx: &mpsc::Sender<DeliveredMessage>,
@@ -38,16 +49,24 @@ pub(super) async fn execute_effects<T: Transport>(
     tracing::trace!("execute_effects: {} effects to process", effects.len());
     for (i, effect) in effects.into_iter().enumerate() {
         match effect {
-            RuntimeEffect::SendEnvelope(ref envelope) => {
+            RuntimeEffect::SendEnvelope(envelope) => {
                 let target = envelope.via.first().copied().unwrap_or(envelope.to);
-                tracing::trace!("  effect[{}]: SendEnvelope to {}", i, target);
-                send_envelope(transport, envelope, event_tx, metrics).await;
-                tracing::trace!("  effect[{}]: SendEnvelope done", i);
+                tracing::trace!("  effect[{}]: SendEnvelope to {} (spawned)", i, target);
+                let transport = transport.clone();
+                let event_tx = event_tx.clone();
+                let metrics = metrics.clone();
+                tokio::spawn(async move {
+                    send_envelope(&transport, &envelope, &event_tx, &metrics).await;
+                });
             }
-            RuntimeEffect::SendEnvelopeTo { target, ref envelope } => {
-                tracing::trace!("  effect[{}]: SendEnvelopeTo {}", i, target);
-                send_envelope_to(transport, target, envelope, event_tx, metrics).await;
-                tracing::trace!("  effect[{}]: SendEnvelopeTo done", i);
+            RuntimeEffect::SendEnvelopeTo { target, envelope } => {
+                tracing::trace!("  effect[{}]: SendEnvelopeTo {} (spawned)", i, target);
+                let transport = transport.clone();
+                let event_tx = event_tx.clone();
+                let metrics = metrics.clone();
+                tokio::spawn(async move {
+                    send_envelope_to(&transport, target, &envelope, &event_tx, &metrics).await;
+                });
             }
             RuntimeEffect::DeliverMessage(msg) => {
                 // try_send: never block runtime, even with large buffer (16384)
@@ -85,29 +104,34 @@ pub(super) async fn execute_effects<T: Transport>(
                 tracing::debug!("loop-intercepted effect reached executor (should be intercepted by loop)");
             }
             RuntimeEffect::SendWithBackupFallback {
-                ref envelope,
+                envelope,
                 on_success,
                 on_failure,
             } => {
                 let target = envelope.via.first().copied().unwrap_or(envelope.to);
-                tracing::trace!("  effect[{}]: SendWithBackupFallback to {}", i, target);
-                let sent_ok = match envelope.to_bytes() {
-                    Ok(bytes) => send_with_retry(transport, target, &bytes).await,
-                    Err(_) => false,
-                };
-                if sent_ok {
-                    metrics.inc_messages_sent();
-                    Box::pin(execute_effects(
-                        on_success, transport, msg_tx, status_tx, event_tx, metrics,
-                    ))
-                    .await;
-                } else {
-                    metrics.inc_messages_failed();
-                    Box::pin(execute_effects(
-                        on_failure, transport, msg_tx, status_tx, event_tx, metrics,
-                    ))
-                    .await;
-                }
+                tracing::trace!("  effect[{}]: SendWithBackupFallback to {} (spawned)", i, target);
+                let transport = transport.clone();
+                let msg_tx = msg_tx.clone();
+                let status_tx = status_tx.clone();
+                let event_tx = event_tx.clone();
+                let metrics = metrics.clone();
+                tokio::spawn(async move {
+                    let sent_ok = match envelope.to_bytes() {
+                        Ok(bytes) => send_with_retry(&transport, target, &bytes).await,
+                        Err(_) => false,
+                    };
+                    if sent_ok {
+                        metrics.inc_messages_sent();
+                        execute_effects(
+                            on_success, &transport, &msg_tx, &status_tx, &event_tx, &metrics,
+                        );
+                    } else {
+                        metrics.inc_messages_failed();
+                        execute_effects(
+                            on_failure, &transport, &msg_tx, &status_tx, &event_tx, &metrics,
+                        );
+                    }
+                });
             }
         }
     }

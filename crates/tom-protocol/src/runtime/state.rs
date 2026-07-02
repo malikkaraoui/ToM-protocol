@@ -2532,6 +2532,13 @@ impl RuntimeState {
                 group_id: group_id.clone(),
                 new_hub_id: *new_hub_id,
             },
+            GroupEvent::ShadowPromoted {
+                group_id,
+                new_hub_id,
+            } => ProtocolEvent::GroupShadowPromoted {
+                group_id: group_id.clone(),
+                new_hub_id: *new_hub_id,
+            },
             GroupEvent::SecurityViolation {
                 group_id,
                 node_id,
