@@ -1012,6 +1012,9 @@ fn handle_bot_event(ctx: &BotContext, event: &ProtocolEvent) {
         ProtocolEvent::GroupHubMigrated { new_hub_id, .. } => {
             ctx.log_event("responsable_groupe_change", &short_node_id(new_hub_id));
         }
+        ProtocolEvent::Error { description } => {
+            ctx.log_event("erreur_protocole", description);
+        }
         _ => {}
     }
 }
