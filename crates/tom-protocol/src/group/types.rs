@@ -598,8 +598,17 @@ pub enum GroupEvent {
     /// We received a group message.
     MessageReceived(GroupMessage),
 
-    /// Hub migrated to a new node.
+    /// Hub migrated to a new node (surfaced to members receiving the
+    /// broadcasted `HubMigration` announcement).
     HubMigrated {
+        group_id: GroupId,
+        new_hub_id: NodeId,
+    },
+
+    /// We are the shadow and just promoted ourselves to primary hub after
+    /// the previous hub stopped responding (surfaced locally on the
+    /// promoting node itself — see `HubMigrated` for the receiving side).
+    ShadowPromoted {
         group_id: GroupId,
         new_hub_id: NodeId,
     },

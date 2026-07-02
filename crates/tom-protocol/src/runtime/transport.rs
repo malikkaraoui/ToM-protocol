@@ -28,6 +28,21 @@ impl Transport for tom_transport::TomNode {
     }
 }
 
+// ── Impl pour TomNodeSender (cloneable handle, driven from spawned tasks) ──
+
+#[async_trait::async_trait]
+impl Transport for tom_transport::TomNodeSender {
+    async fn send_raw(&self, target: NodeId, data: &[u8]) -> Result<(), String> {
+        tom_transport::TomNodeSender::send_raw(self, target, data)
+            .await
+            .map_err(|e| e.to_string())
+    }
+
+    async fn connected_peers(&self) -> Vec<NodeId> {
+        tom_transport::TomNodeSender::connected_peers(self).await
+    }
+}
+
 // ── MockTransport (tests) ───────────────────────────────────────────
 
 #[cfg(test)]

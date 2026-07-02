@@ -490,67 +490,28 @@ impl TomNode {
     }
 
     /// Send raw bytes to a peer.
+    ///
+    /// Delegates to a [`TomNodeSender`] handle — the actual send logic lives
+    /// there so it can be cloned out and driven from a spawned task (callers
+    /// that must not block on a slow/unreachable peer use `sender()` directly).
     pub async fn send_raw(
         &self,
         to: NodeId,
         data: &[u8],
     ) -> Result<(), TomTransportError> {
-        if data.len() > self.max_message_size {
-            return Err(TomTransportError::MessageTooLarge {
-                size: data.len(),
-                max: self.max_message_size,
-            });
+        self.sender().send_raw(to, data).await
+    }
+
+    /// Cheap, cloneable handle for sending raw bytes independently of this
+    /// `TomNode`. Backed by the same `Arc<ConnectionPool>`, so it shares the
+    /// connection cache. Use this to drive sends from a spawned task without
+    /// holding a borrow of the node (a hung/retrying send must never block
+    /// the runtime's main event loop).
+    pub fn sender(&self) -> TomNodeSender {
+        TomNodeSender {
+            pool: self.pool.clone(),
+            max_message_size: self.max_message_size,
         }
-
-        let conn = self.pool.get_or_connect(to).await?;
-
-        tracing::trace!("send_raw: opening bi-stream to {}", to);
-        let (mut send, recv) = match tokio::time::timeout(
-            Duration::from_secs(5),
-            conn.open_bi(),
-        ).await {
-            Ok(Ok(pair)) => pair,
-            Ok(Err(e)) => {
-                // Connection is dead (e.g. NAT rebinding) — evict from pool
-                // so next attempt triggers a fresh connect + discovery.
-                self.pool.remove(&to).await;
-                return Err(TomTransportError::Send {
-                    node_id: to,
-                    source: e.into(),
-                });
-            }
-            Err(_elapsed) => {
-                // open_bi hung — connection is likely dead, evict
-                tracing::warn!("open_bi to {} timed out after 5s, evicting connection", to);
-                self.pool.remove(&to).await;
-                return Err(TomTransportError::Send {
-                    node_id: to,
-                    source: std::io::Error::new(
-                        std::io::ErrorKind::TimedOut,
-                        "open_bi timed out after 5s",
-                    ).into(),
-                });
-            }
-        };
-
-        tracing::trace!("send_raw: bi-stream opened to {}, writing {} bytes", to, data.len());
-        if let Err(e) = protocol::write_framed(&mut send, data).await {
-            // Connection may be dead, remove from pool
-            self.pool.remove(&to).await;
-            return Err(TomTransportError::Send {
-                node_id: to,
-                source: e,
-            });
-        }
-
-        // QUIC guarantees transport-level delivery (retransmissions, flow control).
-        // Protocol-level ACK envelopes handle application-level confirmation.
-        // Do NOT wait for recv.read_to_end(0) — it deadlocks when the remote
-        // opens a bi-stream on a stored incoming connection (the initiator has
-        // no accept_bi() loop for its outgoing connections).
-        drop(recv);
-
-        Ok(())
     }
 
     /// Receive the next incoming envelope. Blocks until one arrives.
@@ -627,6 +588,85 @@ impl TomNode {
             let _ = task.await;
         }
         self.endpoint.close().await;
+        Ok(())
+    }
+}
+
+/// Cheap, cloneable send-only handle sharing a `TomNode`'s connection pool.
+///
+/// Exists so a slow or retrying send to an unreachable peer can be driven
+/// from a spawned task instead of blocking whatever holds the `TomNode`
+/// (notably the protocol runtime's single-threaded event loop).
+#[derive(Clone)]
+pub struct TomNodeSender {
+    pool: Arc<ConnectionPool>,
+    max_message_size: usize,
+}
+
+impl TomNodeSender {
+    /// List currently connected peers.
+    pub async fn connected_peers(&self) -> Vec<NodeId> {
+        self.pool.connected_peers().await
+    }
+
+    /// Send raw bytes to a peer. Connection is established on first use and
+    /// cached for subsequent sends.
+    pub async fn send_raw(&self, to: NodeId, data: &[u8]) -> Result<(), TomTransportError> {
+        if data.len() > self.max_message_size {
+            return Err(TomTransportError::MessageTooLarge {
+                size: data.len(),
+                max: self.max_message_size,
+            });
+        }
+
+        let conn = self.pool.get_or_connect(to).await?;
+
+        tracing::trace!("send_raw: opening bi-stream to {}", to);
+        let (mut send, recv) = match tokio::time::timeout(
+            Duration::from_secs(5),
+            conn.open_bi(),
+        ).await {
+            Ok(Ok(pair)) => pair,
+            Ok(Err(e)) => {
+                // Connection is dead (e.g. NAT rebinding) — evict from pool
+                // so next attempt triggers a fresh connect + discovery.
+                self.pool.remove(&to).await;
+                return Err(TomTransportError::Send {
+                    node_id: to,
+                    source: e.into(),
+                });
+            }
+            Err(_elapsed) => {
+                // open_bi hung — connection is likely dead, evict
+                tracing::warn!("open_bi to {} timed out after 5s, evicting connection", to);
+                self.pool.remove(&to).await;
+                return Err(TomTransportError::Send {
+                    node_id: to,
+                    source: std::io::Error::new(
+                        std::io::ErrorKind::TimedOut,
+                        "open_bi timed out after 5s",
+                    ).into(),
+                });
+            }
+        };
+
+        tracing::trace!("send_raw: bi-stream opened to {}, writing {} bytes", to, data.len());
+        if let Err(e) = protocol::write_framed(&mut send, data).await {
+            // Connection may be dead, remove from pool
+            self.pool.remove(&to).await;
+            return Err(TomTransportError::Send {
+                node_id: to,
+                source: e,
+            });
+        }
+
+        // QUIC guarantees transport-level delivery (retransmissions, flow control).
+        // Protocol-level ACK envelopes handle application-level confirmation.
+        // Do NOT wait for recv.read_to_end(0) — it deadlocks when the remote
+        // opens a bi-stream on a stored incoming connection (the initiator has
+        // no accept_bi() loop for its outgoing connections).
+        drop(recv);
+
         Ok(())
     }
 }

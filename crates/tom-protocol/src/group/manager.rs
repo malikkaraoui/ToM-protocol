@@ -867,8 +867,10 @@ impl GroupManager {
         };
 
         state.ping_failures += 1;
+        tracing::debug!(group_id = %group_id, ping_failures = state.ping_failures, "shadow ping failure recorded");
 
         if self.should_promote(group_id) {
+            tracing::info!(group_id = %group_id, "shadow promoting itself to primary hub");
             self.promote_to_primary(group_id)
         } else {
             vec![]
@@ -927,14 +929,20 @@ impl GroupManager {
             .filter(|id| *id != self.local_id)
             .collect();
 
-        vec![GroupAction::Broadcast {
-            to: recipients,
-            payload: GroupPayload::HubMigration {
+        vec![
+            GroupAction::Broadcast {
+                to: recipients,
+                payload: GroupPayload::HubMigration {
+                    group_id: group_id.clone(),
+                    new_hub_id: self.local_id,
+                    old_hub_id,
+                },
+            },
+            GroupAction::Event(GroupEvent::ShadowPromoted {
                 group_id: group_id.clone(),
                 new_hub_id: self.local_id,
-                old_hub_id,
-            },
-        }]
+            }),
+        ]
     }
 
     /// Reset ping failure counter (called when pong is received).
@@ -943,6 +951,7 @@ impl GroupManager {
             state.ping_failures = 0;
             state.unreachable_reports = 0;
             state.last_ping_sent_at = None;
+            tracing::debug!(group_id = %group_id, "HubPong received, ping failures reset");
         }
     }
 
@@ -951,6 +960,7 @@ impl GroupManager {
     pub fn note_ping_sent(&mut self, group_id: &GroupId, now: u64) {
         if let Some(state) = self.shadow_state.get_mut(group_id) {
             state.last_ping_sent_at = Some(now);
+            tracing::debug!(group_id = %group_id, now, "HubPing sent to primary");
         }
     }
 
@@ -961,6 +971,10 @@ impl GroupManager {
     /// failover would stay dead at runtime. Called once per watchdog tick,
     /// before a fresh ping is sent.
     pub fn check_ping_timeouts(&mut self, now: u64) -> Vec<GroupAction> {
+        tracing::debug!(
+            shadow_groups = self.shadow_state.len(),
+            "check_ping_timeouts tick"
+        );
         let timed_out: Vec<GroupId> = self
             .shadow_state
             .iter()
@@ -976,6 +990,7 @@ impl GroupManager {
                 // Counted — don't re-flag the same silence until a new ping is sent.
                 state.last_ping_sent_at = None;
             }
+            tracing::debug!(group_id = %gid, "shadow ping timeout detected");
             actions.extend(self.record_ping_failure(&gid));
         }
         actions

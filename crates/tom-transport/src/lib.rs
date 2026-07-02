@@ -39,7 +39,7 @@ pub use bootstrap::BootstrapHint;
 pub use config::TomNodeConfig;
 pub use envelope::{now_ms, MessageEnvelope};
 pub use error::TomTransportError;
-pub use node::TomNode;
+pub use node::{TomNode, TomNodeSender};
 pub use path::{PathEvent, PathKind};
 
 // Re-export gossip types for protocol layer

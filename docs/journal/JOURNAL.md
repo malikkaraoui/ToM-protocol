@@ -116,3 +116,56 @@ Après la gate/commit/push ci-dessus, j'ai continué vers le chantier suivant re
 
 ### Auto-critique
 Je clos cette session ici (voir résumé final donné à l'utilisateur) plutôt que de commencer le chantier "formes de livraison" à moitié — un chantier de cette ampleur (nouveaux bindings, publication de packages) mérite sa propre itération complète (mesurer → planifier → implémenter → tester), pas un dernier geste précipité en fin de session déjà longue.
+
+---
+
+## [2026-07-02 | claude-sonnet-5] — Correction : le failover hub réel n'était PAS validé — 2 bugs supplémentaires trouvés et fermés en conditions réseau réelles
+
+### Objectif
+**Corrige une affirmation trop confiante de l'entrée du 2026-07-02 ci-dessus** (point 4, "Failover hub mort au runtime") : cette entrée ne validait le fix que par tests unitaires (`GroupManager` appelé directement, sans passer par le runtime async réel ni un vrai échec réseau). Suite à la question utilisateur "que peux-tu faire de plus pour notre target ?", j'ai voulu valider ce fix **en conditions réelles** via le scénario `tom-stress failover` (3 vrais nœuds QUIC en loopback, vrai `shutdown()` du hub). Le scénario existant acceptait silencieusement l'absence de promotion ("expected in local test") — un test à faux-confort qui masquait exactement le bug que je venais de corriger. Durci pour échouer bruyamment si la promotion n'arrive pas sous 25s (`crates/tom-stress/src/scenario_failover.rs`).
+
+**Résultat : le scénario durci a effectivement échoué.** Le fix du point 4 était réel mais insuffisant seul — 2 bugs indépendants supplémentaires, invisibles en test unitaire, empêchaient la promotion de se produire en pratique.
+
+### Bug supplémentaire #1 — la boucle runtime se bloque sur un envoi réseau lent (le plus grave)
+
+`runtime/loop.rs` exécute chaque effet réseau (`execute_effects(...).await`) **en séquence, dans la même tâche** que le `tokio::select!` principal. `send_envelope_to` (executor.rs) retry avec backoff (500ms + 1000ms) et le transport sous-jacent a son propre timeout de connexion/`open_bi` (5s, potentiellement bien plus si `endpoint.connect()` n'a pas de timeout explicite pour un pair injoignable). Résultat mesuré en log réel (`RUST_LOG=tom_protocol=debug`) : dès que le hub meurt, chaque tentative d'envoi d'un `HubPing` mort-né **gèle la boucle entière** (plus aucun `check_ping_timeouts tick`, `hub_cleanup`, `reconnect_check`... rien) pendant potentiellement 10-30s+ — soit bien plus que la fenêtre de 25s du test. La détection de timeout elle-même (mon fix du point 4) ne pouvait jamais s'exécuter à temps parce que la boucle qui la déclenche était gelée.
+
+**Fix** : les effets réseau (`SendEnvelope`, `SendEnvelopeTo`, `SendWithBackupFallback`) sont désormais **spawnés** (`tokio::spawn`) plutôt qu'attendus en ligne dans `execute_effects`. Pour ça :
+- `tom-transport::TomNode` : nouveau `TomNodeSender` (handle `Clone`, ne porte que `Arc<ConnectionPool>` + `max_message_size` — TomNode n'avait besoin de rien d'autre pour `send_raw`/`connected_peers`). `TomNode::send_raw` délègue désormais à `self.sender().send_raw(...)`.
+- `tom-protocol::runtime::transport::Transport` implémenté aussi pour `TomNodeSender`.
+- `execute_effects` n'est plus `async` (plus aucun `.await` direct au niveau top — tout ce qui bloque potentiellement est spawné ; `try_send` reste synchrone et instantané pour le reste). `loop.rs` appelle désormais `execute_effects(effects, &node_sender, ...)` (sans `.await`) où `node_sender = node.sender()`, créé une seule fois avant la boucle.
+- **Pourquoi spawn et pas juste réduire les timeouts** : réduire les timeouts ne règle pas le problème de fond (n'importe quel pair lent — pas seulement mort — gèlerait quand même la boucle le temps de l'essai) ; spawn découple structurellement "essayer d'envoyer" de "traiter les autres ticks", ce qui est la garantie qu'on veut réellement (aucun pair, quel que soit son état, ne doit pouvoir geler le nœud entier).
+
+### Bug supplémentaire #2 — `GroupShadowPromoted` n'était jamais émis (événement mort)
+
+Même après le fix #1, le scénario durci échouait encore. Les logs montraient la promotion réussir en interne (`"shadow promoting itself to primary hub"`), mais le test (qui écoute `ProtocolEvent::GroupShadowPromoted` sur les deux canaux membres) ne voyait jamais rien. Cause : `GroupEvent::GroupShadowPromoted`/`ProtocolEvent::GroupShadowPromoted` étaient **définis** (`runtime/mod.rs`) et **consommés** (`tom-stress/src/scenario_failover.rs`, `responder.rs`) mais **jamais construits nulle part** — `promote_to_primary` (manager.rs) ne retournait qu'un `GroupAction::Broadcast { HubMigration }` vers les AUTRES membres, sans jamais émettre d'événement local pour le nœud qui se promeut lui-même. Le seul événement réellement câblé (`GroupEvent::HubMigrated` → `ProtocolEvent::GroupHubMigrated`) n'est émis que côté **récepteur** de la diffusion `HubMigration`, jamais côté nœud qui décide de sa propre promotion.
+
+**Fix** : nouvelle variante `GroupEvent::ShadowPromoted { group_id, new_hub_id }` (`group/types.rs`), émise par `promote_to_primary` en plus du broadcast (`group/manager.rs`), mappée vers `ProtocolEvent::GroupShadowPromoted` dans `surface_group_event` (`runtime/state.rs`). Le nœud qui se promeut sait désormais lui-même qu'il vient de le faire (utile pour l'observabilité/UI, pas seulement pour ce test).
+
+### Fichiers touchés
+- `crates/tom-transport/src/node.rs` — `TomNodeSender` (nouveau), `TomNode::send_raw` délègue.
+- `crates/tom-transport/src/lib.rs` — export `TomNodeSender`.
+- `crates/tom-protocol/src/runtime/transport.rs` — `impl Transport for TomNodeSender`.
+- `crates/tom-protocol/src/runtime/executor.rs` — network-effects spawnés, plus `async fn`.
+- `crates/tom-protocol/src/runtime/loop.rs` — `node_sender` créé une fois, 3 call sites `execute_effects` mis à jour.
+- `crates/tom-protocol/src/group/types.rs` — `GroupEvent::ShadowPromoted`.
+- `crates/tom-protocol/src/group/manager.rs` — `promote_to_primary` émet l'événement local en plus du broadcast.
+- `crates/tom-protocol/src/runtime/state.rs` — mapping `ShadowPromoted` → `ProtocolEvent::GroupShadowPromoted`.
+- `crates/tom-stress/src/scenario_failover.rs` — le test échoue désormais bruyamment (25s, poll 500ms) au lieu d'accepter le silence.
+
+### Résultats de tests (chiffres réels, mesurés cette session)
+- `cargo test -p tom-protocol --lib` : **534 passed, 0 failed** (aucune régression — les mêmes 534 qu'avant, les 2 bugs n'étaient exercés par aucun test unitaire existant).
+- `cargo test -p tom-dht --lib` : 21 passed. `cargo test -p tom-integration-tests` : 6 passed, 1 ignored (dont `stability_2min` réel, ~122s).
+- `cargo build/clippy --workspace -- -D warnings` : vert. `bash scripts/check-ffi.sh` : vert (build+clippy `--locked` + header cbindgen à jour).
+- **`tom-stress failover` (réel, 3 runs répétés)** : 8/8 étapes passées à chaque fois. Temps de détection+promotion mesurés : 10.5s, 6.5s, 13.5s (budget 25s) — auparavant : timeout systématique à 25s, échec.
+- `tom-stress scenarios` (8 scénarios) : 7/8 passent. Le seul échec (`partition`, "unexpected delivery across partition boundary") est **pré-existant et sans rapport** — confirmé identique via `git stash` sur le code d'avant cette session (échoue pareil sans mes changements). Signalé, pas corrigé (hors scope de cette investigation).
+
+### Ce qui reste / prochain [→]
+- [ ] Le scénario `partition` a une fuite de routage cross-partition pré-existante (probablement gossip/mDNS qui trouve une route malgré l'absence d'adresse enregistrée) — pas creusé cette session, hors sujet du failover.
+- [ ] Les envois réseau spawnés (`tokio::spawn`, détachés) peuvent désormais continuer en arrière-plan quelques secondes après un `shutdown()` — analysé et jugé sûr (l'`Arc<ConnectionPool>` reste vivant tant qu'une tâche spawnée le retient, pas de use-after-free), et cohérent avec le principe "teardown borné, jamais bloquant" déjà appliqué au FFI — mais pas couvert par un test dédié qui vérifierait qu'aucun message n'est perdu/dupliqué dans cette fenêtre.
+- [ ] `GroupEvent::HubMigrated` (côté récepteur) et `GroupEvent::ShadowPromoted` (côté promoteur) restent deux événements distincts avec le même shape de champs — volontaire (sémantique différente : "j'apprends" vs "je décide"), mais un futur consommateur (SDK/TUI) doit gérer les deux s'il veut une vue complète de la migration.
+
+### Auto-critique
+- **La confiance affichée dans l'entrée précédente ("failover hub réel") était prématurée** — "réel" dans le titre référait à l'intention (corriger le vrai runtime, pas une simulation), pas à une validation réseau réelle, mais la formulation prêtait à confusion. Cette entrée corrige l'enregistrement : le fix du point 4 était nécessaire mais pas suffisant, et je ne l'avais pas testé au-delà du niveau unitaire avant de le déclarer résolu. La mémoire persistante (`tom-audit-state-2026-07.md`) sera corrigée dans la foulée.
+- Je n'ai pas mesuré si le délai de 10-30s de gel (bug #1) affectait D'AUTRES mécanismes que le failover avant cette session (heartbeats, purge TTL, DHT republish...) — plausible que ce même bug ait dégradé silencieusement d'autres timers dans des conditions réseau dégradées, pas seulement le cas testé ici. Je ne l'ai pas vérifié explicitement pour chacun, mais le fix (spawn générique dans `execute_effects`) les corrige tous simultanément puisqu'il s'applique à TOUS les effets réseau, pas seulement `HubPing`.
+- Je n'ai testé le failover que sur 3 runs réels — suffisant pour confirmer que ce n'est pas un fluke isolé, mais pas un échantillon statistique large. Le budget 25s du test a une marge confortable (observé 6.5-13.5s) donc le risque de flake résiduel semble faible, non nul.

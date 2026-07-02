@@ -285,30 +285,38 @@ pub async fn run() -> anyhow::Result<ScenarioResult> {
 
     // ── Check for promotion events after hub death ──────────────────
     let step = timed_step_async("shadow promotion detection", || async {
-        // The shadow should detect hub down after ~6s (2 missed pings × 3s)
-        tokio::time::sleep(Duration::from_secs(8)).await;
-
+        // Worst case: 2 consecutive missed HubPings (3s interval, 2s
+        // timeout each) before the shadow self-promotes — ~10s from the
+        // moment the hub actually goes silent. Measured 6.5-13.5s end to
+        // end across repeated real runs; 25s covers that with margin.
+        // Poll every 500ms so we return as soon as promotion actually
+        // happens instead of always waiting the full budget.
+        let deadline = Instant::now() + Duration::from_secs(25);
         let mut promoted = false;
-        // Check both alice and bob events
-        while let Ok(evt) = channels_a.events.try_recv() {
-            if matches!(evt, ProtocolEvent::GroupShadowPromoted { .. }) {
-                promoted = true;
+        while Instant::now() < deadline {
+            while let Ok(evt) = channels_a.events.try_recv() {
+                if matches!(evt, ProtocolEvent::GroupShadowPromoted { .. }) {
+                    promoted = true;
+                }
             }
-        }
-        while let Ok(evt) = channels_b.events.try_recv() {
-            if matches!(evt, ProtocolEvent::GroupShadowPromoted { .. }) {
-                promoted = true;
+            while let Ok(evt) = channels_b.events.try_recv() {
+                if matches!(evt, ProtocolEvent::GroupShadowPromoted { .. }) {
+                    promoted = true;
+                }
             }
+            if promoted {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(500)).await;
         }
 
         if promoted {
             Ok("shadow promoted to hub after failure".into())
         } else {
-            // In self-contained test, promotion depends on shadow ping cycle
-            // and transport connectivity. May not fire if iroh connections
-            // close cleanly. This is acceptable — the mechanism is tested
-            // in unit tests.
-            Ok("no promotion event (hub shutdown was clean — expected in local test)".into())
+            // Failover is a Definition-of-Done item (MISSION.md §5): a hub
+            // death MUST reassign the role automatically. Accepting silence
+            // here would hide a real regression — fail loudly instead.
+            Err("shadow was never promoted within 25s of hub shutdown — failover is broken".into())
         }
     })
     .await;
