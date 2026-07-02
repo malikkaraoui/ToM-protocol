@@ -547,10 +547,12 @@
 /* Begin XCSwiftPackageProductDependency section */
 		08CC3D7D44BE1D35D6362419 /* TomProtocolKit */ = {
 			isa = XCSwiftPackageProductDependency;
+			package = D6EEB0AB072F18F1BC1AAC20 /* XCLocalSwiftPackageReference "../../sdk/swift/TomProtocolKit" */;
 			productName = TomProtocolKit;
 		};
 		8DD2D18964FF90C8DC1BBFAA /* TomProtocolKit */ = {
 			isa = XCSwiftPackageProductDependency;
+			package = D6EEB0AB072F18F1BC1AAC20 /* XCLocalSwiftPackageReference "../../sdk/swift/TomProtocolKit" */;
 			productName = TomProtocolKit;
 		};
 /* End XCSwiftPackageProductDependency section */
