@@ -58,6 +58,10 @@ logs/
 .claude/watchdog-log.md
 apps/tom-node-tvos/build/
 
+# Campagne de tests multi-devices — logs/sorties volumineux, pas du code
+docs/test-campaign/*.log
+docs/test-campaign/*.out
+
 # Apps macOS packagées (binaires) — ne pas versionner, builder via xcodegen/make
 deploy/macos/*.app/
 
