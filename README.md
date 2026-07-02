@@ -78,6 +78,7 @@ Normative specs, no Rust required, byte-for-byte verifiable:
 | E2E encrypted chat | **Working** | Signed + encrypted envelopes, Mac↔NAS cross-border |
 | Group messaging + hub failover | **Working** | Virus-like replication, deterministic failover, ~3-6s detection |
 | Direct QUIC latency | **27-49ms** | After hole punch, no relay needed |
+| Multi-device live campaign | **iPhone (3G/4G/5G) ↔ iPad (WiFi) ↔ Apple TV ↔ MacBook ↔ NAS** | Real cellular reconnection, backup delivery, message-size ceiling confirmed at 1 MiB |
 
 ## Project Structure
 
