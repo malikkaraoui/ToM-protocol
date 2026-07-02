@@ -201,6 +201,7 @@ impl GroupHub {
             | GroupPayload::HubPong { .. }
             | GroupPayload::HubShadowSync { .. }
             | GroupPayload::CandidateAssigned { .. }
+            | GroupPayload::ShadowAssigned { .. }
             | GroupPayload::HubUnreachable { .. }
             // SyncRequest/SyncResponse handled by runtime, not hub
             | GroupPayload::SyncRequest { .. }
@@ -1136,6 +1137,24 @@ impl GroupHub {
                 });
             }
 
+            // Tell every OTHER member who the shadow is, so they can later
+            // verify a HubMigration claim against a known-good shadow_id
+            // instead of trusting whoever merely names itself as new hub
+            // (see GroupManager::handle_hub_migration).
+            let other_members: Vec<NodeId> = candidates
+                .into_iter()
+                .filter(|id| *id != shadow)
+                .collect();
+            if !other_members.is_empty() {
+                actions.push(GroupAction::Broadcast {
+                    to: other_members,
+                    payload: GroupPayload::ShadowAssigned {
+                        group_id: group_id.clone(),
+                        shadow_id: shadow,
+                    },
+                });
+            }
+
             actions
         } else {
             vec![]
@@ -1929,6 +1948,49 @@ mod tests {
             matches!(a, GroupAction::Send { payload: GroupPayload::HubShadowSync { .. }, .. })
         });
         assert!(shadow_sync_found, "should send HubShadowSync to shadow");
+    }
+
+    #[test]
+    fn assign_shadow_broadcasts_to_ordinary_members() {
+        // An ordinary member (dave, neither shadow nor candidate) must learn
+        // who the shadow is too — otherwise it can never verify a later
+        // HubMigration claim (see GroupManager::handle_hub_migration).
+        let mut hub = make_hub();
+        let alice = node_id(1);
+        let bob = node_id(2);
+        let charlie = node_id(3);
+        let dave = node_id(4);
+
+        hub.handle_payload(
+            GroupPayload::Create {
+                group_name: "Failover".into(),
+                creator_username: "alice".into(),
+                initial_members: vec![bob, charlie, dave],
+                invite_only: false,
+            },
+            alice,
+        );
+        let gid = hub.groups.keys().next().unwrap().clone();
+        hub.handle_join(bob, &gid, "bob".into());
+        hub.handle_join(charlie, &gid, "charlie".into());
+        hub.handle_join(dave, &gid, "dave".into());
+
+        let actions = hub.assign_shadow(&gid);
+        let shadow_id = hub.get_group(&gid).unwrap().shadow_id.unwrap();
+
+        let broadcast_recipients: Vec<NodeId> = actions
+            .iter()
+            .find_map(|a| match a {
+                GroupAction::Broadcast {
+                    to,
+                    payload: GroupPayload::ShadowAssigned { shadow_id: sid, .. },
+                } if *sid == shadow_id => Some(to.clone()),
+                _ => None,
+            })
+            .expect("assign_shadow should broadcast ShadowAssigned");
+
+        assert!(!broadcast_recipients.contains(&shadow_id), "shadow doesn't need to be told about itself");
+        assert!(broadcast_recipients.contains(&dave), "ordinary member dave must learn the shadow");
     }
 
     #[test]

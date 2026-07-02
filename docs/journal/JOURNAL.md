@@ -169,3 +169,45 @@ Même après le fix #1, le scénario durci échouait encore. Les logs montraient
 - **La confiance affichée dans l'entrée précédente ("failover hub réel") était prématurée** — "réel" dans le titre référait à l'intention (corriger le vrai runtime, pas une simulation), pas à une validation réseau réelle, mais la formulation prêtait à confusion. Cette entrée corrige l'enregistrement : le fix du point 4 était nécessaire mais pas suffisant, et je ne l'avais pas testé au-delà du niveau unitaire avant de le déclarer résolu. La mémoire persistante (`tom-audit-state-2026-07.md`) sera corrigée dans la foulée.
 - Je n'ai pas mesuré si le délai de 10-30s de gel (bug #1) affectait D'AUTRES mécanismes que le failover avant cette session (heartbeats, purge TTL, DHT republish...) — plausible que ce même bug ait dégradé silencieusement d'autres timers dans des conditions réseau dégradées, pas seulement le cas testé ici. Je ne l'ai pas vérifié explicitement pour chacun, mais le fix (spawn générique dans `execute_effects`) les corrige tous simultanément puisqu'il s'applique à TOUS les effets réseau, pas seulement `HubPing`.
 - Je n'ai testé le failover que sur 3 runs réels — suffisant pour confirmer que ce n'est pas un fluke isolé, mais pas un échantillon statistique large. Le budget 25s du test a une marge confortable (observé 6.5-13.5s) donc le risque de flake résiduel semble faible, non nul.
+
+---
+
+## [2026-07-02 | claude-sonnet-5] — Ferme le trou hub-hijack résiduel (diffusion signée du shadow) + fix CI cargo-deny
+
+### Objectif
+Sur demande explicite de l'utilisateur ("ferme le trou résiduel"), fermeture du dernier gap documenté dans l'entrée `c3b7f9a` : un membre de groupe **légitime mais malveillant qui n'a jamais été shadow** pouvait signer un `HubMigration` s'auto-désignant comme nouveau hub — `handle_hub_migration` ne vérifiait que `from == new_hub_id` (bloque l'usurpation d'un TIERS), pas que l'expéditeur ait réellement été le shadow (les membres ordinaires n'apprenaient jamais qui était le shadow).
+
+### Ce que j'ai fait (décisions + pourquoi)
+1. **Nouveau `GroupPayload::ShadowAssigned { group_id, shadow_id }`** (`group/types.rs`) — le hub diffuse cette annonce à **tous les membres** (pas seulement shadow+candidat) à chaque fois que `assign_shadow` réélit un shadow (`group/hub.rs::assign_shadow`). Le candidat la reçoit aussi (en plus de `CandidateAssigned`) — redondant mais utile : lui aussi doit pouvoir vérifier une migration signée par l'ex-shadow si jamais LUI devient le shadow suivant.
+2. **`GroupManager::handle_shadow_assigned`** (nouveau, `group/manager.rs`) — enregistre `group.shadow_id` localement chez le membre qui reçoit l'annonce.
+3. **`handle_hub_migration` durci** : ajout de `group.shadow_id != Some(new_hub_id)` en ET logique avec le check existant `from != new_hub_id`. **Pourquoi un ET strict et pas un fallback "si inconnu, accepter"** : accepter par défaut quand `shadow_id` est `None` réouvrirait exactement la faille visée (un membre qui n'a jamais reçu l'annonce serait aussi vulnérable qu'avant) — même politique que la vérification de signature ailleurs dans le code (rejet strict, pas de dégradé "best effort" sur un contrôle de sécurité).
+4. **Faille découverte en committant le fix** : le nouveau payload `ShadowAssigned` n'était initialement PAS gaté sur `signature_valid` dans `handle_incoming_group` (state.rs) — un attaquant aurait pu empoisonner le `shadow_id` connu d'une victime avec un message non signé, cassant la garantie que je venais d'ajouter (le check `handle_hub_migration` fait confiance à `group.shadow_id` comme vérité terrain). Corrigé avant tout commit : gaté sur `signature_valid` (calculé avant `decrypt_payload`, même pattern que `HubMigration`).
+5. **Gap résiduel plus profond confirmé, PAS traité (hors scope de la demande)** : après une promotion (shadow → primary), le nœud promu ne ré-exécute jamais `assign_shadow` pour lui-même (`self.group_hub` n'est jamais peuplé pour lui) — donc `shadow_id` connu des membres devient **stale** après une première cascade, et une deuxième panne (primary promu qui meurt à son tour) ne peut plus être vérifiée/récupérée automatiquement. Déjà documenté et testé comme limite acceptée (`hub_failover_cascade_shadow_becomes_hub_then_also_unreachable`, mis à jour pour refléter shadow_id stale plutôt que `None`) — fermer ÇA demanderait de faire du nœud promu un hub complet (ré-enregistrement `GroupHub`, ré-élection shadow/candidat), un chantier bien plus large que "vérifier l'expéditeur d'une migration".
+
+### Fichiers touchés
+- `crates/tom-protocol/src/group/types.rs` — `GroupPayload::ShadowAssigned`.
+- `crates/tom-protocol/src/types.rs` — `MessageType::GroupShadowAssigned`.
+- `crates/tom-protocol/src/group/hub.rs` — `assign_shadow` diffuse à tous les membres ; nouveau test `assign_shadow_broadcasts_to_ordinary_members`.
+- `crates/tom-protocol/src/group/manager.rs` — `handle_shadow_assigned` (nouveau), `handle_hub_migration` durci ; 2 nouveaux tests (`handle_hub_migration_rejects_never_shadow_member`, `handle_shadow_assigned_records_shadow_id`).
+- `crates/tom-protocol/src/runtime/state.rs` — dispatch `ShadowAssigned` (gaté `signature_valid`), mapping `MessageType`.
+- `crates/tom-protocol/tests/group_integration.rs` — 3 tests existants mis à jour pour délivrer `ShadowAssigned` avant `handle_hub_migration` (sinon rejetés par le nouveau check, comportement voulu) ; assertion corrigée dans le test de cascade (shadow_id stale, pas absent).
+
+### Résultats de tests (chiffres réels)
+- `cargo test -p tom-protocol --lib` : **537 passed** (534 + 3 nouveaux), 0 failed.
+- `cargo test -p tom-protocol --test group_integration` : **18 passed**, 0 failed (3 corrigés après durcissement du check, 1 nouvelle assertion mise à jour).
+- `cargo build/clippy --workspace -- -D warnings` : vert. `bash scripts/check-ffi.sh` : vert.
+- **`tom-stress failover` (réel)** : 8/8 étapes, promotion en 7s (budget 25s) — le durcissement de la vérification n'a pas cassé le chemin légitime.
+
+### CI — fix séparé (même session, avant ce chantier)
+CI #353 (commit `a95175a`) montrait 2 échecs :
+- `Rust supply chain (cargo-deny)` : corrigé (`ddf42f7`) — 2 nouvelles advisories RustSec sur `quick-xml` via `plist → netdev → netwatch/portmapper → tom-connect` (énumération d'interfaces réseau locales, pas de XML distant). Ignorées avec triage documenté dans `deny.toml` (fix amont pas encore possible en respectant semver).
+- `Rust cross-crate integration (multi-node)` : **pas résolu, cause non confirmée**. Pas d'accès `gh` authentifié dans cet environnement (logs GitHub Actions exigent une auth même sur repo public). Reproduit 3x en local (`--test-threads=1`) : 100% de réussite (~154s/run) — pas de reproduction locale, pointe vers une flakiness spécifique au runner CI plutôt qu'une régression déterministe, mais pas confirmé faute de log réel.
+
+### Ce qui reste / prochain [→]
+- [ ] Gap résiduel cascade (point 5 ci-dessus) : faire du nœud promu un hub complet après failover — chantier de conception plus large, pas commencé.
+- [ ] CI `rust-integration` : cause du 4m55s d'échec toujours pas confirmée — nécessite un accès `gh auth` ou relance manuelle du job par l'utilisateur pour trancher.
+- [ ] Prochain chantier annoncé par l'utilisateur : campagne de tests multi-devices réels (iPhone 3G/4G/5G, iPad wifi, Apple TV, NAS Freebox, MacBook Pro) — ping-pong, persistance backup si destinataire offline, montée en taille de message jusqu'à la limite, puis scénarios de groupe. Conception en cours, pas encore implémenté à la fin de cette entrée.
+
+### Auto-critique
+- Le check `handle_hub_migration` est maintenant strict (rejette si `shadow_id` inconnu ou différent) — un membre qui a raté à la fois son `Sync` initial et toutes les diffusions `ShadowAssigned` ultérieures (perte de messages cumulée, cas rare) resterait bloqué sur l'ancien hub jusqu'à un resync complet. C'est un compromis assumé (sécurité > disponibilité pour un contrôle anti-hijack), pas un oubli — mais je ne l'ai pas testé sous perte de paquets réelle, seulement en unitaire/intégration (état déterministe).
+- La faille de signature sur `ShadowAssigned` (point 4) aurait pu passer inaperçue si je n'avais pas relu mon propre diff avant de committer — à garder en tête pour tout futur payload de groupe : TOUJOURS vérifier qu'un nouveau message qui alimente une décision de sécurité est bien gaté sur `signature_valid`, pas seulement les messages qui déclenchent l'action finale.

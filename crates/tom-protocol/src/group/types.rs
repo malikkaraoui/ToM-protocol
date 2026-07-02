@@ -298,6 +298,17 @@ pub enum GroupPayload {
     /// Candidate role assignment (shadow -> candidate).
     CandidateAssigned { group_id: GroupId },
 
+    /// Hub broadcasts the current shadow to ALL members whenever it changes
+    /// (hub -> members). Lets ordinary members verify a later `HubMigration`
+    /// claim against a known-good `shadow_id` instead of trusting any sender
+    /// that merely names itself as the new hub — closes the residual
+    /// hub-hijack gap (a member who was never actually shadow could
+    /// otherwise self-declare primary undetected).
+    ShadowAssigned {
+        group_id: GroupId,
+        shadow_id: NodeId,
+    },
+
     /// Member reports hub unreachable (member -> shadow).
     HubUnreachable { group_id: GroupId },
 

@@ -28,6 +28,7 @@ pub enum MessageType {
     GroupHubPong,
     GroupHubShadowSync,
     GroupCandidateAssigned,
+    GroupShadowAssigned,
     GroupHubUnreachable,
     // Group admin controls (R11.3)
     GroupKickMember,
@@ -97,6 +98,7 @@ mod tests {
             MessageType::GroupHubPong,
             MessageType::GroupHubShadowSync,
             MessageType::GroupCandidateAssigned,
+            MessageType::GroupShadowAssigned,
             MessageType::GroupHubUnreachable,
             MessageType::GroupKickMember,
             MessageType::GroupUpdateMemberRole,
