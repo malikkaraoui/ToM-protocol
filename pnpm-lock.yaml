@@ -21,8 +21,8 @@ importers:
         specifier: ^1.58.2
         version: 1.58.2
       claude-atelier:
-        specifier: github:malikkaraoui/claude-atelier#618aef21902bd0e92ec48d5aedf2ebc842c0eb68
-        version: https://codeload.github.com/malikkaraoui/claude-atelier/tar.gz/618aef21902bd0e92ec48d5aedf2ebc842c0eb68
+        specifier: github:malikkaraoui/claude-atelier#9924ff5
+        version: https://codeload.github.com/malikkaraoui/claude-atelier/tar.gz/9924ff5
       husky:
         specifier: ^9.1.7
         version: 9.1.7
@@ -840,9 +840,9 @@ packages:
   chownr@1.1.4:
     resolution: {integrity: sha512-jJ0bqzaylmJtVnNgzTeSOs8DPavpbYgEr/b0YL8/2GO3xJEhInFmhKMUnEJQjZumK7KXGFhUy89PrsJWlakBVg==}
 
-  claude-atelier@https://codeload.github.com/malikkaraoui/claude-atelier/tar.gz/618aef21902bd0e92ec48d5aedf2ebc842c0eb68:
-    resolution: {tarball: https://codeload.github.com/malikkaraoui/claude-atelier/tar.gz/618aef21902bd0e92ec48d5aedf2ebc842c0eb68}
-    version: 0.23.7
+  claude-atelier@https://codeload.github.com/malikkaraoui/claude-atelier/tar.gz/9924ff5:
+    resolution: {tarball: https://codeload.github.com/malikkaraoui/claude-atelier/tar.gz/9924ff5}
+    version: 0.28.1
     engines: {node: '>=18.0.0'}
     hasBin: true
 
@@ -2067,7 +2067,7 @@ snapshots:
 
   chownr@1.1.4: {}
 
-  claude-atelier@https://codeload.github.com/malikkaraoui/claude-atelier/tar.gz/618aef21902bd0e92ec48d5aedf2ebc842c0eb68:
+  claude-atelier@https://codeload.github.com/malikkaraoui/claude-atelier/tar.gz/9924ff5:
     dependencies:
       better-sqlite3: 12.9.0
 
