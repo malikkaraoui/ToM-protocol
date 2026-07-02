@@ -133,19 +133,7 @@ Afficher à l'utilisateur :
 
 Si l'utilisateur ne répond pas dans les 2 minutes → continuer avec la review automatique.
 
-### Étape 6 — Lancer le Copilot Loop automatiquement
-
-**Immédiatement après `gh pr create`**, invoquer le skill `copilot-loop` pour activer le polling via `ScheduleWakeup`.
-Ne pas attendre que l'utilisateur le demande — c'est automatique.
-
-Le loop se chargera de :
-- Surveiller la review Copilot
-- Intégrer la réponse dans le handoff JSON
-- Merger dans la branche cible si `auto_merge_after_review = true`
-
-Annoncer : "PR créée : [URL]. Loop Copilot activé — je surveille et intègrerai automatiquement."
-
-**Ne pas afficher de prompt copier-coller. Copilot lit directement la PR GitHub.**
+**La review Copilot est complétée manuellement après sa publication.**
 
 ## Règles
 

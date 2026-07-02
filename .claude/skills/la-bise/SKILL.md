@@ -58,7 +58,7 @@ RÈGLES :
 
 ### Étape 3 — Afficher le prompt copier-coller
 
-Afficher à l'utilisateur le brief prêt à coller dans l'interface cible (ChatGPT, Mistral.ai, ollama run mistral).
+Afficher à l'utilisateur le brief prêt à coller dans l'interface cible (ChatGPT, Mistral.ai).
 
 ### Étape 4 — Intégrer la réponse
 

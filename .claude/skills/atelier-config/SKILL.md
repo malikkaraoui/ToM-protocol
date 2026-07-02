@@ -81,7 +81,6 @@ git commit -m "config: toggle <feature>"
 | `/atelier-config` | Atelier Config | Ce tableau de contrôle |
 | `/review-copilot` | Review Copilot | Génère un handoff review pour Copilot/GPT (§25) |
 | `/integrate-review` | Integrate Review | Intègre la réponse Copilot depuis docs/handoffs/ |
-| `/copilot-loop` | Copilot Loop | Loop autonome PR→review→merge |
 | `/la-bise` | La Bise | Échange inter-LLM (GPT/Mistral) |
 | `/angle-mort` | Angle Mort | Review anti-complaisance avant release |
 | `/compress` | Compress | Compresse CLAUDE.md pour réduire les tokens |
@@ -91,7 +90,6 @@ git commit -m "config: toggle <feature>"
 | `/design-senior` | Design Senior | Propose Séréna + installe UI/UX Pro Max |
 | `/bmad-init` | BMAD Init | Installe BMAD-METHOD dans le projet |
 | `/qmd-init` | QMD Init | Installe QMD (moteur recherche .md local) |
-| `/ollama-router` | Ollama Router | Setup Ollama bout-en-bout + proxy |
 | `/ios-setup` | iOS Setup | Workflow iOS/tvOS : VS Code + Xcode + Makefile |
 | `/freebox-init` | Freebox Init | Bootstrap autorisation app Freebox |
 | `/handoff-debt` | Handoff Debt | Affiche la dette §25 + draft handoff |
