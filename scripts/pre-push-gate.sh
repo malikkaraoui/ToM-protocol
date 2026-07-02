@@ -66,28 +66,42 @@ if $QUICK; then
 fi
 
 # ─── Stack detection ─────────────────────────────────────────────────────────
+#
+# A repo can carry more than one stack at once (e.g. this one: Rust workspace
+# + legacy TS package.json at root) — detect ALL of them and gate on each,
+# instead of stopping at the first match. A single `unknown` used to mean
+# Rust changes silently skipped lint/build/test whenever package.json was
+# also present.
 
-detect_stack() {
-    if [[ -f "package.json" ]]; then
-        echo "node"
-    elif [[ -f "pyproject.toml" ]] || [[ -f "requirements.txt" ]] || [[ -f "setup.py" ]]; then
-        echo "python"
-    elif [[ -f "pom.xml" ]]; then
-        echo "maven"
-    elif [[ -f "build.gradle" ]] || [[ -f "build.gradle.kts" ]]; then
-        echo "gradle"
-    else
+detect_stacks() {
+    local stacks=()
+    [[ -f "Cargo.toml" ]] && stacks+=("rust")
+    [[ -f "package.json" ]] && stacks+=("node")
+    { [[ -f "pyproject.toml" ]] || [[ -f "requirements.txt" ]] || [[ -f "setup.py" ]]; } && stacks+=("python")
+    [[ -f "pom.xml" ]] && stacks+=("maven")
+    { [[ -f "build.gradle" ]] || [[ -f "build.gradle.kts" ]]; } && stacks+=("gradle")
+    if [[ ${#stacks[@]} -eq 0 ]]; then
         echo "unknown"
+    else
+        echo "${stacks[@]}"
     fi
 }
 
-STACK=$(detect_stack)
+read -ra STACKS <<< "$(detect_stacks)"
 
 # ─── 3/5 Lint ─────────────────────────────────────────────────────────────────
 
-step 3 "Lint ($STACK)..."
+step 3 "Lint (${STACKS[*]})..."
 
+for STACK in "${STACKS[@]}"; do
 case "$STACK" in
+    rust)
+        if cargo clippy --workspace -- -D warnings 2>&1 | tail -30; then
+            pass "Lint OK (cargo clippy)"
+        else
+            fail "Lint echoue (cargo clippy)"
+        fi
+        ;;
     node)
         if npm run lint --if-present 2>&1 | tail -5; then
             pass "Lint OK"
@@ -130,12 +144,21 @@ case "$STACK" in
         warn "Stack non reconnue. Lint skippe."
         ;;
 esac
+done
 
 # ─── 4/5 Build ────────────────────────────────────────────────────────────────
 
-step 4 "Build ($STACK)..."
+step 4 "Build (${STACKS[*]})..."
 
+for STACK in "${STACKS[@]}"; do
 case "$STACK" in
+    rust)
+        if cargo build --workspace 2>&1 | tail -20; then
+            pass "Build OK (cargo build)"
+        else
+            fail "Build echoue (cargo build)"
+        fi
+        ;;
     node)
         if npm run build --if-present 2>&1 | tail -10; then
             pass "Build OK"
@@ -164,12 +187,21 @@ case "$STACK" in
         warn "Stack non reconnue. Build skippe."
         ;;
 esac
+done
 
 # ─── 5/5 Tests ─────────────────────────────────────────────────────────────────
 
-step 5 "Tests ($STACK)..."
+step 5 "Tests (${STACKS[*]})..."
 
+for STACK in "${STACKS[@]}"; do
 case "$STACK" in
+    rust)
+        if cargo test --workspace 2>&1 | tail -30; then
+            pass "Tests OK (cargo test)"
+        else
+            fail "Tests echoues (cargo test)"
+        fi
+        ;;
     node)
         if npm test -- --passWithNoTests 2>&1 | tail -20; then
             pass "Tests OK"
@@ -206,6 +238,7 @@ case "$STACK" in
         warn "Stack non reconnue. Tests skippes."
         ;;
 esac
+done
 
 # ─── Done ──────────────────────────────────────────────────────────────────────
 

@@ -94,6 +94,30 @@ jobs:
       - name: Clippy
         run: cargo clippy -p tom-transport -- -D warnings
 
+  rust-integration:
+    name: Rust cross-crate integration (multi-node, real network)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build
+        run: cargo build -p tom-integration-tests --tests
+
+      # Real multi-node scenarios incl. a 2min stability run — jamais lancé
+      # en CI auparavant (dépendance transport→protocol→relay non couverte).
+      - name: Test
+        run: cargo test -p tom-integration-tests
+        timeout-minutes: 10
+
+      - name: Clippy
+        run: cargo clippy -p tom-integration-tests --tests -- -D warnings
+
   rust-fork:
     name: Rust fork crates (build + test + clippy)
     runs-on: ubuntu-latest
@@ -122,8 +146,34 @@ jobs:
       - name: Test tom-gossip
         run: cargo test -p tom-gossip --lib
 
+      # Was built+clippied above but never tested — ~78 tests were dead in CI.
+      - name: Test tom-connect
+        run: cargo test -p tom-connect --lib
+
       - name: Clippy
         run: cargo clippy -p tom-base -p tom-metrics -p tom-quinn-proto -p tom-quinn -p tom-connect -p tom-relay -p tom-gossip -- -D warnings
+
+  rust-dht:
+    name: Rust DHT discovery (build + test + clippy)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build
+        run: cargo build -p tom-dht
+
+      # Real mainline::Testnet DHT (churn/blackout chaos included) — ~50s, no real network needed.
+      - name: Test
+        run: cargo test -p tom-dht --lib
+
+      - name: Clippy
+        run: cargo clippy -p tom-dht -- -D warnings
 
   rust-security:
     name: Rust supply chain (cargo-deny)

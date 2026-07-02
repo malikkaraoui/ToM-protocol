@@ -495,7 +495,17 @@ impl RuntimeState {
     // ── Tick: shadow ping watchdog ──────────────────────────────────────
 
     /// Shadow watchdog tick — send HubPing to primary for each group we shadow.
+    ///
+    /// Also checks for a prior ping that timed out with no pong: without this,
+    /// a hub that goes silent is never counted as a failure and failover
+    /// never triggers (`record_ping_failure` stayed dead at runtime).
     pub fn tick_shadow_ping(&mut self) -> Vec<RuntimeEffect> {
+        let now = now_ms();
+
+        let timeout_actions = self.group_manager.check_ping_timeouts(now);
+        let timeout_actions = self.intercept_self_group_actions(timeout_actions);
+        let mut effects = self.group_actions_to_effects(&timeout_actions);
+
         let shadow_groups: Vec<(crate::group::GroupId, NodeId)> = self
             .group_manager
             .shadow_groups()
@@ -503,8 +513,8 @@ impl RuntimeState {
             .map(|(gid, hub)| (gid.clone(), hub))
             .collect();
 
-        let mut effects = Vec::new();
         for (group_id, hub_id) in shadow_groups {
+            self.group_manager.note_ping_sent(&group_id, now);
             let payload = GroupPayload::HubPing {
                 group_id: group_id.clone(),
             };
@@ -532,9 +542,11 @@ impl RuntimeState {
         // In-memory cleanup
         let mem_purged = self.group_hub.cleanup_expired_messages(now, TTL_MS);
 
-        // SQLite cleanup
+        // SQLite cleanup — cutoff is an absolute timestamp, not a duration.
         let db_purged = if let Some(ref store) = self.store {
-            store.cleanup_hub_messages(TTL_MS).unwrap_or(0)
+            store
+                .cleanup_hub_messages(now.saturating_sub(TTL_MS))
+                .unwrap_or(0)
         } else {
             0
         };
@@ -874,6 +886,15 @@ impl RuntimeState {
                 ack_type,
                 ..
             } => {
+                // Verrou #1 (delivered ⟺ ACK): an unsigned or forged ACK must
+                // never promote a message's status — otherwise anyone can
+                // fabricate delivery/relay confirmation for a message they
+                // never received.
+                if !signature_valid {
+                    return vec![RuntimeEffect::Emit(ProtocolEvent::MessageRejected {
+                        reason: "forged or unsigned ACK rejected".into(),
+                    })];
+                }
                 let change = match ack_type {
                     AckType::RelayForwarded => {
                         self.tracker.mark_relayed(&original_message_id)
@@ -920,6 +941,11 @@ impl RuntimeState {
         &mut self,
         mut envelope: Envelope,
     ) -> Vec<RuntimeEffect> {
+        // Computed before decrypt_payload mutates the payload in place (which
+        // would invalidate verify_signature — encrypt-then-sign covers the
+        // ciphertext). Used to gate HubMigration against split-brain hijack.
+        let signature_valid = envelope.is_signed() && envelope.verify_signature().is_ok();
+
         // Decrypt if needed
         if envelope.encrypted {
             if let Err(e) = envelope.decrypt_payload(&self.secret_seed) {
@@ -1050,9 +1076,17 @@ impl RuntimeState {
                 group_id,
                 new_hub_id,
                 ..
-            } => self
-                .group_manager
-                .handle_hub_migration(&group_id, new_hub_id),
+            } => {
+                // Split-brain guard (part 2): an unsigned/forged envelope must
+                // never redirect a group's hub, regardless of what `from`
+                // claims (see GroupManager::handle_hub_migration for part 1).
+                if !signature_valid {
+                    vec![]
+                } else {
+                    self.group_manager
+                        .handle_hub_migration(&group_id, new_hub_id, envelope.from)
+                }
+            }
             GroupPayload::HubHeartbeat { .. } => vec![],
 
             // Shadow ping from shadow → primary responds with pong
@@ -3298,15 +3332,18 @@ mod tests {
             original_message_id: msg_id.clone(),
             ack_type: AckType::RelayForwarded,
         };
+        // Relay ACKs are signed at emission (verrou #1) — the receiver gates
+        // on signature_valid, so an unsigned ACK here would be rejected.
+        let relay_secret = keypair(22).1;
         let relay_ack_env = EnvelopeBuilder::new(
             relay_id,
             alice_id,
             MessageType::Ack,
             relay_ack_payload.to_bytes(),
         )
-        .build();
-        // We use the relay_ack_env unsigned — that's fine, sig_valid=false
-        let relay_effects = alice_state.handle_incoming_chat(relay_ack_env, false);
+        .sign(&relay_secret);
+        let sig_valid = relay_ack_env.verify_signature().is_ok();
+        let relay_effects = alice_state.handle_incoming_chat(relay_ack_env, sig_valid);
         let relay_status = relay_effects.iter().find_map(|e| {
             if let RuntimeEffect::StatusChange(sc) = e { Some(sc) } else { None }
         });
@@ -3334,6 +3371,97 @@ mod tests {
         assert!(recv_status.is_some(), "recipient ACK should produce StatusChange, got: {recv_effects:?}");
         let sc = recv_status.unwrap();
         assert_eq!(sc.current, crate::types::MessageStatus::Delivered);
+    }
+
+    #[test]
+    fn forged_ack_rejected_no_status_change() {
+        // Verrou #1 (delivered ⟺ ACK signé) — adversarial test: an attacker
+        // sends an Ack envelope with no signature (or a bogus one). It must
+        // NOT be able to fabricate delivery/relay confirmation.
+        let (alice_id, alice_secret) = keypair(40);
+        let (bob_id, _bob_secret) = keypair(41);
+
+        let mut alice_state = RuntimeState::new(
+            alice_id,
+            alice_secret,
+            RuntimeConfig {
+                encryption: false,
+                ..Default::default()
+            },
+        );
+
+        let send_effects = alice_state.handle_send_message(bob_id, b"hi bob".to_vec());
+        let envelope = match &send_effects[0] {
+            RuntimeEffect::SendWithBackupFallback { envelope, .. } => envelope.clone(),
+            other => panic!("expected SendWithBackupFallback, got: {other:?}"),
+        };
+        let msg_id = envelope.id.clone();
+
+        use crate::router::{AckPayload, AckType};
+        let forged_payload = AckPayload {
+            original_message_id: msg_id,
+            ack_type: AckType::RecipientReceived,
+        };
+        // Unsigned — an attacker impersonating Bob with no key at all.
+        let forged_env = EnvelopeBuilder::new(
+            bob_id,
+            alice_id,
+            MessageType::Ack,
+            forged_payload.to_bytes(),
+        )
+        .build();
+        assert!(!forged_env.is_signed());
+        let effects = alice_state.handle_incoming_chat(forged_env, false);
+
+        let has_status_change = effects
+            .iter()
+            .any(|e| matches!(e, RuntimeEffect::StatusChange(_)));
+        assert!(
+            !has_status_change,
+            "forged/unsigned ACK must not produce a StatusChange, got: {effects:?}"
+        );
+        let rejected = effects.iter().any(|e| {
+            matches!(e, RuntimeEffect::Emit(ProtocolEvent::MessageRejected { .. }))
+        });
+        assert!(rejected, "forged ACK should emit MessageRejected, got: {effects:?}");
+    }
+
+    #[test]
+    fn tick_hub_cleanup_purges_expired_sqlite_rows() {
+        // Verrou #2 (purge TTL 24h) — the SQLite cutoff passed to
+        // cleanup_hub_messages must be an absolute timestamp (now - TTL),
+        // not the raw TTL duration, or expired rows are never purged.
+        let mut state = default_state(50);
+        let store = crate::storage::StateStore::open_memory().unwrap();
+
+        let group_id = GroupId::from("grp-purge-test".to_string());
+        let now = now_ms();
+        const TTL_MS: u64 = 24 * 60 * 60 * 1000;
+        let expired_at = now.saturating_sub(TTL_MS + 60_000); // 25h old
+        let fresh_at = now.saturating_sub(60_000); // 1 minute old
+
+        store
+            .save_hub_message(&group_id, 1, b"old message", expired_at)
+            .unwrap();
+        store
+            .save_hub_message(&group_id, 2, b"recent message", fresh_at)
+            .unwrap();
+
+        state.store = Some(store);
+        state.tick_hub_cleanup();
+
+        let remaining = state
+            .store
+            .as_ref()
+            .unwrap()
+            .load_hub_messages_since(&group_id, 0, 100)
+            .unwrap();
+        assert_eq!(
+            remaining.len(),
+            1,
+            "expected only the fresh message to survive purge, got: {remaining:?}"
+        );
+        assert_eq!(remaining[0].0, 2, "the surviving row should be seq=2 (fresh)");
     }
 
     #[test]

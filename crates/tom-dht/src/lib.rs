@@ -293,12 +293,36 @@ pub async fn rendezvous_publish(dht: &AsyncDht, addr: &DhtNodeAddr) -> Result<()
     Ok(())
 }
 
+/// Verify a rendezvous entry's proof-of-possession signature against its
+/// `node_id`. The shared slot keys are public (derived from a constant), so
+/// the BEP-0044 signature alone proves nothing about who `node_id` is — this
+/// app-level signature does. Rejects unsigned, malformed, or forged entries
+/// (identity poisoning: an attacker publishing fake addresses under someone
+/// else's node_id). Does NOT prevent slot squatting (an attacker occupying a
+/// slot under its OWN, honestly-signed, node_id) — that needs a stronger
+/// primitive (proof-of-work, reputation) and is out of scope here.
+fn rendezvous_entry_authentic(addr: &DhtNodeAddr) -> bool {
+    use tom_base::{PublicKey, Signature};
+    let Ok(node_id) = addr.node_id.parse::<PublicKey>() else {
+        return false;
+    };
+    if addr.sig.len() != Signature::LENGTH {
+        return false;
+    }
+    let mut sig_bytes = [0u8; Signature::LENGTH];
+    sig_bytes.copy_from_slice(&addr.sig);
+    node_id
+        .verify(&addr.signing_bytes(), &Signature::from_bytes(&sig_bytes))
+        .is_ok()
+}
+
 /// Standalone rendezvous discovery — reads every slot, returns fresh live peers.
 ///
-/// Best-effort: a missing or malformed slot is skipped, never fatal. Records
-/// older than [`MAX_DHT_AGE_MS`] and the caller's own `own_node_id` are excluded.
-/// The result is de-duplicated by node_id (a node may briefly appear twice if it
-/// changed slots after an identity change — keep the freshest).
+/// Best-effort: a missing, malformed, unsigned, or forged slot is skipped,
+/// never fatal. Records older than [`MAX_DHT_AGE_MS`] and the caller's own
+/// `own_node_id` are excluded. The result is de-duplicated by node_id (a node
+/// may briefly appear twice if it changed slots after an identity change —
+/// keep the freshest).
 pub async fn rendezvous_discover(dht: &AsyncDht, own_node_id: &str) -> Vec<DhtNodeAddr> {
     let now = now_ms();
     let mut found: Vec<DhtNodeAddr> = Vec::new();
@@ -313,6 +337,10 @@ pub async fn rendezvous_discover(dht: &AsyncDht, own_node_id: &str) -> Vec<DhtNo
             continue;
         };
         if addr.node_id == own_node_id {
+            continue;
+        }
+        if !rendezvous_entry_authentic(&addr) {
+            tracing::debug!(slot = i, node_id = %addr.node_id, "rendezvous: unsigned or forged entry, skipping");
             continue;
         }
         if !rendezvous_entry_is_fresh(addr.timestamp, now) {
@@ -500,47 +528,67 @@ mod tests {
 
     // ── Rendezvous: slot derivation (pure, no DHT) ───────────────────────────
 
-    fn fresh_addr(node_id: &str) -> DhtNodeAddr {
-        DhtNodeAddr {
-            node_id: node_id.into(),
-            relay_urls: vec![format!("http://relay/{node_id}")],
+    /// Deterministically derive a real ed25519 keypair from a seed — entries
+    /// must carry a genuine node_id (a real public key) to pass
+    /// `rendezvous_entry_authentic`'s proof-of-possession check.
+    fn secret_for(seed: u64) -> tom_base::SecretKey {
+        use rand::SeedableRng;
+        let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
+        tom_base::SecretKey::generate(&mut rng)
+    }
+
+    fn node_id_for(seed: u64) -> String {
+        secret_for(seed).public().to_string()
+    }
+
+    fn sign_addr(addr: &mut DhtNodeAddr, secret: &tom_base::SecretKey) {
+        addr.sig = Vec::new();
+        addr.sig = secret.sign(&addr.signing_bytes()).to_bytes().to_vec();
+    }
+
+    fn fresh_addr(seed: u64) -> DhtNodeAddr {
+        let secret = secret_for(seed);
+        let mut addr = DhtNodeAddr {
+            node_id: secret.public().to_string(),
+            relay_urls: vec![format!("http://relay/{seed}")],
             direct_addrs: vec!["10.0.0.1:3340".into()],
             timestamp: now_ms(),
-            ..Default::default()
-        }
+            sig: Vec::new(),
+        };
+        sign_addr(&mut addr, &secret);
+        addr
     }
 
-    fn stale_addr(node_id: &str) -> DhtNodeAddr {
-        DhtNodeAddr {
-            timestamp: now_ms() - 3 * 3600 * 1000,
-            ..fresh_addr(node_id)
-        }
+    fn stale_addr(seed: u64) -> DhtNodeAddr {
+        let secret = secret_for(seed);
+        let mut addr = fresh_addr(seed);
+        addr.timestamp = now_ms() - 3 * 3600 * 1000;
+        sign_addr(&mut addr, &secret); // re-sign: timestamp is covered by signing_bytes
+        addr
     }
 
-    /// Pick `n` node_ids that each land in a distinct rendezvous slot.
-    fn distinct_slot_ids(n: usize) -> Vec<String> {
+    /// Pick `n` seeds whose derived node_id each land in a distinct rendezvous slot.
+    fn distinct_slot_seeds(n: usize) -> Vec<u64> {
         let mut out = Vec::new();
         let mut used = std::collections::HashSet::new();
-        let mut i = 0u32;
+        let mut i = 0u64;
         while out.len() < n {
-            let id = format!("node-{i}");
-            if used.insert(slot_for_node(&id)) {
-                out.push(id);
+            if used.insert(slot_for_node(&node_id_for(i))) {
+                out.push(i);
             }
             i += 1;
         }
         out
     }
 
-    /// Find two distinct node_ids that collide into the same slot.
-    fn same_slot_pair() -> (String, String) {
-        let first = "collide-0".to_string();
-        let s0 = slot_for_node(&first);
-        let mut i = 1u32;
+    /// Find two distinct seeds whose derived node_ids collide into the same slot.
+    fn same_slot_pair() -> (u64, u64) {
+        let first = 0u64;
+        let s0 = slot_for_node(&node_id_for(first));
+        let mut i = 1u64;
         loop {
-            let cand = format!("collide-{i}");
-            if cand != first && slot_for_node(&cand) == s0 {
-                return (first, cand);
+            if slot_for_node(&node_id_for(i)) == s0 {
+                return (first, i);
             }
             i += 1;
         }
@@ -599,10 +647,35 @@ mod tests {
     }
 
     #[test]
-    fn rendezvous_distinct_slot_ids_helper_works() {
-        let ids = distinct_slot_ids(RENDEZVOUS_SLOTS as usize);
-        let slots: std::collections::HashSet<u8> = ids.iter().map(|s| slot_for_node(s)).collect();
+    fn rendezvous_distinct_slot_seeds_helper_works() {
+        let seeds = distinct_slot_seeds(RENDEZVOUS_SLOTS as usize);
+        let slots: std::collections::HashSet<u8> =
+            seeds.iter().map(|s| slot_for_node(&node_id_for(*s))).collect();
         assert_eq!(slots.len(), RENDEZVOUS_SLOTS as usize, "should occupy every slot");
+    }
+
+    #[test]
+    fn rendezvous_entry_authentic_accepts_valid_and_rejects_forged() {
+        let addr = fresh_addr(1);
+        assert!(rendezvous_entry_authentic(&addr), "properly signed entry must be accepted");
+
+        let mut unsigned = addr.clone();
+        unsigned.sig.clear();
+        assert!(!rendezvous_entry_authentic(&unsigned), "unsigned entry must be rejected");
+
+        let mut garbage_sig = addr.clone();
+        garbage_sig.sig = vec![0u8; tom_base::Signature::LENGTH];
+        assert!(!rendezvous_entry_authentic(&garbage_sig), "garbage signature must be rejected");
+
+        let mut tampered = addr.clone();
+        tampered.direct_addrs = vec!["6.6.6.6:3340".into()];
+        assert!(!rendezvous_entry_authentic(&tampered), "tampered addr must invalidate the signature");
+
+        // Attacker keeps a valid signature but swaps node_id to impersonate someone else.
+        let other = fresh_addr(2);
+        let mut impersonated = addr.clone();
+        impersonated.node_id = other.node_id;
+        assert!(!rendezvous_entry_authentic(&impersonated), "forged node_id must be rejected");
     }
 
     // ── Rendezvous: live DHT (Testnet) ───────────────────────────────────────
@@ -623,10 +696,11 @@ mod tests {
         async fn test() {
             let testnet = Testnet::builder(10).build().unwrap();
             // 3 publishers in distinct slots so all survive.
-            let ids = distinct_slot_ids(3);
-            for id in &ids {
+            let seeds = distinct_slot_seeds(3);
+            let ids: Vec<String> = seeds.iter().map(|s| node_id_for(*s)).collect();
+            for seed in &seeds {
                 make_dht(&testnet)
-                    .publish_rendezvous(&fresh_addr(id))
+                    .publish_rendezvous(&fresh_addr(*seed))
                     .await
                     .expect("publish_rendezvous");
             }
@@ -653,12 +727,13 @@ mod tests {
     fn rendezvous_excludes_self() {
         async fn test() {
             let testnet = Testnet::builder(10).build().unwrap();
+            let me = node_id_for(1);
             make_dht(&testnet)
-                .publish_rendezvous(&fresh_addr("me"))
+                .publish_rendezvous(&fresh_addr(1))
                 .await
                 .unwrap();
-            let found = make_dht(&testnet).discover_rendezvous("me").await;
-            assert!(found.iter().all(|a| a.node_id != "me"), "must not discover self");
+            let found = make_dht(&testnet).discover_rendezvous(&me).await;
+            assert!(found.iter().all(|a| a.node_id != me), "must not discover self");
         }
         futures_lite::future::block_on(test());
     }
@@ -667,13 +742,14 @@ mod tests {
     fn rendezvous_stale_is_filtered() {
         async fn test() {
             let testnet = Testnet::builder(10).build().unwrap();
+            let ghost = node_id_for(1);
             make_dht(&testnet)
-                .publish_rendezvous(&stale_addr("ghost"))
+                .publish_rendezvous(&stale_addr(1))
                 .await
                 .unwrap();
             let found = make_dht(&testnet).discover_rendezvous("reader").await;
             assert!(
-                found.iter().all(|a| a.node_id != "ghost"),
+                found.iter().all(|a| a.node_id != ghost),
                 "stale (>2h) rendezvous entry must not be discovered"
             );
         }
@@ -685,12 +761,14 @@ mod tests {
         async fn test() {
             let testnet = Testnet::builder(10).build().unwrap();
             let (a, b) = same_slot_pair();
-            assert_eq!(slot_for_node(&a), slot_for_node(&b));
+            let (a_id, b_id) = (node_id_for(a), node_id_for(b));
+            assert_eq!(slot_for_node(&a_id), slot_for_node(&b_id));
 
             // Older first, newer second — newer (higher seq) must win the slot.
-            let mut older = fresh_addr(&a);
+            let mut older = fresh_addr(a);
             older.timestamp = now_ms() - 60_000;
-            let newer = fresh_addr(&b); // now_ms() > older
+            sign_addr(&mut older, &secret_for(a));
+            let newer = fresh_addr(b); // now_ms() > older
 
             make_dht(&testnet).publish_rendezvous(&older).await.unwrap();
             make_dht(&testnet).publish_rendezvous(&newer).await.unwrap();
@@ -698,8 +776,8 @@ mod tests {
             let found = make_dht(&testnet).discover_rendezvous("reader").await;
             let ids: std::collections::HashSet<_> =
                 found.iter().map(|x| x.node_id.clone()).collect();
-            assert!(ids.contains(&b), "freshest writer {b} should win the slot");
-            assert!(!ids.contains(&a), "stale-in-slot {a} should be overwritten");
+            assert!(ids.contains(&b_id), "freshest writer {b_id} should win the slot");
+            assert!(!ids.contains(&a_id), "stale-in-slot {a_id} should be overwritten");
         }
         futures_lite::future::block_on(test());
     }
@@ -708,18 +786,22 @@ mod tests {
     fn rendezvous_republish_updates_address() {
         async fn test() {
             let testnet = Testnet::builder(10).build().unwrap();
-            let mut addr = fresh_addr("mover");
+            let secret = secret_for(1);
+            let mover = node_id_for(1);
+            let mut addr = fresh_addr(1);
             addr.direct_addrs = vec!["1.1.1.1:3340".into()];
+            sign_addr(&mut addr, &secret);
             make_dht(&testnet).publish_rendezvous(&addr).await.unwrap();
 
-            // Node moves networks: new addr, newer timestamp.
+            // Node moves networks: new addr, newer timestamp, re-signed.
             addr.direct_addrs = vec!["2.2.2.2:3340".into()];
             addr.timestamp = now_ms() + 1;
+            sign_addr(&mut addr, &secret);
             make_dht(&testnet).publish_rendezvous(&addr).await.unwrap();
 
             let found = make_dht(&testnet).discover_rendezvous("reader").await;
-            let mover = found.iter().find(|a| a.node_id == "mover").expect("find mover");
-            assert_eq!(mover.direct_addrs, vec!["2.2.2.2:3340".to_string()], "must see updated addr");
+            let found_mover = found.iter().find(|a| a.node_id == mover).expect("find mover");
+            assert_eq!(found_mover.direct_addrs, vec!["2.2.2.2:3340".to_string()], "must see updated addr");
         }
         futures_lite::future::block_on(test());
     }
@@ -734,14 +816,14 @@ mod tests {
             // 16 nodes storm the rendezvous: even = alive (fresh), odd = dead (stale).
             let mut alive = std::collections::HashSet::new();
             let mut dead = std::collections::HashSet::new();
-            for i in 0..16u32 {
-                let id = format!("chaos-{i}");
+            for i in 0..16u64 {
+                let id = node_id_for(i);
                 let addr = if i % 2 == 0 {
                     alive.insert(id.clone());
-                    fresh_addr(&id)
+                    fresh_addr(i)
                 } else {
                     dead.insert(id.clone());
-                    stale_addr(&id)
+                    stale_addr(i)
                 };
                 // Best-effort: same-slot lower-seq writes may be rejected — that's fine.
                 let _ = make_dht(&testnet).publish_rendezvous(&addr).await;
@@ -778,22 +860,21 @@ mod tests {
             let testnet = Testnet::builder(12).build().unwrap();
 
             // Phase 1: everyone is dead (stale). A newcomer finds nothing.
-            for i in 0..4u32 {
-                let _ = make_dht(&testnet)
-                    .publish_rendezvous(&stale_addr(&format!("old-{i}")))
-                    .await;
+            for i in 0..4u64 {
+                let _ = make_dht(&testnet).publish_rendezvous(&stale_addr(i)).await;
             }
             let blackout = make_dht(&testnet).discover_rendezvous("survivor").await;
             assert!(blackout.is_empty(), "all-stale rendezvous must look empty");
 
             // Phase 2: ONE node comes back alive → the network is rejoinable again.
+            let revived = node_id_for(100);
             make_dht(&testnet)
-                .publish_rendezvous(&fresh_addr("revived"))
+                .publish_rendezvous(&fresh_addr(100))
                 .await
                 .unwrap();
             let recovered = make_dht(&testnet).discover_rendezvous("survivor").await;
             assert!(
-                recovered.iter().any(|a| a.node_id == "revived"),
+                recovered.iter().any(|a| a.node_id == revived),
                 "a single revived node must restore discoverability"
             );
         }

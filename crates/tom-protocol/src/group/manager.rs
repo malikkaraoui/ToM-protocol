@@ -46,6 +46,9 @@ struct ShadowState {
     ping_failures: u32,
     /// Number of HubUnreachable reports received.
     unreachable_reports: u32,
+    /// When the last HubPing was sent to the primary (ms). Cleared on pong
+    /// receipt or once counted as a timeout — used to detect a missing pong.
+    last_ping_sent_at: Option<u64>,
 }
 
 /// Member-side group state manager.
@@ -446,14 +449,28 @@ impl GroupManager {
     // ── Hub Migration ────────────────────────────────────────────────────
 
     /// Handle hub migration notification.
+    ///
+    /// `from` is the envelope sender. The only legitimate migration path is a
+    /// shadow promoting itself (`promote_to_primary`) and broadcasting its
+    /// own id, so the sender must match the claimed `new_hub_id` — a stranger
+    /// cannot redirect a group to some other node. The caller (state.rs) must
+    /// also gate on the envelope's `signature_valid` before calling this, or
+    /// the `from` field is just an unauthenticated claim (split-brain hijack).
+    /// Regular members never learn who the shadow is (only the hub, the
+    /// shadow, and the candidate do), so that cannot be checked here too.
     pub fn handle_hub_migration(
         &mut self,
         group_id: &GroupId,
         new_hub_id: NodeId,
+        from: NodeId,
     ) -> Vec<GroupAction> {
         let Some(group) = self.groups.get_mut(group_id) else {
             return vec![];
         };
+
+        if from != new_hub_id {
+            return vec![];
+        }
 
         group.hub_relay_id = new_hub_id;
         group.last_activity_at = now_ms();
@@ -836,6 +853,7 @@ impl GroupManager {
                 config_version,
                 ping_failures: 0,
                 unreachable_reports: 0,
+                last_ping_sent_at: None,
             },
         );
 
@@ -924,7 +942,43 @@ impl GroupManager {
         if let Some(state) = self.shadow_state.get_mut(group_id) {
             state.ping_failures = 0;
             state.unreachable_reports = 0;
+            state.last_ping_sent_at = None;
         }
+    }
+
+    /// Record that a HubPing was just sent to the primary for this group —
+    /// starts the timeout window checked by `check_ping_timeouts`.
+    pub fn note_ping_sent(&mut self, group_id: &GroupId, now: u64) {
+        if let Some(state) = self.shadow_state.get_mut(group_id) {
+            state.last_ping_sent_at = Some(now);
+        }
+    }
+
+    /// Detect HubPings sent more than `SHADOW_PING_TIMEOUT_MS` ago with no
+    /// pong received since. Without this, the watchdog sends pings and
+    /// resets on pong, but a hub that goes silent (no pong at all) is never
+    /// counted as a failure — `record_ping_failure` would never fire and
+    /// failover would stay dead at runtime. Called once per watchdog tick,
+    /// before a fresh ping is sent.
+    pub fn check_ping_timeouts(&mut self, now: u64) -> Vec<GroupAction> {
+        let timed_out: Vec<GroupId> = self
+            .shadow_state
+            .iter()
+            .filter_map(|(gid, state)| {
+                let sent_at = state.last_ping_sent_at?;
+                (now.saturating_sub(sent_at) >= SHADOW_PING_TIMEOUT_MS).then(|| gid.clone())
+            })
+            .collect();
+
+        let mut actions = Vec::new();
+        for gid in timed_out {
+            if let Some(state) = self.shadow_state.get_mut(&gid) {
+                // Counted — don't re-flag the same silence until a new ping is sent.
+                state.last_ping_sent_at = None;
+            }
+            actions.extend(self.record_ping_failure(&gid));
+        }
+        actions
     }
 
     /// Get shadow state for building ping actions in the runtime tick.
@@ -1306,15 +1360,44 @@ mod tests {
         let mut mgr = make_manager();
         let old_hub = node_id(10);
         let new_hub = node_id(11);
-        let group = make_test_group(node_id(1), old_hub);
+        let mut group = make_test_group(node_id(1), old_hub);
+        group.shadow_id = Some(new_hub);
         let gid = group.group_id.clone();
         mgr.handle_group_created(group);
 
         assert_eq!(mgr.get_group(&gid).unwrap().hub_relay_id, old_hub);
 
-        let actions = mgr.handle_hub_migration(&gid, new_hub);
+        // Legitimate: the new hub (the registered shadow) announces its own promotion.
+        let actions = mgr.handle_hub_migration(&gid, new_hub, new_hub);
         assert_eq!(actions.len(), 1);
         assert_eq!(mgr.get_group(&gid).unwrap().hub_relay_id, new_hub);
+    }
+
+    #[test]
+    fn handle_hub_migration_rejects_sender_mismatch() {
+        // Split-brain guard (part 1, manager-level): a HubMigration must
+        // claim the sender itself as the new hub — a stranger cannot
+        // redirect a group to some other node's id. The complementary half
+        // (the envelope must actually be signed by that sender) is enforced
+        // by the caller in state.rs via `signature_valid`, since GroupManager
+        // has no access to envelope crypto.
+        let mut mgr = make_manager();
+        let old_hub = node_id(10);
+        let real_shadow = node_id(11);
+        let attacker = node_id(66);
+        let group = make_test_group(node_id(1), old_hub);
+        let gid = group.group_id.clone();
+        mgr.handle_group_created(group);
+
+        // Attacker impersonates the real shadow's identity as sender, but
+        // claims a different new_hub_id (sender != new_hub_id mismatch).
+        let actions = mgr.handle_hub_migration(&gid, attacker, real_shadow);
+        assert!(actions.is_empty(), "sender/new_hub_id mismatch must be rejected");
+        assert_eq!(
+            mgr.get_group(&gid).unwrap().hub_relay_id,
+            old_hub,
+            "hub must not change on a forged migration"
+        );
     }
 
     #[test]
@@ -1752,6 +1835,57 @@ mod tests {
 
         // Should no longer be shadow (now we're the hub)
         assert!(!mgr.is_shadow_for(&gid));
+    }
+
+    #[test]
+    fn check_ping_timeouts_promotes_on_silent_hub() {
+        // Failover-dead-at-runtime regression: `record_ping_failure` must
+        // actually get called when a hub goes silent (no pong), not just
+        // when a test calls it directly. `check_ping_timeouts` is the
+        // watchdog-tick wiring that makes that happen.
+        let shadow_id = node_id(2);
+        let mut mgr = GroupManager::new(shadow_id, "shadow".into());
+        let hub = node_id(10);
+        let group = make_test_group(node_id(1), hub);
+        let gid = group.group_id.clone();
+        mgr.handle_group_created(group);
+        mgr.handle_shadow_sync(&gid, vec![], Some(node_id(3)), 1);
+
+        // No ping sent yet -> nothing to time out.
+        assert!(mgr.check_ping_timeouts(0).is_empty());
+
+        // Ping sent at t=0, no pong ever arrives.
+        mgr.note_ping_sent(&gid, 0);
+        assert!(
+            mgr.check_ping_timeouts(SHADOW_PING_TIMEOUT_MS - 1).is_empty(),
+            "should not count as failure before the timeout elapses"
+        );
+        let actions = mgr.check_ping_timeouts(SHADOW_PING_TIMEOUT_MS);
+        assert!(actions.is_empty(), "1st timeout alone should not yet promote");
+
+        // Second ping cycle also goes unanswered.
+        mgr.note_ping_sent(&gid, SHADOW_PING_TIMEOUT_MS);
+        let actions = mgr.check_ping_timeouts(2 * SHADOW_PING_TIMEOUT_MS);
+        assert!(!actions.is_empty(), "2 consecutive silent pings should promote");
+        assert!(!mgr.is_shadow_for(&gid), "should have self-promoted to hub");
+    }
+
+    #[test]
+    fn check_ping_timeouts_cleared_by_pong() {
+        let shadow_id = node_id(2);
+        let mut mgr = GroupManager::new(shadow_id, "shadow".into());
+        let hub = node_id(10);
+        let group = make_test_group(node_id(1), hub);
+        let gid = group.group_id.clone();
+        mgr.handle_group_created(group);
+        mgr.handle_shadow_sync(&gid, vec![], Some(node_id(3)), 1);
+
+        mgr.note_ping_sent(&gid, 0);
+        mgr.reset_ping_failures(&gid); // pong arrived before timeout
+
+        // Even well past the timeout window, no pending ping means no failure.
+        assert!(mgr.check_ping_timeouts(10 * SHADOW_PING_TIMEOUT_MS).is_empty());
+        assert!(mgr.is_shadow_for(&gid));
     }
 
     #[test]
