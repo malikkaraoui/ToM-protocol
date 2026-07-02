@@ -1,6 +1,6 @@
 ---
 name: atelier-doctor
-description: "Diagnostic complet de l'installation claude-atelier (27+ checks). Utiliser pour vérifier que tout est en ordre."
+description: "Diagnostic complet de l'installation claude-atelier (28+ checks). Utiliser pour vérifier que tout est en ordre."
 figure: Inspecteur
 ---
 

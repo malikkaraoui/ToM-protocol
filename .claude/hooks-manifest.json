@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft-07/schema#",
   "version": "1.0.0",
   "description": "Manifeste typé de tous les hooks claude-atelier. Source de vérité — toute modif d'un hook doit synchroniser cette entrée. Vérifié par test/lint-hooks-manifest.js.",
-  "lastUpdated": "2026-06-26",
+  "lastUpdated": "2026-07-02",
   "hooks": [
     {
       "name": "_parse-input",
@@ -26,6 +26,22 @@
         "0": "always (sourced, never executed standalone)"
       },
       "sha256": "c732f4dcb16d3c13"
+    },
+    {
+      "name": "_parse-features",
+      "file": "hooks/_parse-features.sh",
+      "type": "helper",
+      "trigger": null,
+      "purpose": "Helper source-able — lit les paramètres features depuis registry JSON avec override .claude/features.json",
+      "exposes": [
+        "_get_param(name, default)"
+      ],
+      "rule": "§15 Token Management — centraliser lecture des seuils configurables",
+      "test": "test/hooks.js → guard-anti-loop.sh (seuil paramétré)",
+      "exitCodes": {
+        "0": "always (sourced, outputs param value)"
+      },
+      "sha256": "a04ac1e9161b1afa"
     },
     {
       "name": "session-model",
@@ -117,7 +133,7 @@
       "file": "hooks/guard-commit-french.sh",
       "type": "PreToolUse",
       "trigger": "Bash tool with `git commit -m` command",
-      "purpose": "Bloque les messages de commit purement anglais (≥ 2 mots EN détectés, 0 mot FR)",
+      "purpose": "Bloque les messages de commit purement anglais (≥ 2 mots EN détectés, 0 mot FR) ; ajoute un rappel §25 review gated par la feature review_copilot (muet si OFF)",
       "inputs": [
         "HOOK_COMMAND"
       ],
@@ -130,7 +146,7 @@
         "0": "allow",
         "2": "block — message anglais détecté"
       },
-      "sha256": "87f79eae1413baa3"
+      "sha256": "fce3a91a16d5f737"
     },
     {
       "name": "guard-qmd-first",
@@ -156,20 +172,21 @@
       "file": "hooks/guard-anti-loop.sh",
       "type": "PostToolUse",
       "trigger": "any Bash tool execution",
-      "purpose": "Détecte > 3 tentatives identiques échouées de la même commande (boucle infernale)",
+      "purpose": "Détecte > N tentatives identiques échouées (N configurable via anti_loop_count param)",
       "inputs": [
         "HOOK_COMMAND",
-        "HOOK_EXIT_CODE"
+        "HOOK_EXIT_CODE",
+        "anti_loop_count param from features-registry.json"
       ],
       "outputs": [
         "allow (exit 0) + warning si seuil atteint"
       ],
       "rule": "§6 Gestion des erreurs — ne jamais itérer à l'identique",
-      "test": null,
+      "test": "test/hooks.js → guard-anti-loop.sh (cumul + réinitialisation)",
       "exitCodes": {
         "0": "always (warning only)"
       },
-      "sha256": "61830ca0a3479e1b"
+      "sha256": "38c0dac6dab5f10e"
     },
     {
       "name": "guard-tests-before-push",
@@ -219,21 +236,23 @@
       "file": "hooks/model-metrics.sh",
       "type": "UserPromptSubmit",
       "trigger": "every user prompt",
-      "purpose": "Analyse les 5 derniers tours assistant (outil dominant par tour, 3 niveaux low/medium/high). Émet [METRICS] avec pastille 🟢/🟠/🔴 pour §1. Silencieux si transcript absent ou < 2 tours.",
+      "purpose": "Analyse les 5 derniers tours assistant (outil dominant par tour, 3 niveaux low/medium/high). Émet [METRICS] avec pastille 🟢/🟠/🔴 pour §1. Résout le modèle via le cache scoppé session (rafraîchi par routing-check.sh, qui tourne avant ce hook) en priorité, pour éviter qu'un LIVE_MODEL ou un cache legacy périmé calcule la fenêtre de contexte sur le mauvais modèle juste après un /model switch. Silencieux si transcript absent ou < 2 tours.",
       "inputs": [
         "transcript_path",
         "model (if available in hook JSON)",
-        "current-model from /tmp"
+        "session_id (if available in hook JSON)",
+        "cache scoppé session /tmp/claude-atelier-model-cache/<scope>.model (écrit par routing-check.sh, prioritaire)",
+        "cache legacy /tmp/claude-atelier-current-model (dernier recours)"
       ],
       "outputs": [
         "additionalContext: [METRICS] fit:VERDICT(Xh/Xm/Xl/Xt) | model:MODEL | verdict → suggestion PASTILLE"
       ],
       "rule": "§1 Horodatage + pastille · §15 Auto-métriques",
-      "test": "test/hooks.js → model-metrics.sh (5 tests)",
+      "test": "test/hooks.js → model-metrics.sh (12 tests)",
       "exitCodes": {
         "0": "always (warning only, never blocks)"
       },
-      "sha256": "cd6147e67ae0d2be"
+      "sha256": "72d2b749ef488e71"
     },
     {
       "name": "guard-hooks-reload",
@@ -342,9 +361,9 @@
     }
   ],
   "stats": {
-    "total": 16,
+    "total": 17,
     "byType": {
-      "helper": 1,
+      "helper": 2,
       "SessionStart": 2,
       "Stop": 1,
       "UserPromptSubmit": 4,
@@ -353,8 +372,8 @@
       "PreToolUse + PostToolUse": 2
     },
     "blocking": 6,
-    "warningOnly": 10,
-    "withTests": 13
+    "warningOnly": 11,
+    "withTests": 14
   },
   "conventions": {
     "sourcing": "Tous les hooks (sauf session-model et routing-check qui parsent eux-mêmes le stdin) sourcent _parse-input.sh pour l'extraction des variables.",

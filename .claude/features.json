@@ -1,9 +1,10 @@
 {
   "askUserQuestion": {
     "enabled": true,
-    "triggers": ["vault-ingest", "model-switch"]
+    "triggers": [
+      "vault-ingest",
+      "model-switch"
+    ]
   },
-  "reviewCopilot": {
-    "enabled": false
-  }
+  "review_copilot": false
 }
