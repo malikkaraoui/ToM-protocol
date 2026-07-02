@@ -51,6 +51,7 @@ fn group_payload_to_message_type(payload: &GroupPayload) -> MessageType {
         GroupPayload::HubPong { .. } => MessageType::GroupHubPong,
         GroupPayload::HubShadowSync { .. } => MessageType::GroupHubShadowSync,
         GroupPayload::CandidateAssigned { .. } => MessageType::GroupCandidateAssigned,
+        GroupPayload::ShadowAssigned { .. } => MessageType::GroupShadowAssigned,
         GroupPayload::HubUnreachable { .. } => MessageType::GroupHubUnreachable,
         GroupPayload::KickMember { .. } => MessageType::GroupKickMember,
         GroupPayload::UpdateMemberRole { .. } => MessageType::GroupUpdateMemberRole,
@@ -1126,6 +1127,19 @@ impl RuntimeState {
                 })];
             }
 
+            // Hub broadcasts the current shadow to all members. Must be
+            // signed: an unsigned/forged ShadowAssigned would let an
+            // attacker poison a victim's known-good shadow_id to their own
+            // NodeId, defeating the handle_hub_migration check above (which
+            // trusts group.shadow_id as ground truth).
+            GroupPayload::ShadowAssigned { ref group_id, shadow_id } => {
+                if !signature_valid {
+                    vec![]
+                } else {
+                    self.group_manager.handle_shadow_assigned(group_id, shadow_id)
+                }
+            }
+
             // Member reports hub unreachable to shadow
             GroupPayload::HubUnreachable { ref group_id } => {
                 self.group_manager.handle_hub_unreachable(group_id, envelope.from)
@@ -1480,6 +1494,7 @@ impl RuntimeState {
             | MessageType::GroupHubPong
             | MessageType::GroupHubShadowSync
             | MessageType::GroupCandidateAssigned
+            | MessageType::GroupShadowAssigned
             | MessageType::GroupHubUnreachable
             | MessageType::GroupKickMember
             | MessageType::GroupUpdateMemberRole

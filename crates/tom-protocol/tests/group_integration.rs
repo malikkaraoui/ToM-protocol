@@ -977,21 +977,28 @@ fn hub_failover_shadow_promotes_on_primary_death() {
     let assign_actions = hub.assign_shadow(&gid);
     assert!(!assign_actions.is_empty());
 
-    // Deliver HubShadowSync to shadow
+    // Deliver HubShadowSync to shadow, and ShadowAssigned to every other
+    // member (so they can later verify a HubMigration claim).
     for action in &assign_actions {
-        if let GroupAction::Send {
-            to,
-            payload: GroupPayload::HubShadowSync {
-                group_id,
-                members,
-                candidate_id: cand,
-                config_version,
-            },
-        } = action
-        {
-            if *to == shadow_id {
+        match action {
+            GroupAction::Send {
+                to,
+                payload: GroupPayload::HubShadowSync {
+                    group_id,
+                    members,
+                    candidate_id: cand,
+                    config_version,
+                },
+            } if *to == shadow_id => {
                 shadow_mgr.handle_shadow_sync(group_id, members.clone(), *cand, *config_version);
             }
+            GroupAction::Broadcast {
+                to,
+                payload: GroupPayload::ShadowAssigned { group_id, shadow_id: sid },
+            } if to.contains(&alice_id) => {
+                alice_mgr.handle_shadow_assigned(group_id, *sid);
+            }
+            _ => {}
         }
     }
     assert!(shadow_mgr.is_shadow_for(&gid));
@@ -1324,14 +1331,20 @@ fn hub_orphan_recovers_on_migration_receipt() {
     shadow_mgr.handle_group_created(GroupInfo { hub_relay_id: hub_id, ..group.clone() });
     let assign_actions = hub.assign_shadow(&gid);
     for action in &assign_actions {
-        if let GroupAction::Send {
-            to,
-            payload: GroupPayload::HubShadowSync { group_id, members, candidate_id: cand, config_version },
-        } = action
-        {
-            if *to == shadow_id {
+        match action {
+            GroupAction::Send {
+                to,
+                payload: GroupPayload::HubShadowSync { group_id, members, candidate_id: cand, config_version },
+            } if *to == shadow_id => {
                 shadow_mgr.handle_shadow_sync(group_id, members.clone(), *cand, *config_version);
             }
+            GroupAction::Broadcast {
+                to,
+                payload: GroupPayload::ShadowAssigned { group_id, shadow_id: sid },
+            } if to.contains(&alice_id) => {
+                alice_mgr.handle_shadow_assigned(group_id, *sid);
+            }
+            _ => {}
         }
     }
 
@@ -1385,14 +1398,20 @@ fn hub_failover_cascade_shadow_becomes_hub_then_also_unreachable() {
     shadow_mgr.handle_group_created(GroupInfo { hub_relay_id: hub_id, ..group.clone() });
     let assign_actions = hub.assign_shadow(&gid);
     for action in &assign_actions {
-        if let GroupAction::Send {
-            to,
-            payload: GroupPayload::HubShadowSync { group_id, members, candidate_id: cand, config_version },
-        } = action
-        {
-            if *to == shadow_id {
+        match action {
+            GroupAction::Send {
+                to,
+                payload: GroupPayload::HubShadowSync { group_id, members, candidate_id: cand, config_version },
+            } if *to == shadow_id => {
                 shadow_mgr.handle_shadow_sync(group_id, members.clone(), *cand, *config_version);
             }
+            GroupAction::Broadcast {
+                to,
+                payload: GroupPayload::ShadowAssigned { group_id, shadow_id: sid },
+            } if to.contains(&bob_id) => {
+                bob_mgr.handle_shadow_assigned(group_id, *sid);
+            }
+            _ => {}
         }
     }
 
@@ -1413,6 +1432,15 @@ fn hub_failover_cascade_shadow_becomes_hub_then_also_unreachable() {
         bob_group.hub_relay_id, shadow_id,
         "Bob is orphaned again: shadow (new hub) also dead, no further failover"
     );
-    // No automatic re-election without a second shadow or out-of-band coordination
-    assert!(bob_group.shadow_id.is_none(), "no shadow assigned yet for the new hub");
+    // No re-election happens after a promotion (the newly-promoted node never
+    // re-runs assign_shadow for itself), so Bob's shadow_id is STALE — still
+    // pointing at the node that was shadow and is now (dead) hub, not at a
+    // fresh usable shadow. A second HubMigration naming that same id would
+    // still pass handle_hub_migration's verification, but there is nobody
+    // left to actually send one — this is the documented residual gap.
+    assert_eq!(
+        bob_group.shadow_id,
+        Some(shadow_id),
+        "shadow_id is stale (still the now-dead ex-shadow), not re-elected"
+    );
 }

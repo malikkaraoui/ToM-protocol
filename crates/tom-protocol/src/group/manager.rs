@@ -456,8 +456,11 @@ impl GroupManager {
     /// cannot redirect a group to some other node. The caller (state.rs) must
     /// also gate on the envelope's `signature_valid` before calling this, or
     /// the `from` field is just an unauthenticated claim (split-brain hijack).
-    /// Regular members never learn who the shadow is (only the hub, the
-    /// shadow, and the candidate do), so that cannot be checked here too.
+    /// Also requires `new_hub_id` to match the last `ShadowAssigned` broadcast
+    /// this member received (`group.shadow_id`) — closes the remaining gap
+    /// where a member who was never actually shadow could self-declare
+    /// primary: `from == new_hub_id` alone only blocks impersonating a THIRD
+    /// party, not a legitimate-but-malicious member naming itself.
     pub fn handle_hub_migration(
         &mut self,
         group_id: &GroupId,
@@ -468,7 +471,7 @@ impl GroupManager {
             return vec![];
         };
 
-        if from != new_hub_id {
+        if from != new_hub_id || group.shadow_id != Some(new_hub_id) {
             return vec![];
         }
 
@@ -479,6 +482,22 @@ impl GroupManager {
             group_id: group_id.clone(),
             new_hub_id,
         })]
+    }
+
+    /// Record the shadow the hub just announced for this group (broadcast
+    /// to all members whenever `GroupHub::assign_shadow` re-elects). Lets
+    /// `handle_hub_migration` later verify a promotion claim against a
+    /// known-good value instead of trusting any self-declared sender.
+    pub fn handle_shadow_assigned(
+        &mut self,
+        group_id: &GroupId,
+        shadow_id: NodeId,
+    ) -> Vec<GroupAction> {
+        let Some(group) = self.groups.get_mut(group_id) else {
+            return vec![];
+        };
+        group.shadow_id = Some(shadow_id);
+        vec![]
     }
 
     // ── Sender Key Management ─────────────────────────────────────────
@@ -1413,6 +1432,53 @@ mod tests {
             old_hub,
             "hub must not change on a forged migration"
         );
+    }
+
+    #[test]
+    fn handle_hub_migration_rejects_never_shadow_member() {
+        // Closes the residual hub-hijack gap: a group member who was NEVER
+        // the real shadow signs a HubMigration naming itself (from ==
+        // new_hub_id, satisfying the sender-mismatch check alone) — this
+        // must still be rejected because it doesn't match the last known
+        // shadow_id learned via ShadowAssigned.
+        let mut mgr = make_manager();
+        let old_hub = node_id(10);
+        let real_shadow = node_id(11);
+        let malicious_member = node_id(12);
+        let mut group = make_test_group(node_id(1), old_hub);
+        group.shadow_id = Some(real_shadow);
+        let gid = group.group_id.clone();
+        mgr.handle_group_created(group);
+
+        let actions = mgr.handle_hub_migration(&gid, malicious_member, malicious_member);
+        assert!(
+            actions.is_empty(),
+            "a legitimately-signed but never-shadow member must not be able to self-declare hub"
+        );
+        assert_eq!(
+            mgr.get_group(&gid).unwrap().hub_relay_id,
+            old_hub,
+            "hub must not change when the sender was never the known shadow"
+        );
+    }
+
+    #[test]
+    fn handle_shadow_assigned_records_shadow_id() {
+        let mut mgr = make_manager();
+        let hub = node_id(10);
+        let shadow = node_id(2);
+        let group = make_test_group(node_id(1), hub);
+        let gid = group.group_id.clone();
+        mgr.handle_group_created(group);
+        assert_eq!(mgr.get_group(&gid).unwrap().shadow_id, None);
+
+        mgr.handle_shadow_assigned(&gid, shadow);
+        assert_eq!(mgr.get_group(&gid).unwrap().shadow_id, Some(shadow));
+
+        // Legitimate migration now succeeds because shadow_id matches.
+        let actions = mgr.handle_hub_migration(&gid, shadow, shadow);
+        assert_eq!(actions.len(), 1);
+        assert_eq!(mgr.get_group(&gid).unwrap().hub_relay_id, shadow);
     }
 
     #[test]
