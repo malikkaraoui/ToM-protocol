@@ -74,9 +74,9 @@ async fn fetch_dns_fallback_relays(
         .build()
         .map_err(|e| TomTransportError::Config(format!("dns resolver build failed: {e}")))?;
 
-    let lookup = resolver
-        .txt_lookup(domain)
+    let lookup = tokio::time::timeout(Duration::from_secs(3), resolver.txt_lookup(domain))
         .await
+        .map_err(|_| TomTransportError::Config("dns txt lookup timed out".to_string()))?
         .map_err(|e| TomTransportError::Config(format!("dns txt lookup failed: {e}")))?;
 
     let lines: Vec<String> = lookup
