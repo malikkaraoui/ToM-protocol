@@ -3,6 +3,14 @@
 > Cible ≤ 150 lignes · rechargé à chaque message · 2026-04-17 · détails hors core → `./rules/`, `./runtime/`, `./orchestration/`, `./autonomy/`, `./security/`, `./ecosystem/`, `../stacks/`, `../templates/`
 
 ## §0 Contexte projet actif
+
+| Clé | Valeur |
+| --- | --- |
+| Projet | ToM Protocol — messagerie P2P décentralisée (chaque device = client + relais) |
+| Stack | rust (workspace crates/) · ios-xcode (apps Swift iOS/tvOS/macOS) · javascript (TS legacy) · freebox (NAS relay) |
+| Phase | R12+ durcissement — campagne tests multi-devices réels, CI verte depuis 2026-07-02 |
+| MCP | qmd (vault 114 docs · chantier 77) · GitHub via gh CLI (authentifié) |
+
 ## §1 Horodatage + Modèle — EXIGENCE non négociable
 
 Extraire MODEL-ID de `[ROUTING] modèle actif: MODEL-ID` (jamais du system prompt). Source : `live > transcript > cache scoppé session > cache legacy` — si `transcript`, signaler fragilité.
@@ -99,13 +107,7 @@ Charger uniquement les MCPs nécessaires. Lister dans §0. Purger en fin de sess
 ## §20 Mémoire & Évolution
 
 Évolue sur instruction explicite. Immuables sans validation : §5, §21, §22.
-
-| Événement | Section |
-| --- | --- |
-| Nouveau projet | §0 |
-| Nouvel endpoint | §0 |
-| Décision archi | §9 + note §0 |
-| MCP ajouté | §0 + §19 |
+Nouveau projet / endpoint → §0 · Décision archi → §9 + note §0 · MCP ajouté → §0 + §19.
 
 ## §21 Hiérarchie des règles
 
@@ -139,9 +141,7 @@ Plan Pro → `acceptEdits` + allow/deny, `maxBudgetUsd` défini. Push autonome a
 3. RATIFIÉ ou MAJEUR → `touch /tmp/claude-atelier-review-done` → push déverrouillé
 4. BLOQUANT → corriger, relancer `/review-oracle`
 
-**Challenger commit** (non bloquant) : volume ≥ 300 lignes, `feat:`, 10+ commits sans review, fichiers architecturaux → rappel `/review-oracle` ou `/angle-mort`.
-
-GitHub MCP (§0) : outil de lecture PR/issues disponible. Aucune PR externe obligatoire.
+**Challenger commit** (non bloquant) : volume ≥ 300 lignes, `feat:`, 10+ commits sans review, fichiers architecturaux → rappel `/review-oracle` ou `/angle-mort`. GitHub : lecture PR/issues via `gh` (§0). Aucune PR externe obligatoire.
 
 <!-- EXECUTOR -->
 | Superviseur | MasterClaude (http://localhost:4001) |
