@@ -9,14 +9,27 @@ pub const DEFAULT_RELAY_URLS: &[&str] = &[
     "https://relay-asia.tom-protocol.org",
 ];
 
+/// Relais fallback privé injecté à la COMPILATION, prioritaire sur les
+/// relais publics. Réservé aux déploiements privés (flotte perso, tests) :
+/// le défaut committé reste les relais publics — aucun nœud privilégié
+/// dans le code source (doctrine ADR-010).
+///
+/// ```sh
+/// TOM_EXTRA_FALLBACK_RELAY=http://192.0.2.1:3340 cargo build -p tom-transport
+/// ```
+///
+/// En local, `.cargo/config.toml` (hors git) peut le fixer via `[env]`.
+pub const EXTRA_FALLBACK_RELAY: Option<&str> = option_env!("TOM_EXTRA_FALLBACK_RELAY");
+
 /// DNS TXT fallback domain queried when discovery HTTP is unavailable.
 ///
 /// TXT records should contain one or more relay URLs.
 pub const DEFAULT_DNS_FALLBACK_DOMAIN: &str = "_relay._tcp.tom-protocol.org";
 
 pub(crate) fn fallback_relay_urls() -> Vec<tom_connect::RelayUrl> {
-    DEFAULT_RELAY_URLS
+    EXTRA_FALLBACK_RELAY
         .iter()
+        .chain(DEFAULT_RELAY_URLS.iter())
         .filter_map(|url| url.parse::<tom_connect::RelayUrl>().ok())
         .collect()
 }
@@ -347,7 +360,17 @@ mod tests {
     #[test]
     fn fallback_relay_urls_contains_default_public_relays() {
         let parsed = fallback_relay_urls();
-        assert_eq!(parsed.len(), DEFAULT_RELAY_URLS.len());
+        // Robuste à TOM_EXTRA_FALLBACK_RELAY (compile-time) : les relais
+        // publics sont toujours là, l'extra s'ajoute devant s'il est défini.
+        let extra = usize::from(super::EXTRA_FALLBACK_RELAY.is_some());
+        assert_eq!(parsed.len(), DEFAULT_RELAY_URLS.len() + extra);
+        for url in DEFAULT_RELAY_URLS {
+            let parsed_url: tom_connect::RelayUrl = url.parse().unwrap();
+            assert!(parsed.contains(&parsed_url), "relais public manquant: {url}");
+        }
+        if let Some(extra_url) = super::EXTRA_FALLBACK_RELAY {
+            assert_eq!(parsed[0], extra_url.parse::<tom_connect::RelayUrl>().unwrap());
+        }
     }
 
     #[test]

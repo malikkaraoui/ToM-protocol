@@ -1041,10 +1041,16 @@ mod tests {
         let us: tom_connect::RelayUrl = "https://relay-us.tom-protocol.org".parse().unwrap();
         let asia: tom_connect::RelayUrl = "https://relay-asia.tom-protocol.org".parse().unwrap();
 
-        assert_eq!(relays.len(), 3);
+        // Robuste à TOM_EXTRA_FALLBACK_RELAY (compile-time, builds privés) :
+        // les 3 relais publics sont toujours présents, l'extra s'ajoute.
+        let extra = usize::from(crate::config::EXTRA_FALLBACK_RELAY.is_some());
+        assert_eq!(relays.len(), 3 + extra);
         assert!(relays.contains(&eu));
         assert!(relays.contains(&us));
         assert!(relays.contains(&asia));
+        if let Some(extra_url) = crate::config::EXTRA_FALLBACK_RELAY {
+            assert!(relays.contains(&extra_url.parse::<tom_connect::RelayUrl>().unwrap()));
+        }
 
         node.shutdown().await.unwrap();
     }
