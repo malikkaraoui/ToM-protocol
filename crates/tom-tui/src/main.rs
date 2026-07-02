@@ -299,6 +299,24 @@ struct Cli {
     /// Shorthand for --bind-addr. Ignored if --bind-addr is set.
     #[arg(long, value_name = "PORT")]
     bind_port: Option<u16>,
+
+    /// One-shot message-size ramp (bot mode): send increasingly large payloads
+    /// to the given peer NodeId, logging success/failure per size, then keep
+    /// running in normal bot mode. Requires --bot.
+    #[arg(long, value_name = "NODE_ID", requires = "bot")]
+    size_ramp: Option<String>,
+
+    /// Comma-separated payload sizes in bytes for --size-ramp.
+    /// Defaults to a ramp from 1 KB up to and past the 1 MiB default ceiling.
+    #[arg(long, value_name = "CSV", requires = "size_ramp")]
+    ramp_sizes: Option<String>,
+}
+
+fn default_ramp_sizes() -> Vec<usize> {
+    vec![
+        1_000, 10_000, 50_000, 100_000, 250_000, 500_000, 750_000, 1_000_000, 1_048_576,
+        1_100_000, 1_500_000, 2_000_000,
+    ]
 }
 
 // ── App State ────────────────────────────────────────────────────────────
@@ -519,6 +537,30 @@ async fn main() -> anyhow::Result<()> {
             handle: handle.clone(),
         });
         ctx.log_event("demarrage", &format!("noeud={} mode=bot", cli.node_label));
+
+        if let Some(ref target_str) = cli.size_ramp {
+            match target_str.parse::<NodeId>() {
+                Ok(target) => {
+                    let ramp_sizes = cli
+                        .ramp_sizes
+                        .as_deref()
+                        .map(|s| {
+                            s.split(',')
+                                .filter_map(|p| p.trim().parse::<usize>().ok())
+                                .collect::<Vec<_>>()
+                        })
+                        .filter(|v: &Vec<usize>| !v.is_empty())
+                        .unwrap_or_else(default_ramp_sizes);
+                    let ramp_ctx = ctx.clone();
+                    let ramp_handle = handle.clone();
+                    tokio::spawn(async move {
+                        run_size_ramp(ramp_ctx, ramp_handle, target, ramp_sizes).await;
+                    });
+                }
+                Err(e) => ctx.log_event("size_ramp_erreur", &format!("node_id invalide: {}", e)),
+            }
+        }
+
         return run_bot(ctx, handle, messages, events, cli.bot_ping).await;
     }
 
@@ -947,6 +989,41 @@ async fn run_bot(
     }
 
     Ok(())
+}
+
+/// One-shot escalating payload-size send to `target`, logging pass/fail per size.
+/// Stops ramping on the first failure (send-side rejection or transport error)
+/// so the ceiling is visible directly in the log stream.
+async fn run_size_ramp(ctx: Arc<BotContext>, handle: RuntimeHandle, target: NodeId, sizes: Vec<usize>) {
+    ctx.log_event(
+        "size_ramp_debut",
+        &format!("cible={} paliers={:?}", short_node_id(&target), sizes),
+    );
+
+    // Ensure the target is a known peer before ramping — a cold send right at
+    // startup can race gossip/DHT discovery and fail on the very first size.
+    handle.add_peer(target).await;
+    tokio::time::sleep(Duration::from_secs(3)).await;
+
+    for size in sizes {
+        let payload = vec![b'A'; size];
+        let start = Instant::now();
+        match handle.send_message(target, payload).await {
+            Ok(()) => {
+                ctx.log_event(
+                    "size_ramp_ok",
+                    &format!("taille={} ms={}", size, start.elapsed().as_millis()),
+                );
+            }
+            Err(e) => {
+                ctx.log_event("size_ramp_echec", &format!("taille={} erreur={}", size, e));
+                break;
+            }
+        }
+        tokio::time::sleep(Duration::from_secs(2)).await;
+    }
+
+    ctx.log_event("size_ramp_fin", "termine");
 }
 
 fn handle_bot_event(ctx: &BotContext, event: &ProtocolEvent) {
