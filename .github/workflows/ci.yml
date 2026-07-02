@@ -111,8 +111,11 @@ jobs:
 
       # Real multi-node scenarios incl. a 2min stability run — jamais lancé
       # en CI auparavant (dépendance transport→protocol→relay non couverte).
+      # --test-threads=1 : chaque test ouvre de vrais sockets UDP/QUIC ;
+      # en parallèle ils se disputent le réseau du runner et un test se fige
+      # au hasard → timeout 10min (cause des runs rouges de juin/juillet 2026).
       - name: Test
-        run: cargo test -p tom-integration-tests
+        run: cargo test -p tom-integration-tests -- --test-threads=1
         timeout-minutes: 10
 
       - name: Clippy
