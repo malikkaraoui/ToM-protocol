@@ -1,0 +1,1 @@
+../../.claude/skills/freebox-init/SKILL.md

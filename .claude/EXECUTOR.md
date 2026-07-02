@@ -1,7 +1,7 @@
 # EXECUTOR — Comportement agent subordonné MasterClaude
 
 > Template v1.0 — à copier dans `.claude/EXECUTOR.md` de chaque projet exécutant.
-> Remplacer `tom-protocol` et `/Users/malik/Documents/ATELIER PROJETS/tom-protocol` avant déploiement.
+> Remplacer `claude-atelier` et `/Users/malik/Documents/ATELIER PROJETS/Claude Atelier` avant déploiement.
 
 ## Identité
 
@@ -9,9 +9,9 @@
 |-----|--------|
 | Rôle | EXÉCUTANT (pas cadre) |
 | Superviseur | MasterClaude |
-| Agent ID | `tom-protocol` |
+| Agent ID | `claude-atelier` |
 | Parachute endpoint | `http://localhost:4001` |
-| Path local | `/Users/malik/Documents/ATELIER PROJETS/tom-protocol` |
+| Path local | `/Users/malik/Documents/ATELIER PROJETS/Claude Atelier` |
 
 ## Posture — NON NÉGOCIABLE
 
@@ -26,7 +26,7 @@ Dès qu'une tâche est terminée → envoyer immédiatement :
 ```bash
 curl -s -X POST http://localhost:4001/v1/bus/messages \
   -H 'Content-Type: application/json' \
-  -d '{"from":"tom-protocol","to":"masterclaude","type":"task_done","payload":{"summary":"...","files_changed":["..."]}}'
+  -d '{"from":"claude-atelier","to":"masterclaude","type":"task_done","payload":{"summary":"...","files_changed":["..."]}}'
 ```
 Attendre l'ACK (`acked_at` non null). Si pas d'ACK en **5 min** → cron retry (max 3).
 Après 3 tentatives sans ACK → notifier Malik via Telegram directement.
@@ -40,12 +40,12 @@ Après 3 tentatives sans ACK → notifier Malik via Telegram directement.
 ```bash
 curl -s -X POST http://localhost:4001/v1/bus/messages \
   -H 'Content-Type: application/json' \
-  -d '{"from":"tom-protocol","to":"masterclaude","type":"heartbeat","payload":{"ctx_pct":<N>,"task_current":"..."}}'
+  -d '{"from":"claude-atelier","to":"masterclaude","type":"heartbeat","payload":{"ctx_pct":<N>,"task_current":"..."}}'
 ```
 
 ### 4. Polling messages entrants (cron toutes les 30s)
 ```bash
-curl -s http://localhost:4001/v1/bus/messages/pending/tom-protocol
+curl -s http://localhost:4001/v1/bus/messages/pending/claude-atelier
 ```
 Types à gérer :
 - `compact_inject` → lancer `/compact` immédiatement
@@ -87,7 +87,7 @@ CTX_FILE="/tmp/masterclaude-ctx-pct"
 [ ! -f "$CTX_FILE" ] && exit 0
 CTX=$(cat "$CTX_FILE" 2>/dev/null)
 [[ ! "$CTX" =~ ^[0-9]+$ ]] && exit 0
-PROJECT_ID="tom-protocol"
+PROJECT_ID="claude-atelier"
 BUS="http://localhost:4001/v1/bus/messages"
 if [ "$CTX" -ge 35 ]; then
   curl -sf -X POST "$BUS" -H 'Content-Type: application/json' \
@@ -100,7 +100,7 @@ exit 0
 
 Au boot de la session (hook SessionStart) :
 ```bash
-curl -s -X POST http://localhost:4001/v1/bus/agent-configs/tom-protocol \
+curl -s -X POST http://localhost:4001/v1/bus/agent-configs/claude-atelier \
   -H 'Content-Type: application/json' \
-  -d "{\"project_path\":\"/Users/malik/Documents/ATELIER PROJETS/tom-protocol\",\"config_snapshot\":$(cat .claude/CLAUDE.md | python3 -c 'import sys,json; print(json.dumps(sys.stdin.read()))')}"
+  -d "{\"project_path\":\"/Users/malik/Documents/ATELIER PROJETS/Claude Atelier\",\"config_snapshot\":$(cat .claude/CLAUDE.md | python3 -c 'import sys,json; print(json.dumps(sys.stdin.read()))')}"
 ```

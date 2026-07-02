@@ -1,0 +1,1 @@
+../../.claude/skills/chef-projet/SKILL.md

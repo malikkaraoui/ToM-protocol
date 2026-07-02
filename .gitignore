@@ -52,6 +52,10 @@ logs/
 
 # Backups .claude horodatés (ne pas committer ni linter)
 .claude-backup-*/
+
+# État local .claude (ne pas versionner)
+.claude/memory.db
+.claude/watchdog-log.md
 apps/tom-node-tvos/build/
 
 # Apps macOS packagées (binaires) — ne pas versionner, builder via xcodegen/make

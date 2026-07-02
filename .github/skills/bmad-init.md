@@ -1,0 +1,1 @@
+../../.claude/skills/bmad-init/SKILL.md
