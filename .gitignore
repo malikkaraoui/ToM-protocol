@@ -62,6 +62,9 @@ apps/tom-node-tvos/build/
 docs/test-campaign/*.log
 docs/test-campaign/*.out
 
+# Config cargo locale (TOM_EXTRA_FALLBACK_RELAY = relais privé par machine)
+.cargo/config.toml
+
 # Apps macOS packagées (binaires) — ne pas versionner, builder via xcodegen/make
 deploy/macos/*.app/
 
