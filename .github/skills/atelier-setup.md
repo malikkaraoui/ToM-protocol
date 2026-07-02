@@ -1,0 +1,1 @@
+../../.claude/skills/atelier-setup/SKILL.md

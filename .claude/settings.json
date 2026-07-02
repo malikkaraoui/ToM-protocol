@@ -8,7 +8,7 @@
     "DISABLE_NON_ESSENTIAL_MODEL_CALLS": "1"
   },
   "permissions": {
-    "defaultMode": "default",
+    "defaultMode": "bypassPermissions",
     "_comment_allow": "Liste blanche pour le mode 'acceptEdits' (nuit). Garde 'default' pour le dev interactif.",
     "allow": [
       "Read",
@@ -45,6 +45,8 @@
       "Bash(cat /tmp/claude-atelier*)",
       "Bash(chmod *)",
       "Bash(cd *)",
+      "Bash(python scripts/switch_model.py*)",
+      "Bash(python3 scripts/switch_model.py*)",
       "Bash(git push:*)",
       "Bash(chmod:*)"
     ],
@@ -66,6 +68,22 @@
     "_comment_budget": "Disjoncteur hard. Claude stoppe automatiquement au-dela.",
     "maxBudgetUsd": 20
   },
+  "mcpServers": {
+    "github": {
+      "type": "http",
+      "url": "https://api.githubcopilot.com/mcp/",
+      "_comment": "MCP GitHub officiel — outils: get_pull_request, request_copilot_review, create_pull_request. Auth: OAuth Copilot (automatique si CLI gh authentifié)."
+    },
+    "obsidian-vault": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-filesystem",
+        "/Users/malik/Vault/Malik"
+      ],
+      "_comment": "MCP filesystem vault Obsidian — lecture/écriture .md directs, sans dépendance API Obsidian. Vault global : /Users/malik/Vault/Malik/"
+    }
+  },
   "hooks": {
     "SessionStart": [
       {
@@ -73,7 +91,38 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"/Users/malik/Documents/claude-atelier/Claude instructions/hooks/session-model.sh\""
+            "command": "bash -c '[ -f \"$0\" ] && exec bash \"$0\" || exit 0' \"${CLAUDE_PROJECT_DIR}/hooks/session-model.sh\""
+          },
+          {
+            "type": "command",
+            "command": "bash -c '[ -f \"$0\" ] && exec bash \"$0\" || exit 0' \"${CLAUDE_PROJECT_DIR}/hooks/vault-context.sh\""
+          },
+          {
+            "type": "command",
+            "command": "bash -c '[ -f \"$0\" ] && exec node \"$0\" \"$@\" || exit 0' \"${CLAUDE_PROJECT_DIR}/scripts/memory-read.js\" --episodes-only --timeout 2000"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash -c '[ -f \"$0\" ] && exec bash \"$0\" || exit 0' \"${CLAUDE_PROJECT_DIR}/hooks/routing-check.sh\""
+          },
+          {
+            "type": "command",
+            "command": "bash -c '[ -f \"$0\" ] && exec bash \"$0\" || exit 0' \"${CLAUDE_PROJECT_DIR}/hooks/model-metrics.sh\""
+          },
+          {
+            "type": "command",
+            "command": "bash -c '[ -f \"$0\" ] && exec bash \"$0\" || exit 0' \"${CLAUDE_PROJECT_DIR}/hooks/detect-design-need.sh\""
+          },
+          {
+            "type": "command",
+            "command": "bash -c '[ -f \"$0\" ] && exec node \"$0\" \"$@\" || exit 0' \"${CLAUDE_PROJECT_DIR}/scripts/memory-read.js\" --context --timeout 2000"
           }
         ]
       }
@@ -84,7 +133,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"/Users/malik/Documents/claude-atelier/Claude instructions/hooks/guard-qmd-first.sh\""
+            "command": "bash -c '[ -f \"$0\" ] && exec bash \"$0\" || exit 0' \"${CLAUDE_PROJECT_DIR}/hooks/guard-qmd-first.sh\""
           }
         ]
       },
@@ -93,17 +142,17 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"/Users/malik/Documents/claude-atelier/Claude instructions/hooks/guard-no-sign.sh\"",
+            "command": "bash -c '[ -f \"$0\" ] && exec bash \"$0\" || exit 0' \"${CLAUDE_PROJECT_DIR}/hooks/guard-no-sign.sh\"",
             "if": "Bash(*git commit*)"
           },
           {
             "type": "command",
-            "command": "bash \"/Users/malik/Documents/claude-atelier/Claude instructions/hooks/guard-commit-french.sh\"",
+            "command": "bash -c '[ -f \"$0\" ] && exec bash \"$0\" || exit 0' \"${CLAUDE_PROJECT_DIR}/hooks/guard-commit-french.sh\"",
             "if": "Bash(*git commit*)"
           },
           {
             "type": "command",
-            "command": "bash \"/Users/malik/Documents/claude-atelier/Claude instructions/hooks/guard-tests-before-push.sh\"",
+            "command": "bash -c '[ -f \"$0\" ] && exec bash \"$0\" || exit 0' \"${CLAUDE_PROJECT_DIR}/hooks/guard-tests-before-push.sh\"",
             "if": "Bash(*git push*)"
           }
         ]
@@ -115,7 +164,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"/Users/malik/Documents/claude-atelier/Claude instructions/hooks/guard-hooks-reload.sh\""
+            "command": "bash -c '[ -f \"$0\" ] && exec bash \"$0\" || exit 0' \"${CLAUDE_PROJECT_DIR}/hooks/guard-hooks-reload.sh\""
           }
         ]
       },
@@ -124,43 +173,12 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"/Users/malik/Documents/claude-atelier/Claude instructions/hooks/guard-review-auto.sh\"",
+            "command": "bash -c '[ -f \"$0\" ] && exec bash \"$0\" || exit 0' \"${CLAUDE_PROJECT_DIR}/hooks/guard-review-auto.sh\"",
             "if": "Bash(*git commit*)"
           },
           {
             "type": "command",
-            "command": "bash \"/Users/malik/Documents/claude-atelier/Claude instructions/hooks/guard-anti-loop.sh\""
-          },
-          {
-            "type": "command",
-            "command": "bash \"/Users/malik/Documents/claude-atelier/Claude instructions/hooks/guard-tests-before-push.sh\"",
-            "if": "Bash(*npm test*)"
-          },
-          {
-            "type": "command",
-            "command": "bash \"/Users/malik/Documents/claude-atelier/Claude instructions/hooks/guard-tests-before-push.sh\"",
-            "if": "Bash(*jest*)"
-          },
-          {
-            "type": "command",
-            "command": "bash \"/Users/malik/Documents/claude-atelier/Claude instructions/hooks/guard-tests-before-push.sh\"",
-            "if": "Bash(*vitest*)"
-          },
-          {
-            "type": "command",
-            "command": "bash \"/Users/malik/Documents/claude-atelier/Claude instructions/hooks/guard-tests-before-push.sh\"",
-            "if": "Bash(*pytest*)"
-          }
-        ]
-      }
-    ],
-    "UserPromptSubmit": [
-      {
-        "matcher": "",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash \"/Users/malik/Documents/claude-atelier/Claude instructions/hooks/routing-check.sh\""
+            "command": "bash -c '[ -f \"$0\" ] && exec bash \"$0\" || exit 0' \"${CLAUDE_PROJECT_DIR}/hooks/guard-anti-loop.sh\""
           }
         ]
       }

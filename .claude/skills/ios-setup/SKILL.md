@@ -146,6 +146,144 @@ Si tout est vert → "L'atelier iOS est prêt. `make run` pour lancer."
 - Tests SwiftUI : XCTest + `.testable import`
 - §5 prime : ne pas inventer de flags `xcodebuild` non vérifiés
 
+## Bonnes pratiques systématiques — à inclure dans toute app iOS
+
+Ces patterns sont incontournables. Les proposer systématiquement dès le setup initial.
+
+### 1. Dark Mode automatique
+
+Ne jamais hardcoder de couleurs. Toujours utiliser les semantic colors Apple ou des `Color` assets avec variants Light/Dark.
+
+```swift
+// ✅ Correct
+Text("Titre").foregroundStyle(.primary)
+Rectangle().fill(Color("Surface")) // asset avec variant Dark
+
+// ❌ Interdit
+Text("Titre").foregroundColor(.black)
+```
+
+Dans `Info.plist` : ne pas forcer `UIUserInterfaceStyle` → laisser le système décider.
+Dans `.xcassets` : créer les couleurs en tant qu'Asset Catalog avec appearance Any/Dark.
+
+### 2. Internationalisation (i18n)
+
+Dès le premier écran — pas "on verra plus tard". Créer `Localizable.strings` (FR + EN minimum).
+
+```text
+MyApp/Resources/
+├── fr.lproj/Localizable.strings
+└── en.lproj/Localizable.strings
+```
+
+```swift
+// Usage
+Text(String(localized: "onboarding.title"))
+// ou macro Swift 5.9+
+Text("Bienvenue", comment: "Titre écran d'accueil")
+```
+
+Ajouter dans CLAUDE.md projet : `- Langues : FR (défaut), EN — Localizable.strings obligatoire`
+
+### 3. Demande de notation App Store
+
+Déclencher au bon moment (après une action positive réussie, pas au lancement).
+
+```swift
+import StoreKit
+
+// Dans un ViewModel, après action positive
+func requestReviewIfAppropriate() {
+    guard successfulActionsCount >= 3 else { return }
+    if let scene = UIApplication.shared.connectedScenes
+        .first(where: { $0.activationState == .foregroundActive }) as? UIWindowScene {
+        SKStoreReviewController.requestReview(in: scene)
+    }
+}
+```
+
+Règle : jamais au lancement, jamais après un échec, max 3 fois par an (Apple limite de toute façon).
+
+### 4. Share Sheet — partager l'app
+
+Permettre de partager l'app avec ses proches depuis les Réglages ou un bouton dédié.
+
+```swift
+struct ShareAppButton: View {
+    let appStoreURL = URL(string: "https://apps.apple.com/app/idXXXXXXXXX")!
+
+    var body: some View {
+        ShareLink(item: appStoreURL, subject: Text("Découvre cette app"),
+                  message: Text("Je pense que ça pourrait t'intéresser !")) {
+            Label("Partager l'app", systemImage: "square.and.arrow.up")
+        }
+    }
+}
+```
+
+### 5. Écran Réglages / À propos
+
+Toujours créer une vue `SettingsView` avec au minimum :
+
+```swift
+struct SettingsView: View {
+    var appVersion: String {
+        let v = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
+        let b = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "?"
+        return "v\(v) (\(b))"
+    }
+
+    var body: some View {
+        List {
+            // Apparence
+            Section("Apparence") {
+                // Dark mode : géré par le système — informer l'utilisateur
+                Text("Le thème suit les réglages de votre iPhone")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+
+            // Langue
+            Section("Langue") {
+                Button("Changer la langue") {
+                    UIApplication.shared.open(URL(string: UIApplication.openSettingsURLString)!)
+                }
+            }
+
+            // Partage & avis
+            Section {
+                ShareLink(item: URL(string: "https://apps.apple.com/app/idXXXXXXXXX")!) {
+                    Label("Partager l'app", systemImage: "square.and.arrow.up")
+                }
+                Link(destination: URL(string: "https://apps.apple.com/app/idXXXXXXXXX?action=write-review")!) {
+                    Label("Laisser un avis", systemImage: "star")
+                }
+            }
+
+            // Infos légales
+            Section("Informations") {
+                LabeledContent("Version", value: appVersion)
+                Link("Politique de confidentialité",
+                     destination: URL(string: "https://example.com/privacy")!)
+                Link("Conditions d'utilisation",
+                     destination: URL(string: "https://example.com/terms")!)
+            }
+        }
+        .navigationTitle("Réglages")
+    }
+}
+```
+
+### 6. Checklist avant chaque soumission App Store
+
+- [ ] Dark mode testé sur tous les écrans (simulateur → Appearance Dark)
+- [ ] Toutes les strings dans `Localizable.strings` (no hardcoded text)
+- [ ] `SKStoreReviewController` déclenché au bon moment (pas au launch)
+- [ ] `ShareLink` vers l'App Store présent
+- [ ] `SettingsView` avec version, privacy, avis, partage
+- [ ] `CFBundleShortVersionString` et `CFBundleVersion` incrémentés
+- [ ] Screenshots préparés pour toutes les tailles requises
+- [ ] Privacy manifest (`PrivacyInfo.xcprivacy`) si APIs sensibles
+
 ## Prompts utiles à proposer après setup
 
 ```text

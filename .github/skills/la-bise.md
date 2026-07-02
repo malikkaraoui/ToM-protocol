@@ -1,0 +1,1 @@
+../../.claude/skills/la-bise/SKILL.md
