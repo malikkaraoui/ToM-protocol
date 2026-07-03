@@ -1012,6 +1012,9 @@ mod tests {
             local_discovery: Some(true),
             data_dir: None,
             gossip_bootstrap_peers: vec![],
+            enable_embedded_relay: Some(false),
+            enable_embedded_relay_publication: Some(false),
+            enable_transport_relay_discovery: Some(false),
         };
         let runtime_config_json = serde_json::to_string(&runtime_config).unwrap();
         let runtime_config_cstr = CString::new(runtime_config_json).unwrap();
