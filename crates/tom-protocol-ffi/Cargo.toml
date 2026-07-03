@@ -6,7 +6,9 @@ rust-version = "1.89" # explicite : crate hors workspace, pas d'heritage possibl
 license = "MIT"
 
 [lib]
-crate-type = ["staticlib", "cdylib"]
+# "lib" (rlib) en plus des artefacts C : permet aux tests Rust du crate
+# (tests/restart_timing.rs) de linker la lib — sans effet sur le xcframework.
+crate-type = ["staticlib", "cdylib", "lib"]
 
 [dependencies]
 tom-protocol = { path = "../tom-protocol" }
