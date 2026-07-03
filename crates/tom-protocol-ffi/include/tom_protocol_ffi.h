@@ -149,7 +149,7 @@ char *tom_node_last_error(const struct TomNodeHandle *handle);
 // # Arguments
 // * `handle` - Opaque handle
 // * `peer_addr_json` - JSON with node_id, relay_url, direct_addrs
-//   Example: {"node_id":"<hex>","relay_url":"http://82.67.95.8:3340","direct_addrs":["192.168.0.83:3340"]}
+//   Example: {"node_id":"<hex>","relay_url":"http://1.2.3.4:3340","direct_addrs":["192.168.0.83:3340"]}
 //   Only node_id is required. relay_url and direct_addrs are optional.
 //
 // # Returns

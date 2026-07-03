@@ -863,8 +863,8 @@ mod tests {
         let node_id = secret.public().to_string();
         let mut addr = tom_dht::DhtNodeAddr {
             node_id,
-            relay_urls: vec!["http://82.67.95.8:3340".into()],
-            direct_addrs: vec!["82.67.95.8:43925".into()],
+            relay_urls: vec!["http://1.2.3.4:3340".into()],
+            direct_addrs: vec!["1.2.3.4:43925".into()],
             timestamp: 1_000_000,
             sig: Vec::new(),
         };
@@ -914,7 +914,7 @@ mod tests {
         use super::direct_addr_is_dialable;
         use std::net::IpAddr;
         // Dialable: public + private LAN (needed for same-LAN DHT discovery).
-        assert!(direct_addr_is_dialable("82.67.95.8".parse::<IpAddr>().unwrap()));
+        assert!(direct_addr_is_dialable("1.2.3.4".parse::<IpAddr>().unwrap()));
         assert!(direct_addr_is_dialable("192.168.0.83".parse::<IpAddr>().unwrap()));
         assert!(direct_addr_is_dialable("10.0.0.1".parse::<IpAddr>().unwrap()));
         // Never-dialable: dropped.
