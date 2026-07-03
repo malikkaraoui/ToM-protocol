@@ -3177,7 +3177,7 @@ mod tests {
         );
 
         // Simulate embedded relay becoming healthy (public IP → publishable)
-        let relay_url: tom_connect::RelayUrl = "http://82.67.95.8:9999".parse().unwrap();
+        let relay_url: tom_connect::RelayUrl = "http://1.2.3.4:9999".parse().unwrap();
         state.embedded_relay_state = LocalEmbeddedRelayState::Healthy {
             bound_relay_url: relay_url.clone(),
         };
@@ -4506,7 +4506,7 @@ mod tests {
         state.config.enable_embedded_relay = true;
         state.config.enable_embedded_relay_publication = true;
 
-        let url: tom_connect::RelayUrl = "http://82.67.95.8:3340".parse().unwrap();
+        let url: tom_connect::RelayUrl = "http://1.2.3.4:3340".parse().unwrap();
         state.embedded_relay_state = LocalEmbeddedRelayState::Healthy {
             bound_relay_url: url.clone(),
         };
@@ -4534,7 +4534,7 @@ mod tests {
         state.config.enable_embedded_relay = true;
         state.config.enable_embedded_relay_publication = true;
 
-        let url: tom_connect::RelayUrl = "http://82.67.95.8:3340".parse().unwrap();
+        let url: tom_connect::RelayUrl = "http://1.2.3.4:3340".parse().unwrap();
         let effects = state.handle_command(RuntimeCommand::EmbeddedRelayStarted { url: url.clone() });
 
         // Should have: Emit(EmbeddedRelayStarted) + BroadcastRelayReady
@@ -4573,7 +4573,7 @@ mod tests {
 
     #[test]
     fn reachability_rule_covers_all_environments() {
-        let pub_v4: tom_connect::RelayUrl = "http://82.67.95.8:3340".parse().unwrap();
+        let pub_v4: tom_connect::RelayUrl = "http://1.2.3.4:3340".parse().unwrap();
         let dns: tom_connect::RelayUrl = "https://relay.example.com:443".parse().unwrap();
         let priv_v4: tom_connect::RelayUrl = "http://192.168.0.70:3340".parse().unwrap();
         let ten: tom_connect::RelayUrl = "http://10.0.0.1:3340".parse().unwrap();
@@ -5007,10 +5007,10 @@ mod tests {
         let mut state = RuntimeState::new(id, secret, config);
         // Simulate healthy relay (public IP → publishable to global gossip)
         state.embedded_relay_state = LocalEmbeddedRelayState::Healthy {
-            bound_relay_url: "http://82.67.95.8:3340".parse().unwrap(),
+            bound_relay_url: "http://1.2.3.4:3340".parse().unwrap(),
         };
         state.embedded_relay_publication = EmbeddedRelayPublicationState::Published {
-            url: "http://82.67.95.8:3340".parse().unwrap(),
+            url: "http://1.2.3.4:3340".parse().unwrap(),
             published_at: now_ms(),
         };
         state
@@ -5021,7 +5021,7 @@ mod tests {
         let mut state = state_with_relay_publication(90);
         // Set published_at to well before interval threshold
         state.embedded_relay_publication = EmbeddedRelayPublicationState::Published {
-            url: "http://82.67.95.8:3340".parse().unwrap(),
+            url: "http://1.2.3.4:3340".parse().unwrap(),
             published_at: now_ms().saturating_sub(200), // 200ms ago, interval is 100ms
         };
         let effects = state.tick_heartbeat();
