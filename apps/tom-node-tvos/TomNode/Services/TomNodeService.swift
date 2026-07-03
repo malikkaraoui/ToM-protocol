@@ -17,6 +17,7 @@ final class TomNodeService: ObservableObject {
     private let log = Logger(subsystem: "org.tom-protocol.tom-node", category: "TomNodeService")
     private let node = TomNodeWrapper()
     private var pollTask: Task<Void, Never>?
+    private var startTask: Task<Void, Never>?
     private var autoStartTask: Task<Void, Never>?
     private var hasScheduledInitialAutoStart = false
     private var autoMessagedPeerIds = Set<String>()
@@ -317,7 +318,7 @@ final class TomNodeService: ObservableObject {
         appendLog(.info, "DHT: \(enableDht), n0Discovery: \(n0Discovery)")
         appendLog(.info, "Bootstrap mode: \(bootstrapStatusLabel)")
 
-        Task {
+        startTask = Task {
             do {
                 if let dir = dataDir {
                     try? FileManager.default.createDirectory(
@@ -333,6 +334,16 @@ final class TomNodeService: ObservableObject {
                 )
                 appendLog(.success, "Node handle created")
 
+                // Stop demandé pendant le create → libérer le handle et sortir.
+                // Sans ce point de sortie, un Stop pendant "Starting…" était
+                // silencieusement ignoré (guard .running) et l'UI moulinait.
+                if Task.isCancelled {
+                    await node.forceReset()
+                    appendLog(.info, "Démarrage annulé par Stop (create)")
+                    startTask = nil
+                    return
+                }
+
                 let bootstrapPeers = normalizedBootstrapPeers
                 let localDiscovery = true  // Always enable local discovery (mDNS) — finds peers on same LAN
                 try await node.start(
@@ -346,6 +357,13 @@ final class TomNodeService: ObservableObject {
                     dataDir: dataDir,
                     gossipBootstrapPeers: bootstrapPeers
                 )
+
+                if Task.isCancelled {
+                    await node.forceReset()
+                    appendLog(.info, "Démarrage annulé par Stop (start)")
+                    startTask = nil
+                    return
+                }
 
                 state = .running
                 nodeStartTime = Date()
@@ -383,11 +401,18 @@ final class TomNodeService: ObservableObject {
                 state = .error
                 errorMessage = error.localizedDescription
             }
+            startTask = nil
         }
     }
 
     func stop() {
-        guard state == .running else { return }
+        // .starting inclus : un Stop pendant un démarrage lent doit TOUJOURS
+        // être obéi. Avant, le guard n'acceptait que .running — un tap sur
+        // Stop pendant "Starting…" était ignoré en silence et l'UI moulinait.
+        guard state == .running || state == .starting else { return }
+        let wasStarting = (state == .starting)
+        startTask?.cancel()
+        startTask = nil
         // Flip UI state IMMEDIATELY — never leave the user stuck on "Stopping".
         // The node teardown is I/O (QUIC/DHT close) and must not gate the UI.
         state = .stopped
@@ -410,7 +435,11 @@ final class TomNodeService: ObservableObject {
         log.info("Node stopped")
 
         // Tear down the runtime in the background; the UI is already updated.
-        Task { await node.stop() }
+        // Si un start était en vol, c'est SA tâche (coopérative, annulée) qui
+        // libère le handle via forceReset — ne pas déclencher un stop concurrent.
+        if !wasStarting {
+            Task { await node.stop() }
+        }
     }
 
     func sendMessage(to target: NodeId, text: String) {
@@ -498,6 +527,14 @@ final class TomNodeService: ObservableObject {
     func handleReturnToForeground() {
         guard wasRunningBeforeSleep else { return }
         wasRunningBeforeSleep = false
+
+        // Un démarrage est déjà en vol — ne pas empiler un second start
+        // (forcer .stopped ici pendant un .starting créait deux séquences
+        // create/start concurrentes → alreadyRunning / état incohérent).
+        guard state != .starting else {
+            appendLog(.info, "FOREGROUND: démarrage déjà en cours, pas de restart")
+            return
+        }
 
         appendLog(.warning, "FOREGROUND RETURN — restarting node (connexions QUIC perdues)")
         log.info("Returning to foreground — restarting node (connections lost during sleep)")
