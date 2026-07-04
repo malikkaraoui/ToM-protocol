@@ -606,11 +606,12 @@ final class TomNodeService: ObservableObject {
 
                     // Auto-echo: reply to incoming messages
                     // Reply with a fixed-size response (no growing chain)
-                    if self.autoEchoEnabled, msg.text.hasPrefix("PING:") {
-                        // Ne répondre qu'aux sondes PING: — jamais aux échos
-                        // ("recu 5/5…"), sinon deux nœuds en auto-echo
-                        // s'entre-répondent à l'infini : tempête de messages,
-                        // 100% CPU, réseau saturé (constaté en campagne).
+                    if self.autoEchoEnabled, !msg.text.hasPrefix("recu 5/5") {
+                        // Répondre à tout message SAUF aux échos eux-mêmes :
+                        // un message manuel mérite son accusé de réception
+                        // (feedback UX), mais un écho ne déclenche jamais
+                        // d'écho — sinon deux nœuds s'entre-répondent à
+                        // l'infini (tempête constatée en campagne, 100% CPU).
                         do {
                             // Fixed reply — never forward the original text (prevents ECHO:ECHO:... growth)
                             let reply = "recu 5/5 (msg #\(self.totalMessagesCount))"
