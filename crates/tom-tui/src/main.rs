@@ -257,21 +257,59 @@ fn spawn_control_server(port: u16, handle: RuntimeHandle) {
                         format!("{{\"groupes\":[{}]}}", gs.join(","))
                     }
                     "/send" => {
+                        // ?to=<id>&size=<n>&count=<k> — envoie k messages de n octets.
                         let size: usize = q("size").and_then(|s| s.parse().ok()).unwrap_or(1024);
+                        let count: usize = q("count").and_then(|s| s.parse().ok()).unwrap_or(1);
                         match q("to").and_then(|s| s.parse::<NodeId>().ok()) {
                             Some(to) => {
-                                let mut payload =
-                                    format!("CTRL:{size}:").into_bytes();
-                                payload.resize(size.max(payload.len()), b'A');
-                                match handle.send_message(to, payload).await {
-                                    Ok(()) => format!(
-                                        "{{\"ok\":true,\"envoye\":{size},\"vers\":\"{to}\"}}"
+                                let mut ok = 0usize;
+                                let mut err: Option<String> = None;
+                                for seq in 0..count {
+                                    let mut payload = format!("CTRL:{size}:{seq}:").into_bytes();
+                                    payload.resize(size.max(payload.len()), b'A');
+                                    match handle.send_message(to, payload).await {
+                                        Ok(()) => ok += 1,
+                                        Err(e) => { err = Some(e.to_string()); break; }
+                                    }
+                                }
+                                match err {
+                                    None => format!(
+                                        "{{\"ok\":true,\"envoyes\":{ok},\"taille\":{size},\"vers\":\"{to}\"}}"
                                     ),
-                                    Err(e) => format!("{{\"ok\":false,\"erreur\":\"{e}\"}}"),
+                                    Some(e) => format!("{{\"ok\":false,\"envoyes\":{ok},\"erreur\":\"{e}\"}}"),
                                 }
                             }
                             None => "{\"ok\":false,\"erreur\":\"param 'to' invalide\"}".into(),
                         }
+                    }
+                    "/sendall" => {
+                        // ?size=<n>&count=<k> — envoie à TOUS les pairs connectés.
+                        let size: usize = q("size").and_then(|s| s.parse().ok()).unwrap_or(1024);
+                        let count: usize = q("count").and_then(|s| s.parse().ok()).unwrap_or(1);
+                        let peers = handle.connected_peers().await;
+                        let mut sent = 0usize;
+                        for to in &peers {
+                            for seq in 0..count {
+                                let mut payload = format!("CTRL:{size}:{seq}:").into_bytes();
+                                payload.resize(size.max(payload.len()), b'A');
+                                if handle.send_message(*to, payload).await.is_ok() {
+                                    sent += 1;
+                                }
+                            }
+                        }
+                        format!(
+                            "{{\"ok\":true,\"envoyes\":{sent},\"pairs\":{},\"taille\":{size}}}",
+                            peers.len()
+                        )
+                    }
+                    "/metrics" => {
+                        // Relevé compact : compteurs du nœud (pour scoreboard distant).
+                        let m = handle.metrics();
+                        format!(
+                            "{{\"envoyes\":{},\"recus\":{},\"echoues\":{},\"pairs\":{},\"uptime\":{}}}",
+                            m.messages_sent, m.messages_received, m.messages_failed,
+                            handle.connected_peers().await.len(), m.uptime_seconds
+                        )
                     }
                     "/group/create" => {
                         let name = q("name").unwrap_or_else(|| "grp".into());
