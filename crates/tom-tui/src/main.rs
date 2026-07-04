@@ -310,6 +310,13 @@ struct Cli {
     /// Defaults to a ramp from 1 KB up to and past the 1 MiB default ceiling.
     #[arg(long, value_name = "CSV", requires = "size_ramp")]
     ramp_sizes: Option<String>,
+
+    /// Mode campagne (bot) : toutes les 5 s, envoie à chaque pair connecté un
+    /// message de la taille du palier courant. Le palier dérive de l'horloge
+    /// murale (epoch/120s % paliers) — les apps Swift calculent la même phase,
+    /// donc tout le monde change de palier ensemble, sans coordination.
+    #[arg(long, requires = "bot")]
+    campaign: bool,
 }
 
 fn default_ramp_sizes() -> Vec<usize> {
@@ -559,6 +566,14 @@ async fn main() -> anyhow::Result<()> {
                 }
                 Err(e) => ctx.log_event("size_ramp_erreur", &format!("node_id invalide: {}", e)),
             }
+        }
+
+        if cli.campaign {
+            let camp_ctx = ctx.clone();
+            let camp_handle = handle.clone();
+            tokio::spawn(async move {
+                run_campaign(camp_ctx, camp_handle).await;
+            });
         }
 
         return run_bot(ctx, handle, messages, events, cli.bot_ping).await;
@@ -952,18 +967,30 @@ async fn run_bot(
                 let text = String::from_utf8_lossy(&msg.payload);
                 count += 1;
 
+                // Affichage compact : jamais le payload brut complet (un CAMP
+                // de 250 Ko ferait exploser le datagramme UDP de log).
+                let affichage = if let Some(rest) = text.strip_prefix("CAMP:") {
+                    let mut it = rest.splitn(3, ':');
+                    let taille = it.next().unwrap_or("?");
+                    let seq = it.next().unwrap_or("?");
+                    format!("camp taille={taille} seq={seq}")
+                } else {
+                    text.chars().take(80).collect::<String>()
+                };
                 ctx.log_event("message_recu", &format!(
                     "de={} sig={} contenu={}",
                     short_node_id(&msg.from),
                     if msg.signature_valid { "ok" } else { "bad" },
-                    text
+                    affichage
                 ));
 
-                // Reply with fixed-size response (no growing chain)
-                let reply = format!("recu 5/5 (msg #{})", count);
-                match handle.send_message(msg.from, reply.as_bytes().to_vec()).await {
-                    Ok(()) => ctx.log_event("reponse_envoyee", &format!("a={}", short_node_id(&msg.from))),
-                    Err(e) => ctx.log_event("erreur_envoi", &e.to_string()),
+                // Reply with fixed-size response — jamais à un écho (chaîne coupée net)
+                if !text.starts_with("recu 5/5") {
+                    let reply = format!("recu 5/5 (msg #{})", count);
+                    match handle.send_message(msg.from, reply.as_bytes().to_vec()).await {
+                        Ok(()) => ctx.log_event("reponse_envoyee", &format!("a={}", short_node_id(&msg.from))),
+                        Err(e) => ctx.log_event("erreur_envoi", &e.to_string()),
+                    }
                 }
             }
             evt_opt = events.recv() => {
@@ -994,6 +1021,43 @@ async fn run_bot(
 /// One-shot escalating payload-size send to `target`, logging pass/fail per size.
 /// Stops ramping on the first failure (send-side rejection or transport error)
 /// so the ceiling is visible directly in the log stream.
+/// Paliers du mode campagne — MÊMES valeurs que `TomNodeService.campaignSizes`
+/// (apps Swift) : phase dérivée de l'horloge murale, changement synchronisé.
+const CAMPAIGN_SIZES: [usize; 6] = [1_000, 10_000, 50_000, 100_000, 150_000, 250_000];
+const CAMPAIGN_PHASE_SECS: u64 = 120;
+
+async fn run_campaign(ctx: Arc<BotContext>, handle: RuntimeHandle) {
+    ctx.log_event(
+        "campagne_debut",
+        &format!("paliers={CAMPAIGN_SIZES:?} phase={CAMPAIGN_PHASE_SECS}s"),
+    );
+    let mut seq: u64 = 0;
+    loop {
+        tokio::time::sleep(Duration::from_secs(5)).await;
+        let epoch = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        let size = CAMPAIGN_SIZES[((epoch / CAMPAIGN_PHASE_SECS) as usize) % CAMPAIGN_SIZES.len()];
+        for peer in handle.connected_peers().await {
+            seq += 1;
+            let header = format!("CAMP:{size}:{seq}:");
+            let mut payload = header.into_bytes();
+            payload.resize(size.max(payload.len()), b'A');
+            match handle.send_message(peer, payload).await {
+                Ok(()) => ctx.log_event(
+                    "camp_envoi",
+                    &format!("taille={size} seq={seq} vers={}", short_node_id(&peer)),
+                ),
+                Err(e) => ctx.log_event(
+                    "camp_echec",
+                    &format!("taille={size} seq={seq} vers={} erreur={e}", short_node_id(&peer)),
+                ),
+            }
+        }
+    }
+}
+
 async fn run_size_ramp(ctx: Arc<BotContext>, handle: RuntimeHandle, target: NodeId, sizes: Vec<usize>) {
     ctx.log_event(
         "size_ramp_debut",
