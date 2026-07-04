@@ -96,15 +96,21 @@ echo "[4] .bak + .DS_Store"
 run "find . -name '*.bak' -not -path './.git/*' -not -path '*/target/*' -delete"
 run "find . -name '.DS_Store' -not -path './.git/*' -delete"
 
-# 5. (optionnel) Builds régénérables
+# 5. (optionnel) Artefacts régénérables — pour sauvegarde/export minimal
 if [ "$BUILDS" -eq 1 ]; then
-  echo "[5] Builds régénérables (cargo clean + .build Swift)"
+  echo "[5] Artefacts régénérables (cargo / Swift / node / Xcode)"
+  # Rust : tous les target/ (workspace + crates exclus + experiments)
   run "cargo clean"
   run "rm -rf crates/tom-protocol-ffi/target crates/tom-relay-ffi/target"
   run "rm -rf experiments/iroh-poc/target"
+  # Swift : tous les .build (régénérés par swift build / xcodebuild)
   run "find . -name '.build' -type d -prune -exec rm -rf {} +"
+  # Node : tous les node_modules (régénérés par pnpm install)
+  run "find . -name 'node_modules' -type d -prune -exec rm -rf {} +"
+  # Xcode DerivedData éventuel dans le projet
+  run "find . -name 'DerivedData' -type d -prune -exec rm -rf {} +"
 else
-  echo "[5] Builds régénérables: IGNORÉS (ajouter --builds pour les purger)"
+  echo "[5] Artefacts régénérables: IGNORÉS (ajouter --builds pour les purger)"
 fi
 
 echo

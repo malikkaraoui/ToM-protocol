@@ -73,7 +73,74 @@ Confirmés file:line par l'audit 6-agents (`docs/audits/AUDIT-2026-06-26.md`) + 
 
 ## Ensuite
 
-### Phase 3 — Convergence TS+Rust (README.md)
+### R13→R18 — Cible : réseau distribué viable, zéro friction (arbitré 2026-07-03)
+
+> Constat : protocole correct (R1-R12, audits soldés) mais UNE seule porte
+> publique (NAS perso) = SPOF de fait. Exigences utilisateur : zéro friction
+> (« si mon beau-père doit ouvrir un port à la main, c'est mort »), relais
+> TOURNANTS, aucun point central. La rotation existe déjà (rôles réseau ADR-006 +
+> gate ADR-010) — ces chantiers élargissent le VIVIER de portes éligibles.
+> Chaque step validé en tom-stress + campagne multi-devices réelle.
+
+- [ ] **R13 — Porte d'entrée automatique (zéro friction)** — LE multiplicateur.
+  VÉRIFIÉ 2026-07-03 : `portmapper` v0.13 (UPnP IGD + NAT-PMP + PCP) hérité
+  d'iroh, DÉJÀ câblé dans MagicSock (`procure_mapping()` — socket.rs:610) pour
+  le port QUIC. Steps : (1) instrumenter le mapping obtenu sur la flotte réelle
+  (Freebox = UPnP actif par défaut) ; (2) étendre le mapping au port du relais
+  embarqué (self-relay) → tout nœud installé devient porte complète, publiée et
+  recrutée par le gate ADR-010 sans aucune manip ; (3) test d'acceptation :
+  iPhone en data ↔ maison SANS le NAS (le Mac/iPad devient la porte tout seul).
+- [ ] **R14 — IPv6 first-class** : (1) règle pare-feu Freebox 43925 (déjà
+  identifiée) + mesurer le DIRECT v6 ; (2) publier les GUA v6 au rendez-vous,
+  préférence v6 au dial, hole-punch v6 (quasi 100% vs NAT v4) ; (3) pinhole
+  automatique via PCP quand la box le permet (zéro friction v6).
+- [ ] **R15 — Annuaire local (mémoire des pairs)** : persister `node_id → relais
+  habituel + dernières addrs (LAN/publique/v6) + path_kind` ; dial parallèle
+  cache + lookup frais ; expiration douce (décision #4). Gain : reconnexion
+  quasi instantanée famille/amis, moins de pression DHT. Zéro config (décision #6).
+- [ ] **R16 — Nœud léger multi-plateformes (distribution du vivier)** :
+  binaire statique musl (chaîne de cross-compil déjà en place). Canaux vérifiés 2026-07-03 :
+  (a) **Raspberry Pi — 2 canaux officiels-adjacents** :
+      · **Raspberry Pi Imager** (l'outil de flash officiel) accepte les OS tiers
+        dans sa liste (guide « How to add your own images to Imager », repo JSON
+        + cloud-init NoCloud pour la personnalisation WiFi/SSH dans l'UI).
+        Flow rêvé : choisir « ToM Node OS » dans l'Imager → flasher → brancher → fini.
+      · **Pi-Apps** (store communautaire, 1M+ utilisateurs, 200+ apps, GPL-3) :
+        soumission par script shell + rubrique d'éligibilité — installe le nœud
+        sur un Raspberry Pi OS existant.
+      · Complément : one-liner curl (pattern Pi-hole) + Docker.
+      Gagnant-gagnant : héberger un nœud = profiter du réseau (crypté, gratuit).
+  (b) **Docker** Synology/QNAP/Unraid/home-servers ;
+  (c) **VM Freebox** (Delta/Ultra) — flow sans friction pour fan de forum :
+      qcow2 ARM64 prêt (nœud préinstallé + autostart + tom-gateway embarqué) →
+      Freebox OS → VM → image personnalisée (~5 clics) → au 1er boot, tom-gateway
+      demande l'autorisation API → l'utilisateur VALIDE SUR L'ÉCRAN DE LA BOX
+      (flow de pairing natif Freebox) → redirection de port auto → porte ouverte.
+      Monitoring : status server du nœud (8085) déjà exposé en LAN.
+  (d) **FreeStore** = app PLAYER (Qt/QML, store TV vérifié) → canal de
+  VISIBILITÉ/compagnon : dashboard de monitoring du nœud VM sur la TV, pairing QR.
+  PAS un hôte de démon (apps TV, pas de background fiable). R13 ouvre la porte partout.
+- [ ] **R17 — Seeds optionnels + rotation observée** : 1-2 VPS derrière
+  `relay-eu/us.tom-protocol.org` (URLs déjà en défaut committé), explicitement
+  RETIRABLES ; valider en réel la rotation (publication/dé-publication gate,
+  répartition RelaySelector). Amorçage de confort, pas d'infrastructure sacrée.
+- [ ] **R18 — Wake-up adapters (BONUS, hors cœur)** : hook « sonnette » neutre
+  dans le SDK ; adaptateurs par plateforme côté app (APNs d'abord, FCM ensuite,
+  rien sur headless). La dépendance centralisée reste cantonnée à l'app.
+
+**Stratégie d'adoption (décision Malik 2026-07-03) : PAR LE BAS.** Le premier
+public est le geek souverainiste — celui qui veut couper ses chaînes, retrouver
+de la liberté, ne plus dépendre des USA ou d'autres puissances. C'est lui qui
+porte la « vraie parole » (bouche-à-oreille authentique, crédibilité technique).
+Les canaux R16 (Pi Imager, Pi-Apps, forums Freebox, self-hosters) sont le
+vecteur ; la liberté est le message ; le deal BitTorrent est le pitch (héberger
+un nœud = messagerie chiffrée gratuite, sans serveur à payer). Pas de grand
+public avant ce socle. ⚠️ PAS PRÊT à distribuer : R13 (porte automatique) est
+le prérequis du « brancher et oublier » — d'abord taffer.
+
+**Horizon (étoile polaire, pas un chantier)** : tout terminal toujours-allumé
+comme nœud — terminaux de paiement, IoT, box. Un réseau de transport neutre,
+gratuit, chiffré, sans blockchain ni fees (décision #7 : fondation universelle).
 - Protocol convergence : stack TypeScript + Rust unifiées (détails non trouvés dans docs scannés)
 
 ### Améliorations infra
