@@ -9,6 +9,7 @@ description = "ToM Protocol layer — routing, encryption, discovery on top of t
 tom-transport = { path = "../tom-transport" }
 tom-dht = { path = "../tom-dht" }  # Phase R7.1: DHT discovery
 serde = { version = "1", features = ["derive"] }
+serde_bytes = "0.11"  # sérialise Vec<u8>/&[u8] en MessagePack `bin` compact (pas en tableau d'entiers)
 rmp-serde = "1"
 thiserror = "2"
 uuid = { version = "1", features = ["v4"] }

@@ -23,10 +23,15 @@ pub struct Envelope {
     /// Message type — determines protocol handling.
     pub msg_type: MessageType,
     /// Opaque payload bytes (plaintext or ciphertext).
+    /// `serde_bytes` : émis en MessagePack `bin` compact (×1) et non en
+    /// tableau d'entiers (×1.5, ×8 en imbrication) — sinon un payload de
+    /// 150 Ko gonfle au-delà du plafond 1 MiB (DoS silencieux, cf 2026-07-04).
+    #[serde(with = "serde_bytes")]
     pub payload: Vec<u8>,
     /// Creation timestamp (Unix milliseconds).
     pub timestamp: u64,
     /// Ed25519 signature over `signing_bytes()`. Empty if unsigned.
+    #[serde(with = "serde_bytes")]
     pub signature: Vec<u8>,
     /// Remaining hop count. Decremented at each relay. Dropped at 0.
     pub ttl: u32,
@@ -278,6 +283,9 @@ struct SignableEnvelope<'a> {
     to: &'a NodeId,
     via: &'a [NodeId],
     msg_type: &'a MessageType,
+    // DOIT rester aligné sur `Envelope.payload` (même encodage bin) — la
+    // signature couvre ces octets, signeur et vérifieur utilisent ce struct.
+    #[serde(with = "serde_bytes")]
     payload: &'a [u8],
     timestamp: u64,
     encrypted: bool,
