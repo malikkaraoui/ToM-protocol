@@ -78,7 +78,10 @@ Normative specs, no Rust required, byte-for-byte verifiable:
 | E2E encrypted chat | **Working** | Signed + encrypted envelopes, Mac↔NAS cross-border |
 | Group messaging + hub failover | **Working** | Virus-like replication, deterministic failover, ~3-6s detection |
 | Direct QUIC latency | **27-49ms** | After hole punch, no relay needed |
-| Multi-device live campaign | **iPhone (3G/4G/5G) ↔ iPad (WiFi) ↔ Apple TV ↔ MacBook ↔ NAS** | Real cellular reconnection, backup delivery, message-size ceiling confirmed at 1 MiB |
+| Multi-device live campaign | **iPhone (3G/4G/5G) ↔ iPad (WiFi) ↔ Apple TV ↔ MacBook ↔ NAS** | Real cellular reconnection, decentralized DHT rendezvous (no fixed relay) |
+| Large messages (chunking) | **1 KB → 64 MB delivered** | Auto-segmentation over QUIC, reassembled end-to-end; verified 300 KB / 3 MB / 10 MB / 64 MB |
+| Offline recipient + backup (ADR-009) | **8/8 delivered in 3s on return** | Messages survive recipient offline, redelivered on rejoin, purged after ACK (no duplicates) |
+| Node rejoin after restart | **~6-10s** | Kill → relaunch → back on network (LAN) |
 
 ## Project Structure
 
