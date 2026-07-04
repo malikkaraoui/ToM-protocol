@@ -89,26 +89,29 @@ async fn raw_bytes_exchange() {
     node_b.shutdown().await.unwrap();
 }
 
-/// Sending a message that exceeds max_message_size should fail.
+/// Depuis la segmentation, les gros messages sont chunkés (jusqu'à 64 Mo),
+/// donc `max_message_size` ne rejette plus les envois — seul le plafond de
+/// réassemblage (MAX_REASSEMBLED = 64 Mo) fait échouer un envoi trop gros.
 #[tokio::test]
-async fn reject_oversized_message() {
+async fn reject_message_above_reassembly_ceiling() {
     let _ = tracing_subscriber::fmt()
         .with_env_filter("warn")
         .try_init();
 
-    let config = TomNodeConfig::new().max_message_size(64);
-    let node_a = TomNode::bind(config).await.unwrap();
-    let node_b = TomNode::bind(TomNodeConfig::new()).await.unwrap();
+    let node_a = TomNode::bind(TomNodeConfig::new().n0_discovery(false)).await.unwrap();
+    let node_b = TomNode::bind(TomNodeConfig::new().n0_discovery(false)).await.unwrap();
 
     let id_b = node_b.id();
-    let big_payload = vec![0u8; 128];
+    // 64 Mo + 1 octet : juste au-dessus du plafond de réassemblage.
+    let ceiling = 64 * 1024 * 1024;
+    let too_big = vec![0u8; ceiling + 1];
 
-    let result = node_a.send_raw(id_b, &big_payload).await;
-    assert!(result.is_err());
+    let result = node_a.send_raw(id_b, &too_big).await;
+    assert!(result.is_err(), "un message > 64 Mo doit être rejeté");
     match result.unwrap_err() {
         TomTransportError::MessageTooLarge { size, max } => {
-            assert_eq!(size, 128);
-            assert_eq!(max, 64);
+            assert_eq!(size, ceiling + 1);
+            assert_eq!(max, ceiling);
         }
         e => panic!("expected MessageTooLarge, got: {e}"),
     }

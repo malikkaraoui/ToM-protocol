@@ -145,7 +145,6 @@ pub struct TomNode {
     _router: Router,
     endpoint: Endpoint,
     gossip: Gossip,
-    max_message_size: usize,
     discovery_refresh_stop_tx: Option<oneshot::Sender<()>>,
     discovery_refresh_task: Option<JoinHandle<()>>,
     /// Receiver for PeerPresent events from relay servers.
@@ -315,6 +314,7 @@ impl TomNode {
             path_event_tx: path_event_tx.clone(),
             pool: pool.clone(),
             max_message_size: config.max_message_size,
+            chunk_buffers: Arc::new(Default::default()),
         });
 
         let handler = TomProtocolHandler {
@@ -407,7 +407,6 @@ impl TomNode {
             _router: router,
             endpoint,
             gossip,
-            max_message_size: config.max_message_size,
             discovery_refresh_stop_tx,
             discovery_refresh_task,
             peer_present_rx,
@@ -510,7 +509,6 @@ impl TomNode {
     pub fn sender(&self) -> TomNodeSender {
         TomNodeSender {
             pool: self.pool.clone(),
-            max_message_size: self.max_message_size,
         }
     }
 
@@ -600,7 +598,6 @@ impl TomNode {
 #[derive(Clone)]
 pub struct TomNodeSender {
     pool: Arc<ConnectionPool>,
-    max_message_size: usize,
 }
 
 impl TomNodeSender {
@@ -611,33 +608,57 @@ impl TomNodeSender {
 
     /// Send raw bytes to a peer. Connection is established on first use and
     /// cached for subsequent sends.
+    ///
+    /// Les messages plus gros que `CHUNK_THRESHOLD` (~200 Ko) sont segmentés :
+    /// découpés en chunks < plafond QUIC, envoyés chacun comme une frame, et
+    /// réassemblés côté récepteur. Permet des messages jusqu'à `MAX_REASSEMBLED`
+    /// (64 Mo) alors qu'un stream QUIC unique plafonne vers ~256 Ko.
     pub async fn send_raw(&self, to: NodeId, data: &[u8]) -> Result<(), TomTransportError> {
-        if data.len() > self.max_message_size {
+        if data.len() > protocol::MAX_REASSEMBLED {
             return Err(TomTransportError::MessageTooLarge {
                 size: data.len(),
-                max: self.max_message_size,
+                max: protocol::MAX_REASSEMBLED,
             });
         }
 
         let conn = self.pool.get_or_connect(to).await?;
 
-        tracing::trace!("send_raw: opening bi-stream to {}", to);
-        let (mut send, recv) = match tokio::time::timeout(
-            Duration::from_secs(5),
-            conn.open_bi(),
-        ).await {
+        // Petit message : une seule frame (compatible wire avec l'existant).
+        if data.len() <= protocol::CHUNK_THRESHOLD {
+            return self.send_one_frame(to, &conn, data).await;
+        }
+
+        // Gros message : segmentation.
+        let total_chunks = data.len().div_ceil(protocol::CHUNK_PAYLOAD) as u32;
+        let transfer_id = next_transfer_id();
+        tracing::debug!(
+            "send_raw: segmentation vers {to} — {} octets en {total_chunks} chunks",
+            data.len()
+        );
+        for (index, chunk) in data.chunks(protocol::CHUNK_PAYLOAD).enumerate() {
+            let framed = protocol::encode_chunk(transfer_id, total_chunks, index as u32, chunk);
+            self.send_one_frame(to, &conn, &framed).await?;
+        }
+        Ok(())
+    }
+
+    /// Envoie un blob déjà framé sur un nouveau bi-stream de la connexion.
+    async fn send_one_frame(
+        &self,
+        to: NodeId,
+        conn: &tom_connect::endpoint::Connection,
+        bytes: &[u8],
+    ) -> Result<(), TomTransportError> {
+        tracing::trace!("send_one_frame: opening bi-stream to {}", to);
+        let (mut send, recv) = match tokio::time::timeout(Duration::from_secs(5), conn.open_bi())
+            .await
+        {
             Ok(Ok(pair)) => pair,
             Ok(Err(e)) => {
-                // Connection is dead (e.g. NAT rebinding) — evict from pool
-                // so next attempt triggers a fresh connect + discovery.
                 self.pool.remove(&to).await;
-                return Err(TomTransportError::Send {
-                    node_id: to,
-                    source: e.into(),
-                });
+                return Err(TomTransportError::Send { node_id: to, source: e.into() });
             }
             Err(_elapsed) => {
-                // open_bi hung — connection is likely dead, evict
                 tracing::warn!("open_bi to {} timed out after 5s, evicting connection", to);
                 self.pool.remove(&to).await;
                 return Err(TomTransportError::Send {
@@ -645,30 +666,32 @@ impl TomNodeSender {
                     source: std::io::Error::new(
                         std::io::ErrorKind::TimedOut,
                         "open_bi timed out after 5s",
-                    ).into(),
+                    )
+                    .into(),
                 });
             }
         };
 
-        tracing::trace!("send_raw: bi-stream opened to {}, writing {} bytes", to, data.len());
-        if let Err(e) = protocol::write_framed(&mut send, data).await {
-            // Connection may be dead, remove from pool
+        tracing::trace!("send_one_frame: writing {} bytes to {}", bytes.len(), to);
+        if let Err(e) = protocol::write_framed(&mut send, bytes).await {
             self.pool.remove(&to).await;
-            return Err(TomTransportError::Send {
-                node_id: to,
-                source: e,
-            });
+            return Err(TomTransportError::Send { node_id: to, source: e });
         }
 
         // QUIC guarantees transport-level delivery (retransmissions, flow control).
-        // Protocol-level ACK envelopes handle application-level confirmation.
-        // Do NOT wait for recv.read_to_end(0) — it deadlocks when the remote
-        // opens a bi-stream on a stored incoming connection (the initiator has
-        // no accept_bi() loop for its outgoing connections).
+        // Do NOT wait for recv.read_to_end(0) — it deadlocks (initiator has no
+        // accept_bi() loop for its outgoing connections).
         drop(recv);
-
         Ok(())
     }
+}
+
+/// Compteur global monotone pour les transfer_id de segmentation (unique par
+/// processus ; le récepteur clé par (expéditeur, transfer_id)).
+fn next_transfer_id() -> u64 {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static COUNTER: AtomicU64 = AtomicU64::new(1);
+    COUNTER.fetch_add(1, Ordering::Relaxed)
 }
 
 /// Load an identity from a file, or create a new one if the file doesn't exist.
@@ -841,6 +864,67 @@ mod tests {
         node2.shutdown().await.unwrap();
 
         assert_eq!(id1, id2, "Same identity file should produce same NodeId");
+    }
+
+    /// Segmentation : un gros message (> plafond QUIC ~256 Ko) est découpé,
+    /// envoyé en chunks, et réassemblé à l'identique. Isolé (pas de mDNS/n0)
+    /// pour ne pas être pollué par d'autres nœuds du LAN.
+    async fn chunking_roundtrip(size: usize) {
+        let a = TomNode::bind(
+            TomNodeConfig::new().n0_discovery(false).local_discovery(false),
+        )
+        .await
+        .unwrap();
+        let mut b = TomNode::bind(
+            TomNodeConfig::new().n0_discovery(false).local_discovery(false),
+        )
+        .await
+        .unwrap();
+
+        // Échange d'adresses (comme un scan de QR code).
+        a.add_peer_addr(b.addr()).await;
+        b.add_peer_addr(a.addr()).await;
+        let id_b = b.id();
+        tokio::time::sleep(Duration::from_millis(500)).await;
+
+        // Payload identifiable : motif non constant pour détecter tout mauvais
+        // ordre de réassemblage (un chunk mal placé changerait le contenu).
+        let payload: Vec<u8> = (0..size).map(|i| (i % 251) as u8).collect();
+
+        a.sender().send_raw(id_b, &payload).await.unwrap();
+
+        let (from, received) = tokio::time::timeout(Duration::from_secs(20), b.recv_raw())
+            .await
+            .expect("timeout — le gros message n'est jamais arrivé")
+            .expect("recv_raw a échoué");
+
+        assert_eq!(from, a.id());
+        assert_eq!(received.len(), size, "taille réassemblée incorrecte");
+        assert_eq!(received, payload, "contenu réassemblé corrompu (ordre des chunks ?)");
+
+        a.shutdown().await.unwrap();
+        b.shutdown().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn chunking_300ko() {
+        chunking_roundtrip(300_000).await;
+    }
+
+    #[tokio::test]
+    async fn chunking_3mo() {
+        chunking_roundtrip(3 * 1024 * 1024).await;
+    }
+
+    #[tokio::test]
+    async fn chunking_10mo() {
+        chunking_roundtrip(10 * 1024 * 1024).await;
+    }
+
+    #[tokio::test]
+    async fn petit_message_reste_une_seule_frame() {
+        // Sous le seuil de segmentation : chemin single-frame inchangé.
+        chunking_roundtrip(1_000).await;
     }
 
     #[tokio::test]
