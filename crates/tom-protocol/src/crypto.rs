@@ -27,6 +27,10 @@ const HKDF_INFO: &[u8] = b"tom-protocol-e2e-xchacha20poly1305-v1";
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct EncryptedPayload {
     /// XChaCha20-Poly1305 ciphertext (includes 16-byte auth tag).
+    /// `serde_bytes` : `bin` compact — sans ça le ciphertext (octets aléatoires)
+    /// gonfle ×1.5 en tableau MessagePack, puis ×1.5 encore une fois quand
+    /// `to_bytes()` est ré-embarqué dans `Envelope.payload` → ×8 total.
+    #[serde(with = "serde_bytes")]
     pub ciphertext: Vec<u8>,
     /// 24-byte nonce (XChaCha20 extended nonce — safe to generate randomly).
     pub nonce: [u8; 24],
