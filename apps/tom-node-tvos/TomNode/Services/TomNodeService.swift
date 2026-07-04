@@ -19,6 +19,8 @@ final class TomNodeService: ObservableObject {
     private var pollTask: Task<Void, Never>?
     private var startTask: Task<Void, Never>?
     private var autoStartTask: Task<Void, Never>?
+    private var campaignTask: Task<Void, Never>?
+    private var campaignSeq: Int = 0
     private var hasScheduledInitialAutoStart = false
     private var autoMessagedPeerIds = Set<String>()
     private var autoMessageAttemptedAt: [String: Date] = [:]
@@ -43,6 +45,19 @@ final class TomNodeService: ObservableObject {
     // Auto-echo for stress testing
     @Published var autoEchoEnabled: Bool = true
     @Published var echoCount: Int = 0
+
+    // Mode campagne : paliers de taille dérivés de l'horloge murale —
+    // MÊMES valeurs que CAMPAIGN_SIZES dans tom-tui (nœud NAS) : tous les
+    // nœuds changent de palier ensemble, sans coordination.
+    @Published var campaignEnabled: Bool = true
+    static let campaignSizes: [Int] = [1_000, 10_000, 50_000, 100_000, 150_000, 250_000]
+    static let campaignPhaseSeconds = 120
+
+    static func fmtTaille(_ n: Int) -> String {
+        if n >= 1_000_000 { return String(format: "%.1f Mo", Double(n) / 1_000_000) }
+        if n >= 1_000 { return "\(n / 1_000) Ko" }
+        return "\(n) o"
+    }
 
     // Anti-sleep audio player (iOS/tvOS only)
     #if !os(macOS)
@@ -392,6 +407,7 @@ final class TomNodeService: ObservableObject {
 
                 startAntiSleep()
                 startPolling()
+                startCampaign()
                 startStatusServer()
                 log.info("Node started — identity: \(self.identityPath ?? "ephemeral"), data: \(self.dataDir ?? "none")")
 
@@ -413,6 +429,8 @@ final class TomNodeService: ObservableObject {
         let wasStarting = (state == .starting)
         startTask?.cancel()
         startTask = nil
+        campaignTask?.cancel()
+        campaignTask = nil
         // Flip UI state IMMEDIATELY — never leave the user stuck on "Stopping".
         // The node teardown is I/O (QUIC/DHT close) and must not gate the UI.
         state = .stopped
@@ -585,6 +603,34 @@ final class TomNodeService: ObservableObject {
         return dir?.appendingPathComponent("tom_data").path
     }
 
+    /// Boucle du mode campagne : toutes les 5 s, un message de la taille du
+    /// palier courant vers chaque pair connecté. Palier = (epoch/120s) % paliers.
+    private func startCampaign() {
+        campaignTask?.cancel()
+        campaignTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 5_000_000_000)
+                guard let self = self else { break }
+                guard self.campaignEnabled, self.state == .running else { continue }
+                let idx = (Int(Date().timeIntervalSince1970) / Self.campaignPhaseSeconds) % Self.campaignSizes.count
+                let size = Self.campaignSizes[idx]
+                for peer in self.connectedPeers {
+                    self.campaignSeq += 1
+                    let header = "CAMP:\(size):\(self.campaignSeq):"
+                    let pad = max(0, size - header.utf8.count)
+                    let payload = Data((header + String(repeating: "A", count: pad)).utf8)
+                    do {
+                        try await self.node.sendMessage(to: peer, payload: payload)
+                        self.totalMessagesSentCount += 1
+                        self.appendLog(.network, "CAMP↑ \(Self.fmtTaille(size)) #\(self.campaignSeq) → \(String(peer.prefix(8)))")
+                    } catch {
+                        self.appendLog(.error, "CAMP✗ \(Self.fmtTaille(size)) #\(self.campaignSeq) → \(String(peer.prefix(8))): \(error.localizedDescription)")
+                    }
+                }
+            }
+        }
+    }
+
     private func startPolling() {
         var knownPeerIds = Set<String>()
         var lastPeerCount = 0
@@ -596,10 +642,27 @@ final class TomNodeService: ObservableObject {
                 // Poll messages
                 let newMessages = await self.node.receiveMessages()
                 for msg in newMessages {
-                    self.messages.append(msg)
-                    self.totalMessagesCount += 1
                     let senderShort = String(msg.from.prefix(8))
-                    let textPreview = String(msg.text.prefix(80))
+                    var display = msg
+                    var textPreview = String(msg.text.prefix(80))
+                    if msg.text.hasPrefix("CAMP:") {
+                        // Afficher la taille, pas 250 Ko de 'A' — et ne jamais
+                        // stocker le payload brut dans la liste UI (CPU).
+                        let parts = msg.text.split(separator: ":", maxSplits: 3)
+                        let sz = parts.count > 1 ? (Int(parts[1]) ?? msg.text.utf8.count) : msg.text.utf8.count
+                        let seq = parts.count > 2 ? String(parts[2]) : "?"
+                        textPreview = "📦 \(Self.fmtTaille(sz)) #\(seq)"
+                        display = TomMessage(
+                            id: msg.id,
+                            from: msg.from,
+                            payload: Data(textPreview.utf8).base64EncodedString(),
+                            timestamp: msg.timestamp,
+                            signatureValid: msg.signatureValid,
+                            wasEncrypted: msg.wasEncrypted
+                        )
+                    }
+                    self.messages.append(display)
+                    self.totalMessagesCount += 1
                     self.appendLog(.network, "MSG from \(senderShort): \(textPreview)")
 
                     // Auto-echo: reply to incoming messages
