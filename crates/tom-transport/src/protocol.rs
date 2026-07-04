@@ -48,6 +48,111 @@ pub(crate) async fn read_framed(
     Ok(buf)
 }
 
+// ── Chunking / segmentation des gros messages ──────────────────────────
+//
+// Le transport QUIC a un plafond pratique par stream (~256 Ko, fenêtre de
+// flux) bien en-dessous de `max_message_size`. Pour envoyer des messages
+// arbitrairement gros (10 Mo+), on segmente : un gros payload est découpé en
+// chunks < plafond, chacun envoyé comme une frame normale, réassemblés à la
+// réception. Transparent pour la couche protocole (elle voit le payload entier).
+
+/// Marqueur d'une frame de chunk (préfixe des 4 premiers octets).
+pub(crate) const CHUNK_MAGIC: &[u8; 4] = b"TCHK";
+/// En-tête d'un chunk : MAGIC(4) + transfer_id(8) + total_chunks(4) + index(4).
+pub(crate) const CHUNK_HEADER: usize = 20;
+/// Taille des données par chunk (l'octet de frame reste < plafond ~256 Ko).
+pub(crate) const CHUNK_PAYLOAD: usize = 200_000;
+/// Au-delà de cette taille, un message est segmenté.
+pub(crate) const CHUNK_THRESHOLD: usize = CHUNK_PAYLOAD;
+/// Plafond dur de la taille réassemblée (anti-abus mémoire).
+pub(crate) const MAX_REASSEMBLED: usize = 64 * 1024 * 1024;
+
+/// Buffer de réassemblage d'un transfert segmenté.
+pub(crate) struct Reassembly {
+    total_chunks: u32,
+    chunks: Vec<Option<Vec<u8>>>,
+    received: u32,
+    bytes: usize,
+}
+
+pub(crate) type ChunkBuffers = std::sync::Mutex<
+    std::collections::HashMap<(NodeId, u64), Reassembly>,
+>;
+
+/// Sérialise un chunk : MAGIC + transfer_id + total_chunks + index + data.
+pub(crate) fn encode_chunk(
+    transfer_id: u64,
+    total_chunks: u32,
+    index: u32,
+    data: &[u8],
+) -> Vec<u8> {
+    let mut out = Vec::with_capacity(CHUNK_HEADER + data.len());
+    out.extend_from_slice(CHUNK_MAGIC);
+    out.extend_from_slice(&transfer_id.to_be_bytes());
+    out.extend_from_slice(&total_chunks.to_be_bytes());
+    out.extend_from_slice(&index.to_be_bytes());
+    out.extend_from_slice(data);
+    out
+}
+
+/// Traite une frame reçue : réassemble si c'est un chunk, sinon renvoie le
+/// payload tel quel. Renvoie `Some(bytes)` quand un message complet est prêt.
+fn reassemble(state: &HandlerState, remote: NodeId, data: Vec<u8>) -> Option<Vec<u8>> {
+    // Frame normale (pas un chunk) → message complet directement.
+    if data.len() < CHUNK_HEADER || &data[0..4] != CHUNK_MAGIC {
+        return Some(data);
+    }
+    let transfer_id = u64::from_be_bytes(data[4..12].try_into().ok()?);
+    let total_chunks = u32::from_be_bytes(data[12..16].try_into().ok()?);
+    let index = u32::from_be_bytes(data[16..20].try_into().ok()?);
+    let payload = data[CHUNK_HEADER..].to_vec();
+
+    if total_chunks == 0
+        || index >= total_chunks
+        || total_chunks as usize > MAX_REASSEMBLED / 1.max(payload.len())
+    {
+        tracing::warn!("chunk invalide de {remote} (total={total_chunks}, idx={index}) — ignoré");
+        return None;
+    }
+
+    let mut buffers = state.chunk_buffers.lock().unwrap_or_else(|e| e.into_inner());
+    let entry = buffers.entry((remote, transfer_id)).or_insert_with(|| Reassembly {
+        total_chunks,
+        chunks: vec![None; total_chunks as usize],
+        received: 0,
+        bytes: 0,
+    });
+
+    if let Some(slot) = entry.chunks.get_mut(index as usize) {
+        if slot.is_none() {
+            entry.bytes += payload.len();
+            entry.received += 1;
+            *slot = Some(payload);
+        }
+    }
+
+    if entry.bytes > MAX_REASSEMBLED {
+        tracing::warn!("transfert {transfer_id} de {remote} dépasse {MAX_REASSEMBLED}o — abandon");
+        buffers.remove(&(remote, transfer_id));
+        return None;
+    }
+
+    if entry.received == entry.total_chunks {
+        let entry = buffers.remove(&(remote, transfer_id))?;
+        let mut full = Vec::with_capacity(entry.bytes);
+        for chunk in entry.chunks.into_iter().flatten() {
+            full.extend_from_slice(&chunk);
+        }
+        tracing::debug!(
+            "message réassemblé de {remote}: {} octets ({} chunks)",
+            full.len(),
+            total_chunks
+        );
+        return Some(full);
+    }
+    None
+}
+
 /// Internal state shared with the protocol handler.
 pub(crate) struct HandlerState {
     pub incoming_tx: mpsc::Sender<(NodeId, MessageEnvelope)>,
@@ -55,6 +160,7 @@ pub(crate) struct HandlerState {
     pub path_event_tx: broadcast::Sender<PathEvent>,
     pub pool: Arc<crate::connection::ConnectionPool>,
     pub max_message_size: usize,
+    pub chunk_buffers: Arc<ChunkBuffers>,
 }
 
 /// Protocol handler that accepts incoming ToM connections.
@@ -106,14 +212,17 @@ impl tom_connect::protocol::ProtocolHandler for TomProtocolHandler {
             tokio::spawn(async move {
                 match read_framed(&mut recv, state.max_message_size).await {
                     Ok(data) => {
-                        // Try to parse as envelope
-                        match MessageEnvelope::from_bytes(&data) {
-                            Ok(envelope) => {
-                                let _ = state.incoming_tx.send((remote, envelope)).await;
-                            }
-                            Err(_) => {
-                                // Not a valid envelope — deliver as raw
-                                let _ = state.incoming_raw_tx.send((remote, data)).await;
+                        // Réassemblage : un chunk incomplet renvoie None (bufferisé) ;
+                        // une frame normale ou le dernier chunk renvoie le message entier.
+                        if let Some(full) = reassemble(&state, remote, data) {
+                            match MessageEnvelope::from_bytes(&full) {
+                                Ok(envelope) => {
+                                    let _ = state.incoming_tx.send((remote, envelope)).await;
+                                }
+                                Err(_) => {
+                                    // Not a valid envelope — deliver as raw
+                                    let _ = state.incoming_raw_tx.send((remote, full)).await;
+                                }
                             }
                         }
                         // Acknowledge receipt by closing our send stream
