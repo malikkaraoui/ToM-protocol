@@ -2820,6 +2820,84 @@ mod tests {
         assert!(effects.is_empty());
     }
 
+    // ── ADR-009 : survie + livraison différée ────────────────────────────
+    // Garde-fou de la garantie « destinataire hors-ligne → message conservé →
+    // redélivré au retour ». Validé en endurance réelle (2026-07-04, campagne
+    // multi-devices : 15/15 messages redélivrés) ; ce test verrouille la
+    // mécanique de façon déterministe. Le trigger réel est `tick_heartbeat`
+    // sur `DiscoveryEvent::PeerOnline` → `prepare_backup_delivery` (state.rs).
+
+    #[test]
+    fn backup_conserve_le_message_pour_un_destinataire_hors_ligne() {
+        let mut state = default_state(1);
+        let (bob, _) = keypair(2);
+
+        // Un envoi vers B échoue → le message est stocké en backup (comme le
+        // fait handle_send_message dans son on_failure).
+        state.backup.store_message(
+            "msg-offline-1".to_string(),
+            b"salut B, tu etais parti".to_vec(),
+            bob,
+            state.local_id,
+            now_ms(),
+            None,
+        );
+
+        assert_eq!(
+            state.backup.store().get_for_recipient(&bob).len(),
+            1,
+            "le message doit survivre en backup tant que B est hors-ligne"
+        );
+    }
+
+    #[test]
+    fn backup_redelivre_au_retour_du_destinataire() {
+        let mut state = default_state(1);
+        let (bob, _) = keypair(2);
+        let (carol, _) = keypair(3);
+
+        // 3 messages backupés pour B (hors-ligne) + 1 pour Carol (isolation).
+        for i in 0..3 {
+            state.backup.store_message(
+                format!("pour-bob-{i}"),
+                format!("message differe {i}").into_bytes(),
+                bob,
+                state.local_id,
+                now_ms(),
+                None,
+            );
+        }
+        state.backup.store_message(
+            "pour-carol".to_string(),
+            b"pas pour bob".to_vec(),
+            carol,
+            state.local_id,
+            now_ms(),
+            None,
+        );
+
+        // B revient en ligne : c'est ce que déclenche PeerOnline via tick_heartbeat.
+        let effects = state.prepare_backup_delivery(bob);
+
+        // Les 3 messages de B (et EUX SEULS) sont ré-émis vers B.
+        assert_eq!(effects.len(), 3, "les 3 messages backupés de B doivent être redélivrés");
+        for effect in &effects {
+            match effect {
+                RuntimeEffect::SendWithBackupFallback { envelope, .. } => {
+                    assert_eq!(envelope.to, bob, "redélivré au bon destinataire");
+                }
+                other => panic!("attendu SendWithBackupFallback, obtenu {other:?}"),
+            }
+        }
+
+        // Le message de Carol ne part PAS quand B revient.
+        assert_eq!(
+            state.prepare_backup_delivery(carol).len(),
+            1,
+            "le backup est bien isolé par destinataire"
+        );
+    }
+
     #[test]
     fn tick_group_hub_heartbeat_empty_state_no_effects() {
         let mut state = default_state(1);
