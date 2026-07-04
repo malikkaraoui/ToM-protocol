@@ -16,8 +16,12 @@ use crate::types::NodeId;
 
 // ── Configuration ──────────────────────────────────────────────────────
 
-/// Maximum envelope size (256 KB) — enforced before parsing.
-pub const MAX_ENVELOPE_SIZE: usize = 256 * 1024;
+/// Maximum envelope size — garde anti-spam appliqué avant parsing.
+/// Aligné sur le plafond de segmentation du transport (MAX_REASSEMBLED, 64 Mo) :
+/// les gros messages sont chunkés au niveau transport et réassemblés, donc ce
+/// garde ne doit plus rejeter à 256 Ko (ce qui cassait la livraison des messages
+/// segmentés). Reste une borne dure anti-abus mémoire.
+pub const MAX_ENVELOPE_SIZE: usize = 64 * 1024 * 1024;
 
 /// Configuration for progressive anti-spam rate limiting.
 #[derive(Debug, Clone)]
@@ -291,11 +295,12 @@ mod tests {
 
     #[test]
     fn validate_size_rejects_oversized() {
-        let small = vec![0u8; 1024];
-        let huge = vec![0u8; 512 * 1024];
         let max = MAX_ENVELOPE_SIZE;
-
-        assert!(AntiSpam::validate_size(&small, max).is_ok());
+        // Sous le plafond (les messages segmentés vont jusqu'à 64 Mo) : accepté.
+        let ok = vec![0u8; 1024];
+        assert!(AntiSpam::validate_size(&ok, max).is_ok());
+        // Au-dessus du plafond anti-abus : rejeté.
+        let huge = vec![0u8; max + 1];
         assert!(AntiSpam::validate_size(&huge, max).is_err());
     }
 

@@ -74,6 +74,36 @@ async fn setup_two_nodes() -> anyhow::Result<(TestNode, TestNode)> {
 }
 
 // ═══════════════════════════════════════════════════════════════════════
+// Chunking bout-en-bout via le RUNTIME (pas juste le transport) : Alice
+// envoie un gros message (au-delà du plafond QUIC ~256 Ko) à Bob, qui doit
+// le recevoir entier via le chemin complet runtime→transport→runtime.
+// ═══════════════════════════════════════════════════════════════════════
+
+#[tokio::test]
+async fn gros_message_chunke_livre_via_runtime() {
+    tracing_subscriber::fmt()
+        .with_env_filter("tom_protocol=info,tom_transport=info")
+        .try_init()
+        .ok();
+
+    let (alice, mut bob) = setup_two_nodes().await.unwrap();
+
+    for size in [300_000usize, 3_145_728] {
+        // Motif non-constant : un mauvais réassemblage changerait le contenu.
+        let payload: Vec<u8> = (0..size).map(|i| (i % 251) as u8).collect();
+        alice.handle.send_message(bob.id, payload.clone()).await.unwrap();
+
+        let msg = timeout(Duration::from_secs(20), bob.messages.recv())
+            .await
+            .unwrap_or_else(|_| panic!("Bob n'a jamais reçu le message de {size} octets"))
+            .expect("canal fermé");
+        assert_eq!(msg.payload.len(), size, "taille reçue incorrecte pour {size}");
+        assert_eq!(msg.payload, payload, "contenu corrompu pour {size}");
+        eprintln!("gros message {size} o : livré OK");
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
 // Scénario 1 : Alice envoie à Bob, Bob répond — le cas le plus basique.
 //
 // C'est LE test que 964 unit tests n'ont pas attrapé :
