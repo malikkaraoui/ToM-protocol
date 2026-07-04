@@ -193,6 +193,138 @@ fn spawn_status_server(port: u16, handle: RuntimeHandle, node_label: String) {
     });
 }
 
+/// Serveur de CONTRÔLE HTTP (TCP brut, sans dépendance) : permet de piloter
+/// le nœud à distance — envoyer des paquets de taille arbitraire, créer des
+/// groupes, arrêter le nœud. Conçu pour l'orchestration de tests automatisée.
+///
+/// Routes (toutes en query-string, réponses JSON) :
+///   GET  /peers                          → node_ids complets des pairs connectés
+///   GET  /groups                         → groupes (id complet + nb membres)
+///   POST /send?to=<id>&size=<n>          → envoie n octets à un pair
+///   POST /group/create?name=<n>&members=<id,id>  → crée un groupe (hub = soi)
+///   POST /group/send?group=<gid>&size=<n>        → message de n octets au groupe
+///   POST /stop                           → arrêt propre du nœud (process exit)
+fn spawn_control_server(port: u16, handle: RuntimeHandle) {
+    tokio::spawn(async move {
+        let listener = match tokio::net::TcpListener::bind(format!("0.0.0.0:{port}")).await {
+            Ok(l) => l,
+            Err(e) => {
+                eprintln!("{{\"event\":\"erreur_control_server\",\"detail\":\"{e}\"}}");
+                return;
+            }
+        };
+        eprintln!("{{\"event\":\"control_server_demarre\",\"detail\":\"port={port}\"}}");
+
+        loop {
+            let Ok((mut stream, _)) = listener.accept().await else { continue };
+            let handle = handle.clone();
+            tokio::spawn(async move {
+                use tokio::io::{AsyncReadExt, AsyncWriteExt};
+                let mut buf = vec![0u8; 8192];
+                let n = stream.read(&mut buf).await.unwrap_or(0);
+                let req = String::from_utf8_lossy(&buf[..n]);
+                let line = req.lines().next().unwrap_or("");
+                // "METHOD /path?query HTTP/1.1"
+                let mut parts = line.split_whitespace();
+                let _method = parts.next().unwrap_or("");
+                let target = parts.next().unwrap_or("/");
+                let (path, query) = target.split_once('?').unwrap_or((target, ""));
+                let q = |k: &str| -> Option<String> {
+                    query.split('&').find_map(|kv| {
+                        let (kk, vv) = kv.split_once('=')?;
+                        if kk == k { Some(vv.to_string()) } else { None }
+                    })
+                };
+
+                let body: String = match path {
+                    "/peers" => {
+                        let peers = handle.connected_peers().await;
+                        let ids: Vec<String> =
+                            peers.iter().map(|p| format!("\"{p}\"")).collect();
+                        format!("{{\"pairs\":[{}]}}", ids.join(","))
+                    }
+                    "/groups" => {
+                        let groups = handle.groups().await;
+                        let gs: Vec<String> = groups
+                            .iter()
+                            .map(|g| {
+                                format!(
+                                    "{{\"id\":\"{}\",\"nom\":\"{}\",\"membres\":{}}}",
+                                    g.group_id, g.name, g.members.len()
+                                )
+                            })
+                            .collect();
+                        format!("{{\"groupes\":[{}]}}", gs.join(","))
+                    }
+                    "/send" => {
+                        let size: usize = q("size").and_then(|s| s.parse().ok()).unwrap_or(1024);
+                        match q("to").and_then(|s| s.parse::<NodeId>().ok()) {
+                            Some(to) => {
+                                let mut payload =
+                                    format!("CTRL:{size}:").into_bytes();
+                                payload.resize(size.max(payload.len()), b'A');
+                                match handle.send_message(to, payload).await {
+                                    Ok(()) => format!(
+                                        "{{\"ok\":true,\"envoye\":{size},\"vers\":\"{to}\"}}"
+                                    ),
+                                    Err(e) => format!("{{\"ok\":false,\"erreur\":\"{e}\"}}"),
+                                }
+                            }
+                            None => "{\"ok\":false,\"erreur\":\"param 'to' invalide\"}".into(),
+                        }
+                    }
+                    "/group/create" => {
+                        let name = q("name").unwrap_or_else(|| "grp".into());
+                        let members: Vec<NodeId> = q("members")
+                            .unwrap_or_default()
+                            .split(',')
+                            .filter_map(|s| s.parse::<NodeId>().ok())
+                            .collect();
+                        let hub = handle.local_id();
+                        match handle.create_group(name.clone(), hub, members).await {
+                            Ok(()) => format!("{{\"ok\":true,\"groupe_cree\":\"{name}\"}}"),
+                            Err(e) => format!("{{\"ok\":false,\"erreur\":\"{e}\"}}"),
+                        }
+                    }
+                    "/group/send" => {
+                        let size: usize = q("size").and_then(|s| s.parse().ok()).unwrap_or(1024);
+                        match q("group") {
+                            Some(gid) => {
+                                let text = format!("CTRL:{size}:")
+                                    + &"A".repeat(size.saturating_sub(12));
+                                match handle
+                                    .send_group_message(gid.clone().into(), text)
+                                    .await
+                                {
+                                    Ok(()) => format!(
+                                        "{{\"ok\":true,\"envoye\":{size},\"groupe\":\"{gid}\"}}"
+                                    ),
+                                    Err(e) => format!("{{\"ok\":false,\"erreur\":\"{e}\"}}"),
+                                }
+                            }
+                            None => "{\"ok\":false,\"erreur\":\"param 'group' manquant\"}".into(),
+                        }
+                    }
+                    "/stop" => {
+                        handle.shutdown().await;
+                        let resp = "HTTP/1.1 200 OK\r\nContent-Length: 20\r\n\r\n{\"ok\":true,\"stop\":1}";
+                        let _ = stream.write_all(resp.as_bytes()).await;
+                        std::process::exit(0);
+                    }
+                    _ => "{\"erreur\":\"route inconnue\"}".into(),
+                };
+
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nAccess-Control-Allow-Origin: *\r\nContent-Length: {}\r\n\r\n{}",
+                    body.len(),
+                    body
+                );
+                let _ = stream.write_all(response.as_bytes()).await;
+            });
+        }
+    });
+}
+
 // ── CLI ─────────────────────────────────────────────────────────────────
 
 /// tom-chat — TUI chat demo for the ToM protocol.
@@ -287,6 +419,12 @@ struct Cli {
     /// Exposes a JSON endpoint showing node identity, phase, peers, roles, metrics.
     #[arg(long, value_name = "PORT")]
     status_port: Option<u16>,
+
+    /// HTTP port for the CONTROL API (e.g. 9100). Permet de piloter le nœud à
+    /// distance : POST /send?to=<id>&size=<n>, POST /group/create, /group/send,
+    /// /stop ; GET /peers, /groups. Pour l'orchestration de tests automatisée.
+    #[arg(long, value_name = "PORT")]
+    control_port: Option<u16>,
 
     /// Fixed local UDP socket address for the QUIC endpoint (e.g. "[::]:43925").
     /// Binds a stable port instead of an OS-assigned ephemeral one — required
@@ -527,6 +665,10 @@ async fn main() -> anyhow::Result<()> {
     // Start status HTTP server if requested
     if let Some(port) = cli.status_port {
         spawn_status_server(port, handle.clone(), cli.node_label.clone());
+    }
+
+    if let Some(port) = cli.control_port {
+        spawn_control_server(port, handle.clone());
     }
 
     if cli.bot {
