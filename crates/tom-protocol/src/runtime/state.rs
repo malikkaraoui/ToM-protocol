@@ -4413,7 +4413,9 @@ mod tests {
     #[test]
     fn antispam_handle_incoming_rejects_oversized() {
         let mut state = default_state(1);
-        let huge = vec![0u8; 512 * 1024]; // 512 KB > 256 KB limit
+        // Au-dessus du plafond anti-abus (64 Mo). En-dessous, les gros messages
+        // sont désormais acceptés (segmentés au transport) — cf chunking.
+        let huge = vec![0u8; crate::roles::antispam::MAX_ENVELOPE_SIZE + 1];
         let effects = state.handle_incoming(&huge);
 
         let rejected = effects.iter().any(|e| {
