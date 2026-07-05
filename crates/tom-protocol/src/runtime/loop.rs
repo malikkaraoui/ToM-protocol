@@ -296,7 +296,16 @@ pub(super) async fn runtime_loop(
                     None => std::future::pending().await,
                 }
             } => {
-                if let Some(BootstrapHint::MdnsDiscovered { endpoint_addr }) = event {
+                if event.is_none() {
+                    // Canal fermé (sender lâché) : cesser de le sélectionner. Sans ça,
+                    // recv() renvoie None IMMÉDIATEMENT en boucle → cette branche fire
+                    // en continu → spin 100% CPU (device brûlant + kill iOS pour conso
+                    // injustifiée). Le `None => pending()` ci-dessus ne couvre que le
+                    // cas "pas de canal", pas le cas "canal fermé".
+                    tracing::debug!("bootstrap_hint fermé — arrêt de la sélection (anti-spin)");
+                    bootstrap_hint_rx = None;
+                    Vec::new()
+                } else if let Some(BootstrapHint::MdnsDiscovered { endpoint_addr }) = event {
                     let node_id = NodeId::from_endpoint_id(endpoint_addr.id);
                     bootstrap_join_peer(
                         &node,
@@ -318,7 +327,15 @@ pub(super) async fn runtime_loop(
                     None => std::future::pending().await,
                 }
             } => {
-                if let Some((endpoint_id, relay_url)) = event {
+                if event.is_none() {
+                    // Canal fermé (ex. connexion relais tombée en cellulaire) : cesser
+                    // de le sélectionner, sinon recv() renvoie None en boucle → spin
+                    // 100% CPU. C'est le cas le plus probable de la chauffe observée
+                    // sur un device isolé/en réseau instable.
+                    tracing::debug!("peer_present fermé — arrêt de la sélection (anti-spin)");
+                    peer_present_rx = None;
+                    Vec::new()
+                } else if let Some((endpoint_id, relay_url)) = event {
                     let node_id = NodeId::from_endpoint_id(endpoint_id);
                     let addr = tom_connect::EndpointAddr::new(endpoint_id).with_relay_url(relay_url);
                     bootstrap_join_peer(
@@ -362,7 +379,13 @@ pub(super) async fn runtime_loop(
                     None => std::future::pending::<Option<_>>().await,
                 }
             } => {
-                if let Some(Ok(event)) = event {
+                if event.is_none() {
+                    // Flux gossip terminé (sender lâché) : cesser de le sélectionner,
+                    // sinon next() renvoie None en boucle → spin 100% CPU.
+                    tracing::debug!("flux gossip terminé — arrêt de la sélection (anti-spin)");
+                    gossip_receiver = None;
+                    Vec::new()
+                } else if let Some(Ok(event)) = event {
                     // Any gossip event is proof of a live mesh — refresh liveness.
                     last_inbound_at = now_ms();
                     match event {
