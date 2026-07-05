@@ -86,7 +86,12 @@ impl BackupStore {
         if self.messages.contains_key(&payload.message_id) {
             // But record the replications we didn't know about
             if let Some(entry) = self.messages.get_mut(&payload.message_id) {
+                // Borne le HashSet : un pair malveillant peut envoyer un
+                // replicated_to géant (anti-DoS mémoire, cf. MAX_REPLICATED_TO).
                 for node in &payload.replicated_to {
+                    if entry.replicated_to.len() >= MAX_REPLICATED_TO {
+                        break;
+                    }
                     entry.replicated_to.insert(*node);
                 }
             }
@@ -105,7 +110,11 @@ impl BackupStore {
             Some(remaining_ttl),
         );
         entry.viability_score = payload.viability_score;
+        // Borne le HashSet dès la création (anti-DoS mémoire, cf. MAX_REPLICATED_TO).
         for node in &payload.replicated_to {
+            if entry.replicated_to.len() >= MAX_REPLICATED_TO {
+                break;
+            }
             entry.replicated_to.insert(*node);
         }
 
@@ -442,6 +451,30 @@ mod tests {
         assert!(entry.replicated_to.contains(&relay));
         // Remaining TTL: 20_000 - 15_000 = 5_000
         assert_eq!(entry.remaining_ttl(15_000), 5_000);
+    }
+
+    #[test]
+    fn store_replica_borne_un_replicated_to_geant() {
+        // Anti-DoS mémoire : un pair malveillant envoie un replicated_to énorme.
+        // Le HashSet persistant doit rester borné à MAX_REPLICATED_TO.
+        let mut store = BackupStore::new();
+        let huge: Vec<NodeId> = (0..200u8).map(node_id).collect(); // 200 > MAX_REPLICATED_TO
+        let payload = ReplicationPayload {
+            message_id: "msg-dos".into(),
+            payload: vec![1, 2, 3],
+            recipient_id: node_id(201),
+            sender_id: node_id(202),
+            expires_at: 20_000,
+            viability_score: 50,
+            replicated_to: huge,
+        };
+        store.store_replica(&payload, 15_000);
+        let entry = store.get("msg-dos").unwrap();
+        assert!(
+            entry.replicated_to.len() <= MAX_REPLICATED_TO,
+            "replicated_to doit être borné à {MAX_REPLICATED_TO}, obtenu {}",
+            entry.replicated_to.len()
+        );
     }
 
     #[test]
