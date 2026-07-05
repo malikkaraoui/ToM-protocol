@@ -856,13 +856,18 @@ impl GroupManager {
     pub fn handle_shadow_sync(
         &mut self,
         group_id: &GroupId,
-        members: Vec<GroupMember>,
+        mut members: Vec<GroupMember>,
         candidate_id: Option<NodeId>,
         config_version: u64,
     ) -> Vec<GroupAction> {
         if !self.groups.contains_key(group_id) {
             return vec![];
         }
+
+        // Anti-DoS mémoire : un primary malveillant (ou un HubShadowSync forgé)
+        // peut envoyer un `members` géant (borné seulement par la taille
+        // d'enveloppe). Un groupe légitime est plafonné à MAX_GROUP_MEMBERS.
+        members.truncate(MAX_GROUP_MEMBERS);
 
         self.shadow_state.insert(
             group_id.clone(),
@@ -1102,6 +1107,32 @@ mod tests {
             candidate_id: None,
             invite_only: false,
         }
+    }
+
+    #[test]
+    fn handle_shadow_sync_borne_les_members() {
+        // Anti-DoS mémoire : un primary malveillant envoie un `members` géant.
+        let mut mgr = make_manager();
+        let gid = GroupId::from("grp-test".to_string());
+        mgr.groups
+            .insert(gid.clone(), make_test_group(node_id(1), node_id(10)));
+
+        let huge: Vec<GroupMember> = (0..250u16)
+            .map(|i| GroupMember {
+                node_id: node_id((i % 256) as u8),
+                username: "x".into(),
+                joined_at: 1000,
+                role: GroupMemberRole::Member,
+            })
+            .collect();
+
+        mgr.handle_shadow_sync(&gid, huge, None, 1);
+        let st = mgr.shadow_state.get(&gid).unwrap();
+        assert!(
+            st.members.len() <= MAX_GROUP_MEMBERS,
+            "members doit être borné à {MAX_GROUP_MEMBERS}, obtenu {}",
+            st.members.len()
+        );
     }
 
     #[test]
