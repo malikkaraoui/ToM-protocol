@@ -18,11 +18,16 @@
 | ✅ R9 | Consolidation (DHT, delivery reliability) | crates/tom-dht |
 | ✅ R10 | Group Recovery (rejoin, tracker persistence, liveness reset) | — |
 | ✅ R11 | Security & Admin (antispam, nonce anti-replay, group admin controls) | — |
+| ✅ R12 | Zero-config DHT rendezvous + resilience (isolation recovery, anti-sleep, bounded stop) | Livré, gaps résiduels identifiés (Known Limitations) |
 
 ### Phase 1 TypeScript — complète
 - ✅ 8/8 epics — 771 tests — packages/core + packages/sdk
 
-### tvOS Node — Phases 1+2 complètes
+### Durci protocolaire (post-audit Fable, 2026-07-05)
+- ✅ **4 bugs DoS corrigés** : backup `replicated_to` cap, HubShadowSync `members` truncate, réassemblage cap+TTL, DHT addrs cap. +6 tests régression. Commits 1656abb, 3d8cdfb.
+- ✅ **DoS mémoire réassemblage** (amplification 1-paquet) : BTreeMap + MAX_CHUNKS=100k + budget global MAX_TOTAL_REASSEMBLY=128Mo. Commit 347421b.
+
+### tvOS Node — Phases 1+2 complètes + Durcissement (2026-07-05)
 - ✅ 2026-04-14 : xcframework multi-plateforme buildé (`TomProtocolFFI.xcframework` présent)
 - ✅ 2026-04-14 : App Xcode créée — `TomNode.xcodeproj` + structure SwiftUI (Views/ViewModels/Models/Services)
 - ✅ 2026-04-15 : observabilité format JSON unifié (appareil + node_id + uptime_s + msgs_sent)
@@ -30,6 +35,7 @@
 - ✅ 2026-04-16 : source_amorcage Swift — reprobe relay si topologie vide
 - ✅ 2026-04-16 : auto-reconnect + liveness log
 - 🏆 **2026-06-08 : JALON — nœud iOS en 5G cross-réseau** rejoint le réseau ToM **décentralisé** (Pkarr/n0/DHT/IPv6, zéro relais à IP fixe). iPhone 5G (hors-LAN, CGNAT opérateur) ↔ NAS (derrière Freebox) connectés en ~1min30, 0 échec. NAS ajouté comme **nœud unifié** (`tom-node.service`, role Peer — ADR-006). Lien actuel via **fallback relais** (RTT 1856ms) → reste à obtenir le DIRECT (ouvrir IPv6 entrante Freebox + instrumenter `path_kind`).
+- ✅ **2026-07-05 : Build 18 déployé flotte complète** (iPad, iPhone, Apple TV, macOS, NAS) — 4 fixes DoS + fixes watchdog 0x8BADF00D (Text() lazy-decode) + fixes CPU 100% (tokio::select! busy-spin). Perf validée : LAN ~6 Mo/s jusqu'à 64 Mo (100%), WiFi/relais ~5 Mo/s, FOREGROUND seul (iOS suspension = contrainte OS, chantier R18 APNs).
 
 ### Infrastructure
 - ✅ NAS relay opérationnel : `tom-relay --dev` port 3340 (local + public `82.67.95.8:3340`)
@@ -48,6 +54,10 @@ Confirmés file:line par l'audit 6-agents (`docs/audits/AUDIT-2026-06-26.md`) + 
 - [ ] 🟠 chat non signé livré ; pre-push-gate ignore Rust ; tom-connect/dht hors CI ; tom-quinn-udp orphelin.
 - [ ] **Déploiement** : les fixes d'audit (main `e6d3501`) NE sont PAS sur les appareils (apps = build 4, NAS = pré-audit). Rebuild xcframework + iPad/iPhone/Mac/AppleTV + binaire NAS + `TomVersion` → build 5.
 - [ ] **PR #53** (branche `claude/tom-protocol-audit-yf42jz`, docs vérifiées : wire-invariants + rapport) → à merger dans main.
+
+### Points ouverts (2026-07-05)
+- [ ] **Écart rôles BMAD ↔ code** : BMAD definit client/relay/observer ; code PeerRole = Peer/Relay seulement. Trancher : réintégrer observer ou documenter abandon. Sources : `_bmad-output/implementation-artifacts/3-2-dynamic-role-assignment.md` vs `crates/tom-protocol/src/relay.rs:19`.
+- [ ] **Stall récurrent harness test** : `tom-chat --bot` se fige ~15 min (log gelé) — serveur HTTP TCP brut probablement bloqueur. Harness uniquement, pas protocole. Fiabilité test à améliorer.
 
 ### tvOS Node — convergence code ↔ doc ↔ tests
 - [x] **Architecture Swift tranchée** (2026-06-07) : on garde le wrapper local `TomNodeWrapper`/`TomNodeService`. `TomCoreKit` abandonné.
