@@ -69,11 +69,7 @@
     "maxBudgetUsd": 20
   },
   "mcpServers": {
-    "github": {
-      "type": "http",
-      "url": "https://api.githubcopilot.com/mcp/",
-      "_comment": "MCP GitHub officiel — outils: get_pull_request, request_copilot_review, create_pull_request. Auth: OAuth Copilot (automatique si CLI gh authentifié)."
-    },
+    "_comment_github": "MCP Copilot (api.githubcopilot.com) RETIRÉ — plus d'abonnement GitHub Copilot. GitHub via `gh` CLI + review interne par agent (pas de dépendance Copilot).",
     "obsidian-vault": {
       "command": "npx",
       "args": [
