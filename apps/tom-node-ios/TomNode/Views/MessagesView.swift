@@ -79,8 +79,13 @@ struct MessageRow: View {
                     .font(.caption2)
                     .foregroundColor(.secondary)
             }
-            Text(message.text)
+            // Défense : ne jamais passer une chaîne géante au typographe SwiftUI.
+            // Un payload de plusieurs Mo dans un Text bloque le main thread dans
+            // la césure (CFStringGetHyphenationLocation) > 10 s → watchdog kill
+            // (0x8BADF00D constaté). On borne la longueur + le nb de lignes.
+            Text(String(message.text.prefix(500)))
                 .font(.body)
+                .lineLimit(6)
             HStack(spacing: 8) {
                 if message.wasEncrypted {
                     Label("Encrypted", systemImage: "lock.fill")
