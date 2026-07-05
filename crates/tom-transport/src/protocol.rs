@@ -66,12 +66,24 @@ pub(crate) const CHUNK_PAYLOAD: usize = 200_000;
 pub(crate) const CHUNK_THRESHOLD: usize = CHUNK_PAYLOAD;
 /// Plafond dur de la taille réassemblée (anti-abus mémoire).
 pub(crate) const MAX_REASSEMBLED: usize = 64 * 1024 * 1024;
+/// Plafond dur du nombre de chunks d'un transfert. Anti-amplification : borne la
+/// structure indépendamment du `total_chunks` annoncé par le pair (un pair
+/// malveillant pourrait sinon annoncer 64M chunks pour forcer une allocation
+/// géante). Légitime : 64 Mo / 200 Ko ≈ 336 chunks — 100k laisse une marge large.
+pub(crate) const MAX_CHUNKS: u32 = 100_000;
+/// Budget mémoire GLOBAL de réassemblage, tous transferts concurrents confondus.
+/// Protège les appareils contraints (Apple TV, iPad) d'un flot de gros fichiers
+/// simultanés qui, sans plafond global, cumulent N×64 Mo → OOM/jetsam.
+pub(crate) const MAX_TOTAL_REASSEMBLY: usize = 128 * 1024 * 1024;
 
-/// Buffer de réassemblage d'un transfert segmenté.
+/// Buffer de réassemblage d'un transfert segmenté. Les chunks reçus sont stockés
+/// dans une `BTreeMap` (clé = index) qui ne grandit qu'avec les données réellement
+/// reçues — jamais de pré-allocation proportionnelle au `total_chunks` annoncé.
+/// L'itération d'une `BTreeMap` est en ordre de clé croissant → concaténation
+/// dans l'ordre des index sans tri explicite.
 pub(crate) struct Reassembly {
     total_chunks: u32,
-    chunks: Vec<Option<Vec<u8>>>,
-    received: u32,
+    chunks: std::collections::BTreeMap<u32, Vec<u8>>,
     bytes: usize,
 }
 
@@ -97,7 +109,7 @@ pub(crate) fn encode_chunk(
 
 /// Traite une frame reçue : réassemble si c'est un chunk, sinon renvoie le
 /// payload tel quel. Renvoie `Some(bytes)` quand un message complet est prêt.
-fn reassemble(state: &HandlerState, remote: NodeId, data: Vec<u8>) -> Option<Vec<u8>> {
+fn reassemble(buffers: &ChunkBuffers, remote: NodeId, data: Vec<u8>) -> Option<Vec<u8>> {
     // Frame normale (pas un chunk) → message complet directement.
     if data.len() < CHUNK_HEADER || &data[0..4] != CHUNK_MAGIC {
         return Some(data);
@@ -108,6 +120,7 @@ fn reassemble(state: &HandlerState, remote: NodeId, data: Vec<u8>) -> Option<Vec
     let payload = data[CHUNK_HEADER..].to_vec();
 
     if total_chunks == 0
+        || total_chunks > MAX_CHUNKS
         || index >= total_chunks
         || total_chunks as usize > MAX_REASSEMBLED / 1.max(payload.len())
     {
@@ -115,20 +128,36 @@ fn reassemble(state: &HandlerState, remote: NodeId, data: Vec<u8>) -> Option<Vec
         return None;
     }
 
-    let mut buffers = state.chunk_buffers.lock().unwrap_or_else(|e| e.into_inner());
+    let mut buffers = buffers.lock().unwrap_or_else(|e| e.into_inner());
+
+    // Budget mémoire global : somme des octets de TOUS les transferts en vol.
+    // On rejette le chunk si l'ajouter dépasserait le plafond global — protège
+    // les appareils contraints d'un flot de gros fichiers concurrents.
+    let total_in_flight: usize = buffers.values().map(|r| r.bytes).sum();
+    if total_in_flight + payload.len() > MAX_TOTAL_REASSEMBLY {
+        tracing::warn!(
+            "budget réassemblage global dépassé ({total_in_flight}+{} > {MAX_TOTAL_REASSEMBLY}o) — chunk de {remote} rejeté",
+            payload.len()
+        );
+        return None;
+    }
+
     let entry = buffers.entry((remote, transfer_id)).or_insert_with(|| Reassembly {
         total_chunks,
-        chunks: vec![None; total_chunks as usize],
-        received: 0,
+        chunks: std::collections::BTreeMap::new(),
         bytes: 0,
     });
 
-    if let Some(slot) = entry.chunks.get_mut(index as usize) {
-        if slot.is_none() {
-            entry.bytes += payload.len();
-            entry.received += 1;
-            *slot = Some(payload);
-        }
+    // Cohérence : tous les chunks d'un transfert doivent annoncer le même total.
+    if entry.total_chunks != total_chunks {
+        tracing::warn!("total_chunks incohérent pour {transfer_id} de {remote} — abandon");
+        buffers.remove(&(remote, transfer_id));
+        return None;
+    }
+
+    if let std::collections::btree_map::Entry::Vacant(slot) = entry.chunks.entry(index) {
+        entry.bytes += payload.len();
+        slot.insert(payload);
     }
 
     if entry.bytes > MAX_REASSEMBLED {
@@ -137,10 +166,10 @@ fn reassemble(state: &HandlerState, remote: NodeId, data: Vec<u8>) -> Option<Vec
         return None;
     }
 
-    if entry.received == entry.total_chunks {
+    if entry.chunks.len() as u32 == entry.total_chunks {
         let entry = buffers.remove(&(remote, transfer_id))?;
         let mut full = Vec::with_capacity(entry.bytes);
-        for chunk in entry.chunks.into_iter().flatten() {
+        for chunk in entry.chunks.into_values() {
             full.extend_from_slice(&chunk);
         }
         tracing::debug!(
@@ -214,7 +243,7 @@ impl tom_connect::protocol::ProtocolHandler for TomProtocolHandler {
                     Ok(data) => {
                         // Réassemblage : un chunk incomplet renvoie None (bufferisé) ;
                         // une frame normale ou le dernier chunk renvoie le message entier.
-                        if let Some(full) = reassemble(&state, remote, data) {
+                        if let Some(full) = reassemble(&state.chunk_buffers, remote, data) {
                             match MessageEnvelope::from_bytes(&full) {
                                 Ok(envelope) => {
                                     let _ = state.incoming_tx.send((remote, envelope)).await;
@@ -282,4 +311,103 @@ fn classify_path(
         }
     }
     (PathKind::Unknown, std::time::Duration::ZERO)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn node_id() -> NodeId {
+        NodeId::from_endpoint_id(tom_base::SecretKey::generate(&mut rand::rng()).public())
+    }
+
+    /// Un seul chunk annonçant un `total_chunks` énorme ne doit RIEN allouer :
+    /// la garde `> MAX_CHUNKS` le rejette avant toute construction de buffer.
+    /// (Régression : `vec![None; total_chunks]` forçait ~1,5 Go depuis 1 paquet.)
+    #[test]
+    fn rejette_amplification_total_chunks() {
+        let buffers: ChunkBuffers = Default::default();
+        let remote = node_id();
+
+        // total_chunks = u32::MAX, payload 1 octet → doit être ignoré.
+        let frame = encode_chunk(1, u32::MAX, 0, &[0u8]);
+        assert!(reassemble(&buffers, remote, frame).is_none());
+        assert!(
+            buffers.lock().unwrap().is_empty(),
+            "aucun buffer ne doit être alloué pour un total_chunks abusif"
+        );
+
+        // Juste au-dessus du plafond légitime → rejeté aussi.
+        let frame = encode_chunk(2, MAX_CHUNKS + 1, 0, &[0u8]);
+        assert!(reassemble(&buffers, remote, frame).is_none());
+        assert!(buffers.lock().unwrap().is_empty());
+    }
+
+    /// Un nouveau transfert est refusé si le budget mémoire global est déjà plein
+    /// (protège les appareils contraints d'un flot de gros fichiers concurrents).
+    #[test]
+    fn respecte_budget_global() {
+        let buffers: ChunkBuffers = Default::default();
+        let remote = node_id();
+
+        // Pré-remplir le budget sans allouer réellement 128 Mo : on injecte une
+        // entrée dont le compteur `bytes` sature le plafond.
+        buffers.lock().unwrap().insert(
+            (remote, 1),
+            Reassembly {
+                total_chunks: 2,
+                chunks: std::collections::BTreeMap::new(),
+                bytes: MAX_TOTAL_REASSEMBLY,
+            },
+        );
+
+        // Un chunk d'un NOUVEAU transfert doit être rejeté (budget saturé).
+        let frame = encode_chunk(2, 4, 0, &[7u8; 1000]);
+        assert!(reassemble(&buffers, remote, frame).is_none());
+        assert!(
+            !buffers.lock().unwrap().contains_key(&(remote, 2)),
+            "le transfert refusé ne doit pas créer d'entrée"
+        );
+    }
+
+    /// Réassemblage correct même avec des chunks reçus dans le désordre :
+    /// la `BTreeMap` garantit la concaténation en ordre d'index.
+    #[test]
+    fn reassemble_dans_le_desordre() {
+        let buffers: ChunkBuffers = Default::default();
+        let remote = node_id();
+        let tid = 42;
+
+        // 3 chunks distincts, envoyés dans l'ordre 2, 0, 1.
+        let c0 = b"AAAA".to_vec();
+        let c1 = b"BBBB".to_vec();
+        let c2 = b"CCCC".to_vec();
+
+        assert!(reassemble(&buffers, remote, encode_chunk(tid, 3, 2, &c2)).is_none());
+        assert!(reassemble(&buffers, remote, encode_chunk(tid, 3, 0, &c0)).is_none());
+        let full = reassemble(&buffers, remote, encode_chunk(tid, 3, 1, &c1))
+            .expect("le message doit être complet au 3ᵉ chunk");
+
+        assert_eq!(full, b"AAAABBBBCCCC", "concaténation dans l'ordre des index");
+        assert!(
+            buffers.lock().unwrap().is_empty(),
+            "le buffer doit être purgé après réassemblage complet"
+        );
+    }
+
+    /// Un chunk en double (même index) ne compte pas deux fois et ne fait pas
+    /// croître `bytes` ni le compteur de complétude.
+    #[test]
+    fn chunk_duplique_ignore() {
+        let buffers: ChunkBuffers = Default::default();
+        let remote = node_id();
+        let tid = 7;
+
+        assert!(reassemble(&buffers, remote, encode_chunk(tid, 2, 0, b"XXXX")).is_none());
+        // Renvoi du même index 0 → ignoré, transfert toujours incomplet.
+        assert!(reassemble(&buffers, remote, encode_chunk(tid, 2, 0, b"XXXX")).is_none());
+        let full = reassemble(&buffers, remote, encode_chunk(tid, 2, 1, b"YYYY"))
+            .expect("complet après l'index 1");
+        assert_eq!(full, b"XXXXYYYY");
+    }
 }
