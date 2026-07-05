@@ -49,7 +49,9 @@ final class TomNodeService: ObservableObject {
     // Mode campagne : paliers de taille dérivés de l'horloge murale —
     // MÊMES valeurs que CAMPAIGN_SIZES dans tom-tui (nœud NAS) : tous les
     // nœuds changent de palier ensemble, sans coordination.
-    @Published var campaignEnabled: Bool = true
+    // Outil de TEST — DÉSACTIVÉ par défaut (envoie des gros fichiers toutes les
+    // 5s à tous les pairs ; en permanence il charge inutilement le réseau/CPU).
+    @Published var campaignEnabled: Bool = false
     static let campaignSizes: [Int] = [1_000, 10_000, 50_000, 100_000, 150_000, 250_000]
     static let campaignPhaseSeconds = 120
 
@@ -295,6 +297,26 @@ final class TomNodeService: ObservableObject {
             self.appendLog(.warning, "Anti-sleep: media services reset — rebuilding keepalive")
             self.silentPlayer = nil
             self.activateSilentAudio()
+        }
+
+        // Changement de route audio (sortie HDMI/AirPlay qui change) : iOS/tvOS
+        // peut STOPPER le player SANS interruptionNotification. Sans ré-armement,
+        // le keepalive meurt et le nœud est suspendu. Réf : Apple
+        // AVAudioSession.routeChangeNotification.
+        nc.addObserver(
+            forName: AVAudioSession.routeChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] note in
+            guard let self else { return }
+            let reasonRaw = note.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt ?? 0
+            let reason = AVAudioSession.RouteChangeReason(rawValue: reasonRaw) ?? .unknown
+            if self.silentPlayer?.isPlaying != true {
+                self.appendLog(.info, "Anti-sleep: route change (\(reasonRaw)) a stoppé le keepalive — reprise")
+                self.activateSilentAudio()
+            } else if reason == .oldDeviceUnavailable || reason == .newDeviceAvailable {
+                self.activateSilentAudio()
+            }
         }
     }
     #endif
@@ -643,38 +665,49 @@ final class TomNodeService: ObservableObject {
                 let newMessages = await self.node.receiveMessages()
                 for msg in newMessages {
                     let senderShort = String(msg.from.prefix(8))
-                    var display = msg
-                    var textPreview = String(msg.text.prefix(80))
-                    if msg.text.hasPrefix("CAMP:") {
-                        // Afficher la taille, pas 250 Ko de 'A' — et ne jamais
-                        // stocker le payload brut dans la liste UI (CPU).
-                        let parts = msg.text.split(separator: ":", maxSplits: 3)
-                        let sz = parts.count > 1 ? (Int(parts[1]) ?? msg.text.utf8.count) : msg.text.utf8.count
+
+                    // Taille APPROX sans décoder : `payload` est du base64 (4 chars
+                    // → 3 octets). CRITIQUE : décoder `msg.text` (base64 → Data →
+                    // String) d'un payload de 64 Mo coûte ~128 Mo d'alloc sur le
+                    // MAIN ACTOR. Le faire plusieurs fois par message gelait l'UI →
+                    // l'OS tuait l'app (watchdog / jetsam). L'Apple TV a peu de RAM,
+                    // c'est encore plus critique. On ne décode QUE les petits messages.
+                    let approxBytes = msg.payload.utf8.count / 4 * 3
+                    let isLarge = approxBytes > 4096
+                    let smallText: String? = isLarge ? nil : msg.text
+
+                    let textPreview: String
+                    if let t = smallText, t.hasPrefix("CAMP:") || t.hasPrefix("CTRL:") {
+                        let parts = t.split(separator: ":", maxSplits: 3)
+                        let sz = parts.count > 1 ? (Int(parts[1]) ?? approxBytes) : approxBytes
                         let seq = parts.count > 2 ? String(parts[2]) : "?"
                         textPreview = "📦 \(Self.fmtTaille(sz)) #\(seq)"
-                        display = TomMessage(
-                            id: msg.id,
-                            from: msg.from,
-                            payload: Data(textPreview.utf8).base64EncodedString(),
-                            timestamp: msg.timestamp,
-                            signatureValid: msg.signatureValid,
-                            wasEncrypted: msg.wasEncrypted
-                        )
+                    } else if isLarge {
+                        textPreview = "📦 \(Self.fmtTaille(approxBytes))"
+                    } else {
+                        textPreview = String((smallText ?? "").prefix(80))
                     }
+
+                    // TOUJOURS ne stocker qu'un APERÇU compact — jamais le payload
+                    // brut dans la liste UI @Published (500 × 64 Mo = kill mémoire).
+                    let display = TomMessage(
+                        id: msg.id,
+                        from: msg.from,
+                        payload: Data(textPreview.utf8).base64EncodedString(),
+                        timestamp: msg.timestamp,
+                        signatureValid: msg.signatureValid,
+                        wasEncrypted: msg.wasEncrypted
+                    )
                     self.messages.append(display)
                     self.totalMessagesCount += 1
                     self.appendLog(.network, "MSG from \(senderShort): \(textPreview)")
 
-                    // Auto-echo: reply to incoming messages
-                    // Reply with a fixed-size response (no growing chain)
-                    if self.autoEchoEnabled, !msg.text.hasPrefix("recu 5/5") {
-                        // Répondre à tout message SAUF aux échos eux-mêmes :
-                        // un message manuel mérite son accusé de réception
-                        // (feedback UX), mais un écho ne déclenche jamais
-                        // d'écho — sinon deux nœuds s'entre-répondent à
-                        // l'infini (tempête constatée en campagne, 100% CPU).
+                    // Auto-echo : réponse FIXE (accusé), y compris pour un gros
+                    // message. Un écho est toujours petit → un gros message n'en
+                    // est jamais un, pas besoin de décoder pour le savoir.
+                    let isEcho = !isLarge && (smallText?.hasPrefix("recu 5/5") ?? false)
+                    if self.autoEchoEnabled, !isEcho {
                         do {
-                            // Fixed reply — never forward the original text (prevents ECHO:ECHO:... growth)
                             let reply = "recu 5/5 (msg #\(self.totalMessagesCount))"
                             let replyData = reply.data(using: .utf8) ?? Data()
                             try await self.node.sendMessage(to: msg.from, payload: replyData)

@@ -21,6 +21,10 @@ final class TomNodeService: ObservableObject {
     private var autoStartTask: Task<Void, Never>?
     private var campaignTask: Task<Void, Never>?
     private var campaignSeq: Int = 0
+    /// Vrai quand l'app est en arrière-plan : le poll ralentit et la campagne
+    /// se coupe pour ne PAS brûler du CPU en fond (iOS tue les apps qui
+    /// consomment de la puissance en background sans justification).
+    private var isBackgrounded = false
     private var hasScheduledInitialAutoStart = false
     private var autoMessagedPeerIds = Set<String>()
     private var autoMessageAttemptedAt: [String: Date] = [:]
@@ -49,7 +53,10 @@ final class TomNodeService: ObservableObject {
     // Mode campagne : paliers de taille dérivés de l'horloge murale —
     // MÊMES valeurs que CAMPAIGN_SIZES dans tom-tui (nœud NAS) : tous les
     // nœuds changent de palier ensemble, sans coordination.
-    @Published var campaignEnabled: Bool = true
+    // Outil de TEST — DÉSACTIVÉ par défaut. Envoie des gros fichiers toutes les
+    // 5s à tous les pairs : utile pour stresser le réseau, mais activé en
+    // permanence il cuit l'appareil et fait tuer l'app par iOS (CPU injustifié).
+    @Published var campaignEnabled: Bool = false
     static let campaignSizes: [Int] = [1_000, 10_000, 50_000, 100_000, 150_000, 250_000]
     static let campaignPhaseSeconds = 120
 
@@ -297,6 +304,30 @@ final class TomNodeService: ObservableObject {
             self.silentPlayer = nil
             self.activateSilentAudio()
         }
+
+        // Changement de route audio (Bluetooth branché/débranché, sortie qui
+        // disparaît, casque…). iOS peut STOPPER le player SANS émettre de
+        // interruptionNotification — seul routeChange arrive. Sans ré-armement,
+        // le keepalive meurt et le nœud est suspendu au prochain background.
+        // Réf : Apple AVAudioSession.routeChangeNotification / TN sur les routes.
+        nc.addObserver(
+            forName: AVAudioSession.routeChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] note in
+            guard let self else { return }
+            let reasonRaw = note.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt ?? 0
+            let reason = AVAudioSession.RouteChangeReason(rawValue: reasonRaw) ?? .unknown
+            // Si notre player a été stoppé par le changement de route, le relancer.
+            if self.silentPlayer?.isPlaying != true {
+                self.appendLog(.info, "Anti-sleep: route change (\(reasonRaw)) a stoppé le keepalive — reprise")
+                self.activateSilentAudio()
+            } else if reason == .oldDeviceUnavailable || reason == .newDeviceAvailable {
+                // Route changée mais player encore actif : réactiver la session par
+                // sécurité (une route perdue peut désactiver la session en silence).
+                self.activateSilentAudio()
+            }
+        }
     }
     #endif
 
@@ -532,9 +563,15 @@ final class TomNodeService: ObservableObject {
     /// Called when the app enters background — persist state for fast reconnect.
     func handleEnterBackground() {
         wasRunningBeforeSleep = (state == .running)
+        // Passer en mode économe : le poll ralentit (voir startPolling) et la
+        // campagne de test se coupe. Sans ça, l'app matraque le CPU en fond →
+        // iOS la tue pour consommation injustifiée (device brûlant constaté).
+        isBackgrounded = true
+        campaignTask?.cancel()
+        campaignTask = nil
         let ids = discoveredPeers.map { $0.nodeId }
         UserDefaults.standard.set(ids, forKey: Self.cachedPeerKey)
-        appendLog(.info, "BG: \(ids.count) peer(s) mis en cache, wasRunning=\(wasRunningBeforeSleep)")
+        appendLog(.info, "BG: \(ids.count) peer(s) cachés, poll ralenti + campagne coupée, wasRunning=\(wasRunningBeforeSleep)")
     }
 
     /// Called when the app returns to foreground.
@@ -545,6 +582,7 @@ final class TomNodeService: ObservableObject {
     /// restarting then would needlessly free + rebuild the whole node in a loop.
     /// Therefore restart ONLY after a real background. Keep history + seeded peers.
     func handleReturnToForeground() {
+        isBackgrounded = false
         guard wasRunningBeforeSleep else { return }
         wasRunningBeforeSleep = false
 
@@ -613,7 +651,7 @@ final class TomNodeService: ObservableObject {
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 5_000_000_000)
                 guard let self = self else { break }
-                guard self.campaignEnabled, self.state == .running else { continue }
+                guard self.campaignEnabled, self.state == .running, !self.isBackgrounded else { continue }
                 let idx = (Int(Date().timeIntervalSince1970) / Self.campaignPhaseSeconds) % Self.campaignSizes.count
                 let size = Self.campaignSizes[idx]
                 for peer in self.connectedPeers {
@@ -645,38 +683,53 @@ final class TomNodeService: ObservableObject {
                 let newMessages = await self.node.receiveMessages()
                 for msg in newMessages {
                     let senderShort = String(msg.from.prefix(8))
-                    var display = msg
-                    var textPreview = String(msg.text.prefix(80))
-                    if msg.text.hasPrefix("CAMP:") {
-                        // Afficher la taille, pas 250 Ko de 'A' — et ne jamais
-                        // stocker le payload brut dans la liste UI (CPU).
-                        let parts = msg.text.split(separator: ":", maxSplits: 3)
-                        let sz = parts.count > 1 ? (Int(parts[1]) ?? msg.text.utf8.count) : msg.text.utf8.count
+
+                    // Taille APPROX sans décoder : `payload` est du base64 (4 chars
+                    // → 3 octets). CRITIQUE : décoder `msg.text` (base64 → Data →
+                    // String) d'un payload de 64 Mo coûte ~128 Mo d'alloc sur le
+                    // MAIN ACTOR (ce Task hérite de @MainActor). Le faire plusieurs
+                    // fois par message gelait l'UI → l'OS tuait l'app (watchdog /
+                    // jetsam). On ne décode donc le texte QUE pour les petits messages.
+                    let approxBytes = msg.payload.utf8.count / 4 * 3
+                    let isLarge = approxBytes > 4096
+                    let smallText: String? = isLarge ? nil : msg.text
+
+                    let textPreview: String
+                    if let t = smallText, t.hasPrefix("CAMP:") || t.hasPrefix("CTRL:") {
+                        // Marqueur de campagne : afficher taille + seq, pas le padding.
+                        let parts = t.split(separator: ":", maxSplits: 3)
+                        let sz = parts.count > 1 ? (Int(parts[1]) ?? approxBytes) : approxBytes
                         let seq = parts.count > 2 ? String(parts[2]) : "?"
                         textPreview = "📦 \(Self.fmtTaille(sz)) #\(seq)"
-                        display = TomMessage(
-                            id: msg.id,
-                            from: msg.from,
-                            payload: Data(textPreview.utf8).base64EncodedString(),
-                            timestamp: msg.timestamp,
-                            signatureValid: msg.signatureValid,
-                            wasEncrypted: msg.wasEncrypted
-                        )
+                    } else if isLarge {
+                        // Gros message (marqueur non ASCII ou binaire) : taille seule.
+                        textPreview = "📦 \(Self.fmtTaille(approxBytes))"
+                    } else {
+                        textPreview = String((smallText ?? "").prefix(80))
                     }
+
+                    // TOUJOURS ne stocker qu'un APERÇU compact dans la liste UI
+                    // @Published — jamais le payload brut. Retenir 500 messages ×
+                    // 64 Mo de payload = explosion mémoire → kill (bug constaté).
+                    let display = TomMessage(
+                        id: msg.id,
+                        from: msg.from,
+                        payload: Data(textPreview.utf8).base64EncodedString(),
+                        timestamp: msg.timestamp,
+                        signatureValid: msg.signatureValid,
+                        wasEncrypted: msg.wasEncrypted
+                    )
                     self.messages.append(display)
                     self.totalMessagesCount += 1
                     self.appendLog(.network, "MSG from \(senderShort): \(textPreview)")
 
-                    // Auto-echo: reply to incoming messages
-                    // Reply with a fixed-size response (no growing chain)
-                    if self.autoEchoEnabled, !msg.text.hasPrefix("recu 5/5") {
-                        // Répondre à tout message SAUF aux échos eux-mêmes :
-                        // un message manuel mérite son accusé de réception
-                        // (feedback UX), mais un écho ne déclenche jamais
-                        // d'écho — sinon deux nœuds s'entre-répondent à
-                        // l'infini (tempête constatée en campagne, 100% CPU).
+                    // Auto-echo : réponse de taille FIXE (accusé), y compris pour un
+                    // gros message entrant (le round-trip de test reste mesurable).
+                    // Un écho est toujours PETIT ("recu 5/5…") → un gros message n'est
+                    // jamais un écho, donc pas besoin de décoder pour le savoir.
+                    let isEcho = !isLarge && (smallText?.hasPrefix("recu 5/5") ?? false)
+                    if self.autoEchoEnabled, !isEcho {
                         do {
-                            // Fixed reply — never forward the original text (prevents ECHO:ECHO:... growth)
                             let reply = "recu 5/5 (msg #\(self.totalMessagesCount))"
                             let replyData = reply.data(using: .utf8) ?? Data()
                             try await self.node.sendMessage(to: msg.from, payload: replyData)
@@ -730,7 +783,9 @@ final class TomNodeService: ObservableObject {
                     lastPeerCount = peerCount
                 }
 
-                try? await Task.sleep(nanoseconds: 250_000_000) // 250ms (faster polling)
+                // Foreground : poll réactif (500ms). Background : poll lent (2s)
+                // pour ne pas cuire le CPU pendant que l'app est en fond.
+                try? await Task.sleep(nanoseconds: self.isBackgrounded ? 2_000_000_000 : 500_000_000)
             }
         }
     }
