@@ -699,17 +699,23 @@ fn extract_node_addrs(node: &TomNode) -> (Vec<String>, Vec<String>) {
     (relay_urls, direct_addrs)
 }
 
+/// Plafond du nombre d'adresses acceptées d'un enregistrement DHT (non fiable).
+/// Un nœud légitime n'annonce qu'une poignée de relais/adresses ; un
+/// enregistrement malveillant pourrait sinon injecter des milliers d'adresses
+/// (anti-DoS : le parsing + l'insertion dans le BTreeSet restent bornés).
+const MAX_DHT_ADDRS: usize = 32;
+
 /// Convert a DHT node address to an EndpointAddr for transport injection.
 fn dht_addr_to_endpoint_addr(addr: &tom_dht::DhtNodeAddr) -> Option<tom_connect::EndpointAddr> {
     let node_id: NodeId = addr.node_id.parse().ok()?;
     let mut addrs = std::collections::BTreeSet::new();
 
-    for url_str in &addr.relay_urls {
+    for url_str in addr.relay_urls.iter().take(MAX_DHT_ADDRS) {
         if let Ok(url) = url_str.parse::<tom_connect::RelayUrl>() {
             addrs.insert(TransportAddr::Relay(url));
         }
     }
-    for addr_str in &addr.direct_addrs {
+    for addr_str in addr.direct_addrs.iter().take(MAX_DHT_ADDRS) {
         if let Ok(sa) = addr_str.parse::<std::net::SocketAddr>() {
             // Drop never-dialable addresses injected via DHT (loopback/unspecified/
             // link-local): dialing them wastes attempts or hits local services.
@@ -914,6 +920,26 @@ mod tests {
         let (mut addr, _) = signed_rendezvous_addr(3);
         addr.direct_addrs = vec!["6.6.6.6:3340".into()]; // attacker swaps the address
         assert!(!rendezvous_entry_authentic(&addr), "addr falsifiée doit être rejetée");
+    }
+
+    #[test]
+    fn dht_addr_borne_le_nombre_dadresses() {
+        use super::{dht_addr_to_endpoint_addr, MAX_DHT_ADDRS};
+        // Enregistrement DHT malveillant : des centaines d'adresses distinctes.
+        let (mut addr, _) = signed_rendezvous_addr(42);
+        addr.direct_addrs = (0..200u16)
+            .map(|i| format!("10.0.{}.1:3340", i % 256))
+            .collect();
+        addr.relay_urls = (0..200u16)
+            .map(|i| format!("http://relay-{i}.example:3340"))
+            .collect();
+        let ep = dht_addr_to_endpoint_addr(&addr).expect("node_id valide");
+        // Au plus MAX_DHT_ADDRS relais + MAX_DHT_ADDRS directs traités (anti-DoS).
+        assert!(
+            ep.addrs.len() <= 2 * MAX_DHT_ADDRS,
+            "les adresses DHT doivent être bornées, obtenu {}",
+            ep.addrs.len()
+        );
     }
 
     #[test]
