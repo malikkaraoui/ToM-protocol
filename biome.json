@@ -35,6 +35,7 @@
       "_bmad-output",
       "_bmad",
       "target",
+      "build",
       "experiments/**/target",
       "apps/**/Assets.xcassets/**",
       "apps/**/.build/**",
