@@ -31,6 +31,12 @@ pub const DELETION_THRESHOLD: u8 = 10;
 /// Maximum replicas per message.
 pub const MAX_REPLICAS: usize = 5;
 
+/// Plafond dur du nombre d'entrées `replicated_to` acceptées d'un pair (anti-DoS
+/// mémoire). La conception plafonne à MAX_REPLICAS répliques ; un pair malveillant
+/// pourrait sinon envoyer un `replicated_to` géant (borné seulement par la taille
+/// d'enveloppe, jusqu'à ~2M NodeId) pour gonfler le HashSet persistant. Marge ×4.
+pub const MAX_REPLICATED_TO: usize = MAX_REPLICAS * 4;
+
 /// Query timeout (30 seconds).
 pub const QUERY_TIMEOUT_MS: u64 = 30_000;
 
