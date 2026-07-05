@@ -44,19 +44,18 @@
 
 ## Sur le feu
 
-### 🔴 Salve de correctifs post-audit (2026-07-01) — PRIORITÉ, pas encore faits
-Confirmés file:line par l'audit 6-agents (`docs/audits/AUDIT-2026-06-26.md`) + revérifiés. Ordre : trivial → délicat.
-- [ ] **verrou #2 — purge SQLite hub** (trivial) : `state.rs:536` `cleanup_hub_messages(now - TTL_MS)` au lieu de `TTL_MS`.
-- [ ] **verrou #1 — ACK entrant** (faible) : gater l'arm `RoutingAction::Ack` sur `signature_valid` (`state.rs`~872).
-- [ ] **Hub hijack** (moyen) : authentifier l'émetteur du `HubMigration` (`manager.rs:449-465`).
-- [ ] **Failover hub mort** (élevé) : câbler timeout HubPong manquant → `record_ping_failure` ; corriger `should_promote` (`manager.rs:846,880-887`).
-- [ ] **dalek double-version** (délicat) : aligner tom-protocol sur `=3.0.0-pre.1` (`Cargo.toml:23`), tester API 2.x→3.0-pre.
-- [ ] 🟠 chat non signé livré ; pre-push-gate ignore Rust ; tom-connect/dht hors CI ; tom-quinn-udp orphelin.
-- [ ] **Déploiement** : les fixes d'audit (main `e6d3501`) NE sont PAS sur les appareils (apps = build 4, NAS = pré-audit). Rebuild xcframework + iPad/iPhone/Mac/AppleTV + binaire NAS + `TomVersion` → build 5.
-- [ ] **PR #53** (branche `claude/tom-protocol-audit-yf42jz`, docs vérifiées : wire-invariants + rapport) → à merger dans main.
+### ✅ Salve de correctifs post-audit — SOLDÉE (revérifié dans le code 2026-07-05)
+Les 5 criticals de l'audit 6-agents sont corrigés (file:line revérifiés) :
+- [x] **verrou #2 — purge SQLite hub** : `state.rs:549` `cleanup_hub_messages(now.saturating_sub(TTL_MS))`.
+- [x] **verrou #1 — ACK entrant** : `state.rs:894` `if !signature_valid` gate l'arm `RoutingAction::Ack`.
+- [x] **Hub hijack** : `handle_hub_migration` garde `from == new_hub_id && shadow_id == new_hub_id`.
+- [x] **Failover hub mort** : `record_ping_failure` câblé hors tests (`manager.rs:1018`).
+- [x] **dalek** : `ed25519-dalek = "=3.0.0-pre.1"` aligné (`Cargo.toml:24`).
+- [x] **PR #53** MERGÉE (docs audit).
+- [x] **Déploiement** : **build 18** sur TOUTE la flotte (iPad/iPhone/AppleTV/macOS/NAS) le 2026-07-05 — inclut fixes audit + CPU/watchdog iOS + 4 DoS anti-pair-malveillant. (Remplace l'ancien « build 4→5 ».)
 
 ### Points ouverts (2026-07-05)
-- [ ] **Écart rôles BMAD ↔ code** : BMAD definit client/relay/observer ; code PeerRole = Peer/Relay seulement. Trancher : réintégrer observer ou documenter abandon. Sources : `_bmad-output/implementation-artifacts/3-2-dynamic-role-assignment.md` vs `crates/tom-protocol/src/relay.rs:19`.
+- [ ] **Écart rôles BMAD ↔ code** : fondateurs = Client · Relay · Backup · **Observer** · Guardian(futur) · Validator(futur) · L1-anchor ; code = `PeerRole` Peer(=Client)/Relay + module `backup/` + hub Primary/Shadow/Candidate. **Observer** (= nœud en observation passive, statut fallback/reprise) NON implémenté ; Guardian/Validator explicitement « DO NOT implement » (futur). Trancher : recoder Observer ou documenter l'abandon. Réf : `3-2-dynamic-role-assignment.md` vs `crates/tom-protocol/src/relay.rs:19`.
 - [ ] **Stall récurrent harness test** : `tom-chat --bot` se fige ~15 min (log gelé) — serveur HTTP TCP brut probablement bloqueur. Harness uniquement, pas protocole. Fiabilité test à améliorer.
 
 ### tvOS Node — convergence code ↔ doc ↔ tests
