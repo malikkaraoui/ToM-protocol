@@ -75,6 +75,14 @@ pub(crate) const MAX_CHUNKS: u32 = 100_000;
 /// Protège les appareils contraints (Apple TV, iPad) d'un flot de gros fichiers
 /// simultanés qui, sans plafond global, cumulent N×64 Mo → OOM/jetsam.
 pub(crate) const MAX_TOTAL_REASSEMBLY: usize = 128 * 1024 * 1024;
+/// Nombre max de transferts concurrents PAR PAIR. Anti-spam : sans ça un pair
+/// pourrait ouvrir des milliers de transferts partiels (chacun sous le plafond),
+/// saturer le budget global et bloquer le réassemblage pour tout le monde.
+pub(crate) const MAX_CONCURRENT_PER_PEER: usize = 16;
+/// Durée d'INACTIVITÉ au-delà de laquelle un transfert partiel est purgé (zombie :
+/// un pair envoie le 1er chunk et jamais la suite). Basé sur la dernière activité,
+/// donc un transfert lent mais actif (chunks qui arrivent) n'est jamais purgé.
+pub(crate) const REASSEMBLY_TTL: std::time::Duration = std::time::Duration::from_secs(30);
 
 /// Buffer de réassemblage d'un transfert segmenté. Les chunks reçus sont stockés
 /// dans une `BTreeMap` (clé = index) qui ne grandit qu'avec les données réellement
@@ -85,6 +93,8 @@ pub(crate) struct Reassembly {
     total_chunks: u32,
     chunks: std::collections::BTreeMap<u32, Vec<u8>>,
     bytes: usize,
+    /// Dernier instant où un chunk a été ajouté — sert au TTL d'inactivité.
+    last_activity: std::time::Instant,
 }
 
 pub(crate) type ChunkBuffers = std::sync::Mutex<
@@ -130,6 +140,10 @@ fn reassemble(buffers: &ChunkBuffers, remote: NodeId, data: Vec<u8>) -> Option<V
 
     let mut buffers = buffers.lock().unwrap_or_else(|e| e.into_inner());
 
+    // Purge des transferts partiels ZOMBIES (inactifs > TTL) : sans ça, un pair
+    // qui envoie le 1er chunk et jamais la suite occupe le budget indéfiniment.
+    buffers.retain(|_, r| r.last_activity.elapsed() < REASSEMBLY_TTL);
+
     // Budget mémoire global : somme des octets de TOUS les transferts en vol.
     // On rejette le chunk si l'ajouter dépasserait le plafond global — protège
     // les appareils contraints d'un flot de gros fichiers concurrents.
@@ -142,10 +156,24 @@ fn reassemble(buffers: &ChunkBuffers, remote: NodeId, data: Vec<u8>) -> Option<V
         return None;
     }
 
+    // Cap du nombre de transferts concurrents PAR PAIR (anti-spam de transfer_id).
+    // Uniquement pour un NOUVEAU transfert ; un chunk d'un transfert déjà en cours
+    // passe toujours.
+    if !buffers.contains_key(&(remote, transfer_id)) {
+        let per_peer = buffers.keys().filter(|(n, _)| *n == remote).count();
+        if per_peer >= MAX_CONCURRENT_PER_PEER {
+            tracing::warn!(
+                "trop de transferts concurrents de {remote} ({per_peer} ≥ {MAX_CONCURRENT_PER_PEER}) — chunk rejeté"
+            );
+            return None;
+        }
+    }
+
     let entry = buffers.entry((remote, transfer_id)).or_insert_with(|| Reassembly {
         total_chunks,
         chunks: std::collections::BTreeMap::new(),
         bytes: 0,
+        last_activity: std::time::Instant::now(),
     });
 
     // Cohérence : tous les chunks d'un transfert doivent annoncer le même total.
@@ -159,6 +187,9 @@ fn reassemble(buffers: &ChunkBuffers, remote: NodeId, data: Vec<u8>) -> Option<V
         entry.bytes += payload.len();
         slot.insert(payload);
     }
+    // Marque l'activité (même un chunk dupliqué prouve que le transfert est vivant)
+    // → évite la purge TTL d'un transfert lent mais actif.
+    entry.last_activity = std::time::Instant::now();
 
     if entry.bytes > MAX_REASSEMBLED {
         tracing::warn!("transfert {transfer_id} de {remote} dépasse {MAX_REASSEMBLED}o — abandon");
@@ -358,6 +389,7 @@ mod tests {
                 total_chunks: 2,
                 chunks: std::collections::BTreeMap::new(),
                 bytes: MAX_TOTAL_REASSEMBLY,
+                last_activity: std::time::Instant::now(),
             },
         );
 
@@ -409,5 +441,66 @@ mod tests {
         let full = reassemble(&buffers, remote, encode_chunk(tid, 2, 1, b"YYYY"))
             .expect("complet après l'index 1");
         assert_eq!(full, b"XXXXYYYY");
+    }
+
+    /// Anti-spam : un pair ne peut pas ouvrir plus de MAX_CONCURRENT_PER_PEER
+    /// transferts partiels simultanés (chacun sous le plafond mais nombreux).
+    #[test]
+    fn rejette_trop_de_transferts_concurrents_par_pair() {
+        let buffers: ChunkBuffers = Default::default();
+        let remote = node_id();
+
+        // Ouvrir MAX transferts partiels (chunk 0 d'un total de 2 → reste incomplet).
+        for tid in 0..MAX_CONCURRENT_PER_PEER as u64 {
+            assert!(reassemble(&buffers, remote, encode_chunk(tid, 2, 0, b"aaaa")).is_none());
+        }
+        assert_eq!(buffers.lock().unwrap().len(), MAX_CONCURRENT_PER_PEER);
+
+        // Le transfert suivant (nouveau transfer_id) doit être rejeté.
+        let extra = MAX_CONCURRENT_PER_PEER as u64 + 1;
+        assert!(reassemble(&buffers, remote, encode_chunk(extra, 2, 0, b"bbbb")).is_none());
+        assert!(
+            !buffers.lock().unwrap().contains_key(&(remote, extra)),
+            "un transfert au-delà du cap par pair ne doit pas créer d'entrée"
+        );
+        // Mais un chunk d'un transfert DÉJÀ ouvert passe toujours.
+        let full = reassemble(&buffers, remote, encode_chunk(0, 2, 1, b"cccc"))
+            .expect("le transfert 0 doit pouvoir se compléter");
+        assert_eq!(full, b"aaaacccc");
+    }
+
+    /// TTL : un transfert partiel inactif au-delà de REASSEMBLY_TTL est purgé
+    /// lorsqu'un nouveau chunk arrive (zombie : 1er chunk puis jamais la suite).
+    #[test]
+    fn purge_les_transferts_zombies() {
+        // Sur une machine tout juste démarrée on ne peut pas remonter le temps —
+        // le test devient alors un no-op plutôt que de paniquer.
+        let Some(old) = std::time::Instant::now()
+            .checked_sub(REASSEMBLY_TTL + std::time::Duration::from_secs(5))
+        else {
+            return;
+        };
+
+        let buffers: ChunkBuffers = Default::default();
+        let zombie = node_id();
+        let fresh = node_id();
+
+        // Injecter un zombie : partiel, dernière activité au-delà du TTL.
+        buffers.lock().unwrap().insert(
+            (zombie, 42),
+            Reassembly {
+                total_chunks: 4,
+                chunks: std::collections::BTreeMap::new(),
+                bytes: 1000,
+                last_activity: old,
+            },
+        );
+
+        // Un chunk d'un autre transfert déclenche la purge du zombie.
+        reassemble(&buffers, fresh, encode_chunk(1, 2, 0, b"zzzz"));
+        assert!(
+            !buffers.lock().unwrap().contains_key(&(zombie, 42)),
+            "le transfert zombie inactif doit avoir été purgé"
+        );
     }
 }
