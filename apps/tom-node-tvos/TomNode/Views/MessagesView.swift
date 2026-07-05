@@ -79,7 +79,9 @@ struct MessageRow: View {
                     .font(.caption2)
                     .foregroundColor(.secondary)
             }
-            Text(message.text)
+            // Défense : borner la chaîne passée au typographe (un payload de
+            // plusieurs Mo dans un Text bloque le main thread → watchdog kill).
+            Text(String(message.text.prefix(500)))
                 .font(.body)
             HStack(spacing: 8) {
                 if message.wasEncrypted {

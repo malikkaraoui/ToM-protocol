@@ -36,7 +36,7 @@ struct LogView: View {
                                     .frame(width: 8, height: 8)
                                     .padding(.top, 4)
 
-                                Text(entry.message)
+                                Text(String(entry.message.prefix(500)))
                                     .font(.system(.caption, design: .monospaced))
                                     .foregroundColor(entry.levelColor)
                                     .lineLimit(3)
