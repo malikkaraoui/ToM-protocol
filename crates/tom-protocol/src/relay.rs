@@ -58,10 +58,29 @@ impl Topology {
         Self::default()
     }
 
-    /// Add or update a peer. Returns false if at capacity and peer is new.
+    /// Add or update a peer. Returns false if at capacity and no room could be
+    /// made for a new peer.
+    ///
+    /// When full, evict the stalest NON-online peer (oldest `last_seen`) to make
+    /// room, rather than rejecting the newcomer outright (red-team FINDING #10):
+    /// a swarm of signed announces from fresh keypairs could otherwise fill the
+    /// table with soon-dead entries and permanently starve discovery of real,
+    /// live peers. Genuinely Online peers are never evicted — if every slot is
+    /// Online, the table is legitimately full and the new peer is rejected.
     pub fn upsert(&mut self, info: PeerInfo) -> bool {
         if self.peers.len() >= MAX_PEERS && !self.peers.contains_key(&info.node_id) {
-            return false;
+            let victim = self
+                .peers
+                .values()
+                .filter(|p| p.status != PeerStatus::Online)
+                .min_by_key(|p| p.last_seen)
+                .map(|p| p.node_id);
+            match victim {
+                Some(id) => {
+                    self.peers.remove(&id);
+                }
+                None => return false,
+            }
         }
         self.peers.insert(info.node_id, info);
         true
@@ -293,6 +312,72 @@ mod tests {
         topo.upsert(info);
         topo.remove(&id);
         assert!(topo.is_empty());
+    }
+
+    // Distinct NodeId from a u64 seed (u8 helper only spans 256 ids; the
+    // capacity tests below need MAX_PEERS distinct identities).
+    fn node_id_u64(seed: u64) -> NodeId {
+        use rand::SeedableRng;
+        let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
+        tom_connect::SecretKey::generate(&mut rng)
+            .public()
+            .to_string()
+            .parse()
+            .unwrap()
+    }
+
+    fn peer_at(seed: u64, status: PeerStatus, last_seen: u64) -> PeerInfo {
+        PeerInfo {
+            node_id: node_id_u64(seed),
+            role: PeerRole::Peer,
+            status,
+            last_seen,
+        }
+    }
+
+    #[test]
+    fn topology_full_evicts_stalest_offline_admits_newcomer() {
+        // FINDING #10: a full table must still admit a new (live) peer by
+        // evicting the stalest NON-online entry, so an announce swarm can't
+        // permanently starve discovery of real peers.
+        let mut topo = Topology::new();
+        for i in 0..(MAX_PEERS - 1) as u64 {
+            topo.upsert(peer_at(i, PeerStatus::Online, 5000));
+        }
+        // The one evictable slot: an old Offline peer.
+        let victim = node_id_u64(999_999);
+        topo.upsert(PeerInfo {
+            node_id: victim,
+            role: PeerRole::Peer,
+            status: PeerStatus::Offline,
+            last_seen: 1,
+        });
+        assert_eq!(topo.len(), MAX_PEERS);
+
+        let newcomer = node_id_u64(1_000_000);
+        assert!(topo.upsert(PeerInfo {
+            node_id: newcomer,
+            role: PeerRole::Peer,
+            status: PeerStatus::Online,
+            last_seen: 9999,
+        }));
+        assert!(topo.get(&newcomer).is_some(), "live newcomer must be admitted");
+        assert!(topo.get(&victim).is_none(), "stalest offline peer must be evicted");
+        assert_eq!(topo.len(), MAX_PEERS);
+    }
+
+    #[test]
+    fn topology_full_of_online_rejects_new() {
+        // If every slot is a genuinely Online peer, the table is legitimately
+        // full: no live peer may be evicted, so the newcomer is rejected.
+        let mut topo = Topology::new();
+        for i in 0..MAX_PEERS as u64 {
+            topo.upsert(peer_at(i, PeerStatus::Online, 5000));
+        }
+        let newcomer = node_id_u64(2_000_000);
+        assert!(!topo.upsert(peer_at(2_000_000, PeerStatus::Online, 9999)));
+        assert!(topo.get(&newcomer).is_none());
+        assert_eq!(topo.len(), MAX_PEERS);
     }
 
     #[test]
