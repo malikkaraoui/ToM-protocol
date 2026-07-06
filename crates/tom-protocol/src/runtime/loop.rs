@@ -543,10 +543,28 @@ pub(super) async fn runtime_loop(
                     let known_eids: Vec<_> =
                         known_node_ids.iter().map(|n| *n.as_endpoint_id()).collect::<Vec<_>>();
 
+                    // FINDING #1 fix (red team) — every awaited network op in this
+                    // recovery branch is BOUNDED. Previously they were awaited raw
+                    // inside the `select!`, so a single slow/hung op (DHT publish,
+                    // gossip join to dead peers, relay reprobe) froze the ENTIRE
+                    // event loop: the node stopped draining commands and stopped
+                    // replying to queries — a live-but-unresponsive "black hole"
+                    // reproduced by chaos.monkey seed 7. These are all best-effort
+                    // (results discarded, retried every 15s), so a timeout that lets
+                    // the loop resume and drain its backlog is strictly better than
+                    // an unbounded await. See docs/redteam/JOURNAL.md FINDING #1.
+                    const RECOVERY_OP_TIMEOUT: std::time::Duration =
+                        std::time::Duration::from_millis(1500);
+
                     // Isolation = no live QUIC connection OR connections that have
                     // gone silent (zombies): connected_peers() can't see a dead-but-
                     // open link, so a stale inbound clock is treated as isolation too.
-                    let connected = node.connected_peers().await;
+                    // On timeout, treat as isolated (empty) — the safe default that
+                    // triggers recovery rather than wedging the loop.
+                    let connected =
+                        tokio::time::timeout(RECOVERY_OP_TIMEOUT, node.connected_peers())
+                            .await
+                            .unwrap_or_default();
                     let zombie = !connected.is_empty()
                         && liveness_is_stale(last_inbound_at, now_ms(), LIVENESS_STALE_MS);
                     if connected.is_empty() || zombie {
@@ -563,7 +581,11 @@ pub(super) async fn runtime_loop(
                         // Re-announce ourselves and re-resolve known peers via DHT to
                         // pick up fresh addresses (old ones may be dead after a change).
                         let (relay_urls, direct_addrs) = extract_node_addrs(&node);
-                        state.publish_to_dht(&secret_seed, relay_urls, direct_addrs).await;
+                        let _ = tokio::time::timeout(
+                            RECOVERY_OP_TIMEOUT,
+                            state.publish_to_dht(&secret_seed, relay_urls, direct_addrs),
+                        )
+                        .await;
                         // Zero-config recovery: hit the shared rendezvous NOW (don't wait
                         // for the 60s tick) to find live peers we never heard of.
                         spawn_rendezvous_round(
@@ -589,11 +611,15 @@ pub(super) async fn runtime_loop(
                     }
 
                     if !known_eids.is_empty() {
-                        let _ = sender.join_peers(known_eids).await;
+                        let _ = tokio::time::timeout(
+                            RECOVERY_OP_TIMEOUT,
+                            sender.join_peers(known_eids),
+                        )
+                        .await;
                     }
                     // Always reprobe relays: triggers PeerPresent even when topology has
                     // known-but-offline peers (e.g. after relay cut or network change).
-                    node.reprobe_relays().await;
+                    let _ = tokio::time::timeout(RECOVERY_OP_TIMEOUT, node.reprobe_relays()).await;
                 }
                 Vec::new()
             }
