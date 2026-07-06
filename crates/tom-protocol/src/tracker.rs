@@ -102,7 +102,18 @@ impl MessageTracker {
 
     /// Mark a message as delivered (recipient ACK received).
     /// Clears the ACK deadline — no more retries needed.
-    pub fn mark_delivered(&mut self, message_id: &str) -> Option<StatusChange> {
+    ///
+    /// `from` is the identity that signed the delivery ACK. Verrou #1
+    /// (delivered ⟺ recipient ACK): only the message's INTENDED RECIPIENT can
+    /// confirm delivery. A signed ACK from any other identity — e.g. a
+    /// malicious relay that saw the `message_id` in transit and wants the
+    /// sender to stop retrying a message it actually dropped — must NOT promote
+    /// the status. Silently ignored on recipient mismatch.
+    pub fn mark_delivered(&mut self, message_id: &str, from: NodeId) -> Option<StatusChange> {
+        match self.messages.get(message_id) {
+            Some(entry) if entry.to == from => {}
+            _ => return None,
+        }
         let result = self.advance(message_id, MessageStatus::Delivered);
         if result.is_some() {
             if let Some(entry) = self.messages.get_mut(message_id) {
@@ -112,8 +123,14 @@ impl MessageTracker {
         result
     }
 
-    /// Mark a message as read (read receipt received).
-    pub fn mark_read(&mut self, message_id: &str) -> Option<StatusChange> {
+    /// Mark a message as read (read receipt received). Same recipient-binding
+    /// as [`Self::mark_delivered`]: only the intended recipient's signed read
+    /// receipt may promote the status.
+    pub fn mark_read(&mut self, message_id: &str, from: NodeId) -> Option<StatusChange> {
+        match self.messages.get(message_id) {
+            Some(entry) if entry.to == from => {}
+            _ => return None,
+        }
         self.advance(message_id, MessageStatus::Read)
     }
 
@@ -312,11 +329,11 @@ mod tests {
         assert_eq!(c2.previous, MessageStatus::Sent);
         assert_eq!(c2.current, MessageStatus::Relayed);
 
-        let c3 = tracker.mark_delivered("msg-1").unwrap();
+        let c3 = tracker.mark_delivered("msg-1", node_id(2)).unwrap();
         assert_eq!(c3.previous, MessageStatus::Relayed);
         assert_eq!(c3.current, MessageStatus::Delivered);
 
-        let c4 = tracker.mark_read("msg-1").unwrap();
+        let c4 = tracker.mark_read("msg-1", node_id(2)).unwrap();
         assert_eq!(c4.previous, MessageStatus::Delivered);
         assert_eq!(c4.current, MessageStatus::Read);
     }
@@ -325,7 +342,7 @@ mod tests {
     fn no_regression() {
         let mut tracker = MessageTracker::new();
         tracker.track("msg-1".into(), node_id(2));
-        tracker.mark_delivered("msg-1");
+        tracker.mark_delivered("msg-1", node_id(2));
 
         // Trying to go back to Sent — should return None
         assert!(tracker.mark_sent("msg-1").is_none());
@@ -341,9 +358,37 @@ mod tests {
         tracker.track("msg-1".into(), node_id(2));
 
         // Jump from Pending straight to Delivered (e.g., direct connection, no relay)
-        let change = tracker.mark_delivered("msg-1").unwrap();
+        let change = tracker.mark_delivered("msg-1", node_id(2)).unwrap();
         assert_eq!(change.previous, MessageStatus::Pending);
         assert_eq!(change.current, MessageStatus::Delivered);
+    }
+
+    #[test]
+    fn delivery_ack_bound_to_recipient() {
+        // FINDING #6 (Verrou #1): a signed ACK from a NON-recipient (e.g. a
+        // malicious relay that saw the message_id in transit) must not mark the
+        // message delivered — only the intended recipient can.
+        let recipient = node_id(2);
+        let malicious_relay = node_id(9);
+        let mut tracker = MessageTracker::new();
+        tracker.track("msg-1".into(), recipient);
+
+        // Forged confirmation from the wrong identity: ignored, still Pending.
+        assert!(tracker.mark_delivered("msg-1", malicious_relay).is_none());
+        assert_eq!(tracker.status("msg-1"), Some(MessageStatus::Pending));
+
+        // Genuine recipient confirmation: accepted.
+        assert!(tracker.mark_delivered("msg-1", recipient).is_some());
+        assert_eq!(tracker.status("msg-1"), Some(MessageStatus::Delivered));
+
+        // Read receipt is bound the same way.
+        let mut t2 = MessageTracker::new();
+        t2.track("msg-2".into(), recipient);
+        t2.mark_delivered("msg-2", recipient);
+        assert!(t2.mark_read("msg-2", malicious_relay).is_none());
+        assert_eq!(t2.status("msg-2"), Some(MessageStatus::Delivered));
+        assert!(t2.mark_read("msg-2", recipient).is_some());
+        assert_eq!(t2.status("msg-2"), Some(MessageStatus::Read));
     }
 
     #[test]
@@ -417,7 +462,7 @@ mod tests {
     fn delivered_clears_deadline() {
         let mut tracker = MessageTracker::new();
         tracker.track("msg-1".into(), node_id(2));
-        tracker.mark_delivered("msg-1");
+        tracker.mark_delivered("msg-1", node_id(2));
 
         // After delivery, deadline should be cleared
         let expired = tracker.expired_deadlines();
@@ -436,7 +481,7 @@ mod tests {
         assert_eq!(tracker.status("msg-1"), Some(MessageStatus::Failed));
 
         // Can't advance a Failed message
-        assert!(tracker.mark_delivered("msg-1").is_none());
+        assert!(tracker.mark_delivered("msg-1", node_id(2)).is_none());
         assert!(tracker.mark_sent("msg-1").is_none());
     }
 
@@ -444,7 +489,7 @@ mod tests {
     fn cannot_fail_delivered_message() {
         let mut tracker = MessageTracker::new();
         tracker.track("msg-1".into(), node_id(2));
-        tracker.mark_delivered("msg-1");
+        tracker.mark_delivered("msg-1", node_id(2));
 
         // Can't fail a delivered message
         assert!(tracker.mark_failed("msg-1").is_none());
@@ -494,7 +539,7 @@ mod tests {
         tracker.track("sent".into(), bob);
         tracker.mark_sent("sent");
         tracker.track("delivered".into(), bob);
-        tracker.mark_delivered("delivered");
+        tracker.mark_delivered("delivered", bob);
         tracker.track("failed".into(), bob);
         tracker.mark_failed("failed");
 
