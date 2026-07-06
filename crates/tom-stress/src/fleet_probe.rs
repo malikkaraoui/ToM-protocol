@@ -77,6 +77,7 @@ pub async fn run(cfg: FleetProbeConfig) -> anyhow::Result<()> {
     let runtime_config = RuntimeConfig {
         username: "fleet-probe".into(),
         encryption: true,
+        enable_dht: false, // red-team: never pollute the shared DHT rendezvous
         presence_contribution_min: 0.0,
         presence_clock_offset_ms: cfg.clock_offset_ms,
         ..Default::default()

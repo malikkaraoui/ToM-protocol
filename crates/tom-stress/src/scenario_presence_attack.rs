@@ -80,6 +80,7 @@ pub async fn run() -> anyhow::Result<ScenarioResult> {
         RuntimeConfig {
             username: "victim".into(),
             encryption: false,
+            enable_dht: false, // red-team: never pollute the shared DHT rendezvous
             presence_contribution_min: 0.0,
             ..Default::default()
         },
