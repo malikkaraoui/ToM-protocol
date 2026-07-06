@@ -1,8 +1,10 @@
-# ToM — Master Map (vision + architecture consolidée)
+# ToM — Master Map v2 (vision + architecture consolidée)
 
-> Document de travail destiné à une revue adversariale (Fable 5) : **à démonter**.
-> Chaque section marquée 🎯 contient une surface d'attaque explicite à challenger.
-> Version 2026-07-05. Source de vérité amont : `docs/tom-whitepaper-v1.md` (genèse §3-4),
+> **v2 (2026-07-06)** : intègre la démolition adversariale Fable 5 (voir §11) et les
+> **décisions actées** — approche en couches, résolution de la contradiction #2↔valeur,
+> choix CAP pour la valeur. Le plan d'exécution bout-en-bout vit dans
+> `docs/plans/TOM-PLAN-BOUT-EN-BOUT.md`.
+> Source de vérité amont : `docs/tom-whitepaper-v1.md` (genèse §3-4),
 > `_bmad-output/planning-artifacts/design-decisions.md` (7 décisions LOCKED).
 
 ---
@@ -170,4 +172,34 @@ Le droit de valider vient de **la présence** (être connecté, relayer, répond
 
 ---
 
-*Fin de la map. Tout est à challenger. Le socle (L0) est réel et mesuré ; L1 et L2 sont la vision à porter — rigoureusement, pas en promesses.*
+## 11. Verdict de la revue adversariale Fable v1 + décisions actées
+
+La revue a **confirmé L0** (solide, mesuré) et les 7 décisions **cohérentes tant qu'on reste messagerie**. Elle a trouvé **4 murs** sur la couche valeur. Chacun a désormais une **porte assumée** (avec son prix).
+
+### Mur 1 — Contradiction #2 (pas d'historique) ↔ valeur (persistance d'attestation) 🔴 architectural
+Anti-double-dépense exige qu'un témoin se souvienne « j'ai signé N→N+1 » ; #2 purge tout à 24h → oubli → re-dépense.
+**Décision actée (layering)** : **#2 gouverne L0 (messagerie) — la mission reste pure, purge 24h sans exception.** La **valeur (L2) est une couche séparée** avec sa propre règle : une **attestation persistante PAR WALLET**, portée par un **ensemble de témoins qui se relaie** (migration de rôle : le témoin ET sa mémoire de version passent au suivant lors du churn). Ce n'est PAS un grand livre global ; c'est un état **scopé au wallet**, borné, vivant tant que le wallet est actif. **Prix assumé** : L2 n'est plus « zéro état » — elle accepte le minimum d'état que l'argent exige. La messagerie, elle, ne le paie pas.
+
+### Mur 2 — Partition réseau = double-dépense 🔴 (le tueur du sharding sans ordre global)
+Même sceau N présenté aux quorums Est ET Ouest pendant une coupure → 2 dépenses valides ; #3 interdit à L1 d'arbitrer.
+**Décision actée (choix CAP)** : **pour la valeur, cohérence > disponibilité.** Un paiement **se BLOQUE** si le quorum de témoins du wallet est partitionné/injoignable (comme une carte qui refuse hors-ligne). On ne double-dépense pas parce qu'on **ne dépense pas du tout** quand les témoins sont coupés. **La messagerie (L0) reste disponible** (elle tolère la perte, #2). **Prix assumé** : pas de paiement en zone coupée/edge instable — acceptable pour de l'argent, inacceptable pour un message (d'où la séparation des couches).
+
+### Mur 3 — Entropie du PoP / grinding 🔴
+Sur un réseau sans horloge ni bloc, d'où vient l'aléa non-biaisable de la sélection cascade ?
+**Direction (à prouver par L1-001)** : l'aléa vient des **attestations agrégées d'AUTRES nœuds vivants** (hors du choix du demandeur) + une **VDF** (Verifiable Delay Function — l'outil standard pour un aléa non-biaisable sans horloge : impossible à re-tirer car chaque essai coûte un délai incompressible). **Statut** : hypothèse à valider empiriquement avant tout L2.
+
+### Mur 4 — Sybil sans coût 🔴
+Probation sans durée ni prix → ferme patiente qui rafle le quorum.
+**Direction** : le coût d'être un témoin valide = **preuve de relais RÉEL** (un nœud doit avoir effectivement relayé du trafic récemment, pas juste « exister ») + **taille de quorum Q paramétrable** (Q petit = attaquable, Q=100 → P(double-dépense) ≈ 10⁻³⁰ mais 100 validations/tx). **Statut** : Q et le seuil de Sybil toléré deviennent des **paramètres de sécurité explicites**, pas un flou.
+
+### Ce qui reste ouvert (défer jusqu'à L1 prouvé)
+- **Récupération de wallet perdu** sans autorité ni historique de confiance (toutes les pistes plient un principe → à trancher au moment de L2, pas avant).
+- **Amorçage de la valeur** (mint / on-ramp) — hors protocole cœur.
+- **Quantification fine** du « quasiment » une fois Q et le modèle de témoins fixés.
+
+### Décision stratégique actée
+**On construit L1 (swarm + PoP) comme couche d'INTÉGRITÉ RÉSEAU d'abord — elle vaut le coup SANS l'argent.** **L2 (valeur) est différée** jusqu'à ce que L1 fasse ses preuves. **Premier pas : story L1-001 (attestation de présence)** — la plus petite brique qui teste empiriquement les murs 3 et 4, sans toucher à la valeur.
+
+---
+
+*Fin de la map v2. L0 est réel et mesuré. Les murs de L2 sont nommés et ont des portes assumées. On avance couche par couche, en prouvant, pas en promettant.*
