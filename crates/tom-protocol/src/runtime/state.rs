@@ -912,9 +912,16 @@ impl RuntimeState {
                         self.tracker.mark_relayed(&original_message_id)
                     }
                     AckType::RecipientReceived => {
-                        // Delivery confirmed — remove from retry cache (R9.2)
-                        self.pending_envelopes.remove(&original_message_id);
-                        self.tracker.mark_delivered(&original_message_id)
+                        // mark_delivered binds the ACK to the intended recipient
+                        // (`from`): a signed ACK from a non-recipient (e.g. a
+                        // relay on the path that dropped the message) is ignored.
+                        // Only stop retrying once delivery is GENUINELY confirmed
+                        // — a forged ACK must not silence the retry loop either.
+                        let change = self.tracker.mark_delivered(&original_message_id, from);
+                        if change.is_some() {
+                            self.pending_envelopes.remove(&original_message_id);
+                        }
+                        change
                     }
                 };
                 change
@@ -925,13 +932,22 @@ impl RuntimeState {
 
             RoutingAction::ReadReceipt {
                 original_message_id,
+                from,
                 ..
-            } => self
-                .tracker
-                .mark_read(&original_message_id)
-                .into_iter()
-                .map(RuntimeEffect::StatusChange)
-                .collect(),
+            } => {
+                // Same guards as delivery ACK: reject forged/unsigned receipts,
+                // and bind the receipt to the intended recipient (`from`).
+                if !signature_valid {
+                    return vec![RuntimeEffect::Emit(ProtocolEvent::MessageRejected {
+                        reason: "forged or unsigned read receipt rejected".into(),
+                    })];
+                }
+                self.tracker
+                    .mark_read(&original_message_id, from)
+                    .into_iter()
+                    .map(RuntimeEffect::StatusChange)
+                    .collect()
+            }
 
             RoutingAction::Reject { reason } => {
                 vec![RuntimeEffect::Emit(ProtocolEvent::MessageRejected {
@@ -3950,7 +3966,7 @@ mod tests {
         let msg_id = envelope.id.clone();
 
         // Advance to Delivered first (Read requires Delivered or earlier)
-        alice_state.tracker.mark_delivered(&msg_id);
+        alice_state.tracker.mark_delivered(&msg_id, bob_id);
 
         // Build a ReadReceipt envelope from Bob
         use crate::router::ReadReceiptPayload;
