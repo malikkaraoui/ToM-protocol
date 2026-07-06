@@ -9,7 +9,7 @@ public enum TomVersion {
     public static let semantic = "0.6.0"
 
     /// Build number — incremented on every push to GitHub.
-    public static let build = 23
+    public static let build = 24
 
     /// Human-readable version shown in Settings, e.g. "0.6.0 (build 1)".
     public static var display: String { "\(semantic) (build \(build))" }

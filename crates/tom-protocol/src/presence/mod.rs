@@ -48,17 +48,33 @@ pub const MAX_STORED_ATTESTATIONS: usize = 512;
 /// Max attestations we sign per challenger per TTL window (responder side).
 pub const RESPONDER_BUDGET_PER_WINDOW: u32 = 10;
 
-/// GLOBAL cap on attestations signed per TTL window, across ALL challengers
-/// (red-team FINDING #4). The per-challenger budget alone is bypassable by
-/// identity rotation — a Sybil swarm of N forged identities would extract
-/// N × RESPONDER_BUDGET_PER_WINDOW signatures, an unbounded Ed25519 CPU DoS
-/// that scales with attacker identities. This ceiling bounds total signing
-/// work regardless of identity count. Chosen generous enough that a real
-/// home/small fleet never reaches it (a node receives ~1 challenge/peer per
-/// 15s probe), but a swarm is capped. Aligned with LOCKED #5 (progressive
-/// load under abuse, shared budget — not permanent exclusion; it resets each
-/// window).
+/// GLOBAL cap on attestations signed per TTL window for STRANGERS — challengers
+/// we hold NO relay evidence for (red-team FINDING #4). The per-challenger
+/// budget alone is bypassable by identity rotation: a Sybil swarm of N forged
+/// identities would extract N × RESPONDER_BUDGET_PER_WINDOW signatures, an
+/// unbounded Ed25519 CPU DoS that scales with attacker identities. This ceiling
+/// bounds total stranger signing work regardless of identity count.
+///
+/// It applies ONLY to strangers (red-team FINDING #5): a flat cap shared by
+/// everyone would let a cheap stranger flood (120 challenges/window) starve
+/// legitimate peers of presence service network-wide. KNOWN challengers — those
+/// for whom we hold real relay evidence (local role score ≥
+/// [`RESPONDER_KNOWN_MIN_SCORE`], which a Sybil identity cannot cheaply forge
+/// since evidence requires actually relaying traffic) — BYPASS this cap and are
+/// bounded only by their per-identity budget. Aligned with LOCKED #5
+/// (progressive load under abuse, shared budget — not permanent exclusion; it
+/// resets each window).
 pub const RESPONDER_GLOBAL_BUDGET_PER_WINDOW: u32 = 120;
+
+/// Responder-side evidence threshold: a challenger whose LOCAL role score is at
+/// or above this is treated as KNOWN (relay-evidenced) and exempt from the
+/// stranger global cap ([`RESPONDER_GLOBAL_BUDGET_PER_WINDOW`]). Deliberately
+/// independent of the challenger-side acceptance gate
+/// (`presence_contribution_min`, which tests set to 0.0): the responder lane
+/// split must hold even in permissive plumbing mode, so a Sybil at score 0 is
+/// always a stranger. Earning this score requires real relay work, which a
+/// swarm of fresh forged identities cannot cheaply produce.
+pub const RESPONDER_KNOWN_MIN_SCORE: f64 = 1.0;
 
 /// Global cap on tracked responder windows (responder side).
 const MAX_RESPONDER_WINDOWS: usize = 512;
@@ -261,15 +277,20 @@ impl PresenceManager {
     }
 
     /// Responder-side budget: may we sign one more attestation for this
-    /// challenger? Consumes one budget unit on success.
-    pub fn allow_response(&mut self, challenger: NodeId, now: u64) -> bool {
-        // GLOBAL cap FIRST (FINDING #4): total signing work per window, across
-        // all challengers, is bounded regardless of how many identities the
-        // attacker rotates. Reset the global window when it expires.
+    /// challenger? Consumes one budget unit on success. `has_evidence` is true
+    /// when we hold real relay evidence for the challenger (local role score ≥
+    /// [`RESPONDER_KNOWN_MIN_SCORE`]); such KNOWN peers bypass the stranger
+    /// global cap and cannot be starved by a Sybil flood (FINDING #5).
+    pub fn allow_response(&mut self, challenger: NodeId, has_evidence: bool, now: u64) -> bool {
+        // Reset the stranger global window when it expires.
         if now.saturating_sub(self.global_window.0) >= PRESENCE_TTL_MS {
             self.global_window = (now, 0);
         }
-        if self.global_window.1 >= RESPONDER_GLOBAL_BUDGET_PER_WINDOW {
+        // STRANGER global cap (FINDING #4): unknown challengers share one
+        // window-bounded budget, so a swarm rotating N forged identities can't
+        // scale signing work with identity count. KNOWN peers skip this check
+        // entirely (FINDING #5) — a stranger flood can't deny them service.
+        if !has_evidence && self.global_window.1 >= RESPONDER_GLOBAL_BUDGET_PER_WINDOW {
             return false;
         }
 
@@ -292,8 +313,11 @@ impl PresenceManager {
             return false;
         }
         entry.1 += 1;
-        // Consume one unit of the global budget too (both must allow).
-        self.global_window.1 += 1;
+        // Only strangers draw down the shared global budget; known peers are
+        // bounded solely by their per-identity budget (FINDING #5).
+        if !has_evidence {
+            self.global_window.1 += 1;
+        }
         true
     }
 
@@ -468,10 +492,56 @@ mod tests {
         let mut m = PresenceManager::new();
         let challenger = node_id(1);
         for _ in 0..RESPONDER_BUDGET_PER_WINDOW {
-            assert!(m.allow_response(challenger, 1_000));
+            assert!(m.allow_response(challenger, false, 1_000));
         }
-        assert!(!m.allow_response(challenger, 1_000), "budget exhausted");
+        assert!(!m.allow_response(challenger, false, 1_000), "budget exhausted");
         // New window after TTL: budget resets (no permanent ban — LOCKED #4).
-        assert!(m.allow_response(challenger, 1_000 + PRESENCE_TTL_MS));
+        assert!(m.allow_response(challenger, false, 1_000 + PRESENCE_TTL_MS));
+    }
+
+    #[test]
+    fn sybil_swarm_bounded_by_global_stranger_cap() {
+        // FINDING #4: many STRANGER identities, each within its per-identity
+        // budget, must not scale signing work past the global cap.
+        let mut m = PresenceManager::new();
+        let mut signed = 0u32;
+        for id in 0..200u8 {
+            // A fresh stranger identity per outer step; hammer past per-id budget.
+            let challenger = node_id(id);
+            for _ in 0..RESPONDER_BUDGET_PER_WINDOW {
+                if m.allow_response(challenger, false, 1_000) {
+                    signed += 1;
+                }
+            }
+        }
+        assert_eq!(
+            signed, RESPONDER_GLOBAL_BUDGET_PER_WINDOW,
+            "stranger signing must be capped at the global budget, not scale with identities"
+        );
+    }
+
+    #[test]
+    fn known_peer_not_starved_by_stranger_flood() {
+        // FINDING #5: a stranger flood that exhausts the global cap must NOT
+        // deny service to a KNOWN (relay-evidenced) challenger.
+        let mut m = PresenceManager::new();
+        // Exhaust the stranger global budget entirely (distinct stranger ids).
+        for id in 0..RESPONDER_GLOBAL_BUDGET_PER_WINDOW as u8 {
+            assert!(m.allow_response(node_id(id), false, 5_000));
+        }
+        assert!(
+            !m.allow_response(node_id(250), false, 5_000),
+            "stranger global cap should now be closed"
+        );
+        // A known peer still gets its full per-identity budget despite the cap.
+        let known = node_id(200);
+        for _ in 0..RESPONDER_BUDGET_PER_WINDOW {
+            assert!(
+                m.allow_response(known, true, 5_000),
+                "known peer must bypass the stranger global cap"
+            );
+        }
+        // ...and is still bounded by its own per-identity budget.
+        assert!(!m.allow_response(known, true, 5_000), "per-identity budget still applies");
     }
 }
