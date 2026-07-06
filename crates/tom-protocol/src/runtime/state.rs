@@ -1718,13 +1718,15 @@ impl RuntimeState {
 
         // 6. Anti-Sybil gate: OUR locally observed relay score of the
         //    attester (A5). NEVER payload.relay_proof.reliability_score —
-        //    that field is attacker-controlled.
+        //    that field is attacker-controlled. Threshold comes from config
+        //    (default RELAY_CONTRIBUTION_MIN; 0.0 only for fleet plumbing
+        //    tests, see L1-001 runbook).
         let local_score = self.role_manager.score(&envelope.from, now);
-        if local_score < crate::presence::RELAY_CONTRIBUTION_MIN {
+        if local_score < self.config.presence_contribution_min {
             tracing::debug!(
                 "presence: attestation from {} dropped (local score {local_score:.2} < {})",
                 envelope.from,
-                crate::presence::RELAY_CONTRIBUTION_MIN
+                self.config.presence_contribution_min
             );
             return Vec::new();
         }
@@ -1750,6 +1752,28 @@ impl RuntimeState {
     pub fn tick_presence_cleanup(&mut self) -> Vec<RuntimeEffect> {
         self.presence.cleanup(now_ms());
         Vec::new()
+    }
+
+    /// Auto-probe (fleet observability): challenge up to 8 Online peers.
+    /// Only runs when `config.presence_probe_interval` is set. Per-target
+    /// and global caps of the PresenceManager still apply.
+    pub fn tick_presence_probe(&mut self) -> Vec<RuntimeEffect> {
+        if self.config.presence_probe_interval.is_none() {
+            return Vec::new();
+        }
+        let targets: Vec<NodeId> = self
+            .topology
+            .peers()
+            .filter(|p| p.status == PeerStatus::Online && p.node_id != self.local_id)
+            .map(|p| p.node_id)
+            .take(8)
+            .collect();
+
+        let mut effects = Vec::new();
+        for target in targets {
+            effects.extend(self.initiate_presence_check(target));
+        }
+        effects
     }
 
     /// Current entropy seed over the attestation window (input for L1-002).

@@ -109,6 +109,18 @@ pub struct RuntimeConfigFFI {
     /// Inject gossip-discovered relay URLs into the QUIC transport layer
     #[serde(skip_serializing_if = "Option::is_none")]
     pub enable_transport_relay_discovery: Option<bool>,
+
+    /// L1-001 presence: anti-Sybil gate threshold (local score required of an
+    /// attester). None = protocol default (2.0). 0.0 = fleet plumbing mode
+    /// (phase 1 of the L1-001 runbook) — accepts any well-formed signed
+    /// attestation; structural defenses stay armed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub presence_contribution_min: Option<f64>,
+
+    /// L1-001 presence: auto-probe interval in seconds (challenges up to 8
+    /// Online peers each tick, results land in the Live Log). None or 0 = off.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub presence_probe_interval_secs: Option<u32>,
 }
 
 /// Group creation config
@@ -156,6 +168,22 @@ pub struct NodeStatusFFI {
     pub path_kind: String,
     pub path_rtt_ms: u64,
     pub relay_url_active: String,
+}
+
+/// L1-001 presence stats snapshot polled by Swift (key contract with the
+/// `TomPresenceStats` decoder — keep field names stable).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PresenceStatsFFI {
+    /// Attestations accepted since node start (monotonic).
+    pub accepted_total: u64,
+    /// Short id of the most recent accepted attester ("" if none yet).
+    pub last_attester: String,
+    /// Round-trip of the most recent accepted attestation (challenger clock).
+    pub last_latency_ms: u64,
+    /// Attestations currently in the 30s aggregation window.
+    pub window_count: u64,
+    /// First 8 hex chars of the current entropy seed.
+    pub seed_prefix: String,
 }
 
 fn deserialize_node_id<'de, D>(deserializer: D) -> Result<NodeId, D::Error>

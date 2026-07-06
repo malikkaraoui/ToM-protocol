@@ -61,7 +61,9 @@ public actor TomNodeWrapper {
         n0Discovery: Bool,
         localDiscovery: Bool,
         dataDir: String?,
-        gossipBootstrapPeers: [String] = []
+        gossipBootstrapPeers: [String] = [],
+        presenceContributionMin: Double? = nil,
+        presenceProbeIntervalSecs: UInt32? = nil
     ) throws {
         guard let h = handle else {
             throw TomError.notStarted
@@ -88,6 +90,13 @@ public actor TomNodeWrapper {
             .filter { !$0.isEmpty }
         if !normalizedBootstrapPeers.isEmpty {
             config["gossip_bootstrap_peers"] = normalizedBootstrapPeers
+        }
+        // L1-001 presence (fleet testing knobs — see L1-001-runbook-flotte.md)
+        if let gate = presenceContributionMin {
+            config["presence_contribution_min"] = gate
+        }
+        if let probe = presenceProbeIntervalSecs {
+            config["presence_probe_interval_secs"] = probe
         }
 
         let jsonData = try JSONSerialization.data(withJSONObject: config)
@@ -267,6 +276,34 @@ public actor TomNodeWrapper {
         defer { tom_node_free_string(cStr) }
         let url = String(cString: cStr)
         return url.isEmpty ? nil : url
+    }
+
+    /// L1-001: challenge a peer's presence. Result arrives asynchronously —
+    /// poll `presenceStats()`; silence means absent/lying/below the gate.
+    public func checkPresence(target: NodeId) throws {
+        guard let h = handle else {
+            throw TomError.notStarted
+        }
+        let result = target.withCString { tom_node_check_presence(h, $0) }
+        if result != 0 {
+            throw TomError.sendFailed("tom_node_check_presence returned \(result)")
+        }
+    }
+
+    /// L1-001: presence stats snapshot (accepted count, last attester,
+    /// latency, aggregation window, seed prefix).
+    public func presenceStats() -> TomPresenceStats? {
+        guard let h = handle else { return nil }
+        guard let cStr = tom_node_presence_stats(h) else { return nil }
+        let jsonStr = String(cString: cStr)
+        tom_node_free_string(cStr)
+        guard let data = jsonStr.data(using: .utf8) else { return nil }
+        do {
+            return try JSONDecoder().decode(TomPresenceStats.self, from: data)
+        } catch {
+            log.error("Failed to decode presence stats: \(error.localizedDescription)")
+            return nil
+        }
     }
 
     public func status() -> TomNodeStatus? {

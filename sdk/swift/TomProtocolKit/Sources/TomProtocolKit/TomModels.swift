@@ -134,6 +134,28 @@ public struct TomNodeStatus: Codable {
     }
 }
 
+/// Stats L1-001 presence (depuis `tom_node_presence_stats`).
+public struct TomPresenceStats: Codable {
+    /// Attestations acceptées depuis le démarrage (monotone).
+    public let acceptedTotal: UInt64
+    /// Dernier attesteur accepté ("" si aucun).
+    public let lastAttester: String
+    /// Aller-retour du dernier accepté, horloge locale (ms).
+    public let lastLatencyMs: UInt64
+    /// Attestations dans la fenêtre d'agrégation 30s.
+    public let windowCount: UInt64
+    /// 8 premiers hex du seed d'entropie courant.
+    public let seedPrefix: String
+
+    enum CodingKeys: String, CodingKey {
+        case acceptedTotal = "accepted_total"
+        case lastAttester = "last_attester"
+        case lastLatencyMs = "last_latency_ms"
+        case windowCount = "window_count"
+        case seedPrefix = "seed_prefix"
+    }
+}
+
 /// Cycle de vie du nœud côté app.
 public enum TomNodeState: String {
     case stopped = "Stopped"

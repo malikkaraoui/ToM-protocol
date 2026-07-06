@@ -134,6 +134,32 @@ char *tom_node_receive_messages(const struct TomNodeHandle *handle);
 // * Caller must free returned string with `tom_node_free_string()`
 char *tom_node_status(const struct TomNodeHandle *handle);
 
+// Issue a presence challenge toward a peer (L1-001).
+//
+// The result arrives asynchronously: on acceptance the node updates its
+// presence stats (poll `tom_node_presence_stats()`) and logs the event.
+// No result at all means the peer is absent, lying, or below the
+// anti-Sybil gate — silent by design (no oracle).
+//
+// # Returns
+// * 0 on success (command queued)
+// * -1 on failure (null/invalid handle or target, node not started)
+//
+// # Safety
+// * `handle` must be a valid pointer returned by `tom_node_create()`
+// * `target_id` must be a valid NUL-terminated C string
+int32_t tom_node_check_presence(const struct TomNodeHandle *handle, const char *target_id);
+
+// Get L1-001 presence stats as JSON (see `PresenceStatsFFI` for the schema).
+//
+// # Returns
+// * JSON C string (caller must free with `tom_node_free_string()`)
+// * NULL on null handle or serialization failure
+//
+// # Safety
+// * `handle` must be a valid pointer returned by `tom_node_create()`
+char *tom_node_presence_stats(const struct TomNodeHandle *handle);
+
 // Get the last error message (after a function returned -1)
 //
 // # Returns
