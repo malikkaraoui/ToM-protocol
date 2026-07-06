@@ -1,9 +1,9 @@
-# ToM — Master Map v2 (vision + architecture consolidée)
+# ToM — Master Map (vision + architecture consolidée)
 
-> **v2 (2026-07-06)** : intègre la démolition adversariale Fable 5 (voir §11) et les
-> **décisions actées** — approche en couches, résolution de la contradiction #2↔valeur,
-> choix CAP pour la valeur. Le plan d'exécution bout-en-bout vit dans
-> `docs/plans/TOM-PLAN-BOUT-EN-BOUT.md`.
+> **Version 2 (2026-07-06)** — intègre la revue adversariale Fable 5 (§11) et la
+> décision de layering (L1 réseau d'abord, L2 valeur différée). Voir le plan
+> d'exécution de bout en bout : `docs/plans/TOM-PLAN-GLOBAL.md`.
+> Chaque section marquée 🎯 contient une surface d'attaque explicite.
 > Source de vérité amont : `docs/tom-whitepaper-v1.md` (genèse §3-4),
 > `_bmad-output/planning-artifacts/design-decisions.md` (7 décisions LOCKED).
 
@@ -172,34 +172,27 @@ Le droit de valider vient de **la présence** (être connecté, relayer, répond
 
 ---
 
-## 11. Verdict de la revue adversariale Fable v1 + décisions actées
+## 11. Revue adversariale Fable 5 — les 4 murs et leurs portes (2026-07-06)
 
-La revue a **confirmé L0** (solide, mesuré) et les 7 décisions **cohérentes tant qu'on reste messagerie**. Elle a trouvé **4 murs** sur la couche valeur. Chacun a désormais une **porte assumée** (avec son prix).
+Fable 5 a démonté la V1. Verdict : **L0 tient (solide, mesuré) ; les 7 décisions LOCKED sont cohérentes TANT QU'ON RESTE messagerie. C'est L2 (valeur) qui déchire le contrat.** Quatre murs, chacun avec une porte — mais la porte a un prix. Portes = **propositions à valider (Fable + auteur)**, pas des vérités.
 
-### Mur 1 — Contradiction #2 (pas d'historique) ↔ valeur (persistance d'attestation) 🔴 architectural
-Anti-double-dépense exige qu'un témoin se souvienne « j'ai signé N→N+1 » ; #2 purge tout à 24h → oubli → re-dépense.
-**Décision actée (layering)** : **#2 gouverne L0 (messagerie) — la mission reste pure, purge 24h sans exception.** La **valeur (L2) est une couche séparée** avec sa propre règle : une **attestation persistante PAR WALLET**, portée par un **ensemble de témoins qui se relaie** (migration de rôle : le témoin ET sa mémoire de version passent au suivant lors du churn). Ce n'est PAS un grand livre global ; c'est un état **scopé au wallet**, borné, vivant tant que le wallet est actif. **Prix assumé** : L2 n'est plus « zéro état » — elle accepte le minimum d'état que l'argent exige. La messagerie, elle, ne le paie pas.
+| # | Mur (ce qui casse) | Porte proposée (avec son prix) | Statut |
+|---|---|---|---|
+| 1 | **Entropie PoP introuvable** : sans horloge/bloc global, le demandeur peut *grinder* la sélection cascade jusqu'à un quorum complice. | Entropie issue des **attestations agrégées d'AUTRES nœuds vivants** (hors contrôle du demandeur) + **VDF** (fonction à délai vérifiable, aléa non-biaisable sans horloge). Prix : complexité crypto, latence VDF. | 🔴 à prouver (story L1-001 puis L1-002) |
+| 2 | **Sybil sans coût** : probation sans durée ni prix → ferme patiente de N nœuds qui rafle le quorum. | Coût = **preuve de relais réel** (un témoin doit avoir vraiment relayé, pas juste exister) + taille de quorum **Q fixée** + fraction Sybil tolérée paramétrée. Prix : exclut le matériel purement passif ; Q élevé = plus de validations/op. | 🔴 à quantifier |
+| 3 | **Partition = double-spend** : le même sceau présenté à deux quorums disjoints simultanément → deux dépenses valides, et #3 interdit à L1 d'arbitrer. | **Choix CAP assumé pour la VALEUR : cohérence > disponibilité.** Un paiement **se bloque** si le quorum du wallet est partitionné (comme une carte hors-ligne). Pas de double-spend car pas de dépense du tout quand les témoins sont coupés. La messagerie, elle, reste dispo. Prix : paiement indisponible sous partition. | 🟠 décision de conception à acter |
+| 4 | **🔴 Contradiction #2 (purge 24h) ↔ persistance d'attestation** : l'anti-double-spend exige que le témoin se souvienne « j'ai signé N→N+1 » ; #2 purge tout à 24h → il oublie → re-spend. **Architectural.** | **Layering** : #2 gouverne le **transport/messagerie** (reste pur, sans historique). La **valeur (L2) est une couche séparée** avec sa propre règle : **attestation persistante PAR WALLET**, portée par un ensemble de témoins qui **se relaie** (migration de rôle : le témoin ET sa mémoire de version passent au suivant). Prix : L2 assume un état scopé (non global, non 24h) — exception explicite à #2, réservée à la valeur. | 🟢 **ACTÉ (auteur 2026-07-06)** : approche en couches acceptée |
 
-### Mur 2 — Partition réseau = double-dépense 🔴 (le tueur du sharding sans ordre global)
-Même sceau N présenté aux quorums Est ET Ouest pendant une coupure → 2 dépenses valides ; #3 interdit à L1 d'arbitrer.
-**Décision actée (choix CAP)** : **pour la valeur, cohérence > disponibilité.** Un paiement **se BLOQUE** si le quorum de témoins du wallet est partitionné/injoignable (comme une carte qui refuse hors-ligne). On ne double-dépense pas parce qu'on **ne dépense pas du tout** quand les témoins sont coupés. **La messagerie (L0) reste disponible** (elle tolère la perte, #2). **Prix assumé** : pas de paiement en zone coupée/edge instable — acceptable pour de l'argent, inacceptable pour un message (d'où la séparation des couches).
+**Ouvertures secondaires** (Fable) : récupération de wallet perdu (toutes les options plient un principe → à trancher en L2), taille de quorum jamais fixée (bloque le calcul de P(double-spend) → paramètre à définir).
 
-### Mur 3 — Entropie du PoP / grinding 🔴
-Sur un réseau sans horloge ni bloc, d'où vient l'aléa non-biaisable de la sélection cascade ?
-**Direction (à prouver par L1-001)** : l'aléa vient des **attestations agrégées d'AUTRES nœuds vivants** (hors du choix du demandeur) + une **VDF** (Verifiable Delay Function — l'outil standard pour un aléa non-biaisable sans horloge : impossible à re-tirer car chaque essai coûte un délai incompressible). **Statut** : hypothèse à valider empiriquement avant tout L2.
-
-### Mur 4 — Sybil sans coût 🔴
-Probation sans durée ni prix → ferme patiente qui rafle le quorum.
-**Direction** : le coût d'être un témoin valide = **preuve de relais RÉEL** (un nœud doit avoir effectivement relayé du trafic récemment, pas juste « exister ») + **taille de quorum Q paramétrable** (Q petit = attaquable, Q=100 → P(double-dépense) ≈ 10⁻³⁰ mais 100 validations/tx). **Statut** : Q et le seuil de Sybil toléré deviennent des **paramètres de sécurité explicites**, pas un flou.
-
-### Ce qui reste ouvert (défer jusqu'à L1 prouvé)
-- **Récupération de wallet perdu** sans autorité ni historique de confiance (toutes les pistes plient un principe → à trancher au moment de L2, pas avant).
-- **Amorçage de la valeur** (mint / on-ramp) — hors protocole cœur.
-- **Quantification fine** du « quasiment » une fois Q et le modèle de témoins fixés.
-
-### Décision stratégique actée
-**On construit L1 (swarm + PoP) comme couche d'INTÉGRITÉ RÉSEAU d'abord — elle vaut le coup SANS l'argent.** **L2 (valeur) est différée** jusqu'à ce que L1 fasse ses preuves. **Premier pas : story L1-001 (attestation de présence)** — la plus petite brique qui teste empiriquement les murs 3 et 4, sans toucher à la valeur.
+**Le plus grand trou non résolu reste #1+#2 (entropie + Sybil du PoP)** — c'est **exactement** ce que la première story L1 va tester empiriquement, sans toucher à l'argent.
 
 ---
 
-*Fin de la map v2. L0 est réel et mesuré. Les murs de L2 sont nommés et ont des portes assumées. On avance couche par couche, en prouvant, pas en promettant.*
+## 12. Le premier pas — story L1-001 (endossée)
+
+**Attestation de présence** : A défie B ; B répond par une attestation signée incluant une **preuve d'activité récente** (B a relayé ≥1 message dans les 5 dernières s) ; l'attestation est **éphémère (30s), jamais persistée, jamais backupée** (aligné #2). Plusieurs attestations agrégées → **graine d'entropie** pour la sélection cascade (story suivante). C'est le **primitif** du Proof of Presence : petit, sans argent, sans partition, sans quorum — et il **révèle** si l'entropie/anti-Sybil sont réels. Critères d'acceptation détaillés dans `docs/plans/TOM-PLAN-GLOBAL.md` (jalon M1.1).
+
+---
+
+*Fin de la map V2. L0 est réel et mesuré. L1/L2 sont la vision à porter — les murs sont nommés, les portes proposées, le premier pas est petit et testable.*
