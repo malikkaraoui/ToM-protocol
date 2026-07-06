@@ -91,3 +91,66 @@
 Attaques déjà prouvées DÉFENDUES en amont (tests runtime + scénarios, à porter au corpus dès le 1er run) :
 - pres.forge, pres.replay, pres.usurp, pres.reflect, pres.skew, pres.mem, pres.flood (budget)
   → 14 tests d'intégration + storm 5/5 + chaos-monkey. Servent de baseline « déjà vert ».
+
+### [BUILDS 23→27 · 2026-07-06 soir/nuit] Chaîne de 5 brèches corrigées + 1 ouverte — session boucle autonome
+
+Enchaînement red-team continu (l'utilisateur a laissé les devices la nuit). Chaque
+brèche : trouvée → attaque reproductible → fix → test régression → gate → build →
+flotte redéployée → régression complète. Détail machine dans `journal.jsonl`/`corpus.jsonl`.
+
+- **FINDING #4 (build23) — pres.sybil** : budget répondeur présence PAR-IDENTITÉ sans
+  cap global → rotation d'identités = 10×N signatures Ed25519 (CPU DoS scalable). Le flood
+  mono-identité défendait (10), le swarm bypassait. **Fix** : `RESPONDER_GLOBAL_BUDGET_PER_WINDOW=120`.
+  Attaque live `presence-attack` step sybil : 200 signés → 110 (borné).
+- **FINDING #5 (build24) — pres.starvation** : *second-ordre de mon propre fix #4*. Le cap
+  global plat était partagé et prioritaire → un flood trivial d'inconnus (120/fenêtre) refuse
+  la présence à TOUS les pairs légitimes (DoS famine). J'avais converti un DoS-CPU en DoS-famine.
+  **Fix DEUX-VOIES** : les CONNUS (preuve de relais, score ≥ `RESPONDER_KNOWN_MIN_SCORE=1.0`,
+  non-forgeable par sybil frais) contournent le cap ; seuls les inconnus le partagent.
+- **FINDING #6 (build25) — ack.forged_recipient** : `mark_delivered`/`mark_read` ne liaient
+  pas l'ACK au destinataire. Un relais malveillant (voit le message_id qu'il route) forge un
+  ACK RecipientReceived signé de SA clé → l'expéditeur marque Delivered + arrête les retries
+  alors que le message a pu être droppé. **Casse la décision LOCKED #1** + le modèle de
+  non-confiance envers les relais. **Fix** : `entry.to == from` obligatoire, `pending.remove`
+  seulement si livraison réelle, garde signature ajouté au ReadReceipt.
+- **FINDING #7 (build26) — relay.score_pumping** : *sape le fix #5*. `record_relay(from)` était
+  appelé INCONDITIONNELLEMENT sur ACK RelayForwarded, sans valider un vrai message émis.
+  L'anti-replay ne bloque que le tuple identique → l'attaquant forge N ACK (message_id aléatoires)
+  → pompe son score de relais sans rien relayer → devient "connu" → contourne le gate présence ET
+  le cap inconnu #5. **Détruit la primitive de preuve-de-relais.** **Fix** : créditer seulement si
+  `tracker.recipient_of(msgid)` existe ET `from != destinataire final`.
+- **FINDING #8 (build27) — antispam.swarm_ingress** : même classe que #4, côté chat. Antispam
+  per-sender (`min_rate=30/s`) sans cap global, et l'éviction LRU réinitialise les buckets →
+  swarm inonde en agrégat (CPU verify). **Fix DEUX-VOIES** (motif #5 réutilisé) :
+  `GLOBAL_STRANGER_RATE=200/s` partagé par les inconnus, connus exemptés.
+- **FINDING #9 (OUVERT) — backup.store_flood** : store backup évince le plus-ancien-global sans
+  quota par-déposant ; flood de ReplicationPayload arbitraires évince les backups légitimes
+  (dégrade ADR-009). **NON corrigé volontairement** : subsystème LOCKED + endurance-testé, le fix
+  (budget inconnu deux-voies + éviction équitable) doit être re-validé en endurance, pas rushé la
+  nuit. Atténué par le cap #8 (200/s). Documenté pour implémentation soignée ultérieure.
+
+**Régression complète build 27 (tout vert)** : lib 561/561 · presence-attack 6/6 ·
+presence-storm 5/5 · chaos-monkey seed 7 6/6 (FINDING #1 tient, #2 resumed 24→68) ·
+failover 8/8 · e2e 3/3 · group 8/8 · backup 4/4 · presence 5/5.
+
+### Recul méthodologique (pour l'utilisateur — "savoir si notre méthodologie est bonne")
+**Ce qui marche** :
+1. *La boucle trouve des chaînes, pas des bugs isolés.* #5 est né de #4, #7 sape #5 — corriger une
+   brèche a ouvert/exposé la suivante. Sans re-attaquer après chaque fix (« et si mon fix crée un
+   trou ? »), #5 et #7 seraient passés inaperçus. **Le réflexe "attaquer mon propre fix" est le plus
+   rentable de la session.**
+2. *Une CLASSE se dégage :* « limite per-identité sans cap global → bypass par rotation d'identités »
+   (présence #4, pumping #7, antispam #8, backup #9). Une fois nommée, on la cherche partout — c'est
+   un multiplicateur. Le fix canonique (deux-voies : connus contournent, inconnus partagent) est
+   réutilisable tel quel.
+3. *Tests déterministes + régression live systématique.* Chaque fix a un test unitaire (rejoue la
+   logique, rapide) ET une régression scénario réel (QUIC). Les deux niveaux ont attrapé des choses
+   différentes (#5 prouvé en unit, #7 vérifié en live que le flux légitime n'est pas cassé).
+**Limites / à surveiller** :
+- Coût de redéploiement flotte élevé (~15 min/build : XCFramework + 3 apps + NAS). J'ai fini par
+  batcher (sauter le déploiement 26 des apps ATV/Mac, passer direct au 27). À l'avenir : accumuler
+  2-3 fixes par build si non-critiques, ou séparer "fix shippé git" de "flotte redéployée".
+- FINDING #9 montre la bonne discipline (ne pas rusher un subsystème verrouillé) mais laisse une
+  brèche ouverte — il faut un créneau dédié + re-validation endurance, pas la boucle nocturne.
+- La plupart des brèches sont dans la couche présence/roles/antispam (récemment écrite). Les couches
+  anciennes (transport forké, quinn, gossip) n'ont pas encore été attaquées frontalement — angle mort.
