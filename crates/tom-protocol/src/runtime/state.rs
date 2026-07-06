@@ -105,6 +105,9 @@ pub struct RuntimeState {
     // Phase R11.1: Progressive anti-spam
     pub(crate) antispam: crate::roles::AntiSpam,
 
+    // L1-001: Proof of Presence — ephemeral only, never persisted (LOCKED #2)
+    pub(crate) presence: crate::presence::PresenceManager,
+
     // Phase R16: Embedded relay logical state (tracked by pure state, no I/O)
     pub(crate) embedded_relay_state: super::LocalEmbeddedRelayState,
     pub(crate) embedded_relay_publication: super::EmbeddedRelayPublicationState,
@@ -208,6 +211,7 @@ impl RuntimeState {
             role_announce_throttle: std::collections::HashMap::new(),
             dht,
             antispam: crate::roles::AntiSpam::new(config.antispam_config.clone()),
+            presence: crate::presence::PresenceManager::new(),
             local_id,
             secret_seed,
             embedded_relay_state: super::LocalEmbeddedRelayState::Stopped,
@@ -885,7 +889,7 @@ impl RuntimeState {
             RoutingAction::Ack {
                 original_message_id,
                 ack_type,
-                ..
+                from,
             } => {
                 // Verrou #1 (delivered ⟺ ACK): an unsigned or forged ACK must
                 // never promote a message's status — otherwise anyone can
@@ -898,6 +902,13 @@ impl RuntimeState {
                 }
                 let change = match ack_type {
                     AckType::RelayForwarded => {
+                        // L1-001: a signed RelayForwarded ACK is locally
+                        // verified, cryptographic evidence that `from`
+                        // relayed for us — this feeds the presence
+                        // anti-Sybil gate (local score of the attester).
+                        // The router's ACK anti-replay cache already
+                        // prevents score pumping via re-sent ACKs.
+                        self.role_manager.record_relay(from, now_ms());
                         self.tracker.mark_relayed(&original_message_id)
                     }
                     AckType::RecipientReceived => {
@@ -1516,7 +1527,239 @@ impl RuntimeState {
             }
 
             MessageType::PeerAnnounce => self.handle_peer_announce(&envelope),
+
+            MessageType::PresenceChallenge | MessageType::PresenceAttestation => {
+                self.handle_incoming_presence(envelope, signature_valid)
+            }
         }
+    }
+
+    // ── L1-001: Proof of Presence ────────────────────────────────────────
+    //
+    // Hardened per docs/plans/L1-001-attestation-presence.md (V2):
+    // signed both ways · one-shot challenges · freshness on OUR clock ·
+    // anti-Sybil gate on OUR local score of the attester · silent drops
+    // (answering an attacker with a reject is a free oracle).
+
+    /// Issue a presence challenge toward `target` (we are A).
+    ///
+    /// Returns no effects when a memory cap refuses the challenge (§4.3).
+    pub fn initiate_presence_check(&mut self, target: NodeId) -> Vec<RuntimeEffect> {
+        use chacha20poly1305::aead::rand_core::{OsRng, RngCore};
+
+        if target == self.local_id {
+            return Vec::new();
+        }
+
+        let now = now_ms();
+        let mut nonce = vec![0u8; crate::presence::NONCE_LEN];
+        OsRng.fill_bytes(&mut nonce);
+        let challenge_id = uuid::Uuid::new_v4().to_string();
+
+        let registered = self.presence.register_challenge(crate::presence::PendingChallenge {
+            challenge_id: challenge_id.clone(),
+            nonce: nonce.clone(),
+            target,
+            issued_at: now,
+        });
+        if !registered {
+            tracing::debug!("presence: challenge refused by memory caps (target {target})");
+            return Vec::new();
+        }
+
+        let payload = crate::presence::PresenceChallengePayload {
+            challenge_id,
+            nonce,
+            timestamp: now,
+            challenger_id: self.local_id,
+        };
+        let mut envelope = Envelope::new(
+            self.local_id,
+            target,
+            MessageType::PresenceChallenge,
+            payload.to_bytes(),
+        );
+        envelope.sign(&self.secret_seed);
+
+        vec![RuntimeEffect::SendEnvelope(envelope)]
+    }
+
+    /// Dispatch an incoming presence envelope (challenge or attestation).
+    fn handle_incoming_presence(
+        &mut self,
+        envelope: Envelope,
+        signature_valid: bool,
+    ) -> Vec<RuntimeEffect> {
+        // V1 is direct-only (spec §2.2: via = []). A presence envelope not
+        // addressed to us is dropped, never forwarded.
+        if envelope.to != self.local_id {
+            return Vec::new();
+        }
+        match envelope.msg_type {
+            MessageType::PresenceChallenge => {
+                self.handle_presence_challenge(envelope, signature_valid)
+            }
+            MessageType::PresenceAttestation => {
+                self.handle_presence_attestation(envelope, signature_valid)
+            }
+            _ => Vec::new(),
+        }
+    }
+
+    /// We are B: someone challenges our presence — answer with a signed
+    /// attestation, if the challenge is authentic and our budget allows.
+    fn handle_presence_challenge(
+        &mut self,
+        envelope: Envelope,
+        signature_valid: bool,
+    ) -> Vec<RuntimeEffect> {
+        // A9: verify the challenger's signature BEFORE spending one of ours
+        // (an unsigned challenge would let an attacker buy Ed25519 work for
+        // free, and reflect attestations onto a spoofed `from`).
+        if !signature_valid {
+            return Vec::new();
+        }
+
+        let payload = match crate::presence::PresenceChallengePayload::from_bytes(&envelope.payload)
+        {
+            Ok(p) => p,
+            Err(_) => return Vec::new(),
+        };
+
+        // Identity coherence: the declared challenger IS the envelope signer.
+        if payload.challenger_id != envelope.from {
+            return Vec::new();
+        }
+
+        let now = now_ms();
+        if payload.validate(now).is_err() {
+            return Vec::new();
+        }
+
+        // A7: per-challenger signing budget (bounded map, self-purging).
+        if !self.presence.allow_response(envelope.from, now) {
+            return Vec::new();
+        }
+
+        // Self-reported snapshot — ADVISORY ONLY on the challenger side.
+        let own_score = self.role_manager.score(&self.local_id, now);
+        let attestation = crate::presence::PresenceAttestationPayload {
+            challenge_id: payload.challenge_id,
+            nonce: payload.nonce,
+            timestamp: now,
+            attester_id: self.local_id,
+            challenger_id: payload.challenger_id,
+            relay_proof: crate::presence::RelayProof {
+                proof_type: crate::presence::RelayProofType::SelfObserved,
+                observer_id: self.local_id,
+                observed_at: now,
+                bytes_relayed: 0,
+                observer_signature: Vec::new(),
+                reliability_score: Some(own_score),
+            },
+        };
+
+        let mut response = Envelope::new(
+            self.local_id,
+            envelope.from,
+            MessageType::PresenceAttestation,
+            attestation.to_bytes(),
+        );
+        response.sign(&self.secret_seed);
+
+        vec![RuntimeEffect::SendEnvelope(response)]
+    }
+
+    /// We are A: an attestation came back. Checks ordered cheapest-first;
+    /// every failure is a silent drop (no oracle for the attacker).
+    fn handle_presence_attestation(
+        &mut self,
+        envelope: Envelope,
+        signature_valid: bool,
+    ) -> Vec<RuntimeEffect> {
+        let payload =
+            match crate::presence::PresenceAttestationPayload::from_bytes(&envelope.payload) {
+                Ok(p) => p,
+                Err(_) => return Vec::new(),
+            };
+
+        // 1. Challenge issued by us, still pending (one-shot ⇒ a consumed
+        //    challenge is gone: replay has nothing to match — A2).
+        let (challenge_nonce, challenge_target, issued_at) =
+            match self.presence.pending(&payload.challenge_id) {
+                Some(c) => (c.nonce.clone(), c.target, c.issued_at),
+                None => return Vec::new(),
+            };
+
+        // 2. Freshness on OUR clock only (no NTP on this network — A3).
+        let now = now_ms();
+        if now.saturating_sub(issued_at) > crate::presence::PRESENCE_TTL_MS {
+            return Vec::new();
+        }
+
+        // 3. The attestation comes from the node WE challenged (A8 — the
+        //    payload travels in clear, any on-path relay knows the nonce).
+        if envelope.from != challenge_target {
+            return Vec::new();
+        }
+
+        // 4. Ed25519 signature of the attester over the envelope.
+        if !signature_valid {
+            return Vec::new();
+        }
+
+        // 5. Payload ↔ envelope ↔ challenge coherence, including THE nonce.
+        if payload.attester_id != envelope.from
+            || payload.challenger_id != self.local_id
+            || payload.nonce != challenge_nonce
+        {
+            return Vec::new();
+        }
+
+        // 6. Anti-Sybil gate: OUR locally observed relay score of the
+        //    attester (A5). NEVER payload.relay_proof.reliability_score —
+        //    that field is attacker-controlled.
+        let local_score = self.role_manager.score(&envelope.from, now);
+        if local_score < crate::presence::RELAY_CONTRIBUTION_MIN {
+            tracing::debug!(
+                "presence: attestation from {} dropped (local score {local_score:.2} < {})",
+                envelope.from,
+                crate::presence::RELAY_CONTRIBUTION_MIN
+            );
+            return Vec::new();
+        }
+
+        // 7. Accept = consume the challenge (one-shot) + store for the
+        //    30s aggregation window.
+        let challenge_id = payload.challenge_id.clone();
+        if !self
+            .presence
+            .consume_and_store(&challenge_id, payload, &envelope.signature, now)
+        {
+            return Vec::new();
+        }
+
+        vec![RuntimeEffect::Emit(ProtocolEvent::PresenceAttestationReceived {
+            attester_id: envelope.from,
+            challenge_id,
+            latency_ms: now.saturating_sub(issued_at),
+        })]
+    }
+
+    /// Periodic purge of every presence artifact past its 30s TTL.
+    pub fn tick_presence_cleanup(&mut self) -> Vec<RuntimeEffect> {
+        self.presence.cleanup(now_ms());
+        Vec::new()
+    }
+
+    /// Current entropy seed over the attestation window (input for L1-002).
+    pub fn presence_seed(&self) -> [u8; 32] {
+        self.presence.aggregate_seed()
+    }
+
+    /// Number of attestations in the current aggregation window.
+    pub fn presence_attestation_count(&self) -> usize {
+        self.presence.accepted_count()
     }
 
     // ── Task 9: handle_send_message ──────────────────────────────────────
@@ -1925,6 +2168,16 @@ impl RuntimeState {
             }
 
             // DHT lookup completed — register the discovered peer.
+            RuntimeCommand::CheckPresence { target } => self.initiate_presence_check(target),
+
+            RuntimeCommand::GetPresenceSeed { reply } => {
+                let _ = reply.send((
+                    self.presence.aggregate_seed(),
+                    self.presence.accepted_count(),
+                ));
+                Vec::new()
+            }
+
             RuntimeCommand::DhtLookupResult { addr } => {
                 let Ok(node_id) = addr.node_id.parse::<NodeId>() else {
                     tracing::warn!("DHT lookup result: invalid node_id '{}'", addr.node_id);

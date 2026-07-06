@@ -12,6 +12,7 @@ pub mod discovery;
 pub mod envelope;
 pub mod error;
 pub mod group;
+pub mod presence;
 pub mod relay;
 pub mod roles;
 pub mod router;
@@ -35,6 +36,10 @@ pub use group::{
     elect_hub, ElectionReason, ElectionResult, EncryptedSenderKey, GroupAction, GroupEvent,
     GroupHub, GroupId, GroupInfo, GroupInvite, GroupMember, GroupManager, GroupMemberRole,
     GroupMessage, GroupMessageContent, GroupPayload, LeaveReason, SenderKeyEntry,
+};
+pub use presence::{
+    PresenceAttestationPayload, PresenceChallengePayload, PresenceManager, RelayProof,
+    RelayProofType,
 };
 pub use relay::{PeerInfo, PeerRole, PeerStatus, RelaySelector, Topology};
 pub use roles::{AntiSpamConfig, ContributionMetrics, RoleAction, RoleManager, RoleMetrics};

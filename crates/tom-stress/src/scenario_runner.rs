@@ -1,7 +1,7 @@
 /// Scenario runner — executes all protocol scenarios in sequence and produces
 /// an aggregated pass/fail report.
 ///
-/// Scenarios: e2e → group → backup → failover → roles → chaos → partition → churn
+/// Scenarios: e2e → group → backup → failover → roles → chaos → partition → churn → presence
 use std::time::Instant;
 
 use serde::Serialize;
@@ -9,7 +9,7 @@ use serde::Serialize;
 use crate::scenario_common::ScenarioResult;
 use crate::{
     scenario_backup, scenario_chaos, scenario_churn, scenario_e2e, scenario_failover,
-    scenario_group, scenario_partition, scenario_roles,
+    scenario_group, scenario_partition, scenario_presence, scenario_roles,
 };
 
 #[derive(Serialize)]
@@ -35,7 +35,7 @@ pub async fn run() -> anyhow::Result<()> {
     let runner_start = Instant::now();
 
     eprintln!("╔══════════════════════════════════════════╗");
-    eprintln!("║       SCENARIO RUNNER (8 scenarios)      ║");
+    eprintln!("║       SCENARIO RUNNER (9 scenarios)      ║");
     eprintln!("╚══════════════════════════════════════════╝\n");
 
     let scenarios: Vec<(&str, _)> = vec![
@@ -47,6 +47,7 @@ pub async fn run() -> anyhow::Result<()> {
         ("chaos", run_scenario("chaos", scenario_chaos::run()).await),
         ("partition", run_scenario("partition", scenario_partition::run()).await),
         ("churn", run_scenario("churn", scenario_churn::run()).await),
+        ("presence", run_scenario("presence", scenario_presence::run()).await),
     ];
 
     let mut lines = Vec::new();

@@ -1,0 +1,443 @@
+//! L1-001 — Presence integration + adversarial tests (runtime level).
+//!
+//! These tests exercise the FULL runtime state machine: real Ed25519
+//! signatures, real MessagePack envelopes, real router/anti-spam/scoring
+//! paths — two or more `RuntimeState` instances exchanging raw bytes
+//! exactly as the QUIC transport would deliver them. No mocked structs.
+//!
+//! Time-based purge determinism (T6/A3 windows) is covered in the
+//! `presence` module tests with an injected clock; the true-network
+//! latency criterion (< 200 ms median) lives in `tom-stress`
+//! (`scenario_presence`).
+//!
+//! Adversarial map (spec §5.2): A1 forge · A2 replay · A5 lying Sybil ·
+//! A7 responder budget · A8 wrong attester · A9 reflection · A10 caps.
+
+use tom_protocol::presence::{
+    self, PresenceAttestationPayload, PresenceChallengePayload, RelayProof, RelayProofType,
+};
+use tom_protocol::{
+    Envelope, EnvelopeBuilder, MessageType, NodeId, ProtocolEvent, RuntimeConfig, RuntimeEffect,
+    RuntimeState,
+};
+
+fn keypair(seed: u8) -> (NodeId, [u8; 32]) {
+    use rand::SeedableRng;
+    let mut rng = rand::rngs::StdRng::seed_from_u64(seed as u64);
+    let secret = tom_connect::SecretKey::generate(&mut rng);
+    let node_id: NodeId = secret.public().to_string().parse().unwrap();
+    (node_id, secret.to_bytes())
+}
+
+fn state_with(seed: u8) -> RuntimeState {
+    let (id, secret) = keypair(seed);
+    RuntimeState::new(
+        id,
+        secret,
+        RuntimeConfig {
+            encryption: false,
+            username: format!("node-{seed}"),
+            ..Default::default()
+        },
+    )
+}
+
+/// Extract all envelopes of a given type from effects, as wire bytes.
+fn envelopes_of(effects: &[RuntimeEffect], msg_type: MessageType) -> Vec<Vec<u8>> {
+    effects
+        .iter()
+        .filter_map(|e| match e {
+            RuntimeEffect::SendEnvelope(env)
+            | RuntimeEffect::SendEnvelopeTo { envelope: env, .. }
+            | RuntimeEffect::SendWithBackupFallback { envelope: env, .. }
+                if env.msg_type == msg_type =>
+            {
+                Some(env.to_bytes().unwrap())
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+fn attestation_events(effects: &[RuntimeEffect]) -> Vec<(NodeId, String)> {
+    effects
+        .iter()
+        .filter_map(|e| match e {
+            RuntimeEffect::Emit(ProtocolEvent::PresenceAttestationReceived {
+                attester_id,
+                challenge_id,
+                ..
+            }) => Some((*attester_id, challenge_id.clone())),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Make `relay` earn REAL relay evidence in `observer`'s local RoleManager:
+/// `observer` sees a message it originated relayed by `relay` (signed
+/// RelayForwarded ACK) — the exact production path of the anti-Sybil gate.
+fn earn_relay_evidence(
+    observer: &mut RuntimeState,
+    observer_secret: &[u8; 32],
+    relay: &mut RuntimeState,
+    dest_seed: u8,
+) {
+    let (dest, _) = keypair(200 + dest_seed); // a third node, offline
+
+    // Observer-originated chat routed THROUGH `relay` toward `dest`.
+    let envelope = EnvelopeBuilder::new(
+        observer.local_id(),
+        dest,
+        MessageType::Chat,
+        b"payload".to_vec(),
+    )
+    .via(vec![relay.local_id()])
+    .sign(observer_secret);
+
+    let effects = relay.handle_incoming(&envelope.to_bytes().unwrap());
+    let acks = envelopes_of(&effects, MessageType::Ack);
+    assert!(
+        !acks.is_empty(),
+        "relay must emit a signed RelayForwarded ACK toward the origin"
+    );
+    for ack in acks {
+        observer.handle_incoming(&ack);
+    }
+}
+
+/// Seed of an EMPTY aggregation window (reference value for asserts).
+fn empty_seed() -> [u8; 32] {
+    tom_protocol::presence::aggregator::aggregate_seed(std::iter::empty())
+}
+
+/// Full honest flow: relay evidence → challenge → signed attestation →
+/// acceptance event → non-trivial entropy seed. (T1/T2/T4/T5 at runtime level)
+#[test]
+fn honest_roundtrip_with_real_relay_evidence() {
+    let mut alice = state_with(1);
+    let mut bob = state_with(2);
+    let (_, alice_secret) = keypair(1);
+    let bob_id = bob.local_id();
+
+    // Without relay evidence, Bob's local score at Alice is 0 → gate closed.
+    earn_relay_evidence(&mut alice, &alice_secret, &mut bob, 1);
+
+    // Alice challenges Bob.
+    let effects = alice.initiate_presence_check(bob_id);
+    let challenges = envelopes_of(&effects, MessageType::PresenceChallenge);
+    assert_eq!(challenges.len(), 1, "exactly one signed challenge");
+
+    // Bob answers through the full incoming pipeline.
+    let bob_effects = bob.handle_incoming(&challenges[0]);
+    let attestations = envelopes_of(&bob_effects, MessageType::PresenceAttestation);
+    assert_eq!(attestations.len(), 1, "Bob signs exactly one attestation");
+
+    // Alice accepts: event emitted, window updated, seed non-trivial.
+    let alice_effects = alice.handle_incoming(&attestations[0]);
+    let events = attestation_events(&alice_effects);
+    assert_eq!(events.len(), 1, "acceptance event expected");
+    assert_eq!(events[0].0, bob_id);
+    assert_eq!(alice.presence_attestation_count(), 1);
+    assert_ne!(
+        alice.presence_seed(),
+        empty_seed(),
+        "seed must differ from the empty-window seed once an attestation lands"
+    );
+}
+
+/// A2 — replaying an accepted attestation hits a consumed (one-shot)
+/// challenge: no event, no growth of the aggregation window.
+#[test]
+fn replayed_attestation_is_dropped() {
+    let mut alice = state_with(1);
+    let mut bob = state_with(2);
+    let (_, alice_secret) = keypair(1);
+    earn_relay_evidence(&mut alice, &alice_secret, &mut bob, 1);
+
+    let challenges = envelopes_of(
+        &alice.initiate_presence_check(bob.local_id()),
+        MessageType::PresenceChallenge,
+    );
+    let attestations = envelopes_of(
+        &bob.handle_incoming(&challenges[0]),
+        MessageType::PresenceAttestation,
+    );
+
+    assert_eq!(attestation_events(&alice.handle_incoming(&attestations[0])).len(), 1);
+    // Replay, byte-for-byte identical (valid signature, correct nonce).
+    let replay_effects = alice.handle_incoming(&attestations[0]);
+    assert!(
+        attestation_events(&replay_effects).is_empty(),
+        "replay must be silently dropped"
+    );
+    assert_eq!(alice.presence_attestation_count(), 1);
+}
+
+/// A1 — attestation with a tampered signature is dropped by the envelope
+/// signature check (before any presence logic).
+#[test]
+fn forged_signature_is_dropped() {
+    let mut alice = state_with(1);
+    let mut bob = state_with(2);
+    let (_, alice_secret) = keypair(1);
+    earn_relay_evidence(&mut alice, &alice_secret, &mut bob, 1);
+
+    let challenges = envelopes_of(
+        &alice.initiate_presence_check(bob.local_id()),
+        MessageType::PresenceChallenge,
+    );
+    let attestations = envelopes_of(
+        &bob.handle_incoming(&challenges[0]),
+        MessageType::PresenceAttestation,
+    );
+
+    let mut env = Envelope::from_bytes(&attestations[0]).unwrap();
+    env.signature[0] ^= 0xFF; // corrupt one signature byte
+    let effects = alice.handle_incoming(&env.to_bytes().unwrap());
+    assert!(attestation_events(&effects).is_empty());
+    assert_eq!(alice.presence_attestation_count(), 0);
+}
+
+/// A5 — a Sybil that NEVER relayed for Alice self-declares a top score in
+/// the payload. The gate reads Alice's LOCAL score only → dropped.
+#[test]
+fn lying_sybil_self_declared_score_is_ignored() {
+    let mut alice = state_with(1);
+    let sybil = state_with(3);
+    let (_, sybil_secret) = keypair(3);
+    let sybil_id = sybil.local_id();
+
+    // Alice challenges the Sybil (no relay evidence exists for it).
+    let challenges = envelopes_of(
+        &alice.initiate_presence_check(sybil_id),
+        MessageType::PresenceChallenge,
+    );
+    let challenge_env = Envelope::from_bytes(&challenges[0]).unwrap();
+    let challenge = PresenceChallengePayload::from_bytes(&challenge_env.payload).unwrap();
+
+    // The Sybil crafts a LYING attestation: reliability_score = 10.0,
+    // perfectly signed, correct nonce, correct ids. Everything checks out
+    // EXCEPT Alice's local observation of it.
+    let lie = PresenceAttestationPayload {
+        challenge_id: challenge.challenge_id.clone(),
+        nonce: challenge.nonce.clone(),
+        timestamp: challenge.timestamp,
+        attester_id: sybil_id,
+        challenger_id: alice.local_id(),
+        relay_proof: RelayProof {
+            proof_type: RelayProofType::SelfObserved,
+            observer_id: sybil_id,
+            observed_at: challenge.timestamp,
+            bytes_relayed: u64::MAX / 2, // "I relayed terabytes, trust me"
+            observer_signature: vec![],
+            reliability_score: Some(10.0),
+        },
+    };
+    let env = EnvelopeBuilder::new(
+        sybil_id,
+        alice.local_id(),
+        MessageType::PresenceAttestation,
+        lie.to_bytes(),
+    )
+    .sign(&sybil_secret);
+
+    let effects = alice.handle_incoming(&env.to_bytes().unwrap());
+    assert!(
+        attestation_events(&effects).is_empty(),
+        "self-declared score must never open the gate"
+    );
+    assert_eq!(alice.presence_attestation_count(), 0);
+
+    // Sanity: the sybil state was never consulted — the lie was crafted
+    // out-of-band, as a real attacker would.
+    let _ = sybil.local_id();
+}
+
+/// A8 — an on-path eavesdropper M (who sees the cleartext challenge) answers
+/// in Bob's place with ITS own valid signature: dropped, wrong attester.
+#[test]
+fn attestation_from_wrong_node_is_dropped() {
+    let mut alice = state_with(1);
+    let mut bob = state_with(2);
+    let mut mallory = state_with(4);
+    let (_, mallory_secret) = keypair(4);
+
+    // Even a well-scored Mallory must not be able to usurp Bob's challenge.
+    let (_, alice_secret) = keypair(1);
+    earn_relay_evidence(&mut alice, &alice_secret, &mut bob, 1);
+    earn_relay_evidence(&mut alice, &alice_secret, &mut mallory, 5);
+
+    let challenges = envelopes_of(
+        &alice.initiate_presence_check(bob.local_id()),
+        MessageType::PresenceChallenge,
+    );
+    let challenge_env = Envelope::from_bytes(&challenges[0]).unwrap();
+    let challenge = PresenceChallengePayload::from_bytes(&challenge_env.payload).unwrap();
+
+    // Mallory saw the nonce on the wire and answers with a VALID signature.
+    let usurped = PresenceAttestationPayload {
+        challenge_id: challenge.challenge_id.clone(),
+        nonce: challenge.nonce.clone(),
+        timestamp: challenge.timestamp,
+        attester_id: mallory.local_id(),
+        challenger_id: alice.local_id(),
+        relay_proof: RelayProof {
+            proof_type: RelayProofType::SelfObserved,
+            observer_id: mallory.local_id(),
+            observed_at: challenge.timestamp,
+            bytes_relayed: 0,
+            observer_signature: vec![],
+            reliability_score: None,
+        },
+    };
+    let env = EnvelopeBuilder::new(
+        mallory.local_id(),
+        alice.local_id(),
+        MessageType::PresenceAttestation,
+        usurped.to_bytes(),
+    )
+    .sign(&mallory_secret);
+
+    let effects = alice.handle_incoming(&env.to_bytes().unwrap());
+    assert!(
+        attestation_events(&effects).is_empty(),
+        "attestation must come from the challenged node, not an on-path observer"
+    );
+    assert_eq!(alice.presence_attestation_count(), 0);
+}
+
+/// A9 — reflection: an UNSIGNED challenge spoofing Alice as `from` must not
+/// extract a signed attestation from Bob (CPU + reflection defense). Same
+/// for a signed challenge whose payload claims a different challenger.
+#[test]
+fn forged_challenges_extract_no_signature() {
+    let alice = state_with(1);
+    let mut bob = state_with(2);
+    let (_, mallory_secret) = keypair(4);
+    let (mallory_id, _) = keypair(4);
+
+    // 1. Unsigned challenge, from spoofed as Alice.
+    let payload = PresenceChallengePayload {
+        challenge_id: "spoof-1".into(),
+        nonce: vec![9u8; presence::NONCE_LEN],
+        timestamp: tom_protocol::now_ms(),
+        challenger_id: alice.local_id(),
+    };
+    let unsigned = Envelope::new(
+        alice.local_id(),
+        bob.local_id(),
+        MessageType::PresenceChallenge,
+        payload.to_bytes(),
+    ); // never signed
+    let effects = bob.handle_incoming(&unsigned.to_bytes().unwrap());
+    assert!(
+        envelopes_of(&effects, MessageType::PresenceAttestation).is_empty(),
+        "unsigned challenge must not be answered"
+    );
+
+    // 2. Mallory-signed challenge claiming challenger_id = Alice
+    //    (attestations would be reflected onto Alice).
+    let payload = PresenceChallengePayload {
+        challenge_id: "spoof-2".into(),
+        nonce: vec![9u8; presence::NONCE_LEN],
+        timestamp: tom_protocol::now_ms(),
+        challenger_id: alice.local_id(),
+    };
+    let mismatched = EnvelopeBuilder::new(
+        mallory_id,
+        bob.local_id(),
+        MessageType::PresenceChallenge,
+        payload.to_bytes(),
+    )
+    .sign(&mallory_secret);
+    let effects = bob.handle_incoming(&mismatched.to_bytes().unwrap());
+    assert!(
+        envelopes_of(&effects, MessageType::PresenceAttestation).is_empty(),
+        "challenger_id ≠ envelope signer must not be answered"
+    );
+}
+
+/// A7 — responder budget: a flood of VALID signed challenges (distinct
+/// ids, attacker-crafted) extracts at most RESPONDER_BUDGET_PER_WINDOW
+/// signatures per window from Bob.
+#[test]
+fn responder_budget_caps_signature_extraction() {
+    let mut bob = state_with(2);
+    let (mallory_id, mallory_secret) = keypair(4);
+
+    let mut signed = 0;
+    for i in 0..(presence::RESPONDER_BUDGET_PER_WINDOW as usize * 3) {
+        let payload = PresenceChallengePayload {
+            challenge_id: format!("flood-{i}"),
+            nonce: vec![7u8; presence::NONCE_LEN],
+            timestamp: tom_protocol::now_ms(),
+            challenger_id: mallory_id,
+        };
+        let env = EnvelopeBuilder::new(
+            mallory_id,
+            bob.local_id(),
+            MessageType::PresenceChallenge,
+            payload.to_bytes(),
+        )
+        .sign(&mallory_secret);
+        let effects = bob.handle_incoming(&env.to_bytes().unwrap());
+        signed += envelopes_of(&effects, MessageType::PresenceAttestation).len();
+    }
+    assert_eq!(
+        signed,
+        presence::RESPONDER_BUDGET_PER_WINDOW as usize,
+        "budget must cap signature extraction exactly"
+    );
+}
+
+/// A10 — challenger-side caps: per-target (10) and global (256) limits
+/// bound the pending-challenge memory under a runaway caller.
+#[test]
+fn challenger_caps_bound_pending_memory() {
+    let mut alice = state_with(1);
+
+    // Per-target cap.
+    let (target, _) = keypair(50);
+    let mut sent = 0;
+    for _ in 0..presence::MAX_CONCURRENT_CHALLENGES_PER_PEER + 5 {
+        sent += envelopes_of(
+            &alice.initiate_presence_check(target),
+            MessageType::PresenceChallenge,
+        )
+        .len();
+    }
+    assert_eq!(
+        sent,
+        presence::MAX_CONCURRENT_CHALLENGES_PER_PEER,
+        "per-target cap must hold"
+    );
+
+    // Global cap across many targets.
+    let mut total = sent;
+    let mut seed = 51u8;
+    while seed < 51 + 30 {
+        let (t, _) = keypair(seed);
+        for _ in 0..presence::MAX_CONCURRENT_CHALLENGES_PER_PEER {
+            total += envelopes_of(
+                &alice.initiate_presence_check(t),
+                MessageType::PresenceChallenge,
+            )
+            .len();
+        }
+        seed += 1;
+    }
+    assert!(
+        total <= presence::MAX_PENDING_CHALLENGES,
+        "global cap must hold: {total} > {}",
+        presence::MAX_PENDING_CHALLENGES
+    );
+}
+
+/// Self-challenge is a no-op (no signature spent, no state created).
+#[test]
+fn self_challenge_is_noop() {
+    let mut alice = state_with(1);
+    let id = alice.local_id();
+    assert!(alice.initiate_presence_check(id).is_empty());
+    assert_eq!(alice.presence_attestation_count(), 0);
+}

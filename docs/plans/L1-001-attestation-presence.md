@@ -729,6 +729,28 @@ pub fn handle_presence_attestation(&mut self, env: Envelope, now: u64) -> Vec<Ru
 
 ---
 
+## Statut d'implémentation (2026-07-06)
+
+**✅ IMPLÉMENTÉ ET VALIDÉ EN RÉSEAU RÉEL** (même session que la spec V2) :
+
+- Module `crates/tom-protocol/src/presence/` (mod + attestation + aggregator), câblé
+  dans types/router-dispatch/state/loop/commands. Patch mono-crate comme prévu.
+- **Évidence relais réelle** : le gate lit le score local nourri par l'ACK
+  `RelayForwarded` **signé** (`state.rs`, branche `RoutingAction::Ack`) — preuve
+  cryptographique locale que le pair a relayé pour nous (anti-replay ACK déjà en place).
+- Tests **runtime-level** `tests/presence_integration.rs` : 9/9 (happy path avec évidence
+  relais réelle, A1 forge, A2 replay one-shot, A5 Sybil menteur, A7 budget répondeur,
+  A8 usurpation on-path, A9 réflexion ×2, A10 caps mémoire, self-challenge no-op).
+- Scénario **QUIC vivant** `tom-stress presence` (3 nœuds A↔B↔C, jamais A↔C) : **5/5** —
+  évidence relais (score 6.00, gate ouvert), **10/10 attestations, médiane 7 ms**
+  (budget M1.1 : 200 ms), gate anti-Sybil vérifié sur le réseau (attestation honnête d'un
+  pair sans évidence → drop silencieux), fenêtre d'agrégation 10 + seed non trivial.
+- Leçon réseau consignée dans le scénario : le PeerAnnounce gossip (role=Peer) écrase le
+  hint Relay de la topologie → le hint est ré-upserté avant chaque send dans le scénario.
+  En production c'est le pipeline de rôles (promotion score ≥ 10) qui installe le rôle.
+- Fenêtres temporelles déterministes (T6/A3) : couvertes dans les tests du module avec
+  horloge injectée (`u64`), conformément à la spec (pas d'`Instant` dans l'état).
+
 ## Next
 
 **L1-002 — Entropie non-biaisable (Mur 3 — VDF)**

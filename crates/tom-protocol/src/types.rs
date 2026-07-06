@@ -48,6 +48,10 @@ pub enum MessageType {
     BackupConfirmDelivery,
     // Network
     PeerAnnounce,
+    // Proof of Presence (L1-001) — appended LAST: wire compat requires
+    // never inserting variants mid-enum (MessagePack index-based encoding).
+    PresenceChallenge,
+    PresenceAttestation,
 }
 
 /// Delivery status pipeline for a message.
@@ -114,6 +118,8 @@ mod tests {
             MessageType::BackupQueryResponse,
             MessageType::BackupConfirmDelivery,
             MessageType::PeerAnnounce,
+            MessageType::PresenceChallenge,
+            MessageType::PresenceAttestation,
         ];
 
         for msg_type in &types {
