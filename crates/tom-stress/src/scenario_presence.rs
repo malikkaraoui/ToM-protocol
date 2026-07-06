@@ -54,6 +54,7 @@ pub async fn run() -> anyhow::Result<ScenarioResult> {
     let cfg = |name: &str| RuntimeConfig {
         username: name.into(),
         encryption: false,
+        enable_dht: false, // red-team: never pollute the shared DHT rendezvous
         ..Default::default()
     };
     let mut channels_a = ProtocolRuntime::spawn(node_a, cfg("alice"));

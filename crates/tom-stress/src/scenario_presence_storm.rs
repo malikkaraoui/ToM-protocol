@@ -49,6 +49,7 @@ pub async fn run() -> anyhow::Result<ScenarioResult> {
         let cfg = RuntimeConfig {
             username: format!("storm-{i}"),
             encryption: false,
+            enable_dht: false, // red-team: never pollute the shared DHT rendezvous
             presence_contribution_min: 0.0,
             ..Default::default()
         };
