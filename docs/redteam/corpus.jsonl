@@ -10,3 +10,4 @@
 {"id":"pres.replay","params":{"transport":"quic"},"was_breach":false,"defended":"build22","note":"30 rejeux QUIC reel -> 0 accepte"}
 {"id":"pres.malformed","params":{"transport":"quic"},"was_breach":false,"defended":"build22","note":"payloads MessagePack tordus -> absorbes, cible reste reactive (pas de panic/hang)"}
 {"id":"pres.flood","params":{"transport":"quic","n":40},"was_breach":false,"defended":"build22","note":"40 challenges signes QUIC reel -> 10 signes (budget repondeur plafonne sur le vrai fil)"}
+{"id":"pres.sybil","params":{"identities":20},"was_breach":true,"defended_since":"build23","note":"budget par-identite bypassable; CORRIGE par cap global 120 (RESPONDER_GLOBAL_BUDGET_PER_WINDOW)"}
