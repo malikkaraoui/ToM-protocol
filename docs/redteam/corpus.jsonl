@@ -6,3 +6,7 @@
 {"id":"pres.flood","params":{"rate":500},"was_breach":false,"note":"budget répondeur doit plafonner"}
 {"id":"chaos.monkey","params":{"seed":7},"was_breach":true,"defended_since":"build22","note":"noeud fige apres churn+skew (FINDING #1) CORRIGE build22 (timeout recovery ops); regression: nodes stay responsive"}
 {"id":"pres.resume","params":{"seed":7},"was_breach":null,"note":"FINDING #2 ouvert: presence ne reprend pas toujours apres churn (Online-marking); a confirmer sur flotte reelle"}
+{"id":"pres.forge","params":{"transport":"quic"},"was_breach":false,"defended":"build22","note":"20 forge sur QUIC reel -> 0 accepte (drop_unknown_challenge; forge non sollicite tombe avant le check signature)"}
+{"id":"pres.replay","params":{"transport":"quic"},"was_breach":false,"defended":"build22","note":"30 rejeux QUIC reel -> 0 accepte"}
+{"id":"pres.malformed","params":{"transport":"quic"},"was_breach":false,"defended":"build22","note":"payloads MessagePack tordus -> absorbes, cible reste reactive (pas de panic/hang)"}
+{"id":"pres.flood","params":{"transport":"quic","n":40},"was_breach":false,"defended":"build22","note":"40 challenges signes QUIC reel -> 10 signes (budget repondeur plafonne sur le vrai fil)"}

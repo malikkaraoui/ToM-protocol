@@ -19,6 +19,7 @@ mod scenario_failover;
 mod scenario_group;
 mod scenario_partition;
 mod scenario_presence;
+mod scenario_presence_attack;
 mod scenario_chaos_monkey;
 mod scenario_presence_storm;
 mod scenario_roles;
@@ -180,6 +181,9 @@ enum Command {
     /// L1-001 STORM: mesh of nodes hammering presence, per-outcome metrics + latency relevés.
     PresenceStorm,
 
+    /// RED TEAM: adversarial presence injection over live QUIC (forge/replay/malformed/flood).
+    PresenceAttack,
+
     /// Chaos Monkey: random aggressive faults (kill/revive/clock-skew) on a live presence fleet.
     ChaosMonkey {
         /// RNG seed (reproducible chaos).
@@ -245,6 +249,7 @@ async fn main() -> anyhow::Result<()> {
         Command::Chaos => "chaos",
         Command::Presence => "presence",
         Command::PresenceStorm => "presence-storm",
+        Command::PresenceAttack => "presence-attack",
         Command::ChaosMonkey { .. } => "chaos-monkey",
         Command::Endurance => "endurance",
         Command::Partition => "partition",
@@ -299,7 +304,7 @@ async fn main() -> anyhow::Result<()> {
 
     // ── Protocol scenarios (spawn their own nodes) ───────────────
     match &cli.command {
-        Command::E2e | Command::Group | Command::Backup | Command::Failover | Command::Roles | Command::Chaos | Command::Endurance | Command::Partition | Command::Churn | Command::Presence | Command::PresenceStorm | Command::ChaosMonkey { .. } => {
+        Command::E2e | Command::Group | Command::Backup | Command::Failover | Command::Roles | Command::Chaos | Command::Endurance | Command::Partition | Command::Churn | Command::Presence | Command::PresenceStorm | Command::PresenceAttack | Command::ChaosMonkey { .. } => {
             let result = match cli.command {
                 Command::E2e => scenario_e2e::run().await?,
                 Command::Group => scenario_group::run().await?,
@@ -312,6 +317,7 @@ async fn main() -> anyhow::Result<()> {
                 Command::Churn => scenario_churn::run().await?,
                 Command::Presence => scenario_presence::run().await?,
                 Command::PresenceStorm => scenario_presence_storm::run().await?,
+                Command::PresenceAttack => scenario_presence_attack::run().await?,
                 Command::ChaosMonkey { seed } => scenario_chaos_monkey::run_with_seed(seed).await?,
                 _ => unreachable!(),
             };
@@ -433,6 +439,7 @@ async fn main() -> anyhow::Result<()> {
 
         Command::Presence => unreachable!("handled in the scenario block above"),
         Command::PresenceStorm => unreachable!("handled in the scenario block above"),
+        Command::PresenceAttack => unreachable!("handled in the scenario block above"),
         Command::ChaosMonkey { .. } => unreachable!("handled in the scenario block above"),
         Command::FleetProbe { .. } => unreachable!("handled in the dispatch block above"),
 
