@@ -191,7 +191,7 @@ Fable 5 a démonté la V1. Verdict : **L0 tient (solide, mesuré) ; les 7 décis
 
 ## 12. Le premier pas — story L1-001 (endossée)
 
-**Attestation de présence** : A défie B ; B répond par une attestation signée incluant une **preuve d'activité récente** (B a relayé ≥1 message dans les 5 dernières s) ; l'attestation est **éphémère (30s), jamais persistée, jamais backupée** (aligné #2). Plusieurs attestations agrégées → **graine d'entropie** pour la sélection cascade (story suivante). C'est le **primitif** du Proof of Presence : petit, sans argent, sans partition, sans quorum — et il **révèle** si l'entropie/anti-Sybil sont réels. Critères d'acceptation détaillés dans `docs/plans/TOM-PLAN-GLOBAL.md` (jalon M1.1).
+**Attestation de présence** : A défie B (challenge **signé**) ; B répond par une attestation signée ; la preuve d'activité est le **score de relais de B observé localement par A** (jamais une déclaration de B — un menteur ment) ; l'attestation est **éphémère (30s), jamais persistée, jamais backupée** (aligné #2), liée à la cible du challenge (one-shot, anti-usurpation par relais). Plusieurs attestations agrégées → **graine d'entropie** pour la sélection cascade (story suivante). C'est le **primitif** du Proof of Presence : petit, sans argent, sans partition, sans quorum — et il **révèle** si l'entropie/anti-Sybil sont réels. Critères d'acceptation détaillés dans `docs/plans/TOM-PLAN-GLOBAL.md` (jalon M1.1).
 
 ---
 

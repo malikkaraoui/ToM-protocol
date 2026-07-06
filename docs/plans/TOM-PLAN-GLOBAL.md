@@ -63,20 +63,21 @@
 ### ⚙️ Paramètres à VERROUILLER avant M1.1 (sinon M1.1 est un leurre — Fable)
 - **Durée de probation** : proposé **7 jours** (non négociable) avant qu'un nœud puisse être témoin critique.
 - **Taille de quorum Q** : proposé **Q ≥ 50** (à calibrer en M1.4 sur `P(quorum Sybil)`).
-- **Format « preuve d'activité récente »** : hash signé du **dernier message réellement relayé** + **compteur de relais signé** (timestamp lié) + fenêtre 5 s. Détail dans la story L1-001.
+- **Format « preuve d'activité récente »** *(révisé 2026-07-06, durcissement L1-001)* : le gate v1 est le **score de relais de B tel qu'observé LOCALEMENT par le challenger** (RoleManager, seuil = 2.0) — jamais une déclaration de B. L'idée V1 « hash signé du dernier message relayé + fenêtre 5 s » est abandonnée : invérifiable par A (il n'a pas vu ce message) et fuite de métadonnées (exposer les hashs des messages relayés). La preuve **transférable à un tiers** arrive avec `ObserverSigned` (L1-003). Détail dans la story L1-001.
 - Ces trois paramètres sont des **entrées** de M1.1/M1.4, pas des détails d'implémentation.
 
-### M1.1 — Attestation de présence *(première story — endossée)*
+### M1.1 — Attestation de présence *(première story — spec durcie 2026-07-06, prête à coder)*
 - **Objectif** : primitif du PoP — A prouve que B est vivant MAINTENANT, B co-signe.
-- **Livrable** : protocole challenge→réponse signé, avec **preuve d'activité récente** (B a relayé ≥1 msg dans les 5 s) ; attestation **éphémère 30s, jamais persistée, jamais backupée** (aligné #2).
-- **Critères d'acceptation** :
+- **Livrable** : protocole challenge→réponse **signé dans les deux sens** (challenge non signé = réflexion + asymétrie CPU), gate anti-Sybil = **score de relais localement observé par A** ; attestation **éphémère 30s, jamais persistée, jamais backupée** (aligné #2), liée à la cible du challenge (one-shot).
+- **Critères d'acceptation** (détail : 6 tests nominaux + 10 tests adverses dans `L1-001-attestation-presence.md`) :
   - Honnête : 100 % succès, latence médiane < 200 ms.
-  - Anti-replay : nonce rejoué → rejeté.
-  - Anti-forge : signature falsifiée → rejetée.
-  - Anti-menteur : B hors-ligne mais « atteste » → rejeté (preuve d'activité fausse).
-  - Éphémérité : purge après 30 s, jamais sur disque ni dans le backup.
-  - Agrégation : hash de N attestations = graine reproductible **indépendante de l'ordre**.
-- **Risque** 🟠 : « preuve d'activité » falsifiable → à durcir (lien cryptographique au dernier relais réel).
+  - Anti-replay : challenge one-shot, attestation rejouée → droppée.
+  - Anti-forge : signature falsifiée → droppée ; usurpation par un relais du chemin → droppée.
+  - Anti-menteur : score auto-déclaré ignoré ; seul le score local de A décide.
+  - Éphémérité : purge après 30 s (horloge locale de A, réseau sans NTP), jamais sur disque ni backup.
+  - Agrégation : hash des **signatures** de N attestations = graine reproductible **indépendante de l'ordre** ; le grinding par sous-ensemble reste OUVERT (fermé par M1.2).
+  - Bornes mémoire globales (~200 Ko pire cas — compatible Apple TV).
+- **Risque** 🟠 (résiduel, assumé) : la présence n'est prouvable qu'aux yeux d'un challenger qui a déjà vu B relayer — **pas de preuve transférable à un tiers avant L1-003** (`ObserverSigned`).
 - **Dépend de** : L0 (DHT rendez-vous, QUIC). **Sans dépendance argent/partition/quorum.**
 
 ### M1.2 — Entropie non-biaisable *(le mur #1 — PROBLÈME DE RECHERCHE, à mener EN PARALLÈLE de M1.1)*
@@ -171,7 +172,9 @@
 | 🔴 | Suspension iOS (transport mobile) | M0.5 | mitigé (backup 24h + APNs) |
 | 🔴 | Migration de rôle jamais spécifiée (quorum qui part sous churn) | M1.3/M1.5 | à concevoir (le témoin ET sa mémoire passent au suivant) |
 | 🟠 | Récupération wallet plie un principe | M2.4 | à borner |
-| 🟠 | Preuve d'activité falsifiable | M1.1 | à durcir |
+| 🟠 | Preuve d'activité falsifiable | M1.1 | 🟢 durci (gate = score local du challenger ; champ auto-déclaré jamais lu) |
+| 🟠 | Preuve de présence non transférable à un tiers | M1.1→L1-003 | assumé v1, fermé par `ObserverSigned` |
+| 🟠 | Horloges non synchronisées (fenêtres de fraîcheur) | M1.1 | 🟢 durci (fraîcheur jugée à l'horloge locale du challenger) |
 | 🟠 | Box sans UPnP/IPv6 | M0.1/M0.2 | fallback relais |
 
 ---
