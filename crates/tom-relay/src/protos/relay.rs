@@ -476,6 +476,11 @@ impl ClientToRelayMsg {
 
         let res = match frame_type {
             FrameType::ClientToRelayDatagram | FrameType::ClientToRelayDatagramBatch => {
+                // Bounds check BEFORE slicing (red-team FINDING #11): a client
+                // datagram frame with < EndpointId::LENGTH bytes would otherwise
+                // panic on `&content[..EndpointId::LENGTH]`, crashing the relay
+                // task. The sibling RelayToClient path already guards this.
+                ensure!(content.len() >= EndpointId::LENGTH, Error::InvalidFrame);
                 let dst_endpoint_id = cache.key_from_slice(&content[..EndpointId::LENGTH])?;
                 let datagrams = Datagrams::from_bytes(
                     content.slice(EndpointId::LENGTH..),
@@ -530,6 +535,32 @@ mod tests {
             let expected_bytes = HEXLOWER.decode(&stripped).unwrap();
             assert_eq!(HEXLOWER.encode(&bytes), HEXLOWER.encode(&expected_bytes));
         }
+    }
+
+    #[test]
+    fn client_datagram_frame_too_short_is_err_not_panic() {
+        // FINDING #11: a ClientToRelayDatagram frame carrying fewer than
+        // EndpointId::LENGTH content bytes must be rejected, never panic the
+        // relay task on `&content[..EndpointId::LENGTH]`.
+        let client_key = SecretKey::from_bytes(&[42u8; 32]);
+        let valid = ClientToRelayMsg::Datagrams {
+            dst_endpoint_id: client_key.public(),
+            datagrams: Datagrams {
+                ecn: None,
+                segment_size: None,
+                contents: "x".into(),
+            },
+        }
+        .to_bytes()
+        .freeze();
+        // Keep the frame-type prefix, truncate everything after a few bytes so
+        // the content is far shorter than an EndpointId (32 bytes).
+        let truncated = valid.slice(..6);
+        let res = ClientToRelayMsg::from_bytes(truncated, &KeyCache::test());
+        assert!(
+            res.is_err(),
+            "short client datagram frame must be rejected, not panic"
+        );
     }
 
     #[test]
