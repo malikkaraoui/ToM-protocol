@@ -186,6 +186,12 @@ impl MessageTracker {
         self.messages.get(message_id).map(|m| m.status)
     }
 
+    /// Intended recipient of a tracked message, if we sent it. Used to bind
+    /// incoming ACKs to the message we actually originated (anti-forgery).
+    pub fn recipient_of(&self, message_id: &str) -> Option<NodeId> {
+        self.messages.get(message_id).map(|m| m.to)
+    }
+
     /// Number of currently tracked messages.
     pub fn len(&self) -> usize {
         self.messages.len()

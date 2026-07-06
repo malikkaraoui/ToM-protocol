@@ -906,9 +906,24 @@ impl RuntimeState {
                         // verified, cryptographic evidence that `from`
                         // relayed for us — this feeds the presence
                         // anti-Sybil gate (local score of the attester).
-                        // The router's ACK anti-replay cache already
-                        // prevents score pumping via re-sent ACKs.
-                        self.role_manager.record_relay(from, now_ms());
+                        //
+                        // Verrou anti-pumping (FINDING #7): credit relay
+                        // evidence ONLY when the ACK matches a REAL message we
+                        // originated AND `from` is not its final recipient (so
+                        // `from` is plausibly a relay on the path). Without this,
+                        // an attacker forges RelayForwarded ACKs with random
+                        // message_ids — each escaping the anti-replay cache
+                        // (distinct key) — to pump its local relay score without
+                        // relaying anything, then forges its way past the
+                        // presence gate / stranger cap. The anti-replay cache
+                        // alone only stops REPLAY of the same ACK.
+                        let is_real_relay = self
+                            .tracker
+                            .recipient_of(&original_message_id)
+                            .is_some_and(|recipient| recipient != from);
+                        if is_real_relay {
+                            self.role_manager.record_relay(from, now_ms());
+                        }
                         self.tracker.mark_relayed(&original_message_id)
                     }
                     AckType::RecipientReceived => {
@@ -3335,6 +3350,85 @@ mod tests {
         });
         assert!(has_deliver, "expected DeliverMessage, got: {effects:?}");
         assert!(has_ack, "expected ACK SendEnvelope, got: {effects:?}");
+    }
+
+    #[test]
+    fn forged_relay_ack_earns_no_score() {
+        // FINDING #7: a signed RelayForwarded ACK with a message_id we never
+        // sent must NOT credit the sender's local relay score. Otherwise an
+        // attacker pumps its score with random ids (each escaping anti-replay)
+        // and forges past the presence anti-Sybil gate.
+        use crate::router::{AckPayload, AckType};
+        let mut state = default_state(1);
+        let (eve_id, eve_secret) = keypair(66);
+
+        // 20 forged RelayForwarded ACKs, all with unknown (untracked) ids.
+        for i in 0..20 {
+            let payload = AckPayload {
+                original_message_id: format!("ghost-{i}"),
+                ack_type: AckType::RelayForwarded,
+            }
+            .to_bytes();
+            let raw = crate::envelope::EnvelopeBuilder::new(
+                eve_id,
+                state.local_id,
+                MessageType::Ack,
+                payload,
+            )
+            .sign(&eve_secret)
+            .to_bytes()
+            .unwrap();
+            state.handle_incoming(raw.as_slice());
+        }
+
+        assert_eq!(
+            state.role_manager.score(&eve_id, crate::types::now_ms()),
+            0.0,
+            "forged RelayForwarded ACKs for untracked messages must earn no relay score"
+        );
+    }
+
+    #[test]
+    fn genuine_relay_ack_earns_score() {
+        // Counterpart to forged_relay_ack_earns_no_score: a RelayForwarded ACK
+        // for a message we REALLY sent, from a node that is not the final
+        // recipient (i.e. a relay on the path), DOES credit relay evidence.
+        use crate::router::{AckPayload, AckType};
+        let mut state = default_state(1);
+        let (bob_id, _) = keypair(2); // final recipient
+        let (relay_id, relay_secret) = keypair(3); // relay on the path
+
+        // Send a real message to bob → tracker records it (to = bob).
+        let send = state.handle_send_message(bob_id, b"via relay".to_vec());
+        let msg_id = send
+            .iter()
+            .find_map(|e| match e {
+                RuntimeEffect::SendWithBackupFallback { envelope, .. } => Some(envelope.id.clone()),
+                RuntimeEffect::SendEnvelope(env) => Some(env.id.clone()),
+                _ => None,
+            })
+            .expect("send produced an envelope");
+
+        let payload = AckPayload {
+            original_message_id: msg_id,
+            ack_type: AckType::RelayForwarded,
+        }
+        .to_bytes();
+        let raw = crate::envelope::EnvelopeBuilder::new(
+            relay_id,
+            state.local_id,
+            MessageType::Ack,
+            payload,
+        )
+        .sign(&relay_secret)
+        .to_bytes()
+        .unwrap();
+        state.handle_incoming(raw.as_slice());
+
+        assert!(
+            state.role_manager.score(&relay_id, crate::types::now_ms()) > 0.0,
+            "a genuine relay's RelayForwarded ACK for a real message must earn score"
+        );
     }
 
     #[test]
