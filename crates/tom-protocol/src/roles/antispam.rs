@@ -23,6 +23,24 @@ use crate::types::NodeId;
 /// segmentés). Reste une borne dure anti-abus mémoire.
 pub const MAX_ENVELOPE_SIZE: usize = 64 * 1024 * 1024;
 
+/// Below this contribution score, a sender is a STRANGER for anti-spam purposes
+/// — subject to the shared global stranger cap on top of its per-sender bucket
+/// (red-team FINDING #8). Earning this score requires real contribution, which
+/// a swarm of fresh forged identities cannot cheaply produce. Mirrors the
+/// presence responder two-tier design (FINDING #5): known peers bypass the
+/// global cap and cannot be starved by a stranger flood.
+pub const STRANGER_SCORE_MAX: f64 = 1.0;
+
+/// Aggregate ceiling (msg/sec) on messages accepted from ALL strangers combined.
+/// The per-sender bucket alone is bypassable by identity rotation: N fresh
+/// identities each get `min_rate` (30/s), and LRU eviction of their buckets
+/// resets them — so aggregate ingress from a swarm is effectively unbounded, an
+/// Ed25519-verify CPU DoS that scales with attacker identities. This shared
+/// bucket bounds total stranger throughput regardless of identity count.
+/// Generous enough that a real network of new peers never hits it; KNOWN peers
+/// (score ≥ [`STRANGER_SCORE_MAX`]) are never subject to it.
+pub const GLOBAL_STRANGER_RATE: f64 = 200.0;
+
 /// Configuration for progressive anti-spam rate limiting.
 #[derive(Debug, Clone)]
 pub struct AntiSpamConfig {
@@ -112,6 +130,10 @@ pub struct AntiSpam {
     config: AntiSpamConfig,
     /// Per-sender token buckets (LRU-bounded).
     buckets: LruCache<NodeId, TokenBucket>,
+    /// Shared token bucket bounding aggregate throughput from STRANGERS
+    /// (score < STRANGER_SCORE_MAX), so identity rotation can't scale ingress
+    /// past a global ceiling (FINDING #8). Known peers never touch it.
+    global_stranger: TokenBucket,
 }
 
 impl AntiSpam {
@@ -121,6 +143,7 @@ impl AntiSpam {
         Self {
             config,
             buckets: LruCache::new(cap),
+            global_stranger: TokenBucket::new(GLOBAL_STRANGER_RATE, 0),
         }
     }
 
@@ -153,13 +176,24 @@ impl AntiSpam {
             bucket.update_rate(rate, now);
         }
 
-        if bucket.try_consume(now) {
-            Ok(())
-        } else {
-            Err(format!(
+        if !bucket.try_consume(now) {
+            return Err(format!(
                 "Rate limited: score={score:.2}, rate={rate:.1} msg/s",
-            ))
+            ));
         }
+
+        // FINDING #8: a stranger (low score, no real contribution) must also
+        // draw from the shared global bucket. This bounds aggregate stranger
+        // ingress regardless of how many identities the attacker rotates —
+        // per-sender buckets alone are reset by LRU eviction at scale. Known
+        // peers (score ≥ STRANGER_SCORE_MAX) skip this and can't be starved.
+        if score < STRANGER_SCORE_MAX && !self.global_stranger.try_consume(now) {
+            return Err(format!(
+                "Aggregate stranger rate limit: global {GLOBAL_STRANGER_RATE:.0} msg/s reached",
+            ));
+        }
+
+        Ok(())
     }
 
     /// Compute effective rate (msg/sec) for a given contribution score.
@@ -275,6 +309,49 @@ mod tests {
             }
         }
         assert_eq!(allowed, 60, "score=0 burst should be 60");
+    }
+
+    #[test]
+    fn stranger_swarm_bounded_by_global_cap() {
+        // FINDING #8: many fresh STRANGER identities, each within its own
+        // per-sender burst, must not scale aggregate ingress past the global
+        // stranger ceiling. At a frozen instant the global burst is 2×rate.
+        let mut antispam = AntiSpam::new(AntiSpamConfig::default());
+        let now = 1_000_000;
+        let mut allowed = 0u32;
+        for id in 0..100u8 {
+            let sybil = test_node_id(id);
+            for _ in 0..60 {
+                if antispam.check_rate(sybil, 0.0, now).is_ok() {
+                    allowed += 1;
+                }
+            }
+        }
+        let global_burst = (GLOBAL_STRANGER_RATE * 2.0) as u32;
+        assert_eq!(
+            allowed, global_burst,
+            "stranger swarm must be capped at the global burst {global_burst}, not scale with identities"
+        );
+    }
+
+    #[test]
+    fn known_sender_not_starved_by_stranger_swarm() {
+        // FINDING #8 (mirror of presence #5): a stranger flood that exhausts
+        // the global bucket must NOT deny service to a KNOWN, high-score peer.
+        let mut antispam = AntiSpam::new(AntiSpamConfig::default());
+        let now = 1_000_000;
+        for id in 0..100u8 {
+            let sybil = test_node_id(id);
+            for _ in 0..60 {
+                let _ = antispam.check_rate(sybil, 0.0, now);
+            }
+        }
+        // Global stranger bucket is now empty; a known peer still passes.
+        let known = test_node_id(200);
+        assert!(
+            antispam.check_rate(known, 50.0, now).is_ok(),
+            "known peer (score ≥ threshold) must bypass the global stranger cap"
+        );
     }
 
     #[test]
