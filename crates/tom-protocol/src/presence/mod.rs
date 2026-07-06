@@ -48,6 +48,18 @@ pub const MAX_STORED_ATTESTATIONS: usize = 512;
 /// Max attestations we sign per challenger per TTL window (responder side).
 pub const RESPONDER_BUDGET_PER_WINDOW: u32 = 10;
 
+/// GLOBAL cap on attestations signed per TTL window, across ALL challengers
+/// (red-team FINDING #4). The per-challenger budget alone is bypassable by
+/// identity rotation — a Sybil swarm of N forged identities would extract
+/// N × RESPONDER_BUDGET_PER_WINDOW signatures, an unbounded Ed25519 CPU DoS
+/// that scales with attacker identities. This ceiling bounds total signing
+/// work regardless of identity count. Chosen generous enough that a real
+/// home/small fleet never reaches it (a node receives ~1 challenge/peer per
+/// 15s probe), but a swarm is capped. Aligned with LOCKED #5 (progressive
+/// load under abuse, shared budget — not permanent exclusion; it resets each
+/// window).
+pub const RESPONDER_GLOBAL_BUDGET_PER_WINDOW: u32 = 120;
+
 /// Global cap on tracked responder windows (responder side).
 const MAX_RESPONDER_WINDOWS: usize = 512;
 
@@ -185,6 +197,9 @@ pub struct PresenceManager {
     accepted: HashMap<String, StoredAttestation>,
     /// challenger → (window_start_ms, responses_signed_in_window)
     responder_windows: HashMap<NodeId, (u64, u32)>,
+    /// GLOBAL responder budget window: (window_start_ms, total_signed).
+    /// Bounds total signing work across ALL challengers (FINDING #4).
+    global_window: (u64, u32),
     metrics: PresenceMetrics,
 }
 
@@ -248,6 +263,16 @@ impl PresenceManager {
     /// Responder-side budget: may we sign one more attestation for this
     /// challenger? Consumes one budget unit on success.
     pub fn allow_response(&mut self, challenger: NodeId, now: u64) -> bool {
+        // GLOBAL cap FIRST (FINDING #4): total signing work per window, across
+        // all challengers, is bounded regardless of how many identities the
+        // attacker rotates. Reset the global window when it expires.
+        if now.saturating_sub(self.global_window.0) >= PRESENCE_TTL_MS {
+            self.global_window = (now, 0);
+        }
+        if self.global_window.1 >= RESPONDER_GLOBAL_BUDGET_PER_WINDOW {
+            return false;
+        }
+
         // Bound the map itself before touching the entry.
         if !self.responder_windows.contains_key(&challenger)
             && self.responder_windows.len() >= MAX_RESPONDER_WINDOWS
@@ -267,6 +292,8 @@ impl PresenceManager {
             return false;
         }
         entry.1 += 1;
+        // Consume one unit of the global budget too (both must allow).
+        self.global_window.1 += 1;
         true
     }
 

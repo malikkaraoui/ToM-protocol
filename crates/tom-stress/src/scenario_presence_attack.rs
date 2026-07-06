@@ -199,6 +199,65 @@ pub async fn run() -> anyhow::Result<ScenarioResult> {
     .await;
     result.add(step);
 
+    // ── SYBIL SWARM: budget bypass via identity rotation ────────────────────
+    // Hypothesis: the responder budget (RESPONDER_BUDGET_PER_WINDOW) is keyed
+    // by CHALLENGER identity (envelope.from). An attacker rotating N forged
+    // identities would get N × budget signatures — no GLOBAL cap on signing
+    // work → CPU DoS. Each identity is a real keypair with a valid signature,
+    // so every challenge is individually legitimate.
+    let step = timed_step_async("sybil swarm (budget bypass via identity rotation)", || async {
+        const SYBILS: u8 = 20;
+        const PER_SYBIL: usize = 15; // exceed the per-identity budget (10)
+        let before = target.presence_metrics().await.unwrap_or_default();
+        for s in 0..SYBILS {
+            let (sid, skey) = keypair(100 + s); // a distinct forged identity
+            for i in 0..PER_SYBIL {
+                let payload = PresenceChallengePayload {
+                    challenge_id: format!("sybil-{s}-{i}"),
+                    nonce: vec![5u8; NONCE_LEN],
+                    timestamp: tom_protocol::now_ms(),
+                    challenger_id: sid,
+                };
+                let bytes = EnvelopeBuilder::new(
+                    sid,
+                    target_id,
+                    MessageType::PresenceChallenge,
+                    payload.to_bytes(),
+                )
+                .sign(&skey)
+                .to_bytes()
+                .unwrap();
+                let _ = attacker.send_raw(target_id, &bytes).await;
+                tokio::time::sleep(Duration::from_millis(4)).await;
+            }
+        }
+        tokio::time::sleep(Duration::from_millis(800)).await;
+        let m = target.presence_metrics().await.unwrap_or_default();
+        let signed = m.signed - before.signed;
+        let received = m.challenges_received - before.challenges_received;
+        // Per-identity budget is 10; global budget window count is bounded
+        // (MAX_RESPONDER_WINDOWS). With 20 identities, a per-identity-only cap
+        // yields ~200 signatures. A GLOBAL cap would keep it far lower.
+        let per_id = tom_protocol::presence::RESPONDER_BUDGET_PER_WINDOW as u64;
+        let global = tom_protocol::presence::RESPONDER_GLOBAL_BUDGET_PER_WINDOW as u64;
+        let per_identity_worst = per_id * SYBILS as u64;
+        // FINDING #4 fix: signing must be bounded by the GLOBAL cap, NOT scale
+        // with attacker identities. If signed approaches per_identity_worst
+        // (10×20=200), the global cap is absent/broken → CPU DoS.
+        if signed > global + global / 4 {
+            return Err(format!(
+                "BREACH: sybil swarm extracted {signed} signatures ({received} recv) — \
+                 exceeds global cap {global}; scales toward {per_identity_worst} with {SYBILS} ids (CPU DoS)"
+            ));
+        }
+        Ok(format!(
+            "{received} recv, {signed} signed — GLOBAL cap {global} held under {SYBILS} identities \
+             (per-identity worst would be {per_identity_worst})"
+        ))
+    })
+    .await;
+    result.add(step);
+
     // ── Final: target fully responsive + zero illegit acceptances ───────────
     let step = timed_step_async("target intact after full assault", || async {
         let m = target.presence_metrics().await.unwrap_or_default();
