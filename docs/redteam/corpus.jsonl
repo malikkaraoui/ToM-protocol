@@ -11,3 +11,4 @@
 {"id":"pres.malformed","params":{"transport":"quic"},"was_breach":false,"defended":"build22","note":"payloads MessagePack tordus -> absorbes, cible reste reactive (pas de panic/hang)"}
 {"id":"pres.flood","params":{"transport":"quic","n":40},"was_breach":false,"defended":"build22","note":"40 challenges signes QUIC reel -> 10 signes (budget repondeur plafonne sur le vrai fil)"}
 {"id":"pres.sybil","params":{"identities":20},"was_breach":true,"defended_since":"build23","note":"budget par-identite bypassable; CORRIGE par cap global 120 (RESPONDER_GLOBAL_BUDGET_PER_WINDOW)"}
+{"id":"pres.starvation","params":{"stranger_flood_per_window":120},"was_breach":true,"defended_since":"build24","note":"cap global plat = DoS famine (inconnus saturent, legit refuses); CORRIGE par budget deux-voies (connus contournent le cap via score de relais)"}

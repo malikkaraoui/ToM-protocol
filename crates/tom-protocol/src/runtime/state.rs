@@ -1666,8 +1666,14 @@ impl RuntimeState {
             return Vec::new();
         }
 
-        // A7: per-challenger signing budget (bounded map, self-purging).
-        if !self.presence.allow_response(envelope.from, now) {
+        // A7: signing budget. KNOWN challengers (we hold relay evidence for them
+        // — local role score ≥ threshold, un-forgeable by a fresh Sybil) get a
+        // per-identity budget and BYPASS the stranger global cap so a swarm
+        // can't starve them (FINDING #5). Strangers share the bounded global cap
+        // (FINDING #4). Bounded map, self-purging either way.
+        let has_evidence = self.role_manager.score(&envelope.from, now)
+            >= crate::presence::RESPONDER_KNOWN_MIN_SCORE;
+        if !self.presence.allow_response(envelope.from, has_evidence, now) {
             self.presence.record(PresenceOutcome::RefusedBudget);
             return Vec::new();
         }
