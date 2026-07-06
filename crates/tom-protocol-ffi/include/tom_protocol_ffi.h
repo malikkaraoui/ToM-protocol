@@ -160,6 +160,28 @@ int32_t tom_node_check_presence(const struct TomNodeHandle *handle, const char *
 // * `handle` must be a valid pointer returned by `tom_node_create()`
 char *tom_node_presence_stats(const struct TomNodeHandle *handle);
 
+// Challenge many peers at once (L1-001 stress driving).
+//
+// `targets_json` is a JSON array of NodeId strings, e.g. `["ab..","cd.."]`.
+//
+// # Returns
+// * number of challenges queued (>= 0) on success
+// * -1 on failure (null/invalid handle or JSON, node not started)
+//
+// # Safety
+// * `handle` must be valid; `targets_json` a valid NUL-terminated C string
+int32_t tom_node_check_presence_many(const struct TomNodeHandle *handle, const char *targets_json);
+
+// Get L1-001 full presence counters as JSON (see `PresenceMetricsFFI`).
+//
+// # Returns
+// * JSON C string (caller must free with `tom_node_free_string()`)
+// * NULL on null handle, node not started, or serialization failure
+//
+// # Safety
+// * `handle` must be a valid pointer returned by `tom_node_create()`
+char *tom_node_presence_metrics(const struct TomNodeHandle *handle);
+
 // Get the last error message (after a function returned -1)
 //
 // # Returns

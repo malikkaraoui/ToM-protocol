@@ -3,6 +3,7 @@ mod campaign;
 mod common;
 mod events;
 mod fanout;
+mod fleet_probe;
 mod ladder;
 mod listen;
 mod output;
@@ -18,6 +19,8 @@ mod scenario_failover;
 mod scenario_group;
 mod scenario_partition;
 mod scenario_presence;
+mod scenario_chaos_monkey;
+mod scenario_presence_storm;
 mod scenario_roles;
 mod scenario_runner;
 
@@ -174,11 +177,41 @@ enum Command {
     /// L1-001 scenario: Proof of Presence over live QUIC (relay evidence, challenge round, anti-Sybil gate, entropy seed).
     Presence,
 
+    /// L1-001 STORM: mesh of nodes hammering presence, per-outcome metrics + latency relevés.
+    PresenceStorm,
+
+    /// Chaos Monkey: random aggressive faults (kill/revive/clock-skew) on a live presence fleet.
+    ChaosMonkey {
+        /// RNG seed (reproducible chaos).
+        #[arg(long, default_value = "12648430")]
+        seed: u64,
+    },
+
     /// Run all 8 protocol scenarios in sequence (e2e, group, backup, failover, roles, chaos, partition, churn).
     Scenarios,
 
     /// Full-protocol responder (auto-echo, auto-accept groups, auto-reply).
     Responder,
+
+    /// Fleet probe: join the real network and exercise the API against every
+    /// device as it connects (presence challenges + reachability + live relevés).
+    FleetProbe {
+        /// Seconds between challenge/reachability rounds.
+        #[arg(long, default_value = "10")]
+        probe_interval: u64,
+        /// Seconds between printed reports.
+        #[arg(long, default_value = "5")]
+        report_interval: u64,
+        /// Stop after this many seconds (default: run until Ctrl+C).
+        #[arg(long)]
+        duration_secs: Option<u64>,
+        /// Also send a chat ping to each peer each round (reachability).
+        #[arg(long, default_value = "true")]
+        reachability: bool,
+        /// SIM: presence clock offset in ms (inject skew — anti-NTP test).
+        #[arg(long, default_value = "0")]
+        clock_offset_ms: i64,
+    },
 
     /// Run a full stress campaign (6 phases) against a remote responder.
     Campaign {
@@ -211,11 +244,14 @@ async fn main() -> anyhow::Result<()> {
         Command::Roles => "roles",
         Command::Chaos => "chaos",
         Command::Presence => "presence",
+        Command::PresenceStorm => "presence-storm",
+        Command::ChaosMonkey { .. } => "chaos-monkey",
         Command::Endurance => "endurance",
         Command::Partition => "partition",
         Command::Churn => "churn",
         Command::Scenarios => "scenarios",
         Command::Responder => "responder",
+        Command::FleetProbe { .. } => "fleet-probe",
         Command::Campaign { .. } => "campaign",
     };
 
@@ -263,7 +299,7 @@ async fn main() -> anyhow::Result<()> {
 
     // ── Protocol scenarios (spawn their own nodes) ───────────────
     match &cli.command {
-        Command::E2e | Command::Group | Command::Backup | Command::Failover | Command::Roles | Command::Chaos | Command::Endurance | Command::Partition | Command::Churn | Command::Presence => {
+        Command::E2e | Command::Group | Command::Backup | Command::Failover | Command::Roles | Command::Chaos | Command::Endurance | Command::Partition | Command::Churn | Command::Presence | Command::PresenceStorm | Command::ChaosMonkey { .. } => {
             let result = match cli.command {
                 Command::E2e => scenario_e2e::run().await?,
                 Command::Group => scenario_group::run().await?,
@@ -275,6 +311,8 @@ async fn main() -> anyhow::Result<()> {
                 Command::Partition => scenario_partition::run().await?,
                 Command::Churn => scenario_churn::run().await?,
                 Command::Presence => scenario_presence::run().await?,
+                Command::PresenceStorm => scenario_presence_storm::run().await?,
+                Command::ChaosMonkey { seed } => scenario_chaos_monkey::run_with_seed(seed).await?,
                 _ => unreachable!(),
             };
             result.print_summary();
@@ -296,6 +334,18 @@ async fn main() -> anyhow::Result<()> {
                 no_n0_discovery: cli.no_n0_discovery,
                 identity_path: cli.identity.clone(),
                 data_dir: cli.data_dir.clone(),
+            })
+            .await?;
+            return Ok(());
+        }
+        Command::FleetProbe { probe_interval, report_interval, duration_secs, reachability, clock_offset_ms } => {
+            fleet_probe::run(fleet_probe::FleetProbeConfig {
+                relay_url: cli.relay_url.clone(),
+                duration_secs: *duration_secs,
+                probe_interval_secs: *probe_interval,
+                report_interval_secs: *report_interval,
+                with_reachability: *reachability,
+                clock_offset_ms: *clock_offset_ms,
             })
             .await?;
             return Ok(());
@@ -382,6 +432,9 @@ async fn main() -> anyhow::Result<()> {
         }
 
         Command::Presence => unreachable!("handled in the scenario block above"),
+        Command::PresenceStorm => unreachable!("handled in the scenario block above"),
+        Command::ChaosMonkey { .. } => unreachable!("handled in the scenario block above"),
+        Command::FleetProbe { .. } => unreachable!("handled in the dispatch block above"),
 
         Command::Ping {
             connect,

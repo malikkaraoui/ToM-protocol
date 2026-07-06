@@ -72,6 +72,112 @@ pub struct StoredAttestation {
     pub accepted_at: u64,
 }
 
+/// Outcome of a single presence decision — the unit the metrics count.
+///
+/// Every early-return in the runtime presence handlers maps to exactly one
+/// of these, so the counters below fully partition what happened (an
+/// invariant checked by `metrics_partition` test). This is what makes drop
+/// reasons observable for stress relevés without leaking anything on the
+/// wire (drops stay silent to the attacker; only WE count them locally).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PresenceOutcome {
+    // ── Challenger side (A) ──
+    /// We issued a challenge.
+    Issued,
+    /// An attestation was accepted (with its round-trip latency in ms).
+    Accepted(u64),
+    /// Attestation for an unknown/already-consumed challenge (replay, A2).
+    DropUnknownChallenge,
+    /// Challenge too old on OUR clock (A3).
+    DropStale,
+    /// Attestation from a node other than the one we challenged (A8).
+    DropWrongAttester,
+    /// Attestation signature invalid (A1).
+    DropBadSignature,
+    /// Payload/nonce/id incoherent with the challenge.
+    DropIncoherent,
+    /// Attester's LOCAL score below the anti-Sybil gate (A5).
+    DropGate,
+    /// Aggregation store full (cap reached).
+    DropStoreFull,
+    // ── Responder side (B) ──
+    /// We received a challenge.
+    ChallengeReceived,
+    /// We signed and returned an attestation.
+    Signed,
+    /// Challenge signature invalid / reflection attempt (A9).
+    RefusedBadSignature,
+    /// challenger_id ≠ signer, or malformed payload.
+    RefusedIncoherent,
+    /// Per-challenger signing budget exhausted (A7).
+    RefusedBudget,
+}
+
+/// Monotonic presence counters (never reset for the node's lifetime).
+///
+/// Plain `u64` in pure state → deterministic and snapshot-cheap. Latency is
+/// accumulated (sum + count + min + max) so a harness can derive mean/min/max
+/// without an on-node histogram.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct PresenceMetrics {
+    pub issued: u64,
+    pub accepted: u64,
+    pub drop_unknown_challenge: u64,
+    pub drop_stale: u64,
+    pub drop_wrong_attester: u64,
+    pub drop_bad_signature: u64,
+    pub drop_incoherent: u64,
+    pub drop_gate: u64,
+    pub drop_store_full: u64,
+    pub challenges_received: u64,
+    pub signed: u64,
+    pub refused_bad_signature: u64,
+    pub refused_incoherent: u64,
+    pub refused_budget: u64,
+    /// Sum of accepted-attestation latencies (ms) — divide by `accepted`.
+    pub latency_sum_ms: u64,
+    pub latency_min_ms: u64,
+    pub latency_max_ms: u64,
+}
+
+impl PresenceMetrics {
+    fn record(&mut self, outcome: PresenceOutcome) {
+        use PresenceOutcome::*;
+        match outcome {
+            Issued => self.issued += 1,
+            Accepted(latency) => {
+                self.accepted += 1;
+                self.latency_sum_ms = self.latency_sum_ms.saturating_add(latency);
+                self.latency_max_ms = self.latency_max_ms.max(latency);
+                self.latency_min_ms = if self.accepted == 1 {
+                    latency
+                } else {
+                    self.latency_min_ms.min(latency)
+                };
+            }
+            DropUnknownChallenge => self.drop_unknown_challenge += 1,
+            DropStale => self.drop_stale += 1,
+            DropWrongAttester => self.drop_wrong_attester += 1,
+            DropBadSignature => self.drop_bad_signature += 1,
+            DropIncoherent => self.drop_incoherent += 1,
+            DropGate => self.drop_gate += 1,
+            DropStoreFull => self.drop_store_full += 1,
+            ChallengeReceived => self.challenges_received += 1,
+            Signed => self.signed += 1,
+            RefusedBadSignature => self.refused_bad_signature += 1,
+            RefusedIncoherent => self.refused_incoherent += 1,
+            RefusedBudget => self.refused_budget += 1,
+        }
+    }
+
+    /// Mean accepted-attestation latency in ms (0 if none accepted).
+    pub fn mean_latency_ms(&self) -> u64 {
+        self.latency_sum_ms
+            .checked_div(self.accepted)
+            .unwrap_or(0)
+    }
+}
+
 /// Ephemeral presence state. See module docs for invariants.
 #[derive(Default)]
 pub struct PresenceManager {
@@ -79,6 +185,7 @@ pub struct PresenceManager {
     accepted: HashMap<String, StoredAttestation>,
     /// challenger → (window_start_ms, responses_signed_in_window)
     responder_windows: HashMap<NodeId, (u64, u32)>,
+    metrics: PresenceMetrics,
 }
 
 impl PresenceManager {
@@ -193,6 +300,16 @@ impl PresenceManager {
     pub fn pending_count(&self) -> usize {
         self.pending.len()
     }
+
+    /// Record a presence decision outcome (observability, never on the wire).
+    pub fn record(&mut self, outcome: PresenceOutcome) {
+        self.metrics.record(outcome);
+    }
+
+    /// Snapshot of the lifetime presence counters.
+    pub fn metrics(&self) -> PresenceMetrics {
+        self.metrics
+    }
 }
 
 #[cfg(test)]
@@ -283,6 +400,40 @@ mod tests {
         assert_eq!(m.pending_count(), 0, "purged at TTL");
         // A new challenge with the same id is accepted after purge (T6).
         assert!(m.register_challenge(challenge("c1", target, 40_000)));
+    }
+
+    #[test]
+    fn metrics_record_partitions_outcomes() {
+        use PresenceOutcome::*;
+        let mut m = PresenceMetrics::default();
+        for o in [
+            Issued,
+            Accepted(10),
+            Accepted(30),
+            DropUnknownChallenge,
+            DropStale,
+            DropWrongAttester,
+            DropBadSignature,
+            DropIncoherent,
+            DropGate,
+            DropStoreFull,
+            ChallengeReceived,
+            Signed,
+            RefusedBadSignature,
+            RefusedIncoherent,
+            RefusedBudget,
+        ] {
+            m.record(o);
+        }
+        // Each counter incremented exactly once (accepted twice).
+        assert_eq!(m.issued, 1);
+        assert_eq!(m.accepted, 2);
+        assert_eq!(m.drop_gate, 1);
+        assert_eq!(m.refused_budget, 1);
+        // Latency accounting.
+        assert_eq!(m.latency_min_ms, 10);
+        assert_eq!(m.latency_max_ms, 30);
+        assert_eq!(m.mean_latency_ms(), 20);
     }
 
     #[test]

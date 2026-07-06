@@ -1544,6 +1544,16 @@ impl RuntimeState {
     /// Issue a presence challenge toward `target` (we are A).
     ///
     /// Returns no effects when a memory cap refuses the challenge (§4.3).
+    /// Presence time source. Normally `now_ms()`; a test/simulation harness
+    /// can offset it via `config.presence_clock_offset_ms` to inject clock
+    /// skew (anti-NTP hardening validation). Every presence handler reads
+    /// time through THIS so a node's clock stays internally consistent — the
+    /// whole point being that freshness works on one consistent clock.
+    fn presence_now(&self) -> u64 {
+        let base = now_ms() as i64;
+        (base + self.config.presence_clock_offset_ms).max(0) as u64
+    }
+
     pub fn initiate_presence_check(&mut self, target: NodeId) -> Vec<RuntimeEffect> {
         use chacha20poly1305::aead::rand_core::{OsRng, RngCore};
 
@@ -1551,7 +1561,7 @@ impl RuntimeState {
             return Vec::new();
         }
 
-        let now = now_ms();
+        let now = self.presence_now();
         let mut nonce = vec![0u8; crate::presence::NONCE_LEN];
         OsRng.fill_bytes(&mut nonce);
         let challenge_id = uuid::Uuid::new_v4().to_string();
@@ -1581,7 +1591,18 @@ impl RuntimeState {
         );
         envelope.sign(&self.secret_seed);
 
+        self.presence.record(crate::presence::PresenceOutcome::Issued);
         vec![RuntimeEffect::SendEnvelope(envelope)]
+    }
+
+    /// Challenge many peers at once (stress driving). Returns the send
+    /// effects for all challenges that passed the memory caps.
+    pub fn initiate_presence_check_many(&mut self, targets: &[NodeId]) -> Vec<RuntimeEffect> {
+        let mut effects = Vec::new();
+        for &target in targets {
+            effects.extend(self.initiate_presence_check(target));
+        }
+        effects
     }
 
     /// Dispatch an incoming presence envelope (challenge or attestation).
@@ -1613,31 +1634,41 @@ impl RuntimeState {
         envelope: Envelope,
         signature_valid: bool,
     ) -> Vec<RuntimeEffect> {
+        use crate::presence::PresenceOutcome;
+        self.presence.record(PresenceOutcome::ChallengeReceived);
+
         // A9: verify the challenger's signature BEFORE spending one of ours
         // (an unsigned challenge would let an attacker buy Ed25519 work for
         // free, and reflect attestations onto a spoofed `from`).
         if !signature_valid {
+            self.presence.record(PresenceOutcome::RefusedBadSignature);
             return Vec::new();
         }
 
         let payload = match crate::presence::PresenceChallengePayload::from_bytes(&envelope.payload)
         {
             Ok(p) => p,
-            Err(_) => return Vec::new(),
+            Err(_) => {
+                self.presence.record(PresenceOutcome::RefusedIncoherent);
+                return Vec::new();
+            }
         };
 
         // Identity coherence: the declared challenger IS the envelope signer.
         if payload.challenger_id != envelope.from {
+            self.presence.record(PresenceOutcome::RefusedIncoherent);
             return Vec::new();
         }
 
-        let now = now_ms();
+        let now = self.presence_now();
         if payload.validate(now).is_err() {
+            self.presence.record(PresenceOutcome::RefusedIncoherent);
             return Vec::new();
         }
 
         // A7: per-challenger signing budget (bounded map, self-purging).
         if !self.presence.allow_response(envelope.from, now) {
+            self.presence.record(PresenceOutcome::RefusedBudget);
             return Vec::new();
         }
 
@@ -1667,6 +1698,7 @@ impl RuntimeState {
         );
         response.sign(&self.secret_seed);
 
+        self.presence.record(PresenceOutcome::Signed);
         vec![RuntimeEffect::SendEnvelope(response)]
     }
 
@@ -1677,10 +1709,15 @@ impl RuntimeState {
         envelope: Envelope,
         signature_valid: bool,
     ) -> Vec<RuntimeEffect> {
+        use crate::presence::PresenceOutcome;
+
         let payload =
             match crate::presence::PresenceAttestationPayload::from_bytes(&envelope.payload) {
                 Ok(p) => p,
-                Err(_) => return Vec::new(),
+                Err(_) => {
+                    self.presence.record(PresenceOutcome::DropIncoherent);
+                    return Vec::new();
+                }
             };
 
         // 1. Challenge issued by us, still pending (one-shot ⇒ a consumed
@@ -1688,23 +1725,29 @@ impl RuntimeState {
         let (challenge_nonce, challenge_target, issued_at) =
             match self.presence.pending(&payload.challenge_id) {
                 Some(c) => (c.nonce.clone(), c.target, c.issued_at),
-                None => return Vec::new(),
+                None => {
+                    self.presence.record(PresenceOutcome::DropUnknownChallenge);
+                    return Vec::new();
+                }
             };
 
         // 2. Freshness on OUR clock only (no NTP on this network — A3).
-        let now = now_ms();
+        let now = self.presence_now();
         if now.saturating_sub(issued_at) > crate::presence::PRESENCE_TTL_MS {
+            self.presence.record(PresenceOutcome::DropStale);
             return Vec::new();
         }
 
         // 3. The attestation comes from the node WE challenged (A8 — the
         //    payload travels in clear, any on-path relay knows the nonce).
         if envelope.from != challenge_target {
+            self.presence.record(PresenceOutcome::DropWrongAttester);
             return Vec::new();
         }
 
         // 4. Ed25519 signature of the attester over the envelope.
         if !signature_valid {
+            self.presence.record(PresenceOutcome::DropBadSignature);
             return Vec::new();
         }
 
@@ -1713,6 +1756,7 @@ impl RuntimeState {
             || payload.challenger_id != self.local_id
             || payload.nonce != challenge_nonce
         {
+            self.presence.record(PresenceOutcome::DropIncoherent);
             return Vec::new();
         }
 
@@ -1728,6 +1772,7 @@ impl RuntimeState {
                 envelope.from,
                 self.config.presence_contribution_min
             );
+            self.presence.record(PresenceOutcome::DropGate);
             return Vec::new();
         }
 
@@ -1738,19 +1783,22 @@ impl RuntimeState {
             .presence
             .consume_and_store(&challenge_id, payload, &envelope.signature, now)
         {
+            self.presence.record(PresenceOutcome::DropStoreFull);
             return Vec::new();
         }
 
+        let latency_ms = now.saturating_sub(issued_at);
+        self.presence.record(PresenceOutcome::Accepted(latency_ms));
         vec![RuntimeEffect::Emit(ProtocolEvent::PresenceAttestationReceived {
             attester_id: envelope.from,
             challenge_id,
-            latency_ms: now.saturating_sub(issued_at),
+            latency_ms,
         })]
     }
 
     /// Periodic purge of every presence artifact past its 30s TTL.
     pub fn tick_presence_cleanup(&mut self) -> Vec<RuntimeEffect> {
-        self.presence.cleanup(now_ms());
+        self.presence.cleanup(self.presence_now());
         Vec::new()
     }
 
@@ -1779,6 +1827,11 @@ impl RuntimeState {
     /// Current entropy seed over the attestation window (input for L1-002).
     pub fn presence_seed(&self) -> [u8; 32] {
         self.presence.aggregate_seed()
+    }
+
+    /// Lifetime presence counters (observability / stress relevés).
+    pub fn presence_metrics(&self) -> crate::presence::PresenceMetrics {
+        self.presence.metrics()
     }
 
     /// Number of attestations in the current aggregation window.
@@ -2194,11 +2247,36 @@ impl RuntimeState {
             // DHT lookup completed — register the discovered peer.
             RuntimeCommand::CheckPresence { target } => self.initiate_presence_check(target),
 
+            RuntimeCommand::CheckPresenceMany { targets } => {
+                self.initiate_presence_check_many(&targets)
+            }
+
+            RuntimeCommand::CheckPresenceAllOnline => {
+                let targets: Vec<NodeId> = self
+                    .topology
+                    .peers()
+                    .filter(|p| p.status == PeerStatus::Online && p.node_id != self.local_id)
+                    .map(|p| p.node_id)
+                    .collect();
+                self.initiate_presence_check_many(&targets)
+            }
+
             RuntimeCommand::GetPresenceSeed { reply } => {
                 let _ = reply.send((
                     self.presence.aggregate_seed(),
                     self.presence.accepted_count(),
                 ));
+                Vec::new()
+            }
+
+            RuntimeCommand::GetPresenceMetrics { reply } => {
+                let _ = reply.send(self.presence.metrics());
+                Vec::new()
+            }
+
+            RuntimeCommand::SetPresenceClockOffset { offset_ms } => {
+                tracing::warn!("SIM: presence clock offset set to {offset_ms}ms");
+                self.config.presence_clock_offset_ms = offset_ms;
                 Vec::new()
             }
 

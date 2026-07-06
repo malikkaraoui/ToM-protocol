@@ -22,7 +22,7 @@ use tom_protocol::{DeliveredMessage, ProtocolEvent, ProtocolRuntime, RuntimeChan
 use tom_transport::TomNodeConfig;
 
 mod types;
-use types::{DeliveredMessageFFI, DiscoveredPeerFFI, GroupConfigFFI, NodeConfigFFI, NodeStatusFFI, PeerAddrFFI, PresenceStatsFFI, RuntimeConfigFFI};
+use types::{DeliveredMessageFFI, DiscoveredPeerFFI, GroupConfigFFI, NodeConfigFFI, NodeStatusFFI, PeerAddrFFI, PresenceMetricsFFI, PresenceStatsFFI, RuntimeConfigFFI};
 
 /// Hard cap for discovered peer cache exposed over FFI.
 /// Prevents unbounded growth on long-running tvOS sessions.
@@ -880,6 +880,91 @@ pub unsafe extern "C" fn tom_node_presence_stats(handle: *const TomNodeHandle) -
     match CString::new(json) {
         Ok(c_str) => c_str.into_raw(),
         Err(_) => std::ptr::null_mut(),
+    }
+}
+
+/// Challenge many peers at once (L1-001 stress driving).
+///
+/// `targets_json` is a JSON array of NodeId strings, e.g. `["ab..","cd.."]`.
+///
+/// # Returns
+/// * number of challenges queued (>= 0) on success
+/// * -1 on failure (null/invalid handle or JSON, node not started)
+///
+/// # Safety
+/// * `handle` must be valid; `targets_json` a valid NUL-terminated C string
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn tom_node_check_presence_many(
+    handle: *const TomNodeHandle,
+    targets_json: *const c_char,
+) -> i32 {
+    if handle.is_null() {
+        return -1;
+    }
+    let handle_ref = unsafe { &*handle };
+
+    let json = match unsafe { cstr_opt(targets_json) } {
+        Some(s) => s,
+        None => return -1,
+    };
+    let target_strs: Vec<String> = match serde_json::from_str(json) {
+        Ok(v) => v,
+        Err(e) => {
+            tracing::error!("tom_node_check_presence_many: bad JSON: {}", e);
+            return -1;
+        }
+    };
+    let mut targets = Vec::with_capacity(target_strs.len());
+    for t in &target_strs {
+        match t.parse() {
+            Ok(id) => targets.push(id),
+            Err(e) => {
+                tracing::error!("tom_node_check_presence_many: invalid NodeId {t}: {e}");
+                return -1;
+            }
+        }
+    }
+
+    let count = targets.len() as i32;
+    handle_ref.runtime.block_on(async {
+        if let Some(rh) = handle_ref.handle.lock().await.as_ref() {
+            rh.check_presence_many(targets).await;
+            count
+        } else {
+            -1
+        }
+    })
+}
+
+/// Get L1-001 full presence counters as JSON (see `PresenceMetricsFFI`).
+///
+/// # Returns
+/// * JSON C string (caller must free with `tom_node_free_string()`)
+/// * NULL on null handle, node not started, or serialization failure
+///
+/// # Safety
+/// * `handle` must be a valid pointer returned by `tom_node_create()`
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn tom_node_presence_metrics(handle: *const TomNodeHandle) -> *mut c_char {
+    if handle.is_null() {
+        return std::ptr::null_mut();
+    }
+    let handle_ref = unsafe { &*handle };
+
+    let json = handle_ref.runtime.block_on(async {
+        let guard = handle_ref.handle.lock().await;
+        let rh = guard.as_ref()?;
+        let metrics = rh.presence_metrics().await?;
+        let ffi: PresenceMetricsFFI = metrics.into();
+        serde_json::to_string(&ffi).ok()
+    });
+
+    match json {
+        Some(j) => match CString::new(j) {
+            Ok(c) => c.into_raw(),
+            Err(_) => std::ptr::null_mut(),
+        },
+        None => std::ptr::null_mut(),
     }
 }
 

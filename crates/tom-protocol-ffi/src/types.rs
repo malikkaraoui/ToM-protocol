@@ -186,6 +186,54 @@ pub struct PresenceStatsFFI {
     pub seed_prefix: String,
 }
 
+/// Build 20 — full per-outcome presence counters (stress relevés). Mirrors
+/// `tom_protocol::PresenceMetrics`; keep field names in sync with the Swift
+/// `TomPresenceMetrics` decoder.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PresenceMetricsFFI {
+    pub issued: u64,
+    pub accepted: u64,
+    pub drop_unknown_challenge: u64,
+    pub drop_stale: u64,
+    pub drop_wrong_attester: u64,
+    pub drop_bad_signature: u64,
+    pub drop_incoherent: u64,
+    pub drop_gate: u64,
+    pub drop_store_full: u64,
+    pub challenges_received: u64,
+    pub signed: u64,
+    pub refused_bad_signature: u64,
+    pub refused_incoherent: u64,
+    pub refused_budget: u64,
+    pub latency_min_ms: u64,
+    pub latency_max_ms: u64,
+    pub latency_mean_ms: u64,
+}
+
+impl From<tom_protocol::PresenceMetrics> for PresenceMetricsFFI {
+    fn from(m: tom_protocol::PresenceMetrics) -> Self {
+        Self {
+            issued: m.issued,
+            accepted: m.accepted,
+            drop_unknown_challenge: m.drop_unknown_challenge,
+            drop_stale: m.drop_stale,
+            drop_wrong_attester: m.drop_wrong_attester,
+            drop_bad_signature: m.drop_bad_signature,
+            drop_incoherent: m.drop_incoherent,
+            drop_gate: m.drop_gate,
+            drop_store_full: m.drop_store_full,
+            challenges_received: m.challenges_received,
+            signed: m.signed,
+            refused_bad_signature: m.refused_bad_signature,
+            refused_incoherent: m.refused_incoherent,
+            refused_budget: m.refused_budget,
+            latency_min_ms: m.latency_min_ms,
+            latency_max_ms: m.latency_max_ms,
+            latency_mean_ms: m.mean_latency_ms(),
+        }
+    }
+}
+
 fn deserialize_node_id<'de, D>(deserializer: D) -> Result<NodeId, D::Error>
 where
     D: serde::Deserializer<'de>,

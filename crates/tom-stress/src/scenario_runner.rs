@@ -9,7 +9,8 @@ use serde::Serialize;
 use crate::scenario_common::ScenarioResult;
 use crate::{
     scenario_backup, scenario_chaos, scenario_churn, scenario_e2e, scenario_failover,
-    scenario_group, scenario_partition, scenario_presence, scenario_roles,
+    scenario_group, scenario_partition, scenario_presence, scenario_presence_storm,
+    scenario_roles,
 };
 
 #[derive(Serialize)]
@@ -35,7 +36,7 @@ pub async fn run() -> anyhow::Result<()> {
     let runner_start = Instant::now();
 
     eprintln!("╔══════════════════════════════════════════╗");
-    eprintln!("║       SCENARIO RUNNER (9 scenarios)      ║");
+    eprintln!("║       SCENARIO RUNNER (10 scenarios)      ║");
     eprintln!("╚══════════════════════════════════════════╝\n");
 
     let scenarios: Vec<(&str, _)> = vec![
@@ -48,6 +49,7 @@ pub async fn run() -> anyhow::Result<()> {
         ("partition", run_scenario("partition", scenario_partition::run()).await),
         ("churn", run_scenario("churn", scenario_churn::run()).await),
         ("presence", run_scenario("presence", scenario_presence::run()).await),
+        ("presence-storm", run_scenario("presence-storm", scenario_presence_storm::run()).await),
     ];
 
     let mut lines = Vec::new();

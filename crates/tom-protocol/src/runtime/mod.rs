@@ -100,6 +100,13 @@ pub struct RuntimeConfig {
     /// Online peers at this interval (auto-probe). Feeds the Live Log on
     /// devices without any UI work. Default: `None` (off).
     pub presence_probe_interval: Option<Duration>,
+    /// SIMULATION HOOK (test-only, default 0) — signed offset in ms added to
+    /// the node's presence clock. Lets a harness inject clock skew to prove
+    /// the anti-NTP hardening: freshness is judged on the challenger's OWN
+    /// (internally consistent) clock, and an attester's declared timestamp is
+    /// ignored. NOT exposed via FFI on purpose — it must never reach a
+    /// production app. See `L1-001-matrice-flotte.md`.
+    pub presence_clock_offset_ms: i64,
 }
 
 impl Default for RuntimeConfig {
@@ -127,6 +134,7 @@ impl Default for RuntimeConfig {
             embedded_relay_advertise_addr: None,
             presence_contribution_min: crate::presence::RELAY_CONTRIBUTION_MIN,
             presence_probe_interval: None,
+            presence_clock_offset_ms: 0,
         }
     }
 }
@@ -219,10 +227,20 @@ pub enum RuntimeCommand {
     // ── Presence (L1-001) ──────────────────────────
     /// Issue a presence challenge toward a peer (we become the challenger).
     CheckPresence { target: NodeId },
+    /// Challenge many peers at once (stress driving).
+    CheckPresenceMany { targets: Vec<NodeId> },
+    /// Challenge every Online peer right now (on-demand probe burst).
+    CheckPresenceAllOnline,
     /// Query the current presence aggregation window (seed + count).
     GetPresenceSeed {
         reply: oneshot::Sender<([u8; 32], usize)>,
     },
+    /// Query the lifetime presence counters (per-outcome relevés).
+    GetPresenceMetrics {
+        reply: oneshot::Sender<crate::presence::PresenceMetrics>,
+    },
+    /// SIMULATION HOOK (test-only): set the presence clock offset live.
+    SetPresenceClockOffset { offset_ms: i64 },
     /// Inject raw gossip bytes into the runtime for processing.
     ///
     /// Test/debug bridge: feeds bytes through the same deserialization pipeline
@@ -474,6 +492,22 @@ impl RuntimeHandle {
             .await;
     }
 
+    /// Challenge many peers at once (L1-001 stress driving).
+    pub async fn check_presence_many(&self, targets: Vec<NodeId>) {
+        let _ = self
+            .cmd_tx
+            .send(RuntimeCommand::CheckPresenceMany { targets })
+            .await;
+    }
+
+    /// Challenge every Online peer right now (on-demand burst).
+    pub async fn check_presence_all_online(&self) {
+        let _ = self
+            .cmd_tx
+            .send(RuntimeCommand::CheckPresenceAllOnline)
+            .await;
+    }
+
     /// Current presence entropy seed and attestation count (L1-001 window).
     pub async fn presence_seed(&self) -> Option<([u8; 32], usize)> {
         let (tx, rx) = oneshot::channel();
@@ -482,6 +516,24 @@ impl RuntimeHandle {
             .await
             .ok()?;
         rx.await.ok()
+    }
+
+    /// Lifetime presence counters (per-outcome relevés for stress campaigns).
+    pub async fn presence_metrics(&self) -> Option<crate::presence::PresenceMetrics> {
+        let (tx, rx) = oneshot::channel();
+        self.cmd_tx
+            .send(RuntimeCommand::GetPresenceMetrics { reply: tx })
+            .await
+            .ok()?;
+        rx.await.ok()
+    }
+
+    /// SIMULATION HOOK (test-only): inject a presence clock offset (ms) live.
+    pub async fn set_presence_clock_offset(&self, offset_ms: i64) {
+        let _ = self
+            .cmd_tx
+            .send(RuntimeCommand::SetPresenceClockOffset { offset_ms })
+            .await;
     }
 
     /// Register a peer in the network (triggers iroh discovery).
