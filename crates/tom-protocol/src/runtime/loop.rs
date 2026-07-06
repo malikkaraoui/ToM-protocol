@@ -78,6 +78,14 @@ pub(super) async fn runtime_loop(
     let mut rendezvous_tick = tokio::time::interval(std::time::Duration::from_secs(60));
     // L1-001 presence: purge 30s-TTL artifacts every 5s (ephemeral, LOCKED #2).
     let mut presence_purge = tokio::time::interval(std::time::Duration::from_secs(5));
+    // L1-001 presence auto-probe (fleet observability). When disabled the
+    // timer still exists but its tick handler is a no-op (config-checked).
+    let mut presence_probe = tokio::time::interval(
+        state
+            .config
+            .presence_probe_interval
+            .unwrap_or(std::time::Duration::from_secs(3600)),
+    );
 
     // Skip the immediate first tick
     cache_cleanup.tick().await;
@@ -96,6 +104,7 @@ pub(super) async fn runtime_loop(
     reconnect_check.tick().await;
     rendezvous_tick.tick().await;
     presence_purge.tick().await;
+    presence_probe.tick().await;
 
     // ── Gossip subscription ──────────────────────────────────────────
     let topic_id = tom_gossip::TopicId::from_bytes(TOM_GOSSIP_TOPIC);
@@ -504,6 +513,9 @@ pub(super) async fn runtime_loop(
 
             // ── 15a. Timer: presence purge (5s) — 30s TTL, never persisted ──
             _ = presence_purge.tick() => state.tick_presence_cleanup(),
+
+            // ── 15b. Timer: presence auto-probe (config-gated, off by default) ──
+            _ = presence_probe.tick() => state.tick_presence_probe(),
 
             // ── 15b. Timer: DHT rendezvous (60s) — zero-config discovery ──
             _ = rendezvous_tick.tick() => {

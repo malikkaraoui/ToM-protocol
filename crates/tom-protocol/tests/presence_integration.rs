@@ -441,3 +441,71 @@ fn self_challenge_is_noop() {
     assert!(alice.initiate_presence_check(id).is_empty());
     assert_eq!(alice.presence_attestation_count(), 0);
 }
+
+/// Fleet plumbing mode: gate at 0.0 (config) accepts a well-formed signed
+/// attestation WITHOUT relay evidence — phase 1 of the fleet runbook.
+#[test]
+fn config_gate_zero_accepts_without_evidence() {
+    let (id, secret) = keypair(1);
+    let mut alice = RuntimeState::new(
+        id,
+        secret,
+        RuntimeConfig {
+            encryption: false,
+            username: "node-1".into(),
+            presence_contribution_min: 0.0,
+            ..Default::default()
+        },
+    );
+    let mut bob = state_with(2);
+
+    let challenges = envelopes_of(
+        &alice.initiate_presence_check(bob.local_id()),
+        MessageType::PresenceChallenge,
+    );
+    let attestations = envelopes_of(
+        &bob.handle_incoming(&challenges[0]),
+        MessageType::PresenceAttestation,
+    );
+    let events = attestation_events(&alice.handle_incoming(&attestations[0]));
+    assert_eq!(events.len(), 1, "gate 0.0 must accept without relay evidence");
+
+    // Structural defenses stay armed even at gate 0.0: replay still dropped.
+    assert!(attestation_events(&alice.handle_incoming(&attestations[0])).is_empty());
+}
+
+/// Auto-probe: disabled by default (no effects), challenges Online peers
+/// when enabled.
+#[test]
+fn auto_probe_is_config_gated() {
+    use std::time::Duration;
+    use tom_protocol::{PeerInfo, PeerRole, PeerStatus, RuntimeCommand};
+
+    // Default: off.
+    let mut off = state_with(1);
+    assert!(off.tick_presence_probe().is_empty());
+
+    // Enabled: probes Online peers through the same one-shot pipeline.
+    let (id, secret) = keypair(1);
+    let mut on = RuntimeState::new(
+        id,
+        secret,
+        RuntimeConfig {
+            encryption: false,
+            username: "node-1".into(),
+            presence_probe_interval: Some(Duration::from_secs(15)),
+            ..Default::default()
+        },
+    );
+    let (peer, _) = keypair(9);
+    on.handle_command(RuntimeCommand::UpsertPeer {
+        info: PeerInfo {
+            node_id: peer,
+            role: PeerRole::Peer,
+            status: PeerStatus::Online,
+            last_seen: tom_protocol::now_ms(),
+        },
+    });
+    let challenges = envelopes_of(&on.tick_presence_probe(), MessageType::PresenceChallenge);
+    assert_eq!(challenges.len(), 1, "one challenge per Online peer");
+}

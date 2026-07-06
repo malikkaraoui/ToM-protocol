@@ -138,6 +138,17 @@ pub async fn run(config: ResponderConfig) -> anyhow::Result<()> {
                     ProtocolEvent::Error { description } => {
                         eprintln!("[{:>7.1}s] ERROR: {description}", start.elapsed().as_secs_f64());
                     }
+                    ProtocolEvent::PresenceAttestationReceived { attester_id, latency_ms, .. } => {
+                        // L1-001 : le runtime répond aux challenges automatiquement ;
+                        // cette ligne ne loggue que les attestations que NOUS avons
+                        // sollicitées et acceptées (observabilité NAS).
+                        eprintln!(
+                            "[{:>7.1}s] PRESENCE ✓ {} atteste en {}ms",
+                            start.elapsed().as_secs_f64(),
+                            short_id(&attester_id.to_string()),
+                            latency_ms
+                        );
+                    }
                     _ => {}
                 }
             }

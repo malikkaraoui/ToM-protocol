@@ -22,7 +22,7 @@ use tom_protocol::{DeliveredMessage, ProtocolEvent, ProtocolRuntime, RuntimeChan
 use tom_transport::TomNodeConfig;
 
 mod types;
-use types::{DeliveredMessageFFI, DiscoveredPeerFFI, GroupConfigFFI, NodeConfigFFI, NodeStatusFFI, PeerAddrFFI, RuntimeConfigFFI};
+use types::{DeliveredMessageFFI, DiscoveredPeerFFI, GroupConfigFFI, NodeConfigFFI, NodeStatusFFI, PeerAddrFFI, PresenceStatsFFI, RuntimeConfigFFI};
 
 /// Hard cap for discovered peer cache exposed over FFI.
 /// Prevents unbounded growth on long-running tvOS sessions.
@@ -48,6 +48,9 @@ pub struct TomNodeHandle {
     local_role: Arc<Mutex<String>>,
     /// Relay URL passed at start time (stored for status reporting).
     configured_relay_url: Arc<std::sync::Mutex<Option<String>>>,
+    /// L1-001 presence: (accepted_total, last_attester, last_latency_ms) —
+    /// updated from PresenceAttestationReceived events, polled by Swift.
+    presence_stats: Arc<Mutex<(u64, String, u64)>>,
 }
 
 /// Initialize tracing (logs) for the node
@@ -161,6 +164,7 @@ pub unsafe extern "C" fn tom_node_create(config_json: *const c_char) -> *mut Tom
         last_path: Arc::new(Mutex::new(None)),
         local_role: Arc::new(Mutex::new("Peer".to_string())),
         configured_relay_url: Arc::new(std::sync::Mutex::new(None)),
+        presence_stats: Arc::new(Mutex::new((0, String::new(), 0))),
     }))
 }
 
@@ -242,6 +246,13 @@ pub unsafe extern "C" fn tom_node_start(
         enable_embedded_relay: runtime_config.enable_embedded_relay.unwrap_or(true),
         enable_embedded_relay_publication: runtime_config.enable_embedded_relay_publication.unwrap_or(true),
         enable_transport_relay_discovery: runtime_config.enable_transport_relay_discovery.unwrap_or(true),
+        presence_contribution_min: runtime_config
+            .presence_contribution_min
+            .unwrap_or(tom_protocol::presence::RELAY_CONTRIBUTION_MIN),
+        presence_probe_interval: runtime_config
+            .presence_probe_interval_secs
+            .filter(|&s| s > 0)
+            .map(|s| std::time::Duration::from_secs(s as u64)),
         ..Default::default()
     };
 
@@ -286,6 +297,7 @@ pub unsafe extern "C" fn tom_node_start(
         let discovered_peers_clone = handle_ref.discovered_peers.clone();
         let last_path_clone = handle_ref.last_path.clone();
         let local_role_clone = handle_ref.local_role.clone();
+        let presence_stats_clone = handle_ref.presence_stats.clone();
         let mut messages_rx = channels.messages;
         let mut events_rx = channels.events;
 
@@ -310,6 +322,23 @@ pub unsafe extern "C" fn tom_node_start(
                         if let ProtocolEvent::LocalRoleChanged { ref new_role } = event {
                             let mut lr = local_role_clone.lock().await;
                             *lr = format!("{:?}", new_role);
+                        }
+                        // L1-001: track accepted presence attestations
+                        if let ProtocolEvent::PresenceAttestationReceived {
+                            ref attester_id,
+                            ref latency_ms,
+                            ..
+                        } = event
+                        {
+                            tracing::info!(
+                                "Presence attestation from {} in {}ms",
+                                attester_id,
+                                latency_ms
+                            );
+                            let mut ps = presence_stats_clone.lock().await;
+                            ps.0 += 1;
+                            ps.1 = attester_id.to_string();
+                            ps.2 = *latency_ms;
                         }
                         // Cache discovered peers from gossip/DHT
                         if let ProtocolEvent::PeerDiscovered { ref node_id, ref username, ref source } = event {
@@ -748,6 +777,107 @@ pub unsafe extern "C" fn tom_node_status(handle: *const TomNodeHandle) -> *mut c
     });
 
     match CString::new(status_json) {
+        Ok(c_str) => c_str.into_raw(),
+        Err(_) => std::ptr::null_mut(),
+    }
+}
+
+/// Issue a presence challenge toward a peer (L1-001).
+///
+/// The result arrives asynchronously: on acceptance the node updates its
+/// presence stats (poll `tom_node_presence_stats()`) and logs the event.
+/// No result at all means the peer is absent, lying, or below the
+/// anti-Sybil gate — silent by design (no oracle).
+///
+/// # Returns
+/// * 0 on success (command queued)
+/// * -1 on failure (null/invalid handle or target, node not started)
+///
+/// # Safety
+/// * `handle` must be a valid pointer returned by `tom_node_create()`
+/// * `target_id` must be a valid NUL-terminated C string
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn tom_node_check_presence(
+    handle: *const TomNodeHandle,
+    target_id: *const c_char,
+) -> i32 {
+    if handle.is_null() {
+        return -1;
+    }
+    let handle_ref = unsafe { &*handle };
+
+    let target_str = match unsafe { cstr_opt(target_id) } {
+        Some(s) => s,
+        None => {
+            tracing::error!("tom_node_check_presence: null or non-UTF-8 target_id");
+            return -1;
+        }
+    };
+    let target_node_id = match target_str.parse() {
+        Ok(id) => id,
+        Err(e) => {
+            tracing::error!("tom_node_check_presence: invalid NodeId: {}", e);
+            return -1;
+        }
+    };
+
+    handle_ref.runtime.block_on(async {
+        if let Some(runtime_handle) = handle_ref.handle.lock().await.as_ref() {
+            runtime_handle.check_presence(target_node_id).await;
+            0
+        } else {
+            tracing::error!("tom_node_check_presence: node not started");
+            -1
+        }
+    })
+}
+
+/// Get L1-001 presence stats as JSON (see `PresenceStatsFFI` for the schema).
+///
+/// # Returns
+/// * JSON C string (caller must free with `tom_node_free_string()`)
+/// * NULL on null handle or serialization failure
+///
+/// # Safety
+/// * `handle` must be a valid pointer returned by `tom_node_create()`
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn tom_node_presence_stats(handle: *const TomNodeHandle) -> *mut c_char {
+    if handle.is_null() {
+        return std::ptr::null_mut();
+    }
+    let handle_ref = unsafe { &*handle };
+
+    let json = handle_ref.runtime.block_on(async {
+        let (accepted_total, last_attester, last_latency_ms) =
+            handle_ref.presence_stats.lock().await.clone();
+
+        let (window_count, seed_prefix) = {
+            let guard = handle_ref.handle.lock().await;
+            if let Some(rh) = guard.as_ref() {
+                match rh.presence_seed().await {
+                    Some((seed, count)) => {
+                        let prefix: String =
+                            seed[..4].iter().map(|b| format!("{b:02x}")).collect();
+                        (count as u64, prefix)
+                    }
+                    None => (0, String::new()),
+                }
+            } else {
+                (0, String::new())
+            }
+        };
+
+        let stats = PresenceStatsFFI {
+            accepted_total,
+            last_attester,
+            last_latency_ms,
+            window_count,
+            seed_prefix,
+        };
+        serde_json::to_string(&stats).unwrap_or_else(|_| "{}".to_string())
+    });
+
+    match CString::new(json) {
         Ok(c_str) => c_str.into_raw(),
         Err(_) => std::ptr::null_mut(),
     }

@@ -392,7 +392,14 @@ final class TomNodeService: ObservableObject {
                     n0Discovery: n0Discovery,
                     localDiscovery: localDiscovery,
                     dataDir: dataDir,
-                    gossipBootstrapPeers: bootstrapPeers
+                    gossipBootstrapPeers: bootstrapPeers,
+                    // L1-001 flotte PHASE 1 (plomberie) — voir
+                    // docs/plans/L1-001-runbook-flotte.md : gate à 0.0
+                    // (accepte toute attestation signée bien formée) +
+                    // sonde auto 15s. PHASE 2 : passer le gate à nil
+                    // (défaut protocole 2.0).
+                    presenceContributionMin: 0.0,
+                    presenceProbeIntervalSecs: 15
                 )
 
                 if Task.isCancelled {
@@ -656,6 +663,7 @@ final class TomNodeService: ObservableObject {
     private func startPolling() {
         var knownPeerIds = Set<String>()
         var lastPeerCount = 0
+        var lastPresenceTotal: UInt64 = 0
 
         pollTask = Task { [weak self] in
             while !Task.isCancelled {
@@ -730,6 +738,13 @@ final class TomNodeService: ObservableObject {
                     if let role = status.localRole { self.localRole = role }
                     if let pk = status.pathKind { self.pathKind = pk }
                     if let rtt = status.pathRttMs { self.pathRttMs = rtt }
+                }
+                // L1-001 presence : logge chaque attestation acceptée
+                // (sonde auto 15s → Live Log, zéro UI dédiée)
+                if let ps = await self.node.presenceStats(), ps.acceptedTotal > lastPresenceTotal {
+                    let short = String(ps.lastAttester.prefix(8))
+                    self.appendLog(.success, "PRESENCE ✓ \(short) atteste en \(ps.lastLatencyMs)ms (total \(ps.acceptedTotal), fenêtre \(ps.windowCount), seed \(ps.seedPrefix))")
+                    lastPresenceTotal = ps.acceptedTotal
                 }
                 let currentConnected = await self.node.connectedPeers()
                 self.connectedPeers = currentConnected

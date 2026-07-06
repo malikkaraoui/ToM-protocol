@@ -88,6 +88,18 @@ pub struct RuntimeConfig {
     /// When `None`, the runtime auto-detects the machine's outbound IP.
     /// Set explicitly when auto-detection picks the wrong interface.
     pub embedded_relay_advertise_addr: Option<std::net::IpAddr>,
+    /// L1-001: anti-Sybil gate — minimum LOCAL contribution score an
+    /// attester must have (as observed by US) for its presence attestation
+    /// to be accepted. Default: `presence::RELAY_CONTRIBUTION_MIN` (2.0).
+    ///
+    /// ⚠️ Lowering this weakens the Sybil defense. `0.0` accepts any
+    /// well-formed signed attestation — ONLY for fleet plumbing tests
+    /// (phase 1 of the L1-001 runbook), never a production default.
+    pub presence_contribution_min: f64,
+    /// L1-001: when set, the runtime automatically challenges up to 8
+    /// Online peers at this interval (auto-probe). Feeds the Live Log on
+    /// devices without any UI work. Default: `None` (off).
+    pub presence_probe_interval: Option<Duration>,
 }
 
 impl Default for RuntimeConfig {
@@ -113,6 +125,8 @@ impl Default for RuntimeConfig {
             relay_publish_interval: Duration::from_secs(300), // 10 min TTL / 2
             embedded_relay_bind_addr: std::net::SocketAddr::from((std::net::Ipv6Addr::UNSPECIFIED, 0)),
             embedded_relay_advertise_addr: None,
+            presence_contribution_min: crate::presence::RELAY_CONTRIBUTION_MIN,
+            presence_probe_interval: None,
         }
     }
 }
