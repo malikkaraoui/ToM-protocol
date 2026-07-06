@@ -1,1 +1,2 @@
 {"ts":"2026-07-06","build":"pre-loop","event":"corpus-seed","note":"corpus initial semé depuis les tests déjà verts; boucle pas encore lancée"}
+{"ts":"2026-07-06","build":"21","attack":"chaos.monkey","params":{"seed":7},"target":"controlled","observation":{"check_presence_ok":true,"presence_metrics_timeout_node":3,"accepted_after_heal":0,"hang_without_guard":true},"verdict":"BREACH","note":"noeud insensible aux requetes apres churn+skew; boucle runtime ne repond plus; hypothese isolation-recovery bloque le select loop","fix_commit":null}

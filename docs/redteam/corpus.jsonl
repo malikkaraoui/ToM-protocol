@@ -4,4 +4,4 @@
 {"id":"pres.reflect","params":{"seed":4},"was_breach":false,"note":"challenge forgé from A — signature challenge requise"}
 {"id":"pres.skew","params":{"offset_ms":300000},"was_breach":false,"note":"skew >120s — fenêtre répondeur rejette"}
 {"id":"pres.flood","params":{"rate":500},"was_breach":false,"note":"budget répondeur doit plafonner"}
-{"id":"chaos.monkey","params":{"seed":7},"was_breach":null,"note":"FINDING #1 non conclu — présence ne repart pas après churn+skew; à investiguer harnais propre"}
+{"id":"chaos.monkey","params":{"seed":7},"was_breach":true,"note":"CONFIRMÉ build21: noeud insensible aux requetes apres churn+skew (presence_metrics timeout node 3); fix protocole en attente"}
