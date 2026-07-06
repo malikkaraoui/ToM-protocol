@@ -3353,6 +3353,48 @@ mod tests {
     }
 
     #[test]
+    fn handle_incoming_never_panics_on_adversarial_bytes() {
+        // Wire-format fuzz: the outermost parse+dispatch path must absorb any
+        // byte string and any single-byte mutation of a valid envelope without
+        // panicking (a panic here = remote DoS). Deterministic (seeded RNG).
+        use rand::{RngCore, SeedableRng};
+        let mut state = default_state(1);
+        let mut rng = rand::rngs::StdRng::seed_from_u64(0xF0F0);
+
+        // 1. Pure random byte strings of assorted lengths.
+        for _ in 0..500 {
+            let len = (rng.next_u32() % 512) as usize;
+            let mut buf = vec![0u8; len];
+            rng.fill_bytes(&mut buf);
+            let _ = state.handle_incoming(&buf); // must not panic
+        }
+
+        // 2. A valid envelope, mutated one byte at a time (walks every offset).
+        let (sender_id, sender_secret) = keypair(2);
+        let base = crate::envelope::EnvelopeBuilder::new(
+            sender_id,
+            state.local_id,
+            MessageType::Chat,
+            b"fuzz-seed".to_vec(),
+        )
+        .sign(&sender_secret)
+        .to_bytes()
+        .unwrap();
+        for i in 0..base.len() {
+            for flip in [0x01u8, 0x80, 0xFF] {
+                let mut m = base.clone();
+                m[i] ^= flip;
+                let _ = state.handle_incoming(&m); // must not panic
+            }
+        }
+
+        // 3. Truncations at every prefix length.
+        for i in 0..base.len() {
+            let _ = state.handle_incoming(&base[..i]); // must not panic
+        }
+    }
+
+    #[test]
     fn forged_relay_ack_earns_no_score() {
         // FINDING #7: a signed RelayForwarded ACK with a message_id we never
         // sent must NOT credit the sender's local relay score. Otherwise an
