@@ -509,3 +509,144 @@ fn auto_probe_is_config_gated() {
     let challenges = envelopes_of(&on.tick_presence_probe(), MessageType::PresenceChallenge);
     assert_eq!(challenges.len(), 1, "one challenge per Online peer");
 }
+
+/// Build 20 — drop counters increment on the right reason (runtime level).
+#[test]
+fn drop_counters_partition_by_reason() {
+    use tom_protocol::PresenceOutcome;
+    let mut alice = state_with(1);
+    let mut bob = state_with(2);
+    let (_, alice_secret) = keypair(1);
+    earn_relay_evidence(&mut alice, &alice_secret, &mut bob, 1);
+
+    // Happy path → accepted counter + issued + challenge received/signed on Bob.
+    let challenges = envelopes_of(
+        &alice.initiate_presence_check(bob.local_id()),
+        MessageType::PresenceChallenge,
+    );
+    let attestations = envelopes_of(
+        &bob.handle_incoming(&challenges[0]),
+        MessageType::PresenceAttestation,
+    );
+    alice.handle_incoming(&attestations[0]);
+    // Replay → drop_unknown_challenge.
+    alice.handle_incoming(&attestations[0]);
+
+    let am = alice.presence_metrics();
+    assert_eq!(am.issued, 1);
+    assert_eq!(am.accepted, 1);
+    assert_eq!(am.drop_unknown_challenge, 1, "replay must count as unknown-challenge drop");
+    assert!(am.latency_max_ms >= am.latency_min_ms);
+
+    let bm = bob.presence_metrics();
+    assert_eq!(bm.challenges_received, 1);
+    assert_eq!(bm.signed, 1);
+
+    // A forged (wrong-signer) challenge to Bob → refused_bad_signature.
+    let (mid, msecret) = keypair(7);
+    let payload = tom_protocol::presence::PresenceChallengePayload {
+        challenge_id: "x".into(),
+        nonce: vec![3u8; tom_protocol::presence::NONCE_LEN],
+        timestamp: tom_protocol::now_ms(),
+        challenger_id: alice.local_id(), // lies about challenger
+    };
+    let env = EnvelopeBuilder::new(
+        mid,
+        bob.local_id(),
+        MessageType::PresenceChallenge,
+        payload.to_bytes(),
+    )
+    .sign(&msecret);
+    bob.handle_incoming(&env.to_bytes().unwrap());
+    let bm2 = bob.presence_metrics();
+    assert_eq!(bm2.refused_incoherent, 1, "challenger_id≠signer → incoherent refusal");
+    let _ = PresenceOutcome::Issued; // type is exported
+}
+
+/// Build 20 SIM — clock-skew injection proves the anti-NTP hardening.
+///
+/// A challenger judges freshness on its OWN clock, and ignores the
+/// attester's declared timestamp. So an attester whose clock is wildly
+/// skewed still produces attestations the challenger accepts — provided the
+/// RESPONDER acceptance window (loose, 120s) tolerates the skew on the
+/// CHALLENGE direction. This test proves both the property AND documents
+/// where the responder window is the binding constraint.
+#[test]
+fn clock_skew_freshness_holds_on_local_clock() {
+    // Attester B runs 60s ahead of challenger A (within the 120s window).
+    let (aid, asecret) = keypair(1);
+    let mut alice = RuntimeState::new(
+        aid,
+        asecret,
+        RuntimeConfig {
+            encryption: false,
+            username: "node-1".into(),
+            presence_contribution_min: 0.0,
+            presence_clock_offset_ms: 0,
+            ..Default::default()
+        },
+    );
+    let (bid, bsecret) = keypair(2);
+    let mut bob = RuntimeState::new(
+        bid,
+        bsecret,
+        RuntimeConfig {
+            encryption: false,
+            username: "node-2".into(),
+            presence_contribution_min: 0.0,
+            presence_clock_offset_ms: 60_000, // +60s, inside responder window
+            ..Default::default()
+        },
+    );
+
+    let challenges = envelopes_of(
+        &alice.initiate_presence_check(bob.local_id()),
+        MessageType::PresenceChallenge,
+    );
+    // Bob (skewed +60s) still accepts A's challenge (|60s| < 120s window)…
+    let attestations = envelopes_of(
+        &bob.handle_incoming(&challenges[0]),
+        MessageType::PresenceAttestation,
+    );
+    assert_eq!(attestations.len(), 1, "skew within window → Bob attests");
+    // …and A accepts B's attestation: freshness is on A's own clock, and
+    // B's skewed declared timestamp is never used as a gate.
+    let events = attestation_events(&alice.handle_incoming(&attestations[0]));
+    assert_eq!(events.len(), 1, "challenger judges freshness on its own clock");
+    assert!(bob.presence_metrics().signed == 1);
+    assert!(alice.presence_metrics().accepted == 1);
+}
+
+/// Build 20 SIM — skew BEYOND the responder window is the binding limit.
+/// This is the honest boundary the anti-NTP hardening leaves: the responder
+/// rejects a challenge whose declared timestamp is >120s from its own clock.
+#[test]
+fn clock_skew_beyond_responder_window_is_rejected() {
+    let mut alice = state_with(1);
+    let (bid, bsecret) = keypair(2);
+    let mut bob = RuntimeState::new(
+        bid,
+        bsecret,
+        RuntimeConfig {
+            encryption: false,
+            username: "node-2".into(),
+            presence_clock_offset_ms: 300_000, // +5 min, well beyond 120s window
+            ..Default::default()
+        },
+    );
+
+    let challenges = envelopes_of(
+        &alice.initiate_presence_check(bob.local_id()),
+        MessageType::PresenceChallenge,
+    );
+    let attestations = envelopes_of(
+        &bob.handle_incoming(&challenges[0]),
+        MessageType::PresenceAttestation,
+    );
+    assert!(
+        attestations.is_empty(),
+        "5min skew exceeds the 120s responder window → challenge refused"
+    );
+    // The refusal is counted as incoherent (validate() window failure).
+    assert_eq!(bob.presence_metrics().refused_incoherent, 1);
+}

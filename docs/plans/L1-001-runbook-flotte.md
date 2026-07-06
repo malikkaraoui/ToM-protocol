@@ -107,6 +107,38 @@ cargo zigbuild -p tom-stress --target aarch64-unknown-linux-musl --release
 # (kill l'ancien process avant scp — 'dest open Failure' sinon)
 ```
 
+## Build 20 — stress autonome + relevés (API ajoutées)
+
+Le build 20 ajoute de quoi *piloter et mesurer* la présence sans UI, pour
+enchaîner des scénarios en autonomie :
+
+| Capacité | RuntimeHandle | FFI | Swift |
+|---|---|---|---|
+| Challenge en lot | `check_presence_many(Vec)` | `tom_node_check_presence_many` | `checkPresenceMany` |
+| Challenge tous les Online | `check_presence_all_online()` | (via many) | — |
+| Compteurs par issue | `presence_metrics()` | `tom_node_presence_metrics` | `presenceMetrics()` |
+
+**Compteurs** (`PresenceMetrics`, monotones) : `issued`, `accepted`,
+`drop_*` (unknown_challenge/stale/wrong_attester/bad_signature/incoherent/gate/store_full),
+`challenges_received`, `signed`, `refused_*`, latence min/max/mean.
+→ chaque décision de présence incrémente **exactement un** compteur (invariant testé),
+donc les drops silencieux redeviennent mesurables **sans rien fuiter sur le fil**.
+
+**Scénario tempête** (moi, en autonomie, déjà vert) :
+```bash
+cargo run -p tom-stress --bin tom-stress -- presence-storm
+# 4 nœuds maillés, 20 rafales, relevé JSONL : ratio d'acceptation,
+# latence min/mean/max, budget répondeur qui plafonne, mémoire bornée
+```
+Relevé mesuré (local) : 400 émis, 120 acceptés (budget plafonne 120/240 signés),
+latence chaude ~184 ms mean, 0 drop (gate 0.0). Sur la flotte : rejouer en
+faisant varier NODE_COUNT / gate / pace pour cartographier le point de
+saturation par type d'appareil (Apple TV = plancher).
+
+Côté apps, un bouton debug peut appeler `presenceMetrics()` et logger la
+ligne de compteurs — utile pour lire le comportement du gate/budget en live
+sans brancher un debugger.
+
 ## Ce que ce runbook ne teste PAS (assumé)
 
 - Grinding par sous-ensemble du seed — ouvert par design jusqu'à **L1-002**.

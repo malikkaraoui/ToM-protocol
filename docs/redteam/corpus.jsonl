@@ -1,0 +1,7 @@
+{"id":"pres.forge","params":{"seed":1},"was_breach":false,"note":"attestation signature forgée — doit compter drop_bad_signature"}
+{"id":"pres.replay","params":{"seed":2},"was_breach":false,"note":"rejeu attestation — one-shot doit droper"}
+{"id":"pres.usurp","params":{"seed":3},"was_breach":false,"note":"relais répond à la place de la cible — from≠target drop"}
+{"id":"pres.reflect","params":{"seed":4},"was_breach":false,"note":"challenge forgé from A — signature challenge requise"}
+{"id":"pres.skew","params":{"offset_ms":300000},"was_breach":false,"note":"skew >120s — fenêtre répondeur rejette"}
+{"id":"pres.flood","params":{"rate":500},"was_breach":false,"note":"budget répondeur doit plafonner"}
+{"id":"chaos.monkey","params":{"seed":7},"was_breach":null,"note":"FINDING #1 non conclu — présence ne repart pas après churn+skew; à investiguer harnais propre"}

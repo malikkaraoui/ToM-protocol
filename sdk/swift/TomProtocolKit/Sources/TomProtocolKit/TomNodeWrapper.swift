@@ -290,6 +290,34 @@ public actor TomNodeWrapper {
         }
     }
 
+    /// L1-001: challenge many peers at once (stress driving).
+    public func checkPresenceMany(targets: [NodeId]) throws {
+        guard let h = handle else { throw TomError.notStarted }
+        let json = try JSONSerialization.data(withJSONObject: targets)
+        guard let jsonStr = String(data: json, encoding: .utf8) else {
+            throw TomError.jsonParseFailed("Failed to encode targets")
+        }
+        let result = jsonStr.withCString { tom_node_check_presence_many(h, $0) }
+        if result < 0 {
+            throw TomError.sendFailed("tom_node_check_presence_many returned \(result)")
+        }
+    }
+
+    /// Build 20: full per-outcome presence counters (stress relevés).
+    public func presenceMetrics() -> TomPresenceMetrics? {
+        guard let h = handle else { return nil }
+        guard let cStr = tom_node_presence_metrics(h) else { return nil }
+        let jsonStr = String(cString: cStr)
+        tom_node_free_string(cStr)
+        guard let data = jsonStr.data(using: .utf8) else { return nil }
+        do {
+            return try JSONDecoder().decode(TomPresenceMetrics.self, from: data)
+        } catch {
+            log.error("Failed to decode presence metrics: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
     /// L1-001: presence stats snapshot (accepted count, last attester,
     /// latency, aggregation window, seed prefix).
     public func presenceStats() -> TomPresenceStats? {

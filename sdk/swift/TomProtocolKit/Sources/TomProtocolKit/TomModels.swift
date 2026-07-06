@@ -156,6 +156,45 @@ public struct TomPresenceStats: Codable {
     }
 }
 
+/// Compteurs par-issue L1-001 (depuis `tom_node_presence_metrics`).
+public struct TomPresenceMetrics: Codable {
+    public let issued: UInt64
+    public let accepted: UInt64
+    public let dropUnknownChallenge: UInt64
+    public let dropStale: UInt64
+    public let dropWrongAttester: UInt64
+    public let dropBadSignature: UInt64
+    public let dropIncoherent: UInt64
+    public let dropGate: UInt64
+    public let dropStoreFull: UInt64
+    public let challengesReceived: UInt64
+    public let signed: UInt64
+    public let refusedBadSignature: UInt64
+    public let refusedIncoherent: UInt64
+    public let refusedBudget: UInt64
+    public let latencyMinMs: UInt64
+    public let latencyMaxMs: UInt64
+    public let latencyMeanMs: UInt64
+
+    enum CodingKeys: String, CodingKey {
+        case issued, accepted, signed
+        case dropUnknownChallenge = "drop_unknown_challenge"
+        case dropStale = "drop_stale"
+        case dropWrongAttester = "drop_wrong_attester"
+        case dropBadSignature = "drop_bad_signature"
+        case dropIncoherent = "drop_incoherent"
+        case dropGate = "drop_gate"
+        case dropStoreFull = "drop_store_full"
+        case challengesReceived = "challenges_received"
+        case refusedBadSignature = "refused_bad_signature"
+        case refusedIncoherent = "refused_incoherent"
+        case refusedBudget = "refused_budget"
+        case latencyMinMs = "latency_min_ms"
+        case latencyMaxMs = "latency_max_ms"
+        case latencyMeanMs = "latency_mean_ms"
+    }
+}
+
 /// Cycle de vie du nœud côté app.
 public enum TomNodeState: String {
     case stopped = "Stopped"

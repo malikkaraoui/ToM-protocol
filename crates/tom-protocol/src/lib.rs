@@ -38,8 +38,8 @@ pub use group::{
     GroupMessage, GroupMessageContent, GroupPayload, LeaveReason, SenderKeyEntry,
 };
 pub use presence::{
-    PresenceAttestationPayload, PresenceChallengePayload, PresenceManager, RelayProof,
-    RelayProofType,
+    PresenceAttestationPayload, PresenceChallengePayload, PresenceManager, PresenceMetrics,
+    PresenceOutcome, RelayProof, RelayProofType,
 };
 pub use relay::{PeerInfo, PeerRole, PeerStatus, RelaySelector, Topology};
 pub use roles::{AntiSpamConfig, ContributionMetrics, RoleAction, RoleManager, RoleMetrics};
