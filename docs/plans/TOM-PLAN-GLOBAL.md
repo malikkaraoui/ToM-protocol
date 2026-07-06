@@ -15,7 +15,7 @@
 | **1** | L1 Swarm | Bâtir les rôles + **Proof of Presence** comme couche d'**intégrité réseau** | **non** | 🔨 prochaine grande étape |
 | **2** | L2 Valeur | Transfert de valeur sans double-dépense/frais/grand livre | oui | 🔨 différé (bonus final) |
 
-**Chemin critique** : M1.1 (attestation) → M1.2 (entropie non-biaisable) → M1.4 (anti-Sybil quantifié). Si ces trois-là ne tiennent pas, **le PoP n'est pas réel** et L2 est caduque. On les attaque **en premier**, car ils sont testables **sans argent**.
+**Chemin critique** : M1.1 (attestation) **∥ M1.2 (entropie — recherche, en parallèle)** → M1.3 (cascade) → M1.4 (anti-Sybil quantifié). Si M1.2 ne tient pas, **le PoP n'est pas réel** et L2 est caduque → M1.2 est le **verrou de recherche**, à lancer immédiatement, pas après M1.1. Tout est testable **sans argent**.
 
 ---
 
@@ -60,6 +60,12 @@
 
 **Objectif de phase** : prouver que le consensus par présence est **réel** (entropie non-biaisable + anti-Sybil chiffré), et livrer les rôles Observateur/Validateur/Gardien comme couche de sécurité **réseau** — utile même sans valeur.
 
+### ⚙️ Paramètres à VERROUILLER avant M1.1 (sinon M1.1 est un leurre — Fable)
+- **Durée de probation** : proposé **7 jours** (non négociable) avant qu'un nœud puisse être témoin critique.
+- **Taille de quorum Q** : proposé **Q ≥ 50** (à calibrer en M1.4 sur `P(quorum Sybil)`).
+- **Format « preuve d'activité récente »** : hash signé du **dernier message réellement relayé** + **compteur de relais signé** (timestamp lié) + fenêtre 5 s. Détail dans la story L1-001.
+- Ces trois paramètres sont des **entrées** de M1.1/M1.4, pas des détails d'implémentation.
+
 ### M1.1 — Attestation de présence *(première story — endossée)*
 - **Objectif** : primitif du PoP — A prouve que B est vivant MAINTENANT, B co-signe.
 - **Livrable** : protocole challenge→réponse signé, avec **preuve d'activité récente** (B a relayé ≥1 msg dans les 5 s) ; attestation **éphémère 30s, jamais persistée, jamais backupée** (aligné #2).
@@ -73,11 +79,15 @@
 - **Risque** 🟠 : « preuve d'activité » falsifiable → à durcir (lien cryptographique au dernier relais réel).
 - **Dépend de** : L0 (DHT rendez-vous, QUIC). **Sans dépendance argent/partition/quorum.**
 
-### M1.2 — Entropie non-biaisable *(le mur #1)*
+### M1.2 — Entropie non-biaisable *(le mur #1 — PROBLÈME DE RECHERCHE, à mener EN PARALLÈLE de M1.1)*
 - **Objectif** : produire un aléa **vérifiable, indépendant du demandeur**, sans horloge ni bloc global.
-- **Livrable** : `seed(attestations_agrégées) + VDF` (fonction à délai vérifiable) → randomness ; preuve d'in-biasabilité.
-- **Critère** : un demandeur qui **re-tire 10⁶ fois** ne gagne aucun avantage de sélection (test de grinding).
-- **Risque** 🔴 **CRITIQUE** : c'est LE point qui peut tuer le PoP. Si l'entropie reste biaisable → repenser (commit-reveal ? beacon distribué ?).
+- **⚠️ Nature (Fable)** : ce n'est **pas** de l'ingénierie, c'est de la **recherche**. La VDF (fonction à délai vérifiable) exige un **temps absolu mesuré** — dur à garantir sur un P2P **asynchrone sans NTP** (un nœud peut simuler « j'ai attendu 10s » en local). La littérature VDF sur réseau async est mince.
+- **Livrable** : étude comparative + choix, parmi 3 candidats :
+  1. **VDF** (Wesolowski/Sloth) — si la vérification du délai tient sur async ; sinon éliminée.
+  2. **Beacon passif** — aléa = hash des **N derniers messages du réseau** (personne ne les contrôle tous).
+  3. **Signature-seuil du churn** — `t-of-n` des relais présents co-signent un aléa.
+- **Critère** : un demandeur qui **re-tire 10⁶ fois** ne gagne aucun avantage de sélection (test de grinding), sur le candidat retenu.
+- **Risque** 🔴 **CRITIQUE — le plus risqué du plan** : si aucun candidat ne tient, **tout L1/L2 s'effondre**. Donc : **démarrer l'étude MAINTENANT**, en parallèle de M1.1, pas après. Jalon de garde **L1.2bis (recherche)** avant d'autoriser M1.3.
 
 ### M1.3 — Sélection cascade + quorum
 - **Objectif** : tirer un quorum imprévisible de taille **Q** depuis l'entropie.
@@ -111,9 +121,9 @@
 
 ### M2.0 — Décision architecturale *(prérequis bloquant)*
 - **Objectif** : trancher formellement les murs #3 et #4.
-- **Livrable** : **ADR-011** — (a) **layering** : #2 (purge 24h) gouverne le transport ; L2 a une **attestation persistante par wallet** portée par des témoins qui se relaient (exception scopée, non globale) ; (b) **choix CAP** : pour la valeur, **cohérence > disponibilité** (paiement bloqué sous partition).
-- **Critère** : ADR ratifiée (revue Fable + auteur), invariants dérivés.
-- **Risque** 🔴 : si non tranché → tout L2 est caduque.
+- **Livrable** : **ADR-011** — (a) **layering** : #2 (purge 24h) gouverne le transport ; L2 a une **attestation persistante par wallet** portée par des témoins qui se relaient (exception scopée, non globale) ; (b) **choix CAP** : pour la valeur, **cohérence > disponibilité** (paiement bloqué sous partition) ; (c) **détection de partition** (Fable) : **heartbeat de quorum** (ex. 3 pings à 5 s ; échec = partitionné → blocage) + règle de résolution de collision locale à la reconnexion.
+- **Critère** : ADR ratifiée (revue Fable + auteur), invariants dérivés, mécanisme de détection de partition spécifié (sinon on ne peut pas « bloquer sous partition »).
+- **Risque** 🔴 : si non tranché → tout L2 est caduque. Sans détection de partition, le blocage est inapplicable.
 
 ### M2.1 — Portefeuille scellé auto-custodié
 - **Livrable** : format wallet + chaîne de **sceaux** (hash d'état + version + signatures observateurs), stockée **dans le wallet** (device propriétaire).
@@ -159,6 +169,7 @@
 | 🔴 | Partition → double-spend | M2.0/M2.2 | porte = choix CAP (à acter) |
 | 🔴 | Contradiction #2 ↔ persistance valeur | M2.0 | porte = layering (🟢 actée) |
 | 🔴 | Suspension iOS (transport mobile) | M0.5 | mitigé (backup 24h + APNs) |
+| 🔴 | Migration de rôle jamais spécifiée (quorum qui part sous churn) | M1.3/M1.5 | à concevoir (le témoin ET sa mémoire passent au suivant) |
 | 🟠 | Récupération wallet plie un principe | M2.4 | à borner |
 | 🟠 | Preuve d'activité falsifiable | M1.1 | à durcir |
 | 🟠 | Box sans UPnP/IPv6 | M0.1/M0.2 | fallback relais |
