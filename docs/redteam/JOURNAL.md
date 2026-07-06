@@ -60,9 +60,33 @@
      et requêtes, même en isolation. Contrainte : `node`/`sender` doivent être
      clonables dans le spawn (vérifier `node.sender()` vs API `reprobe_relays`).
   3. Re-tester chaos.monkey seed 7 → DÉFENDU ; corpus vert.
-- **Décision session** : fix NON appliqué ici (changement au cœur du `select!` loop,
-  risqué à chaud en fin de longue session ; §6). Diagnostic complet livré, patch queué.
-- **Statut corpus** : `was_breach: true` — test de régression permanent.
+- **✅ CORRIGÉ (build 22)** : bornage timeout (`RECOVERY_OP_TIMEOUT = 1500ms`) sur
+  TOUS les `.await` réseau de la branche `reconnect_check` (`connected_peers`,
+  `publish_to_dht`, `join_peers`, `reprobe_relays`). Ce sont des ops best-effort
+  (résultats jetés, rejouées toutes les 15s) → un await qui pend passe d'« infini »
+  à « 1,5s puis la boucle draine son backlog de requêtes ». Le trou noir permanent
+  disparaît. `connected_peers` timeout → défaut « isolé » (déclenche la recovery,
+  ne fige pas). Note : les lookups DHT et `spawn_rendezvous_round` étaient déjà
+  spawnés — cohérent avec la nouvelle borne.
+- **Régression** : `chaos.monkey` seeds 7/42/99 → step « nodes stay responsive »
+  **PASS** (réponse en 3-23ms, était timeout infini). Test de régression permanent
+  intégré au scénario (assertion dure sur la réactivité).
+- **Statut corpus** : `was_breach: true` → maintenant DÉFENDU. Commit du fix : voir git.
+
+### [BUILD 22 · 2026-07-06] FINDING #2 (ouvert) — la présence ne REPREND pas toujours après churn
+- **Attaque** : `chaos.monkey` (même). Distinct de #1 (nœud figé) : ici les nœuds
+  sont **réactifs**, mais aucune NOUVELLE acceptation ne se produit après re-mesh
+  sur certains seeds (seed 7 : accepted 0→0 ; seed 42 : 11→29 « resumed »). **Seed-dépendant**.
+- **Verdict** : dégradation fonctionnelle intermittente, PAS un crash/freeze.
+- **Hypothèse** : `check_presence_all_online` ne challenge que les pairs `status==Online` ;
+  après revive+`add_peer_addr`, un pair ne repasse Online qu'au heartbeat/gossip. Dans le
+  setup synthétique (relay_urls vides, pas de bootstrap gossip), le marquage Online peut
+  ne jamais arriver → challenge-all-online saute ces pairs → 0 acceptation.
+- **Portée** : possiblement un **artefact de test** (pas de heartbeat/gossip dans le setup
+  isolé) plutôt qu'un bug protocole — à confirmer sur la **vraie flotte** (iPhone×2/iPad/
+  NAS/Mac) où heartbeats + gossip marquent les pairs Online en quelques s.
+- **Assertion** : NON-FATALE dans le scénario (observation loggée) tant que non tranché.
+- **Statut corpus** : `was_breach: null` (observation), à re-tester sur flotte réelle.
 
 Attaques déjà prouvées DÉFENDUES en amont (tests runtime + scénarios, à porter au corpus dès le 1er run) :
 - pres.forge, pres.replay, pres.usurp, pres.reflect, pres.skew, pres.mem, pres.flood (budget)
