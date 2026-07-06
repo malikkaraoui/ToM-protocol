@@ -204,10 +204,16 @@ pub async fn run_with_seed(seed: u64) -> anyhow::Result<ScenarioResult> {
         for i in 0..NODE_COUNT {
             remesh(&slots, i).await;
         }
-        // Warm the QUIC paths (freshly-bound nodes pay cold-connection setup),
-        // then let them settle — same discipline as the storm scenario.
+        // Warm the QUIC paths (freshly-bound nodes pay cold-connection setup).
+        // Guarded by a timeout: FINDING #1 — a node's runtime loop can stop
+        // replying after churn+skew (see docs/redteam/JOURNAL.md). Without the
+        // guard the whole scenario hangs on that one wedged node.
         for s in slots.iter().flatten() {
-            s.handle.check_presence_all_online().await;
+            let _ = tokio::time::timeout(
+                Duration::from_secs(3),
+                s.handle.check_presence_all_online(),
+            )
+            .await;
         }
         tokio::time::sleep(Duration::from_millis(4000)).await;
         let alive = slots.iter().filter(|s| s.is_some()).count();
@@ -257,7 +263,8 @@ pub async fn run_with_seed(seed: u64) -> anyhow::Result<ScenarioResult> {
     );
 
     for s in slots.iter().flatten() {
-        s.handle.shutdown().await;
+        // Guarded: a wedged node (FINDING #1) must not hang teardown either.
+        let _ = tokio::time::timeout(Duration::from_secs(3), s.handle.shutdown()).await;
     }
     result.total_ms = start.elapsed().as_secs_f64() * 1000.0;
     Ok(result)
@@ -265,9 +272,13 @@ pub async fn run_with_seed(seed: u64) -> anyhow::Result<ScenarioResult> {
 
 async fn collect_accepted(slots: &[Option<Slot>]) -> u64 {
     let mut total = 0;
-    for s in slots.iter().flatten() {
-        if let Some(m) = s.handle.presence_metrics().await {
-            total += m.accepted;
+    for (i, s) in slots.iter().enumerate() {
+        if let Some(s) = s {
+            match tokio::time::timeout(Duration::from_secs(3), s.handle.presence_metrics()).await {
+                Ok(Some(m)) => total += m.accepted,
+                Ok(None) => eprintln!("[collect] node {i}: metrics None"),
+                Err(_) => eprintln!("[collect] node {i}: presence_metrics() TIMEOUT — runtime loop not replying"),
+            }
         }
     }
     total
