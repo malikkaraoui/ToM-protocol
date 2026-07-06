@@ -202,6 +202,13 @@ pub enum RuntimeCommand {
     GetKnownRelays {
         reply: oneshot::Sender<Vec<crate::discovery::RelayRegistryEntry>>,
     },
+    // ── Presence (L1-001) ──────────────────────────
+    /// Issue a presence challenge toward a peer (we become the challenger).
+    CheckPresence { target: NodeId },
+    /// Query the current presence aggregation window (seed + count).
+    GetPresenceSeed {
+        reply: oneshot::Sender<([u8; 32], usize)>,
+    },
     /// Inject raw gossip bytes into the runtime for processing.
     ///
     /// Test/debug bridge: feeds bytes through the same deserialization pipeline
@@ -252,6 +259,14 @@ pub enum ProtocolEvent {
     PathChanged { event: PathEvent },
     /// Runtime encountered a non-fatal error.
     Error { description: String },
+    // ── Presence events (L1-001) ──────────────────
+    /// A presence attestation we solicited was verified and accepted.
+    PresenceAttestationReceived {
+        attester_id: NodeId,
+        challenge_id: String,
+        /// Round-trip measured on OUR clock (challenge issue → acceptance).
+        latency_ms: u64,
+    },
     // ── Group events ──────────────────────────────
     /// A group was created (we are a member).
     GroupCreated { group: GroupInfo },
@@ -431,6 +446,28 @@ impl RuntimeHandle {
             .map_err(|_| crate::TomProtocolError::InvalidEnvelope {
                 reason: "runtime shut down".into(),
             })
+    }
+
+    /// Issue a presence challenge toward a peer (L1-001).
+    ///
+    /// The result arrives asynchronously as
+    /// `ProtocolEvent::PresenceAttestationReceived` — or nothing at all if
+    /// the peer is absent, lying, or below the local anti-Sybil gate.
+    pub async fn check_presence(&self, target: NodeId) {
+        let _ = self
+            .cmd_tx
+            .send(RuntimeCommand::CheckPresence { target })
+            .await;
+    }
+
+    /// Current presence entropy seed and attestation count (L1-001 window).
+    pub async fn presence_seed(&self) -> Option<([u8; 32], usize)> {
+        let (tx, rx) = oneshot::channel();
+        self.cmd_tx
+            .send(RuntimeCommand::GetPresenceSeed { reply: tx })
+            .await
+            .ok()?;
+        rx.await.ok()
     }
 
     /// Register a peer in the network (triggers iroh discovery).
