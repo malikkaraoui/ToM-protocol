@@ -201,7 +201,7 @@ mod tests {
             replicated_to: vec![relay1, relay2],
         };
 
-        let events = store.store_replica(&payload, 1000);
+        let events = store.store_replica(&payload, true, 1000);
         assert_eq!(events.len(), 1);
         let entry = store.get("msg").unwrap();
         assert!(entry.replicated_to.contains(&relay1));
@@ -278,7 +278,7 @@ mod tests {
         };
 
         let from = node_id(3);
-        coord.handle_replication(&payload, from, 1000); // already expired
+        coord.handle_replication(&payload, from, true, 1000); // already expired
         assert!(!coord.store().has("msg"), "expired replica must not be stored");
     }
 }

@@ -74,9 +74,18 @@ impl BackupCoordinator {
     }
 
     /// Handle an incoming replication payload from another node.
-    pub fn handle_replication(&mut self, payload: &ReplicationPayload, from: NodeId, now: u64) -> Vec<BackupAction> {
+    ///
+    /// `depositor_known` is true when we hold local contribution evidence for
+    /// `from` — it gates fair eviction under a replication flood (FINDING #9).
+    pub fn handle_replication(
+        &mut self,
+        payload: &ReplicationPayload,
+        from: NodeId,
+        depositor_known: bool,
+        now: u64,
+    ) -> Vec<BackupAction> {
         let mut actions: Vec<BackupAction> = self.store
-            .store_replica(payload, now)
+            .store_replica(payload, depositor_known, now)
             .into_iter()
             .map(BackupAction::Event)
             .collect();
@@ -456,7 +465,7 @@ mod tests {
         };
 
         let from = node_id(5);
-        let actions = coord.handle_replication(&payload, from, now);
+        let actions = coord.handle_replication(&payload, from, true, now);
 
         // Should store + ACK
         assert!(coord.store().has("msg-1"));
