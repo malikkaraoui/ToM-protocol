@@ -17,8 +17,8 @@ use tom_protocol::presence::{
     self, PresenceAttestationPayload, PresenceChallengePayload, RelayProof, RelayProofType,
 };
 use tom_protocol::{
-    Envelope, EnvelopeBuilder, MessageType, NodeId, ProtocolEvent, RuntimeConfig, RuntimeEffect,
-    RuntimeState,
+    now_ms, Envelope, EnvelopeBuilder, MessageType, NodeId, PeerInfo, PeerRole, PeerStatus,
+    ProtocolEvent, RuntimeCommand, RuntimeConfig, RuntimeEffect, RuntimeState,
 };
 
 fn keypair(seed: u8) -> (NodeId, [u8; 32]) {
@@ -74,27 +74,43 @@ fn attestation_events(effects: &[RuntimeEffect]) -> Vec<(NodeId, String)> {
 }
 
 /// Make `relay` earn REAL relay evidence in `observer`'s local RoleManager:
-/// `observer` sees a message it originated relayed by `relay` (signed
-/// RelayForwarded ACK) — the exact production path of the anti-Sybil gate.
-fn earn_relay_evidence(
-    observer: &mut RuntimeState,
-    observer_secret: &[u8; 32],
-    relay: &mut RuntimeState,
-    dest_seed: u8,
-) {
+/// `observer` ORIGINATES a chat through its real send path (so the message is
+/// tracked, `to = dest`, `via = relay`), the relay forwards it and returns a
+/// signed RelayForwarded ACK, and `observer` credits the relay. This is the
+/// exact production path of the anti-Sybil gate — relay evidence is only granted
+/// for a message the observer actually routed through that relay (FINDING #7).
+fn earn_relay_evidence(observer: &mut RuntimeState, relay: &mut RuntimeState, dest_seed: u8) {
     let (dest, _) = keypair(200 + dest_seed); // a third node, offline
+    let relay_id = relay.local_id();
 
-    // Observer-originated chat routed THROUGH `relay` toward `dest`.
-    let envelope = EnvelopeBuilder::new(
-        observer.local_id(),
-        dest,
-        MessageType::Chat,
-        b"payload".to_vec(),
-    )
-    .via(vec![relay.local_id()])
-    .sign(observer_secret);
+    // Observer's topology: `relay` is an online relay, `dest` a known peer with
+    // no direct address, so the relay selector routes the send THROUGH `relay`.
+    observer.handle_command(RuntimeCommand::UpsertPeer {
+        info: PeerInfo {
+            node_id: relay_id,
+            role: PeerRole::Relay,
+            status: PeerStatus::Online,
+            last_seen: now_ms(),
+        },
+    });
+    observer.handle_command(RuntimeCommand::UpsertPeer {
+        info: PeerInfo {
+            node_id: dest,
+            role: PeerRole::Peer,
+            status: PeerStatus::Online,
+            last_seen: now_ms(),
+        },
+    });
 
-    let effects = relay.handle_incoming(&envelope.to_bytes().unwrap());
+    // Observer originates the chat via its REAL send path (this tracks it).
+    let send_effects = observer.handle_send_message(dest, b"payload".to_vec());
+    let outgoing = envelopes_of(&send_effects, MessageType::Chat);
+    assert!(
+        !outgoing.is_empty(),
+        "observer must emit a chat routed through the relay"
+    );
+
+    let effects = relay.handle_incoming(&outgoing[0]);
     let acks = envelopes_of(&effects, MessageType::Ack);
     assert!(
         !acks.is_empty(),
@@ -116,11 +132,10 @@ fn empty_seed() -> [u8; 32] {
 fn honest_roundtrip_with_real_relay_evidence() {
     let mut alice = state_with(1);
     let mut bob = state_with(2);
-    let (_, alice_secret) = keypair(1);
     let bob_id = bob.local_id();
 
     // Without relay evidence, Bob's local score at Alice is 0 → gate closed.
-    earn_relay_evidence(&mut alice, &alice_secret, &mut bob, 1);
+    earn_relay_evidence(&mut alice, &mut bob, 1);
 
     // Alice challenges Bob.
     let effects = alice.initiate_presence_check(bob_id);
@@ -151,8 +166,7 @@ fn honest_roundtrip_with_real_relay_evidence() {
 fn replayed_attestation_is_dropped() {
     let mut alice = state_with(1);
     let mut bob = state_with(2);
-    let (_, alice_secret) = keypair(1);
-    earn_relay_evidence(&mut alice, &alice_secret, &mut bob, 1);
+    earn_relay_evidence(&mut alice, &mut bob, 1);
 
     let challenges = envelopes_of(
         &alice.initiate_presence_check(bob.local_id()),
@@ -179,8 +193,7 @@ fn replayed_attestation_is_dropped() {
 fn forged_signature_is_dropped() {
     let mut alice = state_with(1);
     let mut bob = state_with(2);
-    let (_, alice_secret) = keypair(1);
-    earn_relay_evidence(&mut alice, &alice_secret, &mut bob, 1);
+    earn_relay_evidence(&mut alice, &mut bob, 1);
 
     let challenges = envelopes_of(
         &alice.initiate_presence_check(bob.local_id()),
@@ -263,9 +276,8 @@ fn attestation_from_wrong_node_is_dropped() {
     let (_, mallory_secret) = keypair(4);
 
     // Even a well-scored Mallory must not be able to usurp Bob's challenge.
-    let (_, alice_secret) = keypair(1);
-    earn_relay_evidence(&mut alice, &alice_secret, &mut bob, 1);
-    earn_relay_evidence(&mut alice, &alice_secret, &mut mallory, 5);
+    earn_relay_evidence(&mut alice, &mut bob, 1);
+    earn_relay_evidence(&mut alice, &mut mallory, 5);
 
     let challenges = envelopes_of(
         &alice.initiate_presence_check(bob.local_id()),
@@ -516,8 +528,7 @@ fn drop_counters_partition_by_reason() {
     use tom_protocol::PresenceOutcome;
     let mut alice = state_with(1);
     let mut bob = state_with(2);
-    let (_, alice_secret) = keypair(1);
-    earn_relay_evidence(&mut alice, &alice_secret, &mut bob, 1);
+    earn_relay_evidence(&mut alice, &mut bob, 1);
 
     // Happy path → accepted counter + issued + challenge received/signed on Bob.
     let challenges = envelopes_of(

@@ -43,7 +43,7 @@ fn full_backup_lifecycle() {
     assert_eq!(*target, relay2);
 
     // Relay2 receives replication
-    let actions = coord2.handle_replication(payload, relay1, now);
+    let actions = coord2.handle_replication(payload, relay1, true, now);
     assert!(coord2.store().has("msg-1"));
     assert!(!actions.is_empty());
 
@@ -218,7 +218,7 @@ fn replication_survives_node_failure() {
     let BackupAction::Replicate { payload, .. } = &actions[0] else {
         panic!("expected Replicate");
     };
-    coord2.handle_replication(payload, relay1, now);
+    coord2.handle_replication(payload, relay1, true, now);
 
     // Relay1 "fails" (we drop coord1)
     drop(coord1);
@@ -288,7 +288,7 @@ fn replication_preserves_expiry() {
     assert_eq!(payload.expires_at, 110_000);
 
     // Relay2 stores — remaining TTL should be 7s, not 10s
-    coord2.handle_replication(payload, relay1, now + 3000);
+    coord2.handle_replication(payload, relay1, true, now + 3000);
     let entry = coord2.store().get("msg-1").unwrap();
     assert_eq!(entry.remaining_ttl(now + 3000), 7_000);
 }
