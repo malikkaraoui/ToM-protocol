@@ -64,6 +64,13 @@ pub struct BackupEntry {
     pub viability_score: u8,
     /// Nodes that have confirmed replicas.
     pub replicated_to: HashSet<NodeId>,
+    /// Whether the node that deposited this backup is KNOWN (has real local
+    /// contribution score). Locally-originated backups are always known; a
+    /// backup replicated in from a peer is known only if we hold contribution
+    /// evidence for that peer. Under capacity pressure the store evicts
+    /// stranger-deposited entries first, so a BackupReplicate flood from fresh
+    /// identities cannot displace legitimate backups (red-team FINDING #9).
+    pub from_known_depositor: bool,
 }
 
 impl BackupEntry {
@@ -86,6 +93,10 @@ impl BackupEntry {
             expires_at: now + ttl,
             viability_score: 100,
             replicated_to: HashSet::new(),
+            // Default trusted: the local `store()` path (our own outgoing
+            // messages) always constructs known entries. `store_replica`
+            // overrides this per the depositing peer's contribution score.
+            from_known_depositor: true,
         }
     }
 

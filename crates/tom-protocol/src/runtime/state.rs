@@ -1331,9 +1331,17 @@ impl RuntimeState {
                         Ok(p) => p,
                         Err(_) => return Vec::new(),
                     };
-                let actions =
-                    self.backup
-                        .handle_replication(&payload, envelope.from, now);
+                // FINDING #9: a depositor we hold real contribution evidence for
+                // is "known"; its backups survive eviction under a flood. Fresh
+                // Sybil identities score 0 → stranger → evicted first / refused.
+                let depositor_known = self.role_manager.score(&envelope.from, now)
+                    >= crate::presence::RESPONDER_KNOWN_MIN_SCORE;
+                let actions = self.backup.handle_replication(
+                    &payload,
+                    envelope.from,
+                    depositor_known,
+                    now,
+                );
                 self.backup_actions_to_effects(&actions)
             }
 

@@ -72,9 +72,17 @@ impl BackupStore {
     }
 
     /// Store from a replication payload (received from another node).
+    ///
+    /// `depositor_known` is true when we hold real local contribution evidence
+    /// for the peer that sent us this replica. Under capacity pressure, stranger
+    /// (unknown) deposits are evicted first and are refused outright when the
+    /// store is full of legitimate (known-deposited) backups — so a
+    /// BackupReplicate flood from fresh identities can neither grow the store
+    /// without bound nor displace real backups (red-team FINDING #9).
     pub fn store_replica(
         &mut self,
         payload: &ReplicationPayload,
+        depositor_known: bool,
         now: u64,
     ) -> Vec<BackupEvent> {
         // Don't store expired messages
@@ -98,6 +106,24 @@ impl BackupStore {
             return vec![];
         }
 
+        // Memory protection + fairness (red-team FINDING #9): the NETWORK
+        // replication path was UNBOUNDED — only the local `store()` enforced
+        // MAX_TOTAL_MESSAGES, so a BackupReplicate flood could grow the store
+        // without limit (OOM). Enforce the hard cap here, and make room fairly:
+        //  - drop a stranger-deposited entry first (a flood churns its own);
+        //  - else, only a KNOWN depositor may displace the oldest legit entry;
+        //  - a STRANGER deposit into a store full of legit backups is refused,
+        //    so a flood can never evict real backups.
+        if self.messages.len() >= MAX_TOTAL_MESSAGES && !self.evict_oldest_stranger() {
+            if depositor_known {
+                self.evict_oldest(now);
+            } else {
+                // Store full of legitimate backups, depositor is a stranger:
+                // refuse rather than displace a real backup.
+                return vec![];
+            }
+        }
+
         // Calculate remaining TTL from absolute expiry
         let remaining_ttl = payload.expires_at.saturating_sub(now);
 
@@ -110,6 +136,7 @@ impl BackupStore {
             Some(remaining_ttl),
         );
         entry.viability_score = payload.viability_score;
+        entry.from_known_depositor = depositor_known;
         // Borne le HashSet dès la création (anti-DoS mémoire, cf. MAX_REPLICATED_TO).
         for node in &payload.replicated_to {
             if entry.replicated_to.len() >= MAX_REPLICATED_TO {
@@ -331,6 +358,25 @@ impl BackupStore {
             self.delete(&oldest_id);
         }
     }
+
+    /// Evict the oldest STRANGER-deposited message (from a peer we hold no
+    /// contribution evidence for). Returns true if one was evicted. Used to
+    /// make room without touching legitimate (known-deposited) backups under a
+    /// replication flood (FINDING #9).
+    fn evict_oldest_stranger(&mut self) -> bool {
+        if let Some((oldest_id, _)) = self
+            .messages
+            .iter()
+            .filter(|(_, entry)| !entry.from_known_depositor)
+            .min_by_key(|(_, entry)| entry.stored_at)
+        {
+            let oldest_id = oldest_id.clone();
+            self.delete(&oldest_id);
+            true
+        } else {
+            false
+        }
+    }
 }
 
 impl Default for BackupStore {
@@ -442,7 +488,7 @@ mod tests {
             replicated_to: vec![relay],
         };
 
-        let events = store.store_replica(&payload, 15_000);
+        let events = store.store_replica(&payload, true, 15_000);
         assert_eq!(events.len(), 1);
         assert!(store.has("msg-1"));
 
@@ -451,6 +497,76 @@ mod tests {
         assert!(entry.replicated_to.contains(&relay));
         // Remaining TTL: 20_000 - 15_000 = 5_000
         assert_eq!(entry.remaining_ttl(15_000), 5_000);
+    }
+
+    #[test]
+    fn store_replica_is_bounded_against_flood() {
+        // FINDING #9: the network replication path must enforce
+        // MAX_TOTAL_MESSAGES (it previously did not → unbounded memory / OOM
+        // under a BackupReplicate flood from a hostile peer).
+        let mut store = BackupStore::new();
+        let recipient = node_id(1);
+        let sender = node_id(2);
+        for i in 0..(MAX_TOTAL_MESSAGES + 500) {
+            let payload = ReplicationPayload {
+                message_id: format!("flood-{i}"),
+                payload: vec![0u8; 8],
+                recipient_id: recipient,
+                sender_id: sender,
+                expires_at: 1_000_000,
+                viability_score: 0,
+                replicated_to: vec![],
+            };
+            store.store_replica(&payload, false, 1_000);
+        }
+        assert!(
+            store.message_count() <= MAX_TOTAL_MESSAGES,
+            "store_replica must stay bounded, got {}",
+            store.message_count()
+        );
+    }
+
+    #[test]
+    fn known_backups_survive_stranger_flood() {
+        // FINDING #9 fairness: legitimate (known-deposited) backups must NOT be
+        // evicted by a flood of stranger replicas, and a stranger deposit into a
+        // store full of known backups is refused.
+        let mut store = BackupStore::new();
+        let recipient = node_id(1);
+        let sender = node_id(2);
+        let mk = |id: &str| ReplicationPayload {
+            message_id: id.into(),
+            payload: vec![0u8; 8],
+            recipient_id: recipient,
+            sender_id: sender,
+            expires_at: 1_000_000,
+            viability_score: 0,
+            replicated_to: vec![],
+        };
+
+        // Fill the store completely with KNOWN-deposited backups.
+        for i in 0..MAX_TOTAL_MESSAGES {
+            store.store_replica(&mk(&format!("legit-{i}")), true, 1_000);
+        }
+        assert_eq!(store.message_count(), MAX_TOTAL_MESSAGES);
+
+        // A stranger now floods: every deposit must be REFUSED (store full of
+        // legit), so not a single legit backup is displaced.
+        for i in 0..2_000 {
+            store.store_replica(&mk(&format!("flood-{i}")), false, 2_000);
+        }
+        assert_eq!(
+            store.message_count(),
+            MAX_TOTAL_MESSAGES,
+            "stranger flood must not grow the store"
+        );
+        for i in 0..MAX_TOTAL_MESSAGES {
+            assert!(
+                store.has(&format!("legit-{i}")),
+                "legit backup legit-{i} was evicted by the stranger flood"
+            );
+        }
+        assert!(!store.has("flood-0"), "no stranger entry should have been admitted");
     }
 
     #[test]
@@ -468,7 +584,7 @@ mod tests {
             viability_score: 50,
             replicated_to: huge,
         };
-        store.store_replica(&payload, 15_000);
+        store.store_replica(&payload, true, 15_000);
         let entry = store.get("msg-dos").unwrap();
         assert!(
             entry.replicated_to.len() <= MAX_REPLICATED_TO,
@@ -490,7 +606,7 @@ mod tests {
             replicated_to: vec![],
         };
 
-        let events = store.store_replica(&payload, 15_000); // Already expired
+        let events = store.store_replica(&payload, true, 15_000); // Already expired
         assert!(events.is_empty());
         assert!(!store.has("msg-1"));
     }
