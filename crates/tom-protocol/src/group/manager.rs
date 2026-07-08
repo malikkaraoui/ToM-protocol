@@ -730,10 +730,16 @@ impl GroupManager {
             return self.build_epoch_resync_actions(group_id);
         }
 
-        self.pending_decrypt
-            .entry(group_id.clone())
-            .or_default()
-            .push(message);
+        // Bounded buffer (red-team FINDING #12): a malicious member can send
+        // encrypted messages and never distribute its sender key, so its
+        // messages would queue here forever in every other member's memory.
+        // Cap the per-group buffer, dropping the oldest undecryptable message on
+        // overflow. Legitimate messages drain quickly once the key arrives.
+        let queue = self.pending_decrypt.entry(group_id.clone()).or_default();
+        if queue.len() >= MAX_PENDING_DECRYPT_PER_GROUP {
+            queue.remove(0);
+        }
+        queue.push(message);
         vec![]
     }
 
@@ -1270,6 +1276,42 @@ mod tests {
         assert_eq!(actions.len(), 1);
         assert!(mgr.is_in_group(&gid));
         assert_eq!(mgr.message_history(&gid).len(), 1);
+    }
+
+    #[test]
+    fn pending_decrypt_is_bounded_against_flood() {
+        // FINDING #12: a member that sends encrypted messages but never
+        // distributes its sender key must not grow every other member's
+        // pending_decrypt buffer without bound (memory DoS).
+        let mut mgr = make_manager();
+        let hub = node_id(10);
+        let group = make_test_group(node_id(1), hub);
+        let gid = group.group_id.clone();
+        mgr.handle_group_sync(group, vec![]);
+
+        let attacker = node_id(2);
+        for i in 0..(MAX_PENDING_DECRYPT_PER_GROUP + 500) {
+            let msg = GroupMessage {
+                group_id: gid.clone(),
+                message_id: format!("m-{i}"),
+                sender_id: attacker,
+                sender_username: "eve".into(),
+                text: String::new(),
+                ciphertext: vec![1, 2, 3],
+                nonce: [0u8; 24],
+                key_epoch: 0,
+                encrypted: true,
+                sent_at: 1000,
+                sender_signature: Vec::new(),
+                seq: i as u64,
+            };
+            mgr.try_decrypt_and_deliver(msg);
+        }
+        let queued = mgr.pending_decrypt.get(&gid).map_or(0, |v| v.len());
+        assert!(
+            queued <= MAX_PENDING_DECRYPT_PER_GROUP,
+            "pending_decrypt must stay bounded, got {queued}"
+        );
     }
 
     #[test]

@@ -24,6 +24,14 @@ pub const HUB_FAILURE_THRESHOLD: u32 = 3;
 /// Max messages kept in hub history for sync to new members.
 pub const MAX_SYNC_MESSAGES: usize = 100;
 
+/// Max encrypted group messages a member buffers per group while waiting for a
+/// sender's key (red-team FINDING #12). A malicious member can send encrypted
+/// messages and never distribute its sender key, so its messages would queue in
+/// every other member's `pending_decrypt` without bound (memory DoS). This caps
+/// the buffer; the oldest undecryptable message is dropped when it overflows.
+/// Generous enough for a normal brief key-sync window, tight against abuse.
+pub const MAX_PENDING_DECRYPT_PER_GROUP: usize = 256;
+
 /// Rate limit: messages per second per sender in a group.
 pub const GROUP_RATE_LIMIT_PER_SECOND: u32 = 5;
 
