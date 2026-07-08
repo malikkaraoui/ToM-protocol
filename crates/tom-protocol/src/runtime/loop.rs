@@ -778,7 +778,10 @@ fn dht_addr_to_endpoint_addr(addr: &tom_dht::DhtNodeAddr) -> Option<tom_connect:
 
 /// Whether a DHT-advertised direct IP is worth dialing. Rejects only the
 /// never-routable classes (loopback, unspecified, link-local, broadcast,
-/// documentation); private LAN ranges are kept (needed for same-LAN connect).
+/// documentation, multicast); private LAN ranges are kept (needed for same-LAN
+/// connect). Multicast is rejected (red-team FINDING #13): a unicast dial target
+/// is never multicast, so a poisoned rendezvous entry advertising one would only
+/// waste connection slots / disturb multicast groups.
 fn direct_addr_is_dialable(ip: std::net::IpAddr) -> bool {
     match ip {
         std::net::IpAddr::V4(v4) => {
@@ -786,12 +789,13 @@ fn direct_addr_is_dialable(ip: std::net::IpAddr) -> bool {
                 || v4.is_unspecified()
                 || v4.is_link_local()
                 || v4.is_broadcast()
+                || v4.is_multicast()
                 || v4.is_documentation())
         }
         std::net::IpAddr::V6(v6) => {
             let seg = v6.segments();
             let link_local = (seg[0] & 0xffc0) == 0xfe80;
-            !(v6.is_loopback() || v6.is_unspecified() || link_local)
+            !(v6.is_loopback() || v6.is_unspecified() || v6.is_multicast() || link_local)
         }
     }
 }

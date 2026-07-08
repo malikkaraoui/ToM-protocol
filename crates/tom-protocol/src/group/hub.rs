@@ -412,6 +412,15 @@ impl GroupHub {
         hub_group.info.members.retain(|m| m.node_id != leaver);
         hub_group.info.last_activity_at = now_ms();
 
+        // Free the departed member's per-group state (red-team FINDING #14):
+        // without this, a join/leave flood leaves a residual entry per identity
+        // in each of these maps, growing the hub's memory without bound during
+        // an active group. seen_nonces is keyed by nonce (already bounded), not
+        // by member, so it is left as-is.
+        hub_group.rate_limits.remove(&leaver);
+        hub_group.latest_sender_keys.remove(&leaver);
+        hub_group.sender_epoch_state.remove(&leaver);
+
         // If no members left, remove the group
         if hub_group.info.members.is_empty() {
             self.groups.remove(group_id);
@@ -1422,6 +1431,41 @@ mod tests {
         assert_eq!(actions.len(), 1);
         assert!(matches!(&actions[0], GroupAction::Broadcast { payload: GroupPayload::MemberLeft { reason: LeaveReason::Voluntary, .. }, .. }));
         assert_eq!(hub.get_group(&gid).unwrap().member_count(), 1);
+    }
+
+    #[test]
+    fn leave_frees_per_member_state() {
+        // FINDING #14: leaving a group must free the member's per-group maps,
+        // else a join/leave flood leaks hub memory across identities.
+        let mut hub = make_hub();
+        let alice = node_id(1);
+        let bob = node_id(2);
+        hub.handle_payload(
+            GroupPayload::Create {
+                group_name: "T".into(),
+                creator_username: "alice".into(),
+                initial_members: vec![],
+                invite_only: false,
+            },
+            alice,
+        );
+        let gid = hub.groups.keys().next().unwrap().clone();
+        hub.handle_join(bob, &gid, "bob".into());
+
+        // Simulate prior activity leaving per-member state behind.
+        {
+            let g = hub.groups.get_mut(&gid).unwrap();
+            g.rate_limits.insert(bob, (Instant::now(), 3));
+            g.latest_sender_keys.insert(bob, (0, vec![]));
+        }
+        hub.handle_leave(bob, &gid);
+
+        let g = hub.groups.get(&gid).unwrap();
+        assert!(!g.rate_limits.contains_key(&bob), "rate_limits not freed on leave");
+        assert!(
+            !g.latest_sender_keys.contains_key(&bob),
+            "latest_sender_keys not freed on leave"
+        );
     }
 
     #[test]

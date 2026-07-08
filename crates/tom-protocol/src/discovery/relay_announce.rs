@@ -64,7 +64,7 @@ impl RelayReadyAnnounce {
 
     /// Verify the signature against the node_id (public key).
     pub fn verify_signature(&self) -> bool {
-        use ed25519_dalek::{Signature, Verifier, VerifyingKey};
+        use ed25519_dalek::{Signature, VerifyingKey};
 
         let pk_bytes: [u8; 32] = self.node_id.as_bytes();
 
@@ -81,8 +81,11 @@ impl RelayReadyAnnounce {
         sig_bytes.copy_from_slice(&self.signature);
         let signature = Signature::from_bytes(&sig_bytes);
 
+        // verify_strict rejects non-canonical / small-order signatures
+        // (ed25519 malleability), matching the mainline envelope + tom-base
+        // verification (red-team FINDING #13).
         verifying_key
-            .verify(&self.signing_bytes(), &signature)
+            .verify_strict(&self.signing_bytes(), &signature)
             .is_ok()
     }
 
