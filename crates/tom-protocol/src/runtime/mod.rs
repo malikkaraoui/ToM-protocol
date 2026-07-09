@@ -250,6 +250,12 @@ pub enum RuntimeCommand {
     InjectGossipBytes { bytes: Vec<u8> },
     /// Graceful shutdown.
     Shutdown,
+    /// Force an immediate state flush to persistent storage, replying when done.
+    /// Graceful-stop paths use this so group membership + last_seq (R13 offline
+    /// gap-fill) survive a stop/restart even within the periodic save window.
+    SaveState {
+        reply: oneshot::Sender<()>,
+    },
 }
 
 // ── Events (runtime → app) ───────────────────────────────────────────
@@ -804,6 +810,21 @@ impl RuntimeHandle {
     /// Graceful shutdown.
     pub async fn shutdown(&self) {
         let _ = self.cmd_tx.send(RuntimeCommand::Shutdown).await;
+    }
+
+    /// Force an immediate state flush to persistent storage, awaiting completion.
+    /// Call before a hard exit (e.g. `/stop`) so recent group membership and
+    /// R13 `last_seq` are durably persisted for offline gap-fill after restart.
+    pub async fn save_now(&self) {
+        let (tx, rx) = oneshot::channel();
+        if self
+            .cmd_tx
+            .send(RuntimeCommand::SaveState { reply: tx })
+            .await
+            .is_ok()
+        {
+            let _ = rx.await;
+        }
     }
 
     /// Get a snapshot of all protocol metrics.

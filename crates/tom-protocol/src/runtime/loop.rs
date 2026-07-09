@@ -187,11 +187,12 @@ pub(super) async fn runtime_loop(
         execute_effects(startup_effects, &node_sender, &msg_tx, &status_tx, &event_tx, &metrics);
     }
 
-    // ── Rejoin groups after restart (one-shot) ────────────────────────
-    let rejoin_effects = state.build_rejoin_effects();
-    if !rejoin_effects.is_empty() {
-        execute_effects(rejoin_effects, &node_sender, &msg_tx, &status_tx, &event_tx, &metrics);
-    }
+    // ── Rejoin groups after restart (deferred until connectivity) ─────
+    // The Join + SyncRequest must go out only once we actually have a live path
+    // to the hub. Firing here — pre-loop, before any connection exists — would
+    // emit them into the void and the R13 offline gap-fill would silently no-op
+    // on a cold restart. Instead we arm a flag and (re)try in reconnect_check.
+    let mut rejoin_pending = state.group_manager.group_count() > 0;
 
     // ── Transport relay discovery state (NOT in RuntimeState — pure transport concern)
     let mut discovered_transport_relays: std::collections::HashSet<tom_connect::RelayUrl> =
@@ -284,6 +285,11 @@ pub(super) async fn runtime_loop(
                     RuntimeCommand::StopEmbeddedRelay => {
                         embedded_relay.stop().await;
                         state.handle_command(RuntimeCommand::EmbeddedRelayStopped)
+                    }
+                    RuntimeCommand::SaveState { reply } => {
+                        state.save_state();
+                        let _ = reply.send(());
+                        Vec::new()
                     }
                     RuntimeCommand::Shutdown => break,
                     other => state.handle_command(other),
@@ -537,6 +543,21 @@ pub(super) async fn runtime_loop(
             // bootstrap phase and actively re-run discovery instead of freezing in a
             // stale Converged state because a relay/peer disappeared.
             _ = reconnect_check.tick() => {
+                // R13 cold-restart gap-fill: once connectivity is established
+                // (topology shows online peers — connected_peers() is empty under
+                // relay-only meshing, so it can't be the signal), (re)send Join +
+                // SyncRequest so the hub streams the group messages missed while
+                // offline. One-shot: cleared after the first connected attempt.
+                if rejoin_pending && state.topology.online_count() > 0 {
+                    let effects = state.build_rejoin_effects();
+                    if !effects.is_empty() {
+                        tracing::info!("R13: deferred group rejoin after connectivity");
+                        execute_effects(
+                            effects, &node_sender, &msg_tx, &status_tx, &event_tx, &metrics,
+                        );
+                    }
+                    rejoin_pending = false;
+                }
                 if let Some(ref sender) = gossip_sender {
                     let known_node_ids: Vec<_> =
                         state.topology.peers().map(|p| p.node_id).collect();
