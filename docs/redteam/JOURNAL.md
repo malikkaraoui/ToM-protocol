@@ -184,3 +184,27 @@ Spec complète : `docs/plans/POP-PROOF-OF-PRESENCE.md`.
 520+ tests unitaires ; il a fallu 3 vrais appareils sur un vrai réseau pour exposer (a) 2 bugs de
 câblage R13, (b) le bug d'échelle des pairs fantômes qui a fait émerger PoP. **Tester sur devices via
 API = non négociable.**
+
+### Attaque frontale de la couche gossip (angle mort) — verdicts vérifiés §5
+
+- **FINDING G-1 (CONFIRMÉ, wire-breaking) — PeerAnnounce non authentifié.** `PeerAnnounce`
+  (`discovery/types.rs:37-48`) n'a **pas de champ `signature`**, contrairement à `RoleChangeAnnounce`
+  et `RelayReadyAnnounce` (tous deux `verify_signature()`). Le handler `state.rs:2418-2443` **applique
+  le rôle depuis l'annonce** (`Relay` si `roles` le contient) et upsert la topology, **sans vérifier
+  que l'émetteur possède `node_id`**. Un attaquant forge `PeerAnnounce{node_id: victime, roles: […]}`
+  → injecte de faux relais, downgrade un vrai relais en Peer, gonfle la topology de fantômes.
+  *Pas* de MITM (l'`encryption_key` de l'annonce n'est jamais appliqué à ce chemin) ni d'OOM
+  (topology bornée 10k + éviction, cf G-2). Fix = signer PeerAnnounce + vérifier avant d'appliquer,
+  comme les deux autres annonces. **⚠️ Change le wire gossip → rollout flotte coordonné, sous
+  supervision (risque de partition si partiel). NON déployé de nuit.**
+- **FINDING G-2 (RÉFUTÉ)** — « topology non bornée → OOM » : faux. `MAX_PEERS=10_000` + éviction du
+  plus-stale-non-online existent (`relay.rs:13,71`, fix build 28 / red-team #10).
+- **G-3 (faible)** — champ `username`/`roles` de taille attaquant : borné par `read_lp` (≤4 KiB/msg)
+  + MAX_PEERS. Validation de longueur inbound = hygiène, faible gain.
+- **G-4 (= PoP)** — rejeu d'annonce rafraîchit `last_seen` : c'est exactement le ouï-dire que PoP
+  supprime. Traité par le chantier R14, pas isolément.
+
+**Discipline de nuit :** on ne lande/déploie QUE des fixes sûrs, non-wire, non-critiques-routage
+(ex. cap ratio scoring). Les fixes wire-breaking (PeerAnnounce signé) ou routage-critiques
+(PoP `Known`, quorum eclipse) sont **préparés + journalisés**, déployés sous supervision. Ne jamais
+risquer une partition de la flotte réelle en autonomie nocturne.
