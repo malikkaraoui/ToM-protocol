@@ -154,3 +154,33 @@ failover 8/8 · e2e 3/3 · group 8/8 · backup 4/4 · presence 5/5.
   brèche ouverte — il faut un créneau dédié + re-validation endurance, pas la boucle nocturne.
 - La plupart des brèches sont dans la couche présence/roles/antispam (récemment écrite). Les couches
   anciennes (transport forké, quinn, gossip) n'ont pas encore été attaquées frontalement — angle mort.
+
+---
+
+## Nuit 2026-07-10 — le bug d'échelle qui a accouché de PoP
+
+Découvert **en testant R13 sur vrais devices** (iPad/Apple TV) : chaque nœud voyait **44-50 pairs
+`Online`** avec `connected_peers()` ≈ 0. Cause vérifiée : tout pair *découvert* (DHT `state.rs:2341`,
+gossip `:2440`, neighbor `:2473`) est marqué `Online` **sans preuve de connexion**, et la
+re-découverte/ré-annonce rafraîchit le heartbeat en boucle → fantômes éternels. `online_count`
+(`relay.rs:124`) les compte tous → **appareils contraints saturés → chemin de contrôle affamé**
+(les writes device hangaient >60s pendant le test R13). **Bug d'ÉCHELLE** : à 100 nœuds = 50 fantômes
+gênants ; à 1M = fatal.
+
+**Doctrine née de là (ADR-011) : PoP — Proof of Presence.** La présence n'est pas déclarée, elle est
+*prouvée par le travail* (ACK signé, relais utile, backup restitué). On supprime le heartbeat
+déclaratif. Unifie présence = rôle = réputation = anti-Sybil (le signal « avoir mis sa pierre »).
+Spec complète : `docs/plans/POP-PROOF-OF-PRESENCE.md`.
+
+**Red-team du design lui-même** (4 attaquants, verdicts vérifiés §5) :
+- RÉFUTÉ : « ACK non signé » (faux — `state.rs` rejette `!signature_valid`). Fondation OK.
+- CORRIGÉ cette nuit : **inflation de score par `bandwidth_ratio` non borné** (`scoring.rs`) →
+  `BANDWIDTH_RATIO_CAP=3.0` + régression. Fermait un farming de privilège « known » cheap.
+- CHANTIER R14 (trop risqué à lander de nuit) : `PeerStatus::Known` (couplé au split lecteurs
+  routage/présence, sinon casse `select_best`), séparation présence-courte/réputation-lente,
+  et le trou dur **eclipse** (témoin-relais unique non détectable → quorum de témoins requis).
+
+**Leçon méthodo :** le meilleur test n'est pas unitaire — c'est le **déploiement réel**. R13 passait
+520+ tests unitaires ; il a fallu 3 vrais appareils sur un vrai réseau pour exposer (a) 2 bugs de
+câblage R13, (b) le bug d'échelle des pairs fantômes qui a fait émerger PoP. **Tester sur devices via
+API = non négociable.**
