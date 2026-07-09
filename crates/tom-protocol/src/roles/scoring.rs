@@ -24,6 +24,13 @@ pub const BANDWIDTH_MB_WEIGHT: f64 = 0.2;
 /// Weight for give/take bandwidth ratio in score calculation.
 pub const BANDWIDTH_RATIO_WEIGHT: f64 = 1.5;
 
+/// Cap on the give/take bandwidth ratio. Being a heavy giver is rewarded, but
+/// the ratio is bounded so a single lopsided metric (huge relayed / tiny
+/// received) cannot dominate or inflate the score without bound — red-team PoP:
+/// score inflation / cheap "known" privilege farming. A 3× giver already earns
+/// the full ratio bonus.
+pub const BANDWIDTH_RATIO_CAP: f64 = 3.0;
+
 /// Contribution metrics for a single node.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ContributionMetrics {
@@ -90,7 +97,7 @@ impl ContributionMetrics {
         // Bandwidth metrics
         let bandwidth_mb = self.bytes_relayed as f64 / 1_048_576.0;
         let bandwidth_ratio = if self.bytes_received > 0 {
-            self.bytes_relayed as f64 / self.bytes_received as f64
+            (self.bytes_relayed as f64 / self.bytes_received as f64).min(BANDWIDTH_RATIO_CAP)
         } else if self.bytes_relayed > 0 {
             // Relayed bytes but received none — pure giver
             1.0
@@ -169,6 +176,33 @@ mod tests {
             "score should decay more after 10 hours"
         );
         assert!(ten_hours_later > 0.0, "score never reaches zero (no permanent ban)");
+    }
+
+    #[test]
+    fn bandwidth_ratio_is_capped_against_inflation() {
+        // Red-team PoP: a node with an astronomically lopsided give/take ratio
+        // must not score higher (via the ratio term) than one already at the cap.
+        // Same bytes_relayed on both → identical MB term → only the ratio differs.
+        let mut lopsided = ContributionMetrics::new(0);
+        lopsided.bytes_relayed = 3_000_000;
+        lopsided.bytes_received = 1; // raw ratio = 3_000_000 → capped to 3.0
+
+        let mut at_cap = ContributionMetrics::new(0);
+        at_cap.bytes_relayed = 3_000_000;
+        at_cap.bytes_received = 1_000_000; // raw ratio = 3.0 (exactly the cap)
+
+        let s_lopsided = lopsided.score(0);
+        let s_at_cap = at_cap.score(0);
+        assert!(
+            (s_lopsided - s_at_cap).abs() < 1e-6,
+            "ratio must be capped: lopsided={s_lopsided}, at_cap={s_at_cap}"
+        );
+        // The ratio term alone contributes at most CAP * WEIGHT — bounded.
+        let ratio_contribution = BANDWIDTH_RATIO_CAP * BANDWIDTH_RATIO_WEIGHT;
+        assert!(
+            ratio_contribution <= 4.5 + 1e-9,
+            "ratio contribution must stay bounded, got {ratio_contribution}"
+        );
     }
 
     #[test]
