@@ -1,18 +1,25 @@
 import Foundation
 import Network
 
-/// Minimal HTTP/1.1 TCP server exposing node metrics as JSON.
-/// Polled by the infra-web-client dev dashboard every 5 seconds.
+/// Minimal HTTP/1.1 TCP server exposing node metrics AND a control API as JSON.
+///
+/// Historiquement read-only (`GET /` → snapshot, polled par le dashboard dev).
+/// Généralisé en routeur : le `router` reçoit (méthode, path, query) et rend le
+/// corps JSON. Permet de PILOTER le nœud à distance sur le LAN — créer un groupe,
+/// envoyer, accepter une invite, lire l'inbox — pour tester R13 sur de vrais
+/// appareils, exactement comme l'API de contrôle du CLI `tom-node`.
 final class StatusServer: @unchecked Sendable {
     static let defaultPort: UInt16 = 9091
 
     private let port: UInt16
     private var listener: NWListener?
-    private let snapshot: @Sendable () async -> String
+    private let router: @Sendable (String, String, [String: String]) async -> String
 
-    init(port: UInt16 = defaultPort, snapshot: @Sendable @escaping () async -> String) {
+    /// `router(method, path, query)` -> corps JSON de la réponse.
+    init(port: UInt16 = defaultPort,
+         router: @Sendable @escaping (String, String, [String: String]) async -> String) {
         self.port = port
-        self.snapshot = snapshot
+        self.router = router
     }
 
     func start() {
@@ -43,11 +50,16 @@ final class StatusServer: @unchecked Sendable {
 
     private func handle(_ conn: NWConnection) {
         conn.start(queue: .global(qos: .utility))
-        // Read request headers (discarded — always respond with current snapshot)
-        conn.receive(minimumIncompleteLength: 1, maximumLength: 4096) { [weak self] _, _, _, _ in
+        conn.receive(minimumIncompleteLength: 1, maximumLength: 8192) { [weak self] data, _, _, _ in
             guard let self else { conn.cancel(); return }
+            let requestLine = data
+                .flatMap { String(data: $0, encoding: .utf8) }?
+                .split(separator: "\r\n", maxSplits: 1).first
+                .map(String.init) ?? "GET / HTTP/1.1"
+
+            let (method, path, query) = Self.parseRequestLine(requestLine)
             Task {
-                let json = await self.snapshot()
+                let json = await self.router(method, path, query)
                 let body = Data(json.utf8)
                 let header = "HTTP/1.1 200 OK\r\nContent-Type: application/json; charset=utf-8\r\nAccess-Control-Allow-Origin: *\r\nContent-Length: \(body.count)\r\nConnection: close\r\n\r\n"
                 var response = Data(header.utf8)
@@ -55,5 +67,26 @@ final class StatusServer: @unchecked Sendable {
                 conn.send(content: response, completion: .contentProcessed { _ in conn.cancel() })
             }
         }
+    }
+
+    /// "METHOD /path?k=v&k2=v2 HTTP/1.1" -> (method, path, [k: v]) avec valeurs
+    /// percent-décodées.
+    static func parseRequestLine(_ line: String) -> (String, String, [String: String]) {
+        let parts = line.split(separator: " ")
+        let method = parts.count > 0 ? String(parts[0]) : "GET"
+        let target = parts.count > 1 ? String(parts[1]) : "/"
+        let split = target.split(separator: "?", maxSplits: 1)
+        let path = split.count > 0 ? String(split[0]) : "/"
+        var query: [String: String] = [:]
+        if split.count > 1 {
+            for pair in split[1].split(separator: "&") {
+                let kv = pair.split(separator: "=", maxSplits: 1)
+                guard kv.count == 2 else { continue }
+                let key = String(kv[0])
+                let value = String(kv[1]).removingPercentEncoding ?? String(kv[1])
+                query[key] = value
+            }
+        }
+        return (method, path, query)
     }
 }

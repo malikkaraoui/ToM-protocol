@@ -191,6 +191,51 @@ public actor TomNodeWrapper {
         }
     }
 
+    /// Accept a pending group invitation.
+    public func acceptInvite(groupId: GroupId) throws {
+        guard let h = handle else {
+            throw TomError.notStarted
+        }
+        let result = groupId.withCString { tom_node_accept_group_invite(h, $0) }
+        if result != 0 {
+            throw TomError.groupCreateFailed("tom_node_accept_group_invite returned \(result)")
+        }
+    }
+
+    /// Raw JSON array of groups this node is a member of / hosts.
+    /// `[{"group_id":"...","name":"...","members":N}, ...]`
+    public func listGroupsJSON() -> String {
+        guard let h = handle, let cStr = tom_node_list_groups(h) else { return "[]" }
+        let s = String(cString: cStr)
+        tom_node_free_string(cStr)
+        return s
+    }
+
+    /// Raw JSON array of pending invitations.
+    /// `[{"group_id":"...","group_name":"...","inviter":"..."}, ...]`
+    public func pendingInvitesJSON() -> String {
+        guard let h = handle, let cStr = tom_node_get_pending_invites(h) else { return "[]" }
+        let s = String(cString: cStr)
+        tom_node_free_string(cStr)
+        return s
+    }
+
+    /// Drain group messages received since the last call — including messages
+    /// recovered via R13 offline gap-fill. The caller must accumulate them
+    /// (each call drains the underlying FFI queue).
+    public func receiveGroupMessages() -> [TomGroupMessage] {
+        guard let h = handle, let cStr = tom_node_receive_group_messages(h) else { return [] }
+        let jsonStr = String(cString: cStr)
+        tom_node_free_string(cStr)
+        guard jsonStr != "[]", let data = jsonStr.data(using: .utf8) else { return [] }
+        do {
+            return try JSONDecoder().decode([TomGroupMessage].self, from: data)
+        } catch {
+            log.error("Failed to decode group messages: \(error.localizedDescription)")
+            return []
+        }
+    }
+
     public func addPeerAddr(nodeId: NodeId, relayUrl: String? = nil, directAddrs: [String]? = nil) throws {
         guard let h = handle else {
             throw TomError.notStarted

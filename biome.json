@@ -39,6 +39,7 @@
       "experiments/**/target",
       "apps/**/Assets.xcassets/**",
       "apps/**/.build/**",
+      "apps/**/build-*/**",
       "sdk/swift/**/.build/**",
       "sdk/swift/**/Artifacts/**",
       "docs/spec/vectors/**",

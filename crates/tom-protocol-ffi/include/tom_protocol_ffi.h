@@ -113,6 +113,56 @@ int32_t tom_node_send_group_message(const struct TomNodeHandle *handle,
                                     const char *group_id,
                                     const char *text);
 
+// Accept a pending group invitation.
+//
+// # Arguments
+// * `handle` - Opaque handle
+// * `group_id` - Group ID string of the pending invite
+//
+// # Returns
+// * 0 on success, -1 on failure
+//
+// # Safety
+// * All pointers must be valid null-terminated C strings
+int32_t tom_node_accept_group_invite(const struct TomNodeHandle *handle, const char *group_id);
+
+// List the groups this node is a member of (or hosts).
+//
+// # Returns
+// * JSON array: `[{"group_id":"...","name":"...","members":N}, ...]`
+// * Empty array `[]` if none
+// * NULL on error
+//
+// # Safety
+// * Caller must free returned string with `tom_node_free_string()`
+char *tom_node_list_groups(const struct TomNodeHandle *handle);
+
+// List pending group invitations awaiting accept/decline.
+//
+// # Returns
+// * JSON array: `[{"group_id":"...","group_name":"...","inviter":"..."}, ...]`
+// * Empty array `[]` if none
+// * NULL on error
+//
+// # Safety
+// * Caller must free returned string with `tom_node_free_string()`
+char *tom_node_get_pending_invites(const struct TomNodeHandle *handle);
+
+// Drain received group-message events (polled by Swift).
+//
+// Returns the group messages delivered since the last call — including those
+// recovered via R13 offline gap-fill (SyncResponse). This is the observation
+// surface used to validate R13 on real devices.
+//
+// # Returns
+// * JSON array: `[{"group_id":"...","from":"...","seq":N,"text":"...","encrypted":bool}, ...]`
+// * Empty array `[]` if none
+// * NULL on error
+//
+// # Safety
+// * Caller must free returned string with `tom_node_free_string()`
+char *tom_node_receive_group_messages(const struct TomNodeHandle *handle);
+
 // Receive messages (polled by Swift every ~500ms)
 //
 // # Returns
