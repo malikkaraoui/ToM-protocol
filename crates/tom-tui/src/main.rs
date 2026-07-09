@@ -2,9 +2,10 @@
 ///
 /// Full-stack demo: iroh QUIC transport + protocol layer (envelope,
 /// crypto, routing) + ratatui terminal UI.
+use std::collections::VecDeque;
 use std::io;
 use std::net::UdpSocket;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use clap::Parser;
@@ -40,6 +41,39 @@ impl UdpLogger {
     fn send(&self, json: &str) {
         let _ = self.socket.send_to(json.as_bytes(), &self.target);
     }
+}
+
+// ── Inbox partagé (observabilité des messages reçus, pour tests R13) ─────
+
+/// Un message reçu, capturé pour interrogation via l'endpoint /inbox.
+#[derive(Clone)]
+struct InboxEntry {
+    ts: u64,
+    from: String,
+    text: String,
+}
+
+/// Journal borné des messages reçus, partagé entre run_bot et le control server.
+type Inbox = Arc<Mutex<VecDeque<InboxEntry>>>;
+
+/// Capacité max de l'inbox (anti-OOM ; on ne garde que les plus récents).
+const INBOX_MAX: usize = 1000;
+
+/// Échappe une chaîne pour inclusion dans une valeur JSON.
+fn json_escape(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() + 2);
+    for c in s.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if (c as u32) < 0x20 => out.push(' '),
+            c => out.push(c),
+        }
+    }
+    out
 }
 
 /// Shared context for structured log emission (bot mode).
@@ -204,7 +238,7 @@ fn spawn_status_server(port: u16, handle: RuntimeHandle, node_label: String) {
 ///   POST /group/create?name=<n>&members=<id,id>  → crée un groupe (hub = soi)
 ///   POST /group/send?group=<gid>&size=<n>        → message de n octets au groupe
 ///   POST /stop                           → arrêt propre du nœud (process exit)
-fn spawn_control_server(port: u16, handle: RuntimeHandle) {
+fn spawn_control_server(port: u16, handle: RuntimeHandle, inbox: Inbox) {
     tokio::spawn(async move {
         let listener = match tokio::net::TcpListener::bind(format!("0.0.0.0:{port}")).await {
             Ok(l) => l,
@@ -218,6 +252,7 @@ fn spawn_control_server(port: u16, handle: RuntimeHandle) {
         loop {
             let Ok((mut stream, _)) = listener.accept().await else { continue };
             let handle = handle.clone();
+            let inbox = inbox.clone();
             tokio::spawn(async move {
                 use tokio::io::{AsyncReadExt, AsyncWriteExt};
                 let mut buf = vec![0u8; 8192];
@@ -343,7 +378,62 @@ fn spawn_control_server(port: u16, handle: RuntimeHandle) {
                             None => "{\"ok\":false,\"erreur\":\"param 'group' manquant\"}".into(),
                         }
                     }
+                    "/inbox" => {
+                        // ?contains=<substr>&limit=<n> — messages reçus (capturés en bot mode).
+                        // Sert à valider le rattrapage offline R13 par contenu.
+                        let contains = q("contains");
+                        let limit: usize = q("limit").and_then(|s| s.parse().ok()).unwrap_or(200);
+                        let snapshot: Vec<InboxEntry> = {
+                            let guard = inbox.lock().unwrap();
+                            guard.iter().rev().cloned().collect()
+                        };
+                        let filtered: Vec<String> = snapshot
+                            .iter()
+                            .filter(|e| {
+                                contains.as_deref().map(|c| e.text.contains(c)).unwrap_or(true)
+                            })
+                            .take(limit)
+                            .map(|e| {
+                                format!(
+                                    "{{\"ts\":{},\"de\":\"{}\",\"texte\":\"{}\"}}",
+                                    e.ts,
+                                    json_escape(&e.from),
+                                    json_escape(&e.text.chars().take(200).collect::<String>())
+                                )
+                            })
+                            .collect();
+                        format!(
+                            "{{\"total\":{},\"messages\":[{}]}}",
+                            filtered.len(),
+                            filtered.join(",")
+                        )
+                    }
+                    "/invites" => {
+                        let invites = handle.pending_invites().await;
+                        let is: Vec<String> = invites
+                            .iter()
+                            .map(|i| {
+                                format!(
+                                    "{{\"group_id\":\"{}\",\"nom\":\"{}\",\"inviteur\":\"{}\"}}",
+                                    json_escape(i.group_id.as_ref()),
+                                    json_escape(&i.group_name),
+                                    json_escape(&i.inviter_id.to_string())
+                                )
+                            })
+                            .collect();
+                        format!("{{\"invites\":[{}]}}", is.join(","))
+                    }
+                    "/group/accept" => match q("group") {
+                        Some(gid) => match handle.accept_invite(gid.clone().into()).await {
+                            Ok(()) => format!("{{\"ok\":true,\"accepte\":\"{gid}\"}}"),
+                            Err(e) => format!("{{\"ok\":false,\"erreur\":\"{e}\"}}"),
+                        },
+                        None => "{\"ok\":false,\"erreur\":\"param 'group' manquant\"}".into(),
+                    },
                     "/stop" => {
+                        // Flush avant l'exit brutal : garantit la persistance de
+                        // l'appartenance groupe + last_seq (rattrapage R13).
+                        handle.save_now().await;
                         handle.shutdown().await;
                         let resp = "HTTP/1.1 200 OK\r\nContent-Length: 20\r\n\r\n{\"ok\":true,\"stop\":1}";
                         let _ = stream.write_all(resp.as_bytes()).await;
@@ -463,6 +553,18 @@ struct Cli {
     /// /stop ; GET /peers, /groups. Pour l'orchestration de tests automatisée.
     #[arg(long, value_name = "PORT")]
     control_port: Option<u16>,
+
+    /// Répertoire de persistance (state.db SQLite : état groupes, last_seq,
+    /// historique hub R13). Absent → tout est éphémère (pas de rattrapage
+    /// offline durable après restart).
+    #[arg(long, value_name = "DIR")]
+    data_dir: Option<std::path::PathBuf>,
+
+    /// Mode isolé : coupe la découverte n0 (Pkarr/DNS) ET mDNS LAN. Le nœud ne
+    /// parle qu'aux pairs joignables via relais/bootstrap explicites. Pour des
+    /// triangles de test reproductibles sans polluer le vrai parc.
+    #[arg(long)]
+    isolated: bool,
 
     /// Fixed local UDP socket address for the QUIC endpoint (e.g. "[::]:43925").
     /// Binds a stable port instead of an OS-assigned ephemeral one — required
@@ -611,6 +713,12 @@ async fn main() -> anyhow::Result<()> {
     if let Some(path) = cli.key_path.clone() {
         node_config = node_config.identity_path(path);
     }
+    if cli.isolated {
+        // Triangle de test reproductible : aucune découverte externe (ni n0, ni
+        // mDNS LAN) pour ne pas se mélanger au vrai parc. Connexions via relais
+        // embarqué + bootstrap explicites uniquement.
+        node_config = node_config.n0_discovery(false).local_discovery(false);
+    }
     // Fixed UDP bind: explicit --bind-addr wins, else --bind-port on [::] (dual-stack).
     let effective_bind_addr = cli.bind_addr.or_else(|| {
         cli.bind_port.map(|port| {
@@ -629,6 +737,7 @@ async fn main() -> anyhow::Result<()> {
         enable_transport_relay_discovery: cli.relay_discovery,
         enable_embedded_relay: use_embedded_relay,
         enable_embedded_relay_publication: use_embedded_relay_publish,
+        data_dir: cli.data_dir.clone(),
         ..Default::default()
     };
 
@@ -705,8 +814,11 @@ async fn main() -> anyhow::Result<()> {
         spawn_status_server(port, handle.clone(), cli.node_label.clone());
     }
 
+    // Inbox partagé pour l'observabilité des messages reçus (endpoint /inbox).
+    let inbox: Inbox = Arc::new(Mutex::new(VecDeque::new()));
+
     if let Some(port) = cli.control_port {
-        spawn_control_server(port, handle.clone());
+        spawn_control_server(port, handle.clone(), inbox.clone());
     }
 
     if cli.bot {
@@ -756,7 +868,7 @@ async fn main() -> anyhow::Result<()> {
             });
         }
 
-        return run_bot(ctx, handle, messages, events, cli.bot_ping).await;
+        return run_bot(ctx, handle, messages, events, cli.bot_ping, inbox).await;
     }
 
     let mut app = App::new(local_id);
@@ -1125,6 +1237,7 @@ async fn run_bot(
     mut messages: tokio::sync::mpsc::Receiver<DeliveredMessage>,
     mut events: tokio::sync::mpsc::Receiver<ProtocolEvent>,
     bot_ping_secs: Option<u64>,
+    inbox: Inbox,
 ) -> anyhow::Result<()> {
     ctx.log_event("bot_start", &format!("id={}", handle.local_id()));
 
@@ -1146,6 +1259,19 @@ async fn run_bot(
 
                 let text = String::from_utf8_lossy(&msg.payload);
                 count += 1;
+
+                // Capture pour l'endpoint /inbox (observabilité tests R13).
+                {
+                    let mut guard = inbox.lock().unwrap();
+                    guard.push_back(InboxEntry {
+                        ts: msg.timestamp,
+                        from: msg.from.to_string(),
+                        text: text.to_string(),
+                    });
+                    while guard.len() > INBOX_MAX {
+                        guard.pop_front();
+                    }
+                }
 
                 // Affichage compact : jamais le payload brut complet (un CAMP
                 // de 250 Ko ferait exploser le datagramme UDP de log).
@@ -1175,6 +1301,31 @@ async fn run_bot(
             }
             evt_opt = events.recv() => {
                 let Some(evt) = evt_opt else { break; };
+                // Capture des messages de groupe (canal events, pas DeliveredMessage)
+                // pour l'endpoint /inbox — indispensable à la validation R13.
+                if let ProtocolEvent::GroupMessageReceived { message } = &evt {
+                    let body = if message.text.is_empty() {
+                        format!("[chiffré {}o]", message.ciphertext.len())
+                    } else {
+                        message.text.clone()
+                    };
+                    ctx.log_event("groupe_message_recu", &format!(
+                        "grp={} de={} seq={} contenu={}",
+                        message.group_id,
+                        short_node_id(&message.sender_id),
+                        message.seq,
+                        body.chars().take(60).collect::<String>()
+                    ));
+                    let mut guard = inbox.lock().unwrap();
+                    guard.push_back(InboxEntry {
+                        ts: message.sent_at,
+                        from: format!("{} grp={} seq={}", message.sender_id, message.group_id, message.seq),
+                        text: body,
+                    });
+                    while guard.len() > INBOX_MAX {
+                        guard.pop_front();
+                    }
+                }
                 if let Some(target) = select_ping_target(ping_target, &evt) {
                     if let ProtocolEvent::PeerDiscovered { username, .. } = &evt {
                         ctx.log_event("cible_ping", &format!("{} \"{}\"", short_node_id(&target), username));
