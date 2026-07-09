@@ -675,6 +675,186 @@ pub unsafe extern "C" fn tom_node_send_group_message(
     })
 }
 
+/// Accept a pending group invitation.
+///
+/// # Arguments
+/// * `handle` - Opaque handle
+/// * `group_id` - Group ID string of the pending invite
+///
+/// # Returns
+/// * 0 on success, -1 on failure
+///
+/// # Safety
+/// * All pointers must be valid null-terminated C strings
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn tom_node_accept_group_invite(
+    handle: *const TomNodeHandle,
+    group_id: *const c_char,
+) -> i32 {
+    if handle.is_null() {
+        return -1;
+    }
+    let handle_ref = unsafe { &*handle };
+    let group_id_str = match unsafe { cstr_opt(group_id) } {
+        Some(s) => s,
+        None => return -1,
+    };
+    let gid = tom_protocol::group::GroupId(group_id_str.to_string());
+
+    handle_ref.runtime.block_on(async {
+        if let Some(runtime_handle) = handle_ref.handle.lock().await.as_ref() {
+            match runtime_handle.accept_invite(gid).await {
+                Ok(_) => 0,
+                Err(e) => {
+                    tracing::error!("Failed to accept group invite: {}", e);
+                    -1
+                }
+            }
+        } else {
+            -1
+        }
+    })
+}
+
+/// List the groups this node is a member of (or hosts).
+///
+/// # Returns
+/// * JSON array: `[{"group_id":"...","name":"...","members":N}, ...]`
+/// * Empty array `[]` if none
+/// * NULL on error
+///
+/// # Safety
+/// * Caller must free returned string with `tom_node_free_string()`
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn tom_node_list_groups(handle: *const TomNodeHandle) -> *mut c_char {
+    if handle.is_null() {
+        return std::ptr::null_mut();
+    }
+    let handle_ref = unsafe { &*handle };
+
+    let json = handle_ref.runtime.block_on(async {
+        let guard = handle_ref.handle.lock().await;
+        let groups = if let Some(rh) = guard.as_ref() {
+            rh.groups().await
+        } else {
+            Vec::new()
+        };
+        let items: Vec<serde_json::Value> = groups
+            .iter()
+            .map(|g| {
+                serde_json::json!({
+                    "group_id": g.group_id.as_ref(),
+                    "name": g.name,
+                    "members": g.members.len(),
+                })
+            })
+            .collect();
+        serde_json::to_string(&items).unwrap_or_else(|_| "[]".to_string())
+    });
+
+    match CString::new(json) {
+        Ok(c_str) => c_str.into_raw(),
+        Err(_) => std::ptr::null_mut(),
+    }
+}
+
+/// List pending group invitations awaiting accept/decline.
+///
+/// # Returns
+/// * JSON array: `[{"group_id":"...","group_name":"...","inviter":"..."}, ...]`
+/// * Empty array `[]` if none
+/// * NULL on error
+///
+/// # Safety
+/// * Caller must free returned string with `tom_node_free_string()`
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn tom_node_get_pending_invites(
+    handle: *const TomNodeHandle,
+) -> *mut c_char {
+    if handle.is_null() {
+        return std::ptr::null_mut();
+    }
+    let handle_ref = unsafe { &*handle };
+
+    let json = handle_ref.runtime.block_on(async {
+        let guard = handle_ref.handle.lock().await;
+        let invites = if let Some(rh) = guard.as_ref() {
+            rh.pending_invites().await
+        } else {
+            Vec::new()
+        };
+        let items: Vec<serde_json::Value> = invites
+            .iter()
+            .map(|i| {
+                serde_json::json!({
+                    "group_id": i.group_id.as_ref(),
+                    "group_name": i.group_name,
+                    "inviter": i.inviter_id.to_string(),
+                })
+            })
+            .collect();
+        serde_json::to_string(&items).unwrap_or_else(|_| "[]".to_string())
+    });
+
+    match CString::new(json) {
+        Ok(c_str) => c_str.into_raw(),
+        Err(_) => std::ptr::null_mut(),
+    }
+}
+
+/// Drain received group-message events (polled by Swift).
+///
+/// Returns the group messages delivered since the last call — including those
+/// recovered via R13 offline gap-fill (SyncResponse). This is the observation
+/// surface used to validate R13 on real devices.
+///
+/// # Returns
+/// * JSON array: `[{"group_id":"...","from":"...","seq":N,"text":"...","encrypted":bool}, ...]`
+/// * Empty array `[]` if none
+/// * NULL on error
+///
+/// # Safety
+/// * Caller must free returned string with `tom_node_free_string()`
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn tom_node_receive_group_messages(
+    handle: *const TomNodeHandle,
+) -> *mut c_char {
+    if handle.is_null() {
+        return std::ptr::null_mut();
+    }
+    let handle_ref = unsafe { &*handle };
+
+    let json = handle_ref.runtime.block_on(async {
+        let mut queue = handle_ref.event_queue.lock().await;
+        let events: Vec<ProtocolEvent> = queue.drain(..).collect();
+        drop(queue);
+
+        let items: Vec<serde_json::Value> = events
+            .into_iter()
+            .filter_map(|evt| match evt {
+                ProtocolEvent::GroupMessageReceived { message } => Some(serde_json::json!({
+                    "group_id": message.group_id.as_ref(),
+                    "from": message.sender_id.to_string(),
+                    "seq": message.seq,
+                    "encrypted": message.encrypted,
+                    "text": if message.text.is_empty() {
+                        format!("[chiffré {}o]", message.ciphertext.len())
+                    } else {
+                        message.text.clone()
+                    },
+                })),
+                _ => None,
+            })
+            .collect();
+        serde_json::to_string(&items).unwrap_or_else(|_| "[]".to_string())
+    });
+
+    match CString::new(json) {
+        Ok(c_str) => c_str.into_raw(),
+        Err(_) => std::ptr::null_mut(),
+    }
+}
+
 /// Receive messages (polled by Swift every ~500ms)
 ///
 /// # Returns

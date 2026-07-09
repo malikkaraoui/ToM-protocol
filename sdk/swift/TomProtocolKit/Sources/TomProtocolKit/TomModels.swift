@@ -113,6 +113,25 @@ public struct TomGroup: Identifiable, Codable {
     }
 }
 
+/// Message de groupe reçu (depuis `tom_node_receive_group_messages`).
+/// Inclut les messages rattrapés hors-ligne via le gap-fill R13.
+public struct TomGroupMessage: Codable, Identifiable {
+    public var id: String { "\(groupId)-\(seq)-\(from)" }
+    public let groupId: GroupId
+    public let from: NodeId
+    public let seq: UInt64
+    public let text: String
+    public let encrypted: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case groupId = "group_id"
+        case from
+        case seq
+        case text
+        case encrypted
+    }
+}
+
 /// Instantané d'état du nœud (depuis `tom_node_status`).
 public struct TomNodeStatus: Codable {
     public let nodeId: String

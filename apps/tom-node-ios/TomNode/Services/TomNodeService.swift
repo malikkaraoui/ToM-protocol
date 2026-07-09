@@ -687,6 +687,16 @@ final class TomNodeService: ObservableObject {
             while !Task.isCancelled {
                 guard let self = self else { break }
 
+                // R13 : drainer les messages de groupe reçus (dont ceux rattrapés
+                // hors-ligne via gap-fill) vers l'inbox lu par le serveur de contrôle.
+                let newGroupMsgs = await self.node.receiveGroupMessages()
+                if !newGroupMsgs.isEmpty {
+                    self.groupInbox.append(contentsOf: newGroupMsgs)
+                    if self.groupInbox.count > 500 {
+                        self.groupInbox.removeFirst(self.groupInbox.count - 500)
+                    }
+                }
+
                 // Poll messages
                 let newMessages = await self.node.receiveMessages()
                 for msg in newMessages {
@@ -888,6 +898,9 @@ final class TomNodeService: ObservableObject {
     private var udpLogSocket: Int32 = -1
     private var udpLogAddr: sockaddr_in?
     private var statusServer: StatusServer?
+    /// Inbox des messages de groupe reçus (dont rattrapage R13), lu par
+    /// l'endpoint /inbox du serveur de contrôle. Borné.
+    private var groupInbox: [TomGroupMessage] = []
 
     private func startNetworkLogExportIfNeeded() {
         guard udpLogExportEnabled else { return }
@@ -950,12 +963,110 @@ final class TomNodeService: ObservableObject {
 
     private func startStatusServer() {
         statusServer?.stop()
-        statusServer = StatusServer { [weak self] in
-            await MainActor.run { self?.buildStatusJSON() ?? "{}" }
+        statusServer = StatusServer { [weak self] method, path, query in
+            guard let self else { return "{}" }
+            return await self.handleControl(method: method, path: path, query: query)
         }
         statusServer?.start()
         let ip = Self.getLocalIPv4() ?? "127.0.0.1"
         appendLog(.info, "Status server: http://\(ip):\(StatusServer.defaultPort)/")
+    }
+
+    /// Routeur de l'API de contrôle (miroir du CLI tom-node) — pilotage R13 sur
+    /// device réel : créer un groupe, envoyer, accepter une invite, lire l'inbox.
+    @MainActor
+    func handleControl(method: String, path: String, query: [String: String]) async -> String {
+        switch path {
+        case "/":
+            return buildStatusJSON()
+        case "/inbox":
+            let contains = query["contains"]
+            let items = groupInbox.filter { contains == nil || $0.text.contains(contains!) }
+            return encodeGroupInbox(items)
+        case "/groups":
+            return await node.listGroupsJSON()
+        case "/invites":
+            return await node.pendingInvitesJSON()
+        case "/group/create", "/group/send", "/group/accept":
+            // Écritures = pilotage du nœud : réservé aux builds DEBUG (outil de
+            // test R13). Les builds release n'exposent AUCUN contrôle write sur
+            // le LAN (durcissement — cf review sécurité, StatusServer sur 0.0.0.0).
+            #if DEBUG
+            return await handleControlWrite(path: path, query: query)
+            #else
+            return "{\"ok\":false,\"erreur\":\"contrôle write désactivé en release\"}"
+            #endif
+        default:
+            return "{\"erreur\":\"route inconnue\"}"
+        }
+    }
+
+    #if DEBUG
+    @MainActor
+    private func handleControlWrite(path: String, query: [String: String]) async -> String {
+        switch path {
+        case "/group/create":
+            let name = query["name"] ?? "grp"
+            let members = (query["members"] ?? "")
+                .split(separator: ",").map(String.init).filter { !$0.isEmpty }
+            do {
+                try await node.createGroup(name: name, members: members, inviteOnly: false)
+                return "{\"ok\":true,\"groupe_cree\":\"\(jsonEscape(name))\"}"
+            } catch {
+                return "{\"ok\":false,\"erreur\":\"\(jsonEscape("\(error)"))\"}"
+            }
+        case "/group/send":
+            guard let gid = query["group"] else {
+                return "{\"ok\":false,\"erreur\":\"param group manquant\"}"
+            }
+            let text = query["text"] ?? "CTRL:app"
+            do {
+                try await node.sendGroupMessage(groupId: gid, text: text)
+                return "{\"ok\":true}"
+            } catch {
+                return "{\"ok\":false,\"erreur\":\"\(jsonEscape("\(error)"))\"}"
+            }
+        case "/group/accept":
+            guard let gid = query["group"] else {
+                return "{\"ok\":false,\"erreur\":\"param group manquant\"}"
+            }
+            do {
+                try await node.acceptInvite(groupId: gid)
+                return "{\"ok\":true}"
+            } catch {
+                return "{\"ok\":false,\"erreur\":\"\(jsonEscape("\(error)"))\"}"
+            }
+        default:
+            return "{\"erreur\":\"route inconnue\"}"
+        }
+    }
+    #endif
+
+    /// Échappe une chaîne pour inclusion sûre dans une valeur JSON construite à
+    /// la main (évite qu'un `name`/`error` avec `"` casse la réponse).
+    private func jsonEscape(_ s: String) -> String {
+        var out = ""
+        for c in s {
+            switch c {
+            case "\"": out += "\\\""
+            case "\\": out += "\\\\"
+            case "\n": out += "\\n"
+            case "\r": out += "\\r"
+            case "\t": out += "\\t"
+            default: out.append(c)
+            }
+        }
+        return out
+    }
+
+    private func encodeGroupInbox(_ items: [TomGroupMessage]) -> String {
+        struct Out: Encodable { let total: Int; let messages: [TomGroupMessage] }
+        let out = Out(total: items.count, messages: items)
+        guard let data = try? JSONEncoder().encode(out),
+              let s = String(data: data, encoding: .utf8) else {
+            return "{\"total\":0,\"messages\":[]}"
+        }
+        return s
     }
 
     @MainActor
