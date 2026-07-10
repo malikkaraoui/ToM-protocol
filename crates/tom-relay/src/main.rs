@@ -793,7 +793,7 @@ async fn build_relay_config(cfg: Config) -> Result<relay::ServerConfig<std::io::
         Some(relay::RelayConfig {
             http_bind_addr: cfg.http_bind_addr(),
             // if `dangerous_http_only` is set, do not pass in any tls configuration
-            tls: relay_tls.and_then(|tls| if dangerous_http_only { None } else { Some(tls) }),
+            tls: relay_tls.filter(|_| !dangerous_http_only),
             limits,
             key_cache_capacity: cfg.key_cache_capacity,
             peer_present_k: cfg.peer_present_k,
@@ -807,7 +807,7 @@ async fn build_relay_config(cfg: Config) -> Result<relay::ServerConfig<std::io::
         relay: relay_config,
         quic: quic_config,
         #[cfg(feature = "metrics")]
-        metrics_addr: Some(cfg.metrics_bind_addr()).filter(|_| cfg.enable_metrics),
+        metrics_addr: cfg.enable_metrics.then(|| cfg.metrics_bind_addr()),
     })
 }
 
