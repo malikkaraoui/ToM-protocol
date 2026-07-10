@@ -695,7 +695,7 @@ impl TxtRecordData {
 impl fmt::Display for TxtRecordData {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         for s in self.iter() {
-            write!(f, "{}", &String::from_utf8_lossy(s))?
+            write!(f, "{}", String::from_utf8_lossy(s))?
         }
         Ok(())
     }
