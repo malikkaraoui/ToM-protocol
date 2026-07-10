@@ -229,3 +229,46 @@ Attaquée (sender keys, rotation epoch, distribution, nonce) — verdicts vérif
 **Bilan :** la couche crypto groupes tient. Le pattern de la nuit : les agents crient « CRITIQUE »,
 la vérification §5 downgrade la moitié. Sans vérifier, on landerait des faux fixes — le contraire du
 durcissement. **Verdict = attaquée, défendue.**
+
+### Attaque du sous-système backup — gaps fonctionnels (pas d'exploit critique)
+
+Verdicts vérifiés §5 :
+- **B-1 (CONFIRMÉ, bas) — `confirm_delivery` jamais appelé en prod** (`backup/*` : seulement dans
+  les tests). Les copies livrées ne s'auto-suppriment pas à la livraison (ADR-009) → lingerent
+  jusqu'au TTL 24h. **Borné** (cap 10k + purge), pas de DoS/perte. Design viral incomplet.
+- **B-2 (CONFIRMÉ, résilience) — `ReplicationNeeded` mappé `None`** (`state.rs:3000`) → la
+  re-réplication quand un backup perd en viabilité n'est pas câblée → un backup sur un seul
+  détenteur qui meurt peut être perdu (redondance sous la cible).
+- **B-3 (DÉFENDU) — purge TTL 24h** : `cleanup_expired` + `backup_tick` câblés. Pas de dépassement.
+- **B-4 (CONFIRMÉ, bas) — `ReplicationPayload` non signé** → forgerie du `sender_id` (métadonnée).
+  Pas d'accès plaintext, pas de bypass TTL. Marquer non-fiable / signer = à faire.
+- **B-5 (DÉFENDU) — rejeu** : `store_replica` idempotent par `message_id`.
+
+⚠️ **B-1/B-2 touchent la livraison (décisions #1/#2) → session dédiée + endurance tom-stress, PAS la
+boucle nocturne** (un fix `confirm_delivery`/replication mal fait = perte de message). Conforme au
+note red-team #9 (« créneau dédié, pas la nuit »).
+
+---
+
+## Synthèse de la nuit 2026-07-10 — pour le réveil
+
+**Landé + poussé (sûr, non-wire) :** cap `bandwidth_ratio` anti-inflation de score (`scoring.rs`,
++régression, commit `78f7980`). Fondation PoP posée (ADR-011).
+
+**Backlog vérifié §5, à traiter SOUS SUPERVISION (par priorité) :**
+1. **PoP première brique** (R14) — `PeerStatus::Known` + split lecteurs routage(Known)/présence(Live)
+   + `record_heartbeat` sur travail réel seulement (cible `state.rs:2333/2432/2465`, PAS 1500).
+   Résout le bug d'échelle des pairs fantômes. *Routage-critique → design + stress réel.*
+2. **G-1 PeerAnnounce signé** — authentifier l'annonce (poisoning topology). *Wire-breaking →
+   rollout flotte coordonné.*
+3. **B-1/B-2 backup** — câbler `confirm_delivery` (auto-purge à la livraison) + `ReplicationNeeded`
+   (redondance). *Delivery-critique → endurance.*
+4. **Eclipse (R14+)** — quorum de témoins-relais pour la vue de présence. *Conception dure.*
+5. Défense en profondeur (bas) : signer `SenderKeyDistribution` + `ReplicationPayload`, clamp clock
+   offset. *Regroupables.*
+
+**Attaquées = DÉFENDUES (aucun fix) :** crypto E2E groupes (nonce aléatoire, forward secrecy, sig
+avant déchiffrement), purge TTL backup, bornes topology (MAX_PEERS 10k + éviction).
+
+**Discipline tenue :** ~50% des « CRITIQUE » des agents étaient des faux positifs, tous downgradés
+par vérification §5 dans le code réel. Zéro faux fix landé. Zéro déploiement risqué en autonomie.
