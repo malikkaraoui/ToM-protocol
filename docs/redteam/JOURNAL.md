@@ -208,3 +208,24 @@ API = non négociable.**
 (ex. cap ratio scoring). Les fixes wire-breaking (PeerAnnounce signé) ou routage-critiques
 (PoP `Known`, quorum eclipse) sont **préparés + journalisés**, déployés sous supervision. Ne jamais
 risquer une partition de la flotte réelle en autonomie nocturne.
+
+### Attaque frontale de la crypto E2E des groupes — verdict : SOLIDE
+
+Attaquée (sender keys, rotation epoch, distribution, nonce) — verdicts vérifiés §5 :
+- **« Nonce reuse → break XChaCha20 » (l'agent criait CRITIQUE) : FAUX POSITIF.**
+  `crypto.rs:173-183 encrypt_group_message` tire un **nonce aléatoire frais par message**
+  (`OsRng.fill_bytes`, XChaCha20 192 bits → collision ~0). L'expéditeur ne réutilise jamais de
+  nonce. Le `seen_nonces` du hub est de l'anti-**rejeu**, pas de l'unicité crypto ; son éviction
+  au pire permet une livraison **dupliquée** (même plaintext), doublée par le dedup
+  `seen_message_ids`. Aucune récupération de keystream, aucune perte de confidentialité.
+- **Distribution de sender key non signée** : atténué — le `from` vient de l'enveloppe signée
+  (un membre ne peut distribuer qu'en son nom), une clé forgée → échec d'auth Poly1305 → resync.
+  Résiduel = DoS spam d'epoch, borné par le rate-limit. Signer `SenderKeyDistribution` =
+  défense en profondeur (wire change → sous supervision), pas urgent.
+- **Défenses vérifiées présentes** : forward secrecy à la sortie (rotation `manager.rs`), signature
+  vérifiée AVANT déchiffrement/traitement (`hub.rs:487`), epoch signé, grâce epoch-1 bornée,
+  clés scellées par destinataire (X25519).
+
+**Bilan :** la couche crypto groupes tient. Le pattern de la nuit : les agents crient « CRITIQUE »,
+la vérification §5 downgrade la moitié. Sans vérifier, on landerait des faux fixes — le contraire du
+durcissement. **Verdict = attaquée, défendue.**
