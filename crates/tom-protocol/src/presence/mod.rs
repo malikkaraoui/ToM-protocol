@@ -21,6 +21,7 @@
 pub mod aggregator;
 pub mod attestation;
 pub mod relay_view;
+pub mod witness;
 
 use std::collections::HashMap;
 
@@ -33,6 +34,7 @@ pub use relay_view::{
     required_witnesses, PresenceEntry, PresenceScope, RelayPresenceView, MAX_PRESENCE_WITNESSES,
     MAX_VIEW_ENTRIES, MIN_PRESENCE_WITNESSES,
 };
+pub use witness::WitnessLog;
 
 /// Lifetime of every presence artifact (challenge, attestation), in ms.
 pub const PRESENCE_TTL_MS: u64 = 30_000;
