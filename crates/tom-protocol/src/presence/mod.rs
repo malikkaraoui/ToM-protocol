@@ -20,6 +20,7 @@
 
 pub mod aggregator;
 pub mod attestation;
+pub mod relay_view;
 
 use std::collections::HashMap;
 
@@ -27,6 +28,10 @@ use crate::types::NodeId;
 
 pub use attestation::{
     PresenceAttestationPayload, PresenceChallengePayload, RelayProof, RelayProofType, NONCE_LEN,
+};
+pub use relay_view::{
+    required_witnesses, PresenceEntry, PresenceScope, RelayPresenceView, MAX_PRESENCE_WITNESSES,
+    MAX_VIEW_ENTRIES, MIN_PRESENCE_WITNESSES,
 };
 
 /// Lifetime of every presence artifact (challenge, attestation), in ms.
