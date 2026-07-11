@@ -441,7 +441,7 @@ Trous **confirmés** (review multi-agent, file:line). À traiter par phases ; ne
 
 **Haut risque (Phase 2) :**
 4. 🔻 **Suspension iOS/tvOS** — RÉCUPÉRATION en place : anti-veille audio résilient aux interruptions (resume) + scenePhase observer → au retour foreground restart complet (`forceReset`+`start` → re-découverte incl. rendez-vous) + le runtime se ré-amorce sur connexion zombie (#1, 45s). Résiduel inhérent à iOS : pendant une **vraie suspension** (app en arrière-plan), le process est gelé — l'exécution continue en fond nécessite **push APNs/VoIP** (chantier futur, pas un hack BGTask). Filet anti-perte de message : backup TTL 24h.
-5. **Livraison (décision #1)** — ACK non signé ; backup SQLite pouvant dépasser le TTL 24h (décision #2). Fix : signer l'ACK, garantir la purge TTL côté backup.
+5. ✅ **Livraison (décision #1)** — RÉSOLU (vérifié 2026-07-11, file:line). ACK signé à l'émission (`state.rs:835/846/871`) ET vérifié à la réception : un ACK non signé/forgé est rejeté (`state.rs:898`) et les deux seules opérations qui accordent la confiance (`mark_relayed` 927, `mark_delivered` 935) sont à l'intérieur de ce gate ; anti-pumping FINDING #7 en bonus (commit `c3b7f9a`). Backup TTL (décision #2) : clampé à 24h à la création (`backup/types.rs:86` `.min(MAX_TTL_MS)` → le SQLite ne PEUT pas dépasser), purge câblée `tick_backup → cleanup_expired` (`backup/coordinator.rs:280`).
 6. **Adresses directes DHT non filtrées** (`loop.rs`) — IP privées injectées sans `relay_url_is_globally_reachable`. Fix : unifier le filtrage.
 7. **Nonce anti-replay sans purge TTL** (`router.rs`). Fix : `(nonce, ts)` + purge > 24h.
 
