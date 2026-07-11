@@ -1483,33 +1483,39 @@ impl RuntimeState {
             }
         }
 
-        // Track bytes received (fixes bandwidth_ratio calculation)
-        self.role_manager
-            .record_bytes_received(envelope.from, raw_data.len() as u64, now);
-
-        // Verify signature
+        // Verify signature — gates presence/bandwidth credit below. `from` is bound
+        // into signing_bytes(), so a spoofed `from` cannot produce a valid signature.
+        // Without this gate (PoP red-team #1), the credit below was granted
+        // unconditionally on the claimed `from`, letting an attacker mark any victim
+        // Online and inflate its bytes_received/bandwidth_ratio with garbage traffic.
         let signature_valid = if envelope.is_signed() {
             envelope.verify_signature().is_ok()
         } else {
             false
         };
 
-        // Record heartbeat + auto-register / revive stale peers.
-        // Always refresh last_seen and force Online — a message receipt is proof of liveness.
-        // Without this, peers that went Stale (>20s) or Offline (>45s) between state_save
-        // ticks would show online_count=0 even though messages keep flowing.
-        self.heartbeat.record_heartbeat(envelope.from);
-        let existing_role = self
-            .topology
-            .get(&envelope.from)
-            .map(|p| p.role)
-            .unwrap_or(PeerRole::Peer);
-        self.topology.upsert(PeerInfo {
-            node_id: envelope.from,
-            role: existing_role,
-            status: PeerStatus::Online,
-            last_seen: now_ms(),
-        });
+        if signature_valid {
+            // Track bytes received (fixes bandwidth_ratio calculation)
+            self.role_manager
+                .record_bytes_received(envelope.from, raw_data.len() as u64, now);
+
+            // Record heartbeat + auto-register / revive stale peers.
+            // Always refresh last_seen and force Online — a message receipt is proof of liveness.
+            // Without this, peers that went Stale (>20s) or Offline (>45s) between state_save
+            // ticks would show online_count=0 even though messages keep flowing.
+            self.heartbeat.record_heartbeat(envelope.from);
+            let existing_role = self
+                .topology
+                .get(&envelope.from)
+                .map(|p| p.role)
+                .unwrap_or(PeerRole::Peer);
+            self.topology.upsert(PeerInfo {
+                node_id: envelope.from,
+                role: existing_role,
+                status: PeerStatus::Online,
+                last_seen: now_ms(),
+            });
+        }
 
         // Dispatch by message type
         match envelope.msg_type {
