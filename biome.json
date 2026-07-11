@@ -31,6 +31,7 @@
       "*.tsbuildinfo",
       ".claude",
       ".claude-backup-*",
+      ".obsidian",
       "graphify-out",
       "_bmad-output",
       "_bmad",

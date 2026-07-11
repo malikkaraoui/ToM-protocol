@@ -70,3 +70,7 @@ deploy/macos/*.app/
 
 # Xcode derived data (builds locaux app)
 build/
+apps/**/build-*/
+
+# Vault Obsidian local (notes perso, pas du code)
+.obsidian/
