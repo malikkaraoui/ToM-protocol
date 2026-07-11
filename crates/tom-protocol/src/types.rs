@@ -52,6 +52,11 @@ pub enum MessageType {
     // never inserting variants mid-enum (MessagePack index-based encoding).
     PresenceChallenge,
     PresenceAttestation,
+    // Signed relay presence view (L1-003) — appended LAST (wire compat):
+    // MessagePack encodes enum variants by index, so new variants must never
+    // be inserted mid-enum, only appended.
+    PresenceSubscribe,
+    RelayPresenceView,
 }
 
 /// Delivery status pipeline for a message.

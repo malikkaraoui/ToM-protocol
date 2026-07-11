@@ -86,6 +86,8 @@ pub(super) async fn runtime_loop(
             .presence_probe_interval
             .unwrap_or(std::time::Duration::from_secs(3600)),
     );
+    // L1-003: relay-side presence view publication (30s push, D2).
+    let mut presence_publish = tokio::time::interval(std::time::Duration::from_secs(30));
 
     // Skip the immediate first tick
     cache_cleanup.tick().await;
@@ -105,6 +107,7 @@ pub(super) async fn runtime_loop(
     rendezvous_tick.tick().await;
     presence_purge.tick().await;
     presence_probe.tick().await;
+    presence_publish.tick().await;
 
     // ── Gossip subscription ──────────────────────────────────────────
     let topic_id = tom_gossip::TopicId::from_bytes(TOM_GOSSIP_TOPIC);
@@ -522,6 +525,9 @@ pub(super) async fn runtime_loop(
 
             // ── 15b. Timer: presence auto-probe (config-gated, off by default) ──
             _ = presence_probe.tick() => state.tick_presence_probe(),
+
+            // ── 15c. Timer: L1-003 presence view publication (30s push) ──
+            _ = presence_publish.tick() => state.tick_publish_presence_views(),
 
             // ── 15b. Timer: DHT rendezvous (60s) — zero-config discovery ──
             _ = rendezvous_tick.tick() => {

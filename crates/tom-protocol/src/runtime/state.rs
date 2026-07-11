@@ -113,6 +113,11 @@ pub struct RuntimeState {
     // ACKs it forwarded. Ephemeral (30s TTL), never persisted (LOCKED #2).
     pub(crate) witness_log: crate::presence::WitnessLog,
 
+    // L1-003: relay-side subscription table — weak devices that asked us to
+    // publish presence views scoped to their contacts (D3). Ephemeral, TTL,
+    // bounded. Never persisted.
+    pub(crate) subscriptions: crate::presence::SubscriptionTable,
+
     // Phase R16: Embedded relay logical state (tracked by pure state, no I/O)
     pub(crate) embedded_relay_state: super::LocalEmbeddedRelayState,
     pub(crate) embedded_relay_publication: super::EmbeddedRelayPublicationState,
@@ -218,6 +223,7 @@ impl RuntimeState {
             antispam: crate::roles::AntiSpam::new(config.antispam_config.clone()),
             presence: crate::presence::PresenceManager::new(),
             witness_log: crate::presence::WitnessLog::new(),
+            subscriptions: crate::presence::SubscriptionTable::new(),
             local_id,
             secret_seed,
             embedded_relay_state: super::LocalEmbeddedRelayState::Stopped,
@@ -1640,6 +1646,14 @@ impl RuntimeState {
             MessageType::PresenceChallenge | MessageType::PresenceAttestation => {
                 self.handle_incoming_presence(envelope, signature_valid)
             }
+
+            MessageType::PresenceSubscribe => {
+                self.handle_presence_subscribe(&envelope, signature_valid)
+            }
+
+            MessageType::RelayPresenceView => {
+                self.handle_relay_presence_view(&envelope, signature_valid)
+            }
         }
     }
 
@@ -1914,9 +1928,92 @@ impl RuntimeState {
     pub fn tick_presence_cleanup(&mut self) -> Vec<RuntimeEffect> {
         let now = self.presence_now();
         self.presence.cleanup(now);
-        // L1-003: same 30s TTL discipline for witness observations.
+        // L1-003: same 30s TTL discipline for witness observations; the
+        // subscription table has its own (longer) TTL.
         self.witness_log.purge_expired(now);
+        self.subscriptions.purge_expired(now);
         Vec::new()
+    }
+
+    /// L1-003 (relay side): record a weak device's subscription to our presence
+    /// views, scoped to the peers it declared (D3). Gated on a valid signature
+    /// so a spoofed `from` cannot register a subscription (and cannot make us
+    /// publish presence to a victim). Silent — a subscribe earns no reply
+    /// envelope; the next publish tick serves it.
+    fn handle_presence_subscribe(
+        &mut self,
+        envelope: &Envelope,
+        signature_valid: bool,
+    ) -> Vec<RuntimeEffect> {
+        if !signature_valid {
+            return Vec::new();
+        }
+        let Ok(payload) =
+            crate::presence::PresenceSubscribePayload::from_bytes(&envelope.payload)
+        else {
+            return Vec::new();
+        };
+        self.subscriptions
+            .subscribe(envelope.from, payload.scope, now_ms());
+        Vec::new()
+    }
+
+    /// L1-003 (consumer side, step 2c): receive a relay's signed presence view.
+    ///
+    /// Verify the view's OWN signature against its claimed `witness_id`
+    /// (independently verifiable — NOT the transport envelope's signature) +
+    /// structural validity, then DROP. Quorum aggregation and `Known → Online`
+    /// promotion are step 3 — this node does NOT yet trust a single view
+    /// (kill-shot #3). A signature proves WHO published, never that the content
+    /// is TRUE.
+    fn handle_relay_presence_view(
+        &mut self,
+        envelope: &Envelope,
+        _signature_valid: bool,
+    ) -> Vec<RuntimeEffect> {
+        let Ok(view) = crate::presence::RelayPresenceView::from_bytes(&envelope.payload) else {
+            return Vec::new();
+        };
+        // The view must be self-authenticated by its witness, and the witness
+        // must be whoever sent the envelope (no relaying a third party's view
+        // under your own `from`).
+        if view.witness_id != envelope.from
+            || view.validate().is_err()
+            || !view.verify_signature()
+        {
+            return Vec::new();
+        }
+        // TODO(L1-003 step 3): feed a quorum aggregator keyed by (peer,
+        // proof_ref) across ≥ required_witnesses distinct witnesses before any
+        // Online promotion. Dropped here on purpose.
+        Vec::new()
+    }
+
+    /// L1-003 (relay side): publish a signed presence view to each live
+    /// subscriber, scoped to what it asked for (D2, push). Skips subscribers
+    /// for whom we currently hold no in-scope, non-expired observation (an
+    /// empty view carries no signal and must not be emitted).
+    ///
+    /// The view carries the witness's OWN signature (independently verifiable);
+    /// the transport envelope is signed too (for the generic ingress gate).
+    pub fn tick_publish_presence_views(&mut self) -> Vec<RuntimeEffect> {
+        let now = self.presence_now();
+        let mut effects = Vec::new();
+        for (subscriber, scope) in self.subscriptions.active(now) {
+            let Some(mut view) = self.witness_log.build_view(self.local_id, scope, now) else {
+                continue;
+            };
+            view.sign(&self.secret_seed);
+            let mut envelope = Envelope::new(
+                self.local_id,
+                subscriber,
+                MessageType::RelayPresenceView,
+                view.to_bytes(),
+            );
+            envelope.sign(&self.secret_seed);
+            effects.push(RuntimeEffect::SendEnvelope(envelope));
+        }
+        effects
     }
 
     /// Auto-probe (fleet observability): challenge up to 8 Online peers.
@@ -3693,6 +3790,102 @@ mod tests {
             state.witness_log.len(),
             0,
             "a forwarded Chat is not a presence proof — only signed ACKs are"
+        );
+    }
+
+    // ── L1-003 subscription + publication (2c) ──────────────────────────
+
+    #[test]
+    fn subscribe_then_publish_emits_signed_view() {
+        let mut state = default_state(1);
+        let (subscriber_id, _sub_secret) = keypair(7);
+        // The relay has observed a peer alive (via a forwarded signed ACK).
+        let (ack_env, acker_id) =
+            signed_ack_via_us(&state, 2, node_id(3), "m-9", crate::router::AckType::RecipientReceived);
+        let sig_ok = ack_env.verify_signature().is_ok();
+        let _ = state.handle_incoming_chat(ack_env, sig_ok);
+
+        // Subscriber asks for presence of `acker_id`.
+        let payload = crate::presence::PresenceSubscribePayload {
+            scope: crate::presence::PresenceScope::Peers(vec![acker_id]),
+        };
+        let (sub_id2, sub_secret2) = keypair(7);
+        assert_eq!(sub_id2, subscriber_id);
+        let mut sub_env = crate::envelope::EnvelopeBuilder::new(
+            subscriber_id,
+            state.local_id,
+            MessageType::PresenceSubscribe,
+            payload.to_bytes(),
+        )
+        .sign(&sub_secret2);
+        let sub_sig = sub_env.verify_signature().is_ok();
+        assert!(sub_sig);
+        let _ = state.handle_incoming(&sub_env.to_bytes().unwrap());
+        assert_eq!(state.subscriptions.len(), 1, "subscription recorded");
+
+        // Publish tick → one signed RelayPresenceView to the subscriber.
+        let effects = state.tick_publish_presence_views();
+        let view_env = effects.iter().find_map(|e| match e {
+            RuntimeEffect::SendEnvelope(env)
+                if env.msg_type == MessageType::RelayPresenceView && env.to == subscriber_id =>
+            {
+                Some(env.clone())
+            }
+            _ => None,
+        });
+        let view_env = view_env.expect("a presence view published to the subscriber");
+        let view =
+            crate::presence::RelayPresenceView::from_bytes(&view_env.payload).expect("valid view");
+        assert!(view.verify_signature(), "published view is witness-signed");
+        assert_eq!(view.witness_id, state.local_id);
+        assert!(view.present.iter().any(|p| p.peer_id == acker_id));
+    }
+
+    #[test]
+    fn unsigned_subscribe_is_ignored() {
+        let mut state = default_state(1);
+        let (subscriber_id, _) = keypair(7);
+        let payload = crate::presence::PresenceSubscribePayload {
+            scope: crate::presence::PresenceScope::Peers(vec![node_id(3)]),
+        };
+        let env = crate::envelope::Envelope::new(
+            subscriber_id,
+            state.local_id,
+            MessageType::PresenceSubscribe,
+            payload.to_bytes(),
+        ); // unsigned
+        let _ = state.handle_incoming(&env.to_bytes().unwrap());
+        assert_eq!(
+            state.subscriptions.len(),
+            0,
+            "an unsigned subscribe must never register a subscriber"
+        );
+    }
+
+    #[test]
+    fn publish_skips_subscriber_with_no_in_scope_observation() {
+        let mut state = default_state(1);
+        // Subscriber asks about a peer we have NO observation for.
+        let (subscriber_id, sub_secret) = keypair(7);
+        let payload = crate::presence::PresenceSubscribePayload {
+            scope: crate::presence::PresenceScope::Peers(vec![node_id(9)]),
+        };
+        let sub_env = crate::envelope::EnvelopeBuilder::new(
+            subscriber_id,
+            state.local_id,
+            MessageType::PresenceSubscribe,
+            payload.to_bytes(),
+        )
+        .sign(&sub_secret);
+        let _ = state.handle_incoming(&sub_env.to_bytes().unwrap());
+        assert_eq!(state.subscriptions.len(), 1);
+        // No observations → empty view → nothing published.
+        let effects = state.tick_publish_presence_views();
+        assert!(
+            !effects
+                .iter()
+                .any(|e| matches!(e, RuntimeEffect::SendEnvelope(env) if env.msg_type == MessageType::RelayPresenceView)),
+            "no in-scope observation → no view emitted"
         );
     }
 

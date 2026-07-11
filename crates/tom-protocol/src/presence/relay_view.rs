@@ -19,6 +19,7 @@
 //! persisted, never backed up (LOCKED #2). `u64` ms timestamps throughout (no
 //! `Instant` in state — deterministic effect-pattern testing).
 
+use ed25519_dalek::Signer;
 use serde::{Deserialize, Serialize};
 
 use crate::error::TomProtocolError;
@@ -145,6 +146,36 @@ impl RelayPresenceView {
         rmp_serde::from_slice(data).map_err(Into::into)
     }
 
+    /// Sign the view with the witness's Ed25519 secret seed. Makes the view
+    /// INDEPENDENTLY verifiable (not merely "the envelope was signed"): a
+    /// consumer aggregating views across witnesses (quorum) can verify each on
+    /// its own. Mirrors `Envelope::sign`.
+    pub fn sign(&mut self, secret_seed: &[u8; 32]) {
+        let signing_key = ed25519_dalek::SigningKey::from_bytes(secret_seed);
+        self.signature = signing_key.sign(&self.signing_bytes()).to_bytes().to_vec();
+    }
+
+    /// Verify the view's OWN signature against its claimed `witness_id`. Proves
+    /// the content was attested by that witness — a prerequisite before the
+    /// entry may count toward quorum. Strict (rejects non-canonical sigs).
+    pub fn verify_signature(&self) -> bool {
+        if self.signature.len() != 64 {
+            return false;
+        }
+        let Ok(verifying_key) =
+            ed25519_dalek::VerifyingKey::from_bytes(&self.witness_id.as_bytes())
+        else {
+            return false;
+        };
+        let Ok(sig_bytes): Result<[u8; 64], _> = self.signature[..64].try_into() else {
+            return false;
+        };
+        let signature = ed25519_dalek::Signature::from_bytes(&sig_bytes);
+        verifying_key
+            .verify_strict(&self.signing_bytes(), &signature)
+            .is_ok()
+    }
+
     /// Structural validation before any crypto/quorum work (cheap gate).
     ///
     /// - `witness_id` must not be empty of entries beyond the cap;
@@ -262,6 +293,59 @@ mod tests {
     #[test]
     fn validate_accepts_wellformed() {
         assert!(view().validate().is_ok());
+    }
+
+    fn keypair(seed: u8) -> ([u8; 32], NodeId) {
+        use rand::SeedableRng;
+        let mut rng = rand::rngs::StdRng::seed_from_u64(seed as u64);
+        let secret = tom_connect::SecretKey::generate(&mut rng);
+        let id: NodeId = secret.public().to_string().parse().unwrap();
+        (secret.to_bytes(), id)
+    }
+
+    #[test]
+    fn sign_then_verify_roundtrip() {
+        let (seed, witness) = keypair(1);
+        let mut v = RelayPresenceView {
+            witness_id: witness,
+            epoch_ms: 10_000,
+            scope: PresenceScope::Peers(vec![node_id(2)]),
+            present: vec![entry(2, 9_800)],
+            signature: Vec::new(),
+        };
+        v.sign(&seed);
+        assert!(v.verify_signature(), "own signature must verify");
+    }
+
+    #[test]
+    fn verify_fails_on_tampered_content() {
+        let (seed, witness) = keypair(1);
+        let mut v = RelayPresenceView {
+            witness_id: witness,
+            epoch_ms: 10_000,
+            scope: PresenceScope::Peers(vec![node_id(2)]),
+            present: vec![entry(2, 9_800)],
+            signature: Vec::new(),
+        };
+        v.sign(&seed);
+        // Tamper with an entry after signing → verification must fail.
+        v.present.push(entry(3, 9_900));
+        assert!(!v.verify_signature(), "tampered view must not verify");
+    }
+
+    #[test]
+    fn verify_fails_when_witness_id_swapped() {
+        let (seed, _witness) = keypair(1);
+        let (_other_seed, other) = keypair(2);
+        let mut v = RelayPresenceView {
+            witness_id: other, // claim a different witness than the signer
+            epoch_ms: 10_000,
+            scope: PresenceScope::Peers(vec![node_id(2)]),
+            present: vec![entry(2, 9_800)],
+            signature: Vec::new(),
+        };
+        v.sign(&seed); // signed by keypair(1), but witness_id says keypair(2)
+        assert!(!v.verify_signature(), "signature must bind to witness_id");
     }
 
     #[test]
