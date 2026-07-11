@@ -1441,6 +1441,27 @@ impl RuntimeState {
         Vec::new()
     }
 
+    /// Register a peer address learned from discovery (DHT/gossip/neighbor-up)
+    /// without granting presence credit (ADR-011 PoP, ghost-peer fix).
+    ///
+    /// Discovery proves an address is reachable, not that the peer is alive
+    /// — only real work (signed inbound, ACK, witnessed relay) should mark a
+    /// peer `Online` and feed the heartbeat tracker. If the peer is already
+    /// known with a stronger status (`Online`/`Stale`), this is a no-op: a
+    /// re-announce must never downgrade a status earned by real work back to
+    /// merely `Known`, nor refresh its `last_seen` for free.
+    fn mark_known(&mut self, node_id: NodeId, role: PeerRole) {
+        if self.topology.get(&node_id).is_some() {
+            return;
+        }
+        self.topology.upsert(PeerInfo {
+            node_id,
+            role,
+            status: PeerStatus::Known,
+            last_seen: now_ms(),
+        });
+    }
+
     // ── Task 8: handle_incoming (unified dispatcher) ─────────────────────
 
     /// Unified entry point for all incoming raw data.
@@ -2095,18 +2116,11 @@ impl RuntimeState {
                 original_message_id,
             } => self.handle_send_read_receipt(to, original_message_id),
 
-            RuntimeCommand::AddPeer { node_id, source } => {
-                self.heartbeat.record_heartbeat_with_source(
-                    node_id,
-                    source,
-                    String::new(),
-                );
-                self.topology.upsert(PeerInfo {
-                    node_id,
-                    role: PeerRole::Peer,
-                    status: PeerStatus::Online,
-                    last_seen: now_ms(),
-                });
+            RuntimeCommand::AddPeer { node_id, .. } => {
+                // Discovery only (ADR-011 ghost-peer fix) — no heartbeat/Online
+                // credit without real work. `source` no longer feeds the
+                // heartbeat tracker; kept in the command for API compat.
+                self.mark_known(node_id, PeerRole::Peer);
                 Vec::new()
             }
 
@@ -2336,17 +2350,9 @@ impl RuntimeState {
                     tracing::warn!("DHT lookup result: invalid node_id '{}'", addr.node_id);
                     return Vec::new();
                 };
-                self.heartbeat.record_heartbeat_with_source(
-                    node_id,
-                    DiscoverySource::Dht,
-                    String::new(),
-                );
-                self.topology.upsert(PeerInfo {
-                    node_id,
-                    role: PeerRole::Peer,
-                    status: PeerStatus::Online,
-                    last_seen: now_ms(),
-                });
+                // Discovery only (ADR-011 ghost-peer fix) — no heartbeat/Online
+                // credit without real work.
+                self.mark_known(node_id, PeerRole::Peer);
                 tracing::info!(
                     node_id = %node_id,
                     relays = addr.relay_urls.len(),
@@ -2434,18 +2440,9 @@ impl RuntimeState {
                             } else {
                                 PeerRole::Peer
                             };
-                        // Record with Announce source — PeerDiscovered emitted from tick_heartbeat
-                        self.heartbeat.record_heartbeat_with_source(
-                            peer_id,
-                            DiscoverySource::Announce,
-                            announce.username,
-                        );
-                        self.topology.upsert(PeerInfo {
-                            node_id: peer_id,
-                            role,
-                            status: PeerStatus::Online,
-                            last_seen: now_ms(),
-                        });
+                        // Discovery only (ADR-011 ghost-peer fix) — no
+                        // heartbeat/Online credit without real work.
+                        self.mark_known(peer_id, role);
                         return vec![];
                     }
                 }
@@ -2468,17 +2465,9 @@ impl RuntimeState {
             }
 
             GossipInput::NeighborUp(node_id) => {
-                self.heartbeat.record_heartbeat_with_source(
-                    node_id,
-                    DiscoverySource::Gossip,
-                    String::new(),
-                );
-                self.topology.upsert(PeerInfo {
-                    node_id,
-                    role: PeerRole::Peer,
-                    status: PeerStatus::Online,
-                    last_seen: now_ms(),
-                });
+                // Discovery only (ADR-011 ghost-peer fix) — no heartbeat/Online
+                // credit without real work.
+                self.mark_known(node_id, PeerRole::Peer);
                 let mut effects = vec![RuntimeEffect::Emit(
                     ProtocolEvent::GossipNeighborUp { node_id },
                 )];
@@ -3768,7 +3757,10 @@ mod tests {
             topo_peer.is_some(),
             "peer should be registered in topology after NeighborUp"
         );
-        assert_eq!(topo_peer.unwrap().status, PeerStatus::Online);
+        // ADR-011 ghost-peer fix: discovery (gossip neighbor-up) registers an
+        // address, not a liveness proof — status is Known until real work
+        // (signed inbound/ACK/witnessed relay) promotes it to Online.
+        assert_eq!(topo_peer.unwrap().status, PeerStatus::Known);
     }
 
     #[test]
@@ -3857,19 +3849,21 @@ mod tests {
             topo_peer.is_some(),
             "peer should be registered in topology after gossip announce"
         );
+        // ADR-011 ghost-peer fix: a gossip announce is an address, not a
+        // liveness proof — Known, not Online.
+        assert_eq!(topo_peer.unwrap().status, PeerStatus::Known);
 
-        // Verify PeerDiscovered emitted on next heartbeat tick
+        // A discovery-only announce no longer feeds the heartbeat tracker
+        // (that's the fix: no PoP credit without real work), so no
+        // PeerDiscovered fires from tick_heartbeat until the peer does real
+        // work (signed inbound/ACK/witnessed relay).
         let tick_effects = state.tick_heartbeat();
         let has_discovered = tick_effects.iter().any(|e| {
-            matches!(
-                e,
-                RuntimeEffect::Emit(ProtocolEvent::PeerDiscovered { node_id, username, source })
-                    if *node_id == peer && username == "bob" && *source == DiscoverySource::Announce
-            )
+            matches!(e, RuntimeEffect::Emit(ProtocolEvent::PeerDiscovered { node_id, .. }) if *node_id == peer)
         });
         assert!(
-            has_discovered,
-            "expected PeerDiscovered from tick_heartbeat, got: {tick_effects:?}"
+            !has_discovered,
+            "gossip announce alone must not emit PeerDiscovered (no liveness proof), got: {tick_effects:?}"
         );
     }
 
@@ -4181,8 +4175,12 @@ mod tests {
 
     #[test]
     fn peer_add_then_remove_cleans_state() {
-        // Add a peer via AddPeer, verify topology and heartbeat.
-        // Remove via RemovePeer, verify both are cleaned.
+        // Add a peer via AddPeer, verify topology. Remove via RemovePeer,
+        // verify it's cleaned up.
+        //
+        // ADR-011 ghost-peer fix: AddPeer is discovery, not proof of work —
+        // it no longer feeds the heartbeat tracker (liveness stays Departed
+        // until the peer does real work: signed inbound/ACK/witnessed relay).
         let mut state = default_state(50);
         let peer = node_id(51);
 
@@ -4192,11 +4190,13 @@ mod tests {
 
         // Add peer
         state.handle_command(RuntimeCommand::AddPeer { node_id: peer, source: DiscoverySource::Direct });
-        assert!(state.topology.get(&peer).is_some(), "peer should be in topology after AddPeer");
-        assert_ne!(
+        let topo_peer = state.topology.get(&peer);
+        assert!(topo_peer.is_some(), "peer should be in topology after AddPeer");
+        assert_eq!(topo_peer.unwrap().status, PeerStatus::Known);
+        assert_eq!(
             state.heartbeat.liveness(&peer),
             crate::discovery::LivenessState::Departed,
-            "peer should be tracked in heartbeat after AddPeer"
+            "AddPeer is discovery only — must not grant liveness without real work"
         );
 
         // Remove peer
@@ -4208,7 +4208,7 @@ mod tests {
         assert_eq!(
             state.heartbeat.liveness(&peer),
             crate::discovery::LivenessState::Departed,
-            "peer should be untracked from heartbeat after RemovePeer"
+            "peer should stay untracked from heartbeat after RemovePeer"
         );
     }
 

@@ -176,6 +176,7 @@ impl StateStore {
                 PeerStatus::Online => "Online",
                 PeerStatus::Offline => "Offline",
                 PeerStatus::Stale => "Stale",
+                PeerStatus::Known => "Known",
             };
             stmt.execute(rusqlite::params![
                 nid.to_string(),
@@ -449,6 +450,7 @@ impl StateStore {
             let status = match status.as_str() {
                 "Online" => PeerStatus::Online,
                 "Stale" => PeerStatus::Stale,
+                "Known" => PeerStatus::Known,
                 _ => PeerStatus::Offline, // All peers start offline after restart
             };
             peers.insert(

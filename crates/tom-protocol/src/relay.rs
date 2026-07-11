@@ -30,6 +30,11 @@ pub enum PeerStatus {
     Offline,
     /// Recently seen but may be transitioning.
     Stale,
+    /// Discovered (address known via DHT/gossip/neighbor-up) but no real
+    /// work has been observed yet — addressable, not proven live (ADR-011
+    /// PoP, two-tier Known/Online). Appended last to keep the discriminants
+    /// of the pre-existing variants stable for persisted state.
+    Known,
 }
 
 /// Information about a known peer in the network topology.
@@ -145,6 +150,25 @@ impl Topology {
         relays.sort_by_key(|a| Reverse(a.last_seen));
         relays
     }
+
+    /// Relay-capable peers usable as a first-hop candidate: proven-live
+    /// (Online) OR merely discovered (Known, ADR-011 two-tier). Used only
+    /// for relay-*path* selection (cold-start needs an address to dial
+    /// before any real work can happen) — never for liveness reporting
+    /// (`online_count`) or hub election (`online_relays`), which stay
+    /// strictly Online.
+    pub fn reachable_relays(&self) -> Vec<&PeerInfo> {
+        let mut relays: Vec<&PeerInfo> = self
+            .peers
+            .values()
+            .filter(|p| {
+                p.role == PeerRole::Relay
+                    && matches!(p.status, PeerStatus::Online | PeerStatus::Known)
+            })
+            .collect();
+        relays.sort_by_key(|a| Reverse(a.last_seen));
+        relays
+    }
 }
 
 // ── Relay selection ────────────────────────────────────────────────────
@@ -201,7 +225,7 @@ impl RelaySelector {
         exclude: &[NodeId],
     ) -> RelaySelection {
         let candidates: Vec<&PeerInfo> = topology
-            .online_relays()
+            .reachable_relays()
             .into_iter()
             .filter(|p| {
                 p.node_id != self.self_id
