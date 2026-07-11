@@ -74,7 +74,24 @@ pub const RESPONDER_GLOBAL_BUDGET_PER_WINDOW: u32 = 120;
 /// split must hold even in permissive plumbing mode, so a Sybil at score 0 is
 /// always a stranger. Earning this score requires real relay work, which a
 /// swarm of fresh forged identities cannot cheaply produce.
+///
+/// MUST be combined with [`MIN_SUSTAINED_RELAYS_FOR_KNOWN`] (red-team PoP
+/// kill-shot #4): `SUCCESS_RATE_WEIGHT` (5.0, see `roles/scoring.rs`) means a
+/// SINGLE successful relay (1/1 = 100% success rate) already scores 6.0 raw —
+/// six times this threshold, decaying below it only after ~36h (5%/h decay).
+/// A score-only gate lets a Sybil farm buy ~36h of KNOWN status (private
+/// per-identity budget, stranger-cap-exempt) per identity for one cheap
+/// relay each. The relay-count floor forces *sustained* work per identity.
 pub const RESPONDER_KNOWN_MIN_SCORE: f64 = 1.0;
+
+/// Minimum successful relays required, IN ADDITION to
+/// [`RESPONDER_KNOWN_MIN_SCORE`], before a challenger is treated as KNOWN.
+/// Judgment call, not derived: low enough that a genuine relay crosses it
+/// within normal operation (a handful of real deliveries — LOCKED #1, ACK
+/// required), high enough that Sybil farming needs 5x the per-identity real
+/// work instead of one cheap relay. Tune with real fleet data if this proves
+/// too strict/loose in practice.
+pub const MIN_SUSTAINED_RELAYS_FOR_KNOWN: u64 = 5;
 
 /// Global cap on tracked responder windows (responder side).
 const MAX_RESPONDER_WINDOWS: usize = 512;

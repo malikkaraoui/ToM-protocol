@@ -1334,8 +1334,7 @@ impl RuntimeState {
                 // FINDING #9: a depositor we hold real contribution evidence for
                 // is "known"; its backups survive eviction under a flood. Fresh
                 // Sybil identities score 0 → stranger → evicted first / refused.
-                let depositor_known = self.role_manager.score(&envelope.from, now)
-                    >= crate::presence::RESPONDER_KNOWN_MIN_SCORE;
+                let depositor_known = self.has_sustained_relay_evidence(&envelope.from, now);
                 let actions = self.backup.handle_replication(
                     &payload,
                     envelope.from,
@@ -1439,6 +1438,24 @@ impl RuntimeState {
             }
         }
         Vec::new()
+    }
+
+    /// Is `node_id` KNOWN (relay-evidenced), i.e. exempt from stranger-flood
+    /// gates? Requires BOTH the decaying contribution score AND a minimum
+    /// count of successful relays (red-team PoP kill-shot #4): the score
+    /// alone is trivially cleared by a single successful relay
+    /// (`SUCCESS_RATE_WEIGHT` rewards 1/1 the same as 1000/1000), letting a
+    /// Sybil farm buy ~36h of KNOWN status per identity for one cheap relay
+    /// each. The relay-count floor forces sustained work per identity.
+    fn has_sustained_relay_evidence(&self, node_id: &NodeId, now: u64) -> bool {
+        let score_ok =
+            self.role_manager.score(node_id, now) >= crate::presence::RESPONDER_KNOWN_MIN_SCORE;
+        let relay_count_ok = self
+            .role_manager
+            .scores()
+            .get(node_id)
+            .is_some_and(|m| m.messages_relayed >= crate::presence::MIN_SUSTAINED_RELAYS_FOR_KNOWN);
+        score_ok && relay_count_ok
     }
 
     /// Register a peer address learned from discovery (DHT/gossip/neighbor-up)
@@ -1737,8 +1754,7 @@ impl RuntimeState {
         // per-identity budget and BYPASS the stranger global cap so a swarm
         // can't starve them (FINDING #5). Strangers share the bounded global cap
         // (FINDING #4). Bounded map, self-purging either way.
-        let has_evidence = self.role_manager.score(&envelope.from, now)
-            >= crate::presence::RESPONDER_KNOWN_MIN_SCORE;
+        let has_evidence = self.has_sustained_relay_evidence(&envelope.from, now);
         if !self.presence.allow_response(envelope.from, has_evidence, now) {
             self.presence.record(PresenceOutcome::RefusedBudget);
             return Vec::new();
