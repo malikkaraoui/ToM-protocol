@@ -108,6 +108,11 @@ pub struct RuntimeState {
     // L1-001: Proof of Presence — ephemeral only, never persisted (LOCKED #2)
     pub(crate) presence: crate::presence::PresenceManager,
 
+    // L1-003: witness-side presence observations — this node, as a relay on a
+    // routing path, records first-hand which peers it saw alive via the signed
+    // ACKs it forwarded. Ephemeral (30s TTL), never persisted (LOCKED #2).
+    pub(crate) witness_log: crate::presence::WitnessLog,
+
     // Phase R16: Embedded relay logical state (tracked by pure state, no I/O)
     pub(crate) embedded_relay_state: super::LocalEmbeddedRelayState,
     pub(crate) embedded_relay_publication: super::EmbeddedRelayPublicationState,
@@ -212,6 +217,7 @@ impl RuntimeState {
             dht,
             antispam: crate::roles::AntiSpam::new(config.antispam_config.clone()),
             presence: crate::presence::PresenceManager::new(),
+            witness_log: crate::presence::WitnessLog::new(),
             local_id,
             secret_seed,
             embedded_relay_state: super::LocalEmbeddedRelayState::Stopped,
@@ -865,6 +871,26 @@ impl RuntimeState {
                     .unwrap_or(0);
                 if bytes > 0 {
                     self.role_manager.record_bytes_relayed(sender, bytes, now);
+                }
+
+                // L1-003 witness observation: when this relay forwards a SIGNED
+                // ACK, the ACK's `from` cryptographically proved it was alive at
+                // `now` (it signed over signing_bytes bound to `from`). Record it
+                // as first-hand presence evidence, tied to the real acked message
+                // id — never hearsay (ADR-011 §2). Gated on `signature_valid` so a
+                // forged/unsigned ACK earns no observation. Only ACKs qualify: a
+                // forwarded Chat isn't a presence proof by itself.
+                if signature_valid && envelope.msg_type == MessageType::Ack {
+                    if let Ok(ack_payload) =
+                        crate::router::AckPayload::from_bytes(&envelope.payload)
+                    {
+                        self.witness_log.record(
+                            envelope.from,
+                            ack_payload.original_message_id,
+                            ack_payload.ack_type,
+                            now,
+                        );
+                    }
                 }
 
                 let mut ack = relay_ack;
@@ -1886,7 +1912,10 @@ impl RuntimeState {
 
     /// Periodic purge of every presence artifact past its 30s TTL.
     pub fn tick_presence_cleanup(&mut self) -> Vec<RuntimeEffect> {
-        self.presence.cleanup(self.presence_now());
+        let now = self.presence_now();
+        self.presence.cleanup(now);
+        // L1-003: same 30s TTL discipline for witness observations.
+        self.witness_log.purge_expired(now);
         Vec::new()
     }
 
@@ -3573,6 +3602,97 @@ mod tests {
         assert!(
             has_forwarded_event,
             "expected Forwarded event, got: {effects:?}"
+        );
+    }
+
+    // ── L1-003 witness wiring ───────────────────────────────────────────
+
+    /// Build a signed ACK from `acker` to `to`, routed back through our node
+    /// (via chain), so `handle_incoming_chat` takes the Forward path.
+    fn signed_ack_via_us(
+        state: &RuntimeState,
+        acker_seed: u8,
+        to: NodeId,
+        msg_id: &str,
+        ack_type: crate::router::AckType,
+    ) -> (Envelope, NodeId) {
+        let (acker_id, acker_secret) = keypair(acker_seed);
+        let payload = crate::router::AckPayload {
+            original_message_id: msg_id.to_string(),
+            ack_type,
+        };
+        let env = crate::envelope::EnvelopeBuilder::new(
+            acker_id,
+            to,
+            MessageType::Ack,
+            payload.to_bytes(),
+        )
+        .via(vec![state.local_id])
+        .sign(&acker_secret);
+        (env, acker_id)
+    }
+
+    #[test]
+    fn witness_records_forwarded_signed_ack() {
+        let mut state = default_state(1);
+        let sender = node_id(3); // ACK's destination (original message sender)
+        let (env, acker_id) =
+            signed_ack_via_us(&state, 2, sender, "m-42", crate::router::AckType::RecipientReceived);
+        let sig_valid = env.verify_signature().is_ok();
+        assert!(sig_valid);
+        assert_eq!(state.witness_log.len(), 0);
+
+        let _ = state.handle_incoming_chat(env, sig_valid);
+
+        assert_eq!(state.witness_log.len(), 1, "forwarded signed ACK must be observed");
+        let now = crate::types::now_ms();
+        let view = state
+            .witness_log
+            .build_view(
+                state.local_id,
+                crate::presence::PresenceScope::Peers(vec![acker_id]),
+                now,
+            )
+            .expect("view for the acker");
+        assert_eq!(view.present[0].peer_id, acker_id);
+        assert_eq!(view.present[0].proof_ref, "m-42");
+        assert_eq!(view.present[0].proof_type, crate::router::AckType::RecipientReceived);
+    }
+
+    #[test]
+    fn witness_ignores_unsigned_ack() {
+        let mut state = default_state(1);
+        let sender = node_id(3);
+        let (env, _) =
+            signed_ack_via_us(&state, 2, sender, "m-42", crate::router::AckType::RecipientReceived);
+        // Feed it as if the signature did NOT verify (forged/unsigned).
+        let _ = state.handle_incoming_chat(env, false);
+        assert_eq!(
+            state.witness_log.len(),
+            0,
+            "an unsigned/forged forwarded ACK must earn no witness observation"
+        );
+    }
+
+    #[test]
+    fn witness_ignores_forwarded_chat() {
+        let mut state = default_state(1);
+        let (sender_id, sender_secret) = keypair(2);
+        let recipient_id = node_id(3);
+        let env = crate::envelope::EnvelopeBuilder::new(
+            sender_id,
+            recipient_id,
+            MessageType::Chat,
+            b"relayed".to_vec(),
+        )
+        .via(vec![state.local_id])
+        .sign(&sender_secret);
+        let sig_valid = env.verify_signature().is_ok();
+        let _ = state.handle_incoming_chat(env, sig_valid);
+        assert_eq!(
+            state.witness_log.len(),
+            0,
+            "a forwarded Chat is not a presence proof — only signed ACKs are"
         );
     }
 
