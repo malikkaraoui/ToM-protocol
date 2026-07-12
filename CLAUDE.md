@@ -430,25 +430,27 @@ TomNodeConfig::new().n0_discovery(false).bind().await?;
 - Campaign self-send fix: 232/232 Mac ↔ NAS (SSH tunnel)
 - PoC hole punch: 100% across LAN/4G CGNAT/cross-border
 
-## Known Limitations (audit adversarial 2026-06-22)
+## Known Limitations (audit adversarial 2026-06-22, réaudité file:line 2026-07-12)
 
-Trous **confirmés** (review multi-agent, file:line). À traiter par phases ; ne pas prétendre "complete".
+Trous historiques de l'audit multi-agent. **Réaudit 2026-07-12 : les 3 items "Critique" et 2 des 4 items "Haut risque" étaient en fait déjà corrigés dans le code — seule cette liste n'avait pas été mise à jour.** Ne pas reproposer ces fixes comme neufs ; vérifier file:line avant de croire cette liste sur parole (elle a déjà menti une fois).
 
-**Critique (Phase 1) :**
-1. **Connexions zombies** (`runtime/loop.rs` reconnect_check) — l'isolement teste `connected_peers().is_empty()`, pas la vivacité réelle : un pair "connecté" sans trafic gèle le nœud en `Converged`. Fix : heartbeat/RTT liveness → marquer Offline.
-2. **Rendez-vous DHT squattable** (`tom-dht`) — slots à clés partagées dérivées d'une constante publique, sans **preuve-de-possession** : un attaquant occupe les 8 slots / injecte de faux pairs. Fix : signer chaque entrée par la clé du node_id et vérifier avant acceptation ; augmenter le nombre de slots.
-3. **FFI double-teardown** (`tom-protocol-ffi` `tom_node_stop`/`tom_node_free`) — deux threads détachés à logique identique → risque de double-drop. Fix : fusionner ou garde `Once`/`AtomicBool`.
+**Critique (Phase 1) — TOUS RÉSOLUS (vérifiés 2026-07-12) :**
+1. ✅ **Connexions zombies** — RÉSOLU. `runtime/loop.rs:591-607` : `zombie = !connected.is_empty() && liveness_is_stale(last_inbound_at, now_ms(), LIVENESS_STALE_MS)` ; `if connected.is_empty() || zombie { bootstrap_phase.on_isolated() ... }` — un pair "connecté" mais silencieux déclenche bien la redécouverte, pas seulement une liste de connexions vide. Testé (`liveness_fresh_within_window`/`liveness_stale_past_window`/`liveness_future_inbound_never_stale`).
+2. ✅ **Rendez-vous DHT squattable** — RÉSOLU pour la preuve-de-possession. `runtime/loop.rs:862-877` `rendezvous_entry_authentic()` vérifie une signature Ed25519 liée au `node_id` avant d'accepter toute entrée découverte (`loop.rs:908` : `found.into_iter().filter(rendezvous_entry_authentic)`) — un attaquant ne peut plus injecter de faux pairs. Testé (entrée non signée / falsifiée / node_id usurpé → rejetés). **Résiduel mineur** : `RENDEZVOUS_SLOTS` (`tom-dht/src/lib.rs:42`) toujours à **8**, pas augmenté — collisions de slots entre pairs légitimes possibles à grande échelle, mais ce n'est plus une faille de sécurité (juste un facteur de bruit), pas prioritaire.
+3. ✅ **FFI double-teardown** — RÉSOLU. `tom-protocol-ffi/src/lib.rs:435-454` : `tom_node_stop`/`tom_node_free` convergent vers un unique `detached_teardown()` (contrat documenté en commentaire : "single teardown path"), différenciés uniquement par le flag `graceful`. Le wrapper Swift met le pointeur à `nil` après consommation (pas de second appel possible côté appelant).
 
 **Haut risque (Phase 2) :**
 4. 🔻 **Suspension iOS/tvOS** — RÉCUPÉRATION en place : anti-veille audio résilient aux interruptions (resume) + scenePhase observer → au retour foreground restart complet (`forceReset`+`start` → re-découverte incl. rendez-vous) + le runtime se ré-amorce sur connexion zombie (#1, 45s). Résiduel inhérent à iOS : pendant une **vraie suspension** (app en arrière-plan), le process est gelé — l'exécution continue en fond nécessite **push APNs/VoIP** (chantier futur, pas un hack BGTask). Filet anti-perte de message : backup TTL 24h.
 5. ✅ **Livraison (décision #1)** — RÉSOLU (vérifié 2026-07-11, file:line). ACK signé à l'émission (`state.rs:835/846/871`) ET vérifié à la réception : un ACK non signé/forgé est rejeté (`state.rs:898`) et les deux seules opérations qui accordent la confiance (`mark_relayed` 927, `mark_delivered` 935) sont à l'intérieur de ce gate ; anti-pumping FINDING #7 en bonus (commit `c3b7f9a`). Backup TTL (décision #2) : clampé à 24h à la création (`backup/types.rs:86` `.min(MAX_TTL_MS)` → le SQLite ne PEUT pas dépasser), purge câblée `tick_backup → cleanup_expired` (`backup/coordinator.rs:280`).
-6. **Adresses directes DHT non filtrées** (`loop.rs`) — IP privées injectées sans `relay_url_is_globally_reachable`. Fix : unifier le filtrage.
-7. **Nonce anti-replay sans purge TTL** (`router.rs`). Fix : `(nonce, ts)` + purge > 24h.
+6. ✅ **Adresses directes DHT** — RÉSOLU par un filtrage délibérément DIFFÉRENT de `relay_url_is_globally_reachable` (pas "unifié" — unifier aurait cassé la découverte LAN). `loop.rs:794/812-821` `direct_addr_is_dialable()` rejette loopback/unspecified/link-local/broadcast/multicast/documentation mais GARDE les plages privées (nécessaire pour le same-LAN via DHT, commentaire explicite ligne 793). Une adresse candidate n'accorde aucune confiance protocolaire — au pire un dial gaspillé, pas une faille.
+7. ✅ **Nonce anti-replay** — RÉSOLU (R11.2, déjà marqué complet dans Current Status). `router.rs:37` `NONCE_TTL = 24h` + `router.rs:29-31` `MAX_NONCE_CACHE=50_000` (LRU bornée) + purge temporelle `router.rs:197-205`. Testé (`nonce_replay_detected`).
 
 **Conception (Phase 3) :**
 8. ✅ **ProtocolEvent fuite d'état interne** — VÉRIFIÉ non-exposé : `RolePromoted`/`RoleDemoted`/`BackupStored`/`SenderThrottled` ne traversent NI le FFI NI Swift (le Live Log des apps vient du logging Swift, pas d'eux). Ce sont des events d'observabilité interne (tom-tui). La frontière end-user (#6) est donc propre. Conservés pour le debug ; à filtrer dans un futur produit end-user, pas un bug protocole.
 9. 🔻 **Détection relay offline** — atténué par #1 (liveness 45s) + reprobe 15s (était ~105s). Un ping relais dédié 30s nécessiterait une API dans le transport forké (tom-connect) — reporté (gain marginal vs risque).
 10. ✅ **Meshing** — VÉRIFIÉ par-design : un mesh gossip est un graphe *connexe* (via hubs), pas *complet* ; forcer un full-mesh N² chargerait les appareils faibles (Apple TV). La connectivité est maximisée par le rendez-vous (#2) + le rejoin 15s. Pas de dial-direct forcé (contre-productif).
+
+**Ce qui reste RÉELLEMENT ouvert après ce réaudit** : le résiduel iOS (#4, contrainte OS, chantier APNs futur), le ping relais dédié (#9, explicitement déprioritisé), et le nombre de slots DHT (#2, mineur). Aucun trou "Critique" ouvert à cette date.
 
 ## Important Notes for LLMs
 

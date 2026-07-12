@@ -1950,7 +1950,52 @@ impl RuntimeState {
         // per-window view-activity counter that feeds the dynamic quorum.
         self.quorum.purge_expired(now);
         self.presence_view_activity = 0;
-        Vec::new()
+
+        // Faille 1 (red-team hardening): degrade Online → Stale when a peer
+        // has gone silent (no activity) for PEER_ONLINE_STALE_MS. This prevents
+        // Sybil attacks where a peer is promoted via L1-003 quorum, then goes
+        // silent — without this mechanism, the peer would remain Online
+        // indefinitely even though no witness attests it anymore.
+        //
+        // Target `Stale`, NOT `Known`: `HeartbeatTracker` (discovery/heartbeat.rs)
+        // keeps its OWN `last_heartbeat` map, separate from `PeerInfo.last_seen`,
+        // and its `check_all` only restores `Online` from `Stale`/`Offline` — a
+        // peer demoted straight to `Known` would never be picked back up by a
+        // fresh heartbeat (its restore branch does not match `Known`), stranding
+        // it. `Stale` also matches the existing semantic ("recently seen but may
+        // be transitioning") and is emitted via the same event as the heartbeat
+        // path for consistency with existing consumers.
+        //
+        // Iterate peers and degrade any Online peer whose last_seen is older
+        // than the stale threshold (except self, never degrade self).
+        let peers_to_degrade: Vec<NodeId> = self
+            .topology
+            .peers()
+            .filter(|peer| {
+                peer.status == PeerStatus::Online
+                    && peer.node_id != self.local_id
+                    && now.saturating_sub(peer.last_seen) >= crate::relay::PEER_ONLINE_STALE_MS
+            })
+            .map(|peer| peer.node_id)
+            .collect();
+
+        let mut effects = Vec::new();
+        for node_id in peers_to_degrade {
+            if let Some(peer) = self.topology.get(&node_id) {
+                let last_seen_age_ms = now.saturating_sub(peer.last_seen);
+                let mut updated = peer.clone();
+                updated.status = PeerStatus::Stale;
+                self.topology.upsert(updated);
+                tracing::debug!(
+                    node_id = %node_id,
+                    last_seen_age_ms,
+                    "peer demoted Online → Stale due to staleness"
+                );
+                effects.push(RuntimeEffect::Emit(ProtocolEvent::PeerStale { node_id }));
+            }
+        }
+
+        effects
     }
 
     /// L1-003 (relay side): record a weak device's subscription to our presence
@@ -1958,6 +2003,12 @@ impl RuntimeState {
     /// so a spoofed `from` cannot register a subscription (and cannot make us
     /// publish presence to a victim). Silent — a subscribe earns no reply
     /// envelope; the next publish tick serves it.
+    ///
+    /// Faille 2 (red-team hardening): validate that a `PresenceScope::Peers` does
+    /// not exceed the maximum scope size to prevent asymmetric DoS where a
+    /// malicious consumer declares a huge scope (millions of NodeIds) and forces
+    /// the relay to process it at each presence tick. Scopes are bounded to
+    /// MAX_VIEW_ENTRIES to match the max size of a published view.
     fn handle_presence_subscribe(
         &mut self,
         envelope: &Envelope,
@@ -1971,6 +2022,21 @@ impl RuntimeState {
         else {
             return Vec::new();
         };
+
+        // Validate scope size: reject if PresenceScope::Peers exceeds MAX_VIEW_ENTRIES.
+        // Group scopes are not bounded by size (already bounded by max group membership).
+        if let crate::presence::PresenceScope::Peers(peers) = &payload.scope {
+            if peers.len() > crate::presence::MAX_VIEW_ENTRIES {
+                tracing::warn!(
+                    subscriber = %envelope.from,
+                    requested_size = peers.len(),
+                    max_allowed = crate::presence::MAX_VIEW_ENTRIES,
+                    "rejected presence subscription with scope too large"
+                );
+                return Vec::new();
+            }
+        }
+
         self.subscriptions
             .subscribe(envelope.from, payload.scope, now_ms());
         Vec::new()
@@ -6316,5 +6382,192 @@ mod tests {
             matches!(e, RuntimeEffect::BroadcastRelayReady(_))
         );
         assert!(!has_broadcast, "should NOT republish when publication disabled");
+    }
+
+    // ── Faille 1 tests: Online → Stale dégradation ──────────────────────────
+
+    #[test]
+    fn tick_presence_cleanup_degrades_online_peer_when_stale() {
+        let mut state = default_state(1);
+        let peer = node_id(2);
+
+        // Register peer as Online with very old last_seen
+        state.topology.upsert(crate::relay::PeerInfo {
+            node_id: peer,
+            role: PeerRole::Peer,
+            status: PeerStatus::Online,
+            last_seen: 0, // very old
+        });
+
+        // Jump time forward by simulating presence clock offset (test harness)
+        let time_jump_ms = crate::relay::PEER_ONLINE_STALE_MS + 1_000; // ensure > PEER_ONLINE_STALE_MS
+        state.config.presence_clock_offset_ms = time_jump_ms as i64;
+
+        // Cleanup should degrade the peer
+        let effects = state.tick_presence_cleanup();
+
+        // Check that peer is now Stale, not Online. NOT `Known`: HeartbeatTracker
+        // only restores Online from Stale/Offline (never from Known), so landing
+        // on Stale keeps the peer recoverable via a later fresh heartbeat too.
+        let peer_info = state.topology.get(&peer).expect("peer should still exist");
+        assert_eq!(peer_info.status, PeerStatus::Stale, "peer should be degraded to Stale");
+        assert!(
+            effects.iter().any(|e| matches!(
+                e,
+                RuntimeEffect::Emit(ProtocolEvent::PeerStale { node_id }) if *node_id == peer
+            )),
+            "demotion should emit PeerStale, got: {effects:?}"
+        );
+    }
+
+    #[test]
+    fn tick_presence_cleanup_does_not_degrade_fresh_online_peer() {
+        let mut state = default_state(1);
+        let peer = node_id(2);
+        let now = state.presence_now();
+
+        // Register peer as Online with fresh last_seen
+        state.topology.upsert(crate::relay::PeerInfo {
+            node_id: peer,
+            role: PeerRole::Peer,
+            status: PeerStatus::Online,
+            last_seen: now, // fresh
+        });
+
+        // Cleanup should NOT degrade the peer
+        let _effects = state.tick_presence_cleanup();
+
+        // Check that peer is still Online
+        let peer_info = state.topology.get(&peer).expect("peer should still exist");
+        assert_eq!(peer_info.status, PeerStatus::Online, "peer should remain Online");
+    }
+
+    #[test]
+    fn tick_presence_cleanup_does_not_degrade_self() {
+        let mut state = default_state(1);
+        let self_id = state.local_id;
+
+        // Register self as Online with very old last_seen
+        state.topology.upsert(crate::relay::PeerInfo {
+            node_id: self_id,
+            role: PeerRole::Peer,
+            status: PeerStatus::Online,
+            last_seen: 0, // very old
+        });
+
+        // Jump time forward
+        let time_jump_ms = crate::relay::PEER_ONLINE_STALE_MS + 1_000;
+        state.config.presence_clock_offset_ms = time_jump_ms as i64;
+
+        // Cleanup
+        let _effects = state.tick_presence_cleanup();
+
+        // Check that self was NOT degraded (special case: never degrade self)
+        let self_info = state.topology.get(&self_id).expect("self should exist");
+        assert_eq!(self_info.status, PeerStatus::Online, "self should never be degraded");
+    }
+
+    // ── Faille 2 tests: Scope size validation ────────────────────────────
+
+    #[test]
+    fn handle_presence_subscribe_rejects_oversized_peer_scope() {
+        use crate::envelope::EnvelopeBuilder;
+
+        let mut state = default_state(1);
+        let subscriber = node_id(2);
+
+        // Create a scope with more peers than allowed (MAX_VIEW_ENTRIES + 1)
+        // Use u16 to avoid overflow when MAX_VIEW_ENTRIES = 256
+        let mut all_peers = Vec::new();
+        for i in 0..=(crate::presence::MAX_VIEW_ENTRIES as u16) {
+            all_peers.push(node_id((i % 256) as u8));
+        }
+        let scope = crate::presence::PresenceScope::Peers(all_peers);
+
+        // Build and sign the subscribe envelope
+        let payload = crate::presence::PresenceSubscribePayload { scope };
+        let payload_bytes = payload.to_bytes();
+        let envelope = EnvelopeBuilder::new(
+            subscriber,
+            state.local_id,
+            crate::types::MessageType::PresenceSubscribe,
+            payload_bytes,
+        )
+        .sign(&state.secret_seed);
+
+        let before_len = state.subscriptions.len();
+
+        // Call handle_presence_subscribe with valid signature
+        let _effects = state.handle_presence_subscribe(&envelope, true);
+
+        // Check that subscription was NOT stored (rejected due to size)
+        let after_len = state.subscriptions.len();
+        assert_eq!(
+            before_len, after_len,
+            "oversized subscription should be rejected"
+        );
+    }
+
+    #[test]
+    fn handle_presence_subscribe_accepts_peer_scope_within_limit() {
+        use crate::envelope::EnvelopeBuilder;
+
+        let mut state = default_state(1);
+        let subscriber = node_id(2);
+
+        // Create a scope with peers within the limit
+        let limited_peers: Vec<NodeId> = (0..10).map(|i| node_id(i as u8)).collect();
+        let scope = crate::presence::PresenceScope::Peers(limited_peers);
+
+        let payload = crate::presence::PresenceSubscribePayload { scope };
+        let payload_bytes = payload.to_bytes();
+        let envelope = EnvelopeBuilder::new(
+            subscriber,
+            state.local_id,
+            crate::types::MessageType::PresenceSubscribe,
+            payload_bytes,
+        )
+        .sign(&state.secret_seed);
+
+        let before_len = state.subscriptions.len();
+
+        // Call handle_presence_subscribe with valid signature
+        let _effects = state.handle_presence_subscribe(&envelope, true);
+
+        // Check that subscription WAS stored
+        let after_len = state.subscriptions.len();
+        assert_eq!(before_len + 1, after_len, "valid subscription should be accepted");
+    }
+
+    #[test]
+    fn handle_presence_subscribe_accepts_group_scope_any_size() {
+        use crate::envelope::EnvelopeBuilder;
+        use crate::group::GroupId;
+
+        let mut state = default_state(1);
+        let subscriber = node_id(2);
+
+        // Group scope is not size-limited (bounded by group membership elsewhere)
+        let group_id = GroupId::new();
+        let scope = crate::presence::PresenceScope::Group(group_id);
+
+        let payload = crate::presence::PresenceSubscribePayload { scope };
+        let payload_bytes = payload.to_bytes();
+        let envelope = EnvelopeBuilder::new(
+            subscriber,
+            state.local_id,
+            crate::types::MessageType::PresenceSubscribe,
+            payload_bytes,
+        )
+        .sign(&state.secret_seed);
+
+        let before_len = state.subscriptions.len();
+
+        // Call handle_presence_subscribe
+        let _effects = state.handle_presence_subscribe(&envelope, true);
+
+        // Check that subscription WAS stored (not rejected for size)
+        let after_len = state.subscriptions.len();
+        assert_eq!(before_len + 1, after_len, "group subscription should always be accepted");
     }
 }

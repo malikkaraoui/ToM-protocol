@@ -12,6 +12,22 @@ pub const MAX_RELAY_DEPTH: usize = 4;
 /// Maximum tracked peers in topology (memory exhaustion protection, R11.2).
 pub const MAX_PEERS: usize = 10_000;
 
+/// Staleness threshold for Online peers (presence/L1-003 hardening, Faille 1).
+///
+/// A peer promoted to `Online` via quorum L1-003 (or any other means) remains
+/// `Online` only while `now - last_seen < PEER_ONLINE_STALE_MS`. If a peer goes
+/// silent (no activity, no fresh attestation) for this duration, it is degraded
+/// back to `Known` (address known via discovery, but liveness no longer proven).
+/// This prevents Sybil attacks where a peer is promoted via temporary quorum,
+/// then goes silent — the victim would incorrectly believe the peer is still
+/// alive indefinitely without this mechanism.
+///
+/// Chosen as 2× PRESENCE_TTL_MS (60s): allows up to 2 tick cycles (30s each)
+/// before degradation, providing margin against legitimate jitter while degrasing
+/// false positives within a reasonable window. Faster than the ~105s sag from
+/// the original heartbeat-only liveness loop (runtime/loop.rs).
+pub const PEER_ONLINE_STALE_MS: u64 = 60_000;
+
 // ── Peer topology info ─────────────────────────────────────────────────
 
 /// Role a node plays in the network (assigned dynamically).
