@@ -6570,4 +6570,61 @@ mod tests {
         let after_len = state.subscriptions.len();
         assert_eq!(before_len + 1, after_len, "group subscription should always be accepted");
     }
+
+    // ── Kill-shots Fable #2/#6: sweep actif désactivé par défaut + borné ────
+    // `tick_presence_probe()` est le mécanisme flagué par l'audit ("tempête de
+    // signatures" O(N)). Ces tests figent le comportement qui ferme #2/#6 :
+    // opt-in (pas de sweep par défaut) et borné à 8 pairs même si activé —
+    // sans ces tests, un futur changement pourrait rouvrir silencieusement les
+    // deux kill-shots.
+
+    #[test]
+    fn tick_presence_probe_noop_when_disabled_by_default() {
+        let mut state = default_state(1);
+        assert!(
+            state.config.presence_probe_interval.is_none(),
+            "probe must be opt-in by default (kill-shot #2/#6 closure relies on this)"
+        );
+
+        for seed in 2..10u8 {
+            state.topology.upsert(crate::relay::PeerInfo {
+                node_id: node_id(seed),
+                role: PeerRole::Peer,
+                status: PeerStatus::Online,
+                last_seen: state.presence_now(),
+            });
+        }
+
+        let effects = state.tick_presence_probe();
+        assert!(
+            effects.is_empty(),
+            "disabled probe must never challenge peers, got: {effects:?}"
+        );
+    }
+
+    #[test]
+    fn tick_presence_probe_caps_at_eight_peers_when_enabled() {
+        let mut state = default_state(1);
+        state.config.presence_probe_interval = Some(std::time::Duration::from_secs(60));
+
+        // 20 distinct Online peers — well above the cap.
+        for seed in 2..22u8 {
+            state.topology.upsert(crate::relay::PeerInfo {
+                node_id: node_id(seed),
+                role: PeerRole::Peer,
+                status: PeerStatus::Online,
+                last_seen: state.presence_now(),
+            });
+        }
+
+        let effects = state.tick_presence_probe();
+        let challenges_sent = effects
+            .iter()
+            .filter(|e| matches!(e, RuntimeEffect::SendEnvelope(_)))
+            .count();
+        assert_eq!(
+            challenges_sent, 8,
+            "even when enabled, the probe must stay capped at 8 targets regardless of fleet size, got: {effects:?}"
+        );
+    }
 }
