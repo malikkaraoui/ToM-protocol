@@ -38,9 +38,11 @@
 - ✅ **2026-07-05 : Build 18 déployé flotte complète** (iPad, iPhone, Apple TV, macOS, NAS) — 4 fixes DoS + fixes watchdog 0x8BADF00D (Text() lazy-decode) + fixes CPU 100% (tokio::select! busy-spin). Perf validée : LAN ~6 Mo/s jusqu'à 64 Mo (100%), WiFi/relais ~5 Mo/s, FOREGROUND seul (iOS suspension = contrainte OS, chantier R18 APNs).
 
 ### Infrastructure
-- ✅ NAS relay opérationnel : `tom-relay --dev` port 3340 (local + public `82.67.95.8:3340`)
+- ✅ NAS relay opérationnel : `tom-relay --dev` port 3340 (local + public `82.67.95.8:3340`) — ⚠️ **IP LAN DYNAMIQUE** (bail DHCP renouvelé à chaque redémarrage VM, ex. `.21`→`.83` le 2026-07-12) : `ping`/IP en dur ne sont PAS fiables pour vérifier la joignabilité, toujours tester le VRAI service (SSH/port relais) ou résoudre par hostname mDNS (`chk3wej...home`), jamais présumer le NAS mort sur un seul ping raté
 - ✅ mDNS local discovery activé par défaut
 - ✅ `tom-gateway` : CLI auto-config Freebox (crate 0.2.0)
+- ⚠️ **Diagnostic devices Apple** : `xcrun xctrace list devices` peut afficher à tort "Offline" des devices réellement appairés en WiFi (bug/lag de cet outil sur les devices réseau, pas USB) — utiliser `xcrun devicectl list devices` (le vrai outil derrière la fenêtre Xcode Devices) pour un état fiable.
+- ✅ **Team de signature Xcode corrigée (2026-07-12)** : `DEVELOPMENT_TEAM` pointait vers `K22558HU63` (Personal Team GRATUITE, plafond 3 apps/7 jours) au lieu de `UPES5479T5` (Apple Developer Program payant) — corrigé dans `project.yml`. Cause exacte de l'échec d'install sur iPhone de Malik pendant le déploiement flotte. Nécessite une action manuelle Xcode (Settings→Accounts→vérifier le compte payant→Download Manual Profiles) pour générer le certificat, pas faisable en CLI seule.
 
 ## Sur le feu
 
@@ -122,6 +124,18 @@ Les 5 criticals de l'audit 6-agents sont corrigés (file:line revérifiés) :
   embarqué (self-relay) → tout nœud installé devient porte complète, publiée et
   recrutée par le gate ADR-010 sans aucune manip ; (3) test d'acceptation :
   iPhone en data ↔ maison SANS le NAS (le Mac/iPad devient la porte tout seul).
+  - [x] **Étape 1 VÉRIFIÉE EMPIRIQUEMENT (2026-07-12)** — mapping UPnP obtenu
+    en conditions réelles sur la Freebox de l'utilisatrice, PAS une supposition :
+    nœud macOS relancé avec `RUST_LOG=debug` (le niveau par défaut masquait ce
+    log), trace exacte : `getting a port mapping for 192.168.0.70:49850` →
+    `new port mapping Some(Upnp(Mapping { gateway: http://192.168.0.254:5678/control/wan_ip_connection, external_ip: 82.67.95.8, external_port: 58870 }))`.
+    La Freebox répond bien à UPnP IGD par défaut, un port UDP public est
+    obtenu automatiquement pour le port QUIC principal, zéro manip manuelle.
+    Confirme l'hypothèse de départ de R13 sur du matériel réel, pas en théorie.
+    **Reste** : étape 2 (étendre au port du relais embarqué, cross-crate
+    tom-connect+tom-protocol, nécessite un doc de conception avant de coder
+    — voir [[design-doc-before-coding-protocol-features]]) et étape 3 (test
+    d'acceptation iPhone data ↔ maison sans le NAS).
 - [ ] **R14 — IPv6 first-class** : (1) règle pare-feu Freebox 43925 (déjà
   identifiée) + mesurer le DIRECT v6 ; (2) publier les GUA v6 au rendez-vous,
   préférence v6 au dial, hole-punch v6 (quasi 100% vs NAT v4) ; (3) pinhole
