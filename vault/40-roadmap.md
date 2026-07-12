@@ -76,7 +76,7 @@ Les 5 criticals de l'audit 6-agents sont corrigés (file:line revérifiés) :
 - [x] **Déploiement** : **build 18** sur TOUTE la flotte (iPad/iPhone/AppleTV/macOS/NAS) le 2026-07-05 — inclut fixes audit + CPU/watchdog iOS + 4 DoS anti-pair-malveillant. (Remplace l'ancien « build 4→5 ».)
 
 ### Points ouverts (2026-07-05)
-- [ ] **Écart rôles BMAD ↔ code** : fondateurs = Client · Relay · Backup · **Observer** · Guardian(futur) · Validator(futur) · L1-anchor ; code = `PeerRole` Peer(=Client)/Relay + module `backup/` + hub Primary/Shadow/Candidate. **Observer** (= nœud en observation passive, statut fallback/reprise) NON implémenté ; Guardian/Validator explicitement « DO NOT implement » (futur). Trancher : recoder Observer ou documenter l'abandon. Réf : `3-2-dynamic-role-assignment.md` vs `crates/tom-protocol/src/relay.rs:19`.
+- [x] **Écart rôles BMAD ↔ code — TRANCHÉ (2026-07-12) : Observer abandonné, documenté, pas recodé.** Vérifié : dans le TypeScript Phase 1 (source des rôles fondateurs, 771 tests), `observer` n'apparaît **qu'une fois dans tout `packages/core/src`** — juste dans la déclaration du type union `NodeRole` (`network-topology.ts:3`) — **zéro logique d'assignation, zéro branche de comportement, zéro test l'exerçant**. Ce n'est pas un rôle abandonné en cours de route : il n'a **jamais été fonctionnel**, même dans la référence originale. Le port Rust (`PeerRole` = Peer/Relay, `relay.rs:35-40`) a donc porté tout le comportement réel et correctement laissé de côté un type mort. Décision : ne pas recoder Observer — le modèle two-tier `PeerStatus` (Online/Known/Stale/Offline, ADR-011) couvre déjà la notion de "présence incertaine/passive" que le rôle Observer était censé représenter, sans avoir besoin d'un rôle réseau séparé. Guardian/Validator restent explicitement "DO NOT implement" (futur), inchangé.
 - [ ] **Stall récurrent harness test** : `tom-chat --bot` se fige ~15 min (log gelé) — serveur HTTP TCP brut probablement bloqueur. Harness uniquement, pas protocole. Fiabilité test à améliorer.
 
 ### tvOS Node — convergence code ↔ doc ↔ tests
@@ -91,15 +91,16 @@ Les 5 criticals de l'audit 6-agents sont corrigés (file:line revérifiés) :
 - [ ] **Tests Swift/tvOS** — câbler XCTest dans `.xcodeproj` (fixtures identiques aux tests Rust)
 - [ ] **Durcir couche tvOS** : messages/groupes, persistance, reprise après veille
 
-### Chantier macOS (5 lots — prêt à démarrer)
+### ✅ Chantier macOS — SOLDÉ (vérifié + rebuild + lancé réel 2026-07-12, la doc disait "prêt à démarrer" à tort)
 
-> Spec complète : `docs/superpowers/specs/2026-06-08-app-macos-tom-design.md`
+> Spec complète : `docs/superpowers/specs/2026-06-08-app-macos-tom-design.md` — **périmée**, décrivait les 5 lots comme "à faire" alors qu'ils étaient déjà tous livrés.
 
-- [ ] **Lot A** — Slice Rust FFI `aarch64-apple-darwin` + mise à jour `build-ffi.sh`
-- [ ] **Lot B** — Cible Xcode macOS (1 passage Xcode obligatoire — signing + entitlements)
-- [ ] **Lot C** — Portage `TomNodeService.swift` (UIKit conditionnel → `ProcessInfo.beginActivity` anti-veille)
-- [ ] **Lot D** — App Sandbox entitlements réseau (`network.client` + `network.server`)
-- [ ] **Lot E** — Makefile cibles `ffi-macos`, `build-macos`
+- [x] **Lot A** — Slice Rust FFI `aarch64-apple-darwin` : déjà dans `build-tom-protocol-ffi-xcframework.sh`, xcframework contient `macos-arm64_x86_64`.
+- [x] **Lot B** — Cible Xcode macOS : `TomNode-macOS` existe (scheme + target), `apps/tom-node-tvos/TomNode-macOS/` (Assets.xcassets) présent.
+- [x] **Lot C** — Portage `TomNodeService.swift` : `#if os(macOS) ... ProcessInfo.processInfo.beginActivity(...)` déjà en place (anti-veille macOS).
+- [x] **Lot D** — Entitlements : `TomNode-macOS.entitlements` présent, exact contenu spec (`app-sandbox` + `network.client` + `network.server`).
+- [x] **Lot E** — Makefile : `macbuild`/`macrun`/`macdoctor` déjà dans `apps/tom-node-tvos/Makefile`.
+- [x] **Validation réelle 2026-07-12** : `make macdoctor` tout vert, `make macbuild` → `BUILD SUCCEEDED`, `.app` produit et **lancé réellement** sur le MacBook Pro (process natif confirmé `ps aux`), fermé proprement ensuite. Pas de test réseau P2P (NAS injoignable à cette date) — juste la preuve build+launch. À refaire avec le NAS up pour valider la connexion réelle (§6 de la spec).
 
 ## Ensuite
 
