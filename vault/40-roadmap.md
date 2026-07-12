@@ -62,7 +62,7 @@ Verdict : "survit comme DIRECTION, pas comme état actuel" avant fixes. Ordre de
 - [x] **#4** anti-Sybil KNOWN faux (14h quasi-gratuit sur 1 relais) → `Known` séparé d'`Online` (travail soutenu prouvé) (`aadc8bd` + `76bd63a`, build 33)
 - [x] **#3** eclipse témoin unique → quorum (voir L1-003 étape 3 ci-dessus)
 - [ ] **#2** ouvert — présence dérive d'un sweep de challenge actif O(N), pas encore branchée sur le flux ACK existant
-- [ ] **#5** ouvert — pas de cap agrégé global anti-DoS cold-start (seulement per-identité) ; classe récurrente déjà notée post-audit 2026-07-06
+- [x] **#5** fermé (2026-07-12) — cap agrégé global `RESPONDER_KNOWN_GLOBAL_BUDGET_PER_WINDOW=60` ajouté dans `presence/mod.rs::allow_response()`, symétrique au cap stranger existant (`RESPONDER_GLOBAL_BUDGET_PER_WINDOW=120`). Avant : un Sybil qui promeut jusqu'à 512 identités à `Known` (5 relais soutenus/identité) pouvait extraire 512×10=5120 signatures/fenêtre (~43x le cap stranger) sans aucune borne agrégée. Vérifié check exécuté AVANT toute mutation d'état partagé (pas d'effet de bord sur rejet), review sécu indépendante RATIFIÉE. 62 tests presence verts (2 nouveaux), clippy+tests workspace verts.
 - [ ] **#6** ouvert — métastabilité : guérison de partition peut déclencher un burst O(N) de challenges signés synchronisés
 
 ### ✅ Salve de correctifs post-audit — SOLDÉE (revérifié dans le code 2026-07-05)
@@ -84,10 +84,10 @@ Les 5 criticals de l'audit 6-agents sont corrigés (file:line revérifiés) :
 - [x] **Premier filet de sécurité contrat FFI** (2026-06-07/09) : `tom_node_status` sur serde (`NodeStatusFFI`) + tests de contrat. **Review Copilot confirmée** : contrat clés correct, zone grise `u64→Int Swift` documentée.
 - [x] **Fix commentaire CLI `--bind-port`** (2026-06-09) : "dual-stack IPv6+IPv4" remplacé par la réalité (IPv4 reste éphémère).
 - [x] **Review Copilot x3 soldée** (2026-06-09) : handoffs FFI + transport + deps intégrés. Dette §25 effacée.
-- [ ] **Push 9 commits** → `git push origin main` (terminal) → surveiller CI GitHub
-- [ ] **Rebuild xcframework** (`make ffi && make ffi-device`) pour embarquer serde NodeStatusFFI dans l'app tvOS
-- [ ] **Ouvrir IPv6 entrante Freebox** — port 43925 → `2a01:e0a:14f:5da0:248f:5dff:fea5:8ed1` (Freebox OS, règle pare-feu manuelle). Débloque connexion DIRECT QUIC NAS.
-- [ ] **Mettre `docs/TOM-TVOS-NODE-PLAN.md` à jour** — refléter l'état réel
+- [x] **Push commits** — routine désormais (voir §Règle "commit push" CLAUDE.md), plus un item isolé
+- [x] **Rebuild xcframework** (2026-07-12) — 2 rebuilds ce jour (round 1 + round 2 red-team L1-003), synced vers `sdk/swift/TomProtocolKit/Artifacts/`, build 37
+- [ ] **Ouvrir IPv6 entrante Freebox** — port 43925 → `2a01:e0a:14f:5da0:248f:5dff:fea5:8ed1` (Freebox OS, règle pare-feu manuelle). Débloque connexion DIRECT QUIC NAS. **Action manuelle utilisateur, pas exécutable en autonomie.**
+- [x] **Mettre `docs/TOM-TVOS-NODE-PLAN.md` à jour** — refléter l'état réel (2026-07-12, `c8ec8d2`) : doc réécrite, phases 1-5 marquées livrées, écart architecture TomCoreKit→wrapper local documenté
 - [ ] **Tests Swift/tvOS** — câbler XCTest dans `.xcodeproj` (fixtures identiques aux tests Rust)
 - [ ] **Durcir couche tvOS** : messages/groupes, persistance, reprise après veille
 
