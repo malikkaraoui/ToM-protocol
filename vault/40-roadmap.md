@@ -44,6 +44,26 @@
 
 ## Sur le feu
 
+### 🚧 L1-003 — Vue signée du relais (§5 ADR-011, présence scopée appareil faible)
+> Doc de conception : `docs/plans/L1-003-vue-signee-relais.md`. Suite du red-team Fable PoP (voir section suivante) — ferme le kill-shot #3 (eclipse témoin unique).
+- [x] Étape 1 — type wire `RelayPresenceView`/`PresenceEntry` (`0c78e70`, build 34)
+- [x] Étape 2a/2b — `WitnessLog` côté témoin (observations bornées) + câblage depuis les ACK relayés (`f5fa9dc`, `eee6a1f`)
+- [x] Étape 2c — abonnement + tick push + vue signée vérifiable (`54dcad4`)
+- [x] Étape 3 — **quorum consommateur** (cœur défensif) : `presence/quorum.rs::QuorumAggregator`, promotion Known→Online seulement si ≥N témoins distincts concordent, N dynamique 2-4 (`094ec96`, build 35)
+- [x] Étape 4 — durcissement anti-abus : **cap par témoin** `MAX_PEERS_PER_WITNESS=64` (`QuorumAggregator::witness_peers`, éviction FIFO intra-témoin, un Sybil ne peut plus évincer les attestations d'un autre témoin) + **spot-check crypto réel** `proof_ref` — `PresenceEntry.ack_proof: Vec<u8>` embarque l'`Envelope` Ack signé brut réellement relayé, vérifié côté consommateur (`state.rs::verify_presence_entry_proof`, 7 checks : parse, msg_type, from==peer_id, signature Ed25519, cohérence AckPayload, fraîcheur TTL). Limite connue documentée (pas un bug) : Sybil MULTI-identité peut contourner le cap par témoin en répartissant sur N witness_id (coût = N keypairs, pas fermé ici).
+- [x] Étape 5 — tests adversariaux : flood par témoin (2 tests), ACK forgé/signature invalide, ACK périmé, incohérence proof_ref/ack_proof, mélange valide/invalide dans une vue, témoins complices sur réseau clairsemé (documenté comme accepté, pas un bug). **Bug de sécurité trouvé PENDANT l'implémentation et corrigé avant merge** : le premier jet avait un bypass `if ack_proof.is_empty() { return true }` qui annulait toute la vérification — supprimé + test de régression `empty_ack_proof_never_promotes` ajouté.
+- [ ] Étape 6 — validation flotte réelle (rebuild XCFramework + redéploiement 5 appareils) — EN COURS
+- [ ] **Gap versioning** : `TomVersion.build` resté à 35 alors que des commits feat ont suivi le bump — à rattraper au prochain push
+
+### ✅ Red-team Fable ADR-011 PoP à 1M — 3/6 kill-shots fermés (2026-07-11/12)
+Verdict : "survit comme DIRECTION, pas comme état actuel" avant fixes. Ordre de reconstruction imposé respecté :
+- [x] **#1** heartbeat déclaratif non gaté sur signature → fermé (`ecee492`, build 33)
+- [x] **#4** anti-Sybil KNOWN faux (14h quasi-gratuit sur 1 relais) → `Known` séparé d'`Online` (travail soutenu prouvé) (`aadc8bd` + `76bd63a`, build 33)
+- [x] **#3** eclipse témoin unique → quorum (voir L1-003 étape 3 ci-dessus)
+- [ ] **#2** ouvert — présence dérive d'un sweep de challenge actif O(N), pas encore branchée sur le flux ACK existant
+- [ ] **#5** ouvert — pas de cap agrégé global anti-DoS cold-start (seulement per-identité) ; classe récurrente déjà notée post-audit 2026-07-06
+- [ ] **#6** ouvert — métastabilité : guérison de partition peut déclencher un burst O(N) de challenges signés synchronisés
+
 ### ✅ Salve de correctifs post-audit — SOLDÉE (revérifié dans le code 2026-07-05)
 Les 5 criticals de l'audit 6-agents sont corrigés (file:line revérifiés) :
 - [x] **verrou #2 — purge SQLite hub** : `state.rs:549` `cleanup_hub_messages(now.saturating_sub(TTL_MS))`.

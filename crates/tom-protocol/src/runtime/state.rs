@@ -894,16 +894,21 @@ impl RuntimeState {
                 // as first-hand presence evidence, tied to the real acked message
                 // id — never hearsay (ADR-011 §2). Gated on `signature_valid` so a
                 // forged/unsigned ACK earns no observation. Only ACKs qualify: a
-                // forwarded Chat isn't a presence proof by itself.
+                // forwarded Chat isn't a presence proof by itself. Store the raw
+                // envelope bytes so the consumer can cryptographically verify the proof.
                 if signature_valid && envelope.msg_type == MessageType::Ack {
                     if let Ok(ack_payload) =
                         crate::router::AckPayload::from_bytes(&envelope.payload)
                     {
+                        let envelope_bytes = envelope
+                            .to_bytes()
+                            .unwrap_or_default(); // serialize envelope for proof verification
                         self.witness_log.record(
                             envelope.from,
                             ack_payload.original_message_id,
                             ack_payload.ack_type,
                             now,
+                            envelope_bytes,
                         );
                     }
                 }
@@ -2000,9 +2005,16 @@ impl RuntimeState {
         // Feed the quorum aggregator: this witness attests each listed peer
         // alive. A witness contributes at most once per peer (the aggregator
         // dedups), so a single relay repeating itself cannot fake a quorum.
+        // HARDENING: cryptographically verify each entry's ack_proof before
+        // accepting it toward quorum. Entries with invalid/expired/forged proofs
+        // are silently skipped, but valid entries still count.
         let now = now_ms();
         self.presence_view_activity = self.presence_view_activity.saturating_add(1);
         for entry in &view.present {
+            // Verify the ack_proof is valid and fresh before accepting the attestation.
+            if !self.verify_presence_entry_proof(entry, now) {
+                continue; // Skip invalid/unverifiable entries.
+            }
             self.quorum.record(view.witness_id, entry.peer_id, now);
         }
 
@@ -2033,6 +2045,68 @@ impl RuntimeState {
             }
         }
         effects
+    }
+
+    /// Cryptographically verify a presence entry's ACK proof (hardening step 2).
+    ///
+    /// Checks (in order, fails fast if any check fails):
+    /// 1. `ack_proof` bytes deserialize to an Envelope (an empty/garbage
+    ///    `ack_proof` fails here — it is NEVER trusted, kill-shot: a witness
+    ///    could otherwise omit the proof to skip every check below)
+    /// 2. Envelope's msg_type is Ack
+    /// 3. Envelope's `from` field matches the attested peer_id
+    /// 4. Envelope's signature is valid (Ed25519)
+    /// 5. Envelope's payload deserializes to AckPayload
+    /// 6. AckPayload's fields match entry's proof_ref and proof_type
+    /// 7. Envelope is fresh (within PRESENCE_TTL_MS)
+    ///
+    /// Returns false for any mismatch or crypto failure. Invalid entries are skipped
+    /// but don't fail the whole view.
+    fn verify_presence_entry_proof(
+        &self,
+        entry: &crate::presence::PresenceEntry,
+        now: u64,
+    ) -> bool {
+        // Check 1: deserialize Envelope from ack_proof bytes. An empty or
+        // garbage ack_proof fails here — never treated as implicitly valid.
+        let Ok(ack_env) = Envelope::from_bytes(&entry.ack_proof) else {
+            return false;
+        };
+
+        // Check 2: message type is Ack.
+        if ack_env.msg_type != MessageType::Ack {
+            return false;
+        }
+
+        // Check 3: Envelope.from must match the attested peer.
+        if ack_env.from != entry.peer_id {
+            return false;
+        }
+
+        // Check 4: cryptographic signature must be valid.
+        if ack_env.verify_signature().is_err() {
+            return false;
+        }
+
+        // Check 5: payload deserializes to AckPayload.
+        let Ok(ack_payload) = crate::router::AckPayload::from_bytes(&ack_env.payload) else {
+            return false;
+        };
+
+        // Check 6: AckPayload contents match entry's proof_ref and proof_type.
+        if ack_payload.original_message_id != entry.proof_ref
+            || ack_payload.ack_type != entry.proof_type
+        {
+            return false;
+        }
+
+        // Check 7: Envelope timestamp must be fresh (within TTL).
+        let envelope_age = now.saturating_sub(ack_env.timestamp);
+        if envelope_age >= crate::presence::PRESENCE_TTL_MS {
+            return false;
+        }
+
+        true
     }
 
     /// L1-003 (relay side): publish a signed presence view to each live
@@ -3857,7 +3931,7 @@ mod tests {
         };
         let (sub_id2, sub_secret2) = keypair(7);
         assert_eq!(sub_id2, subscriber_id);
-        let mut sub_env = crate::envelope::EnvelopeBuilder::new(
+        let sub_env = crate::envelope::EnvelopeBuilder::new(
             subscriber_id,
             state.local_id,
             MessageType::PresenceSubscribe,
@@ -3938,22 +4012,42 @@ mod tests {
     // ── L1-003 consumer quorum promotion (step 3) ───────────────────────
 
     /// A signed presence view from `witness_seed`, sent to `to`, attesting each
-    /// peer in `peers` alive at `now`.
-    fn signed_view_from(witness_seed: u8, to: NodeId, peers: &[NodeId], now: u64) -> Envelope {
+    /// peer (given by SEED, not bare NodeId) alive at `now`. Takes seeds rather
+    /// than NodeIds because each entry's `ack_proof` must be a REAL Ack
+    /// envelope signed by that peer's own key (`verify_presence_entry_proof`
+    /// now rejects anything else — no bypass for an absent/forged proof).
+    fn signed_view_from(witness_seed: u8, to: NodeId, peer_seeds: &[u8], now: u64) -> Envelope {
         let (witness_id, witness_secret) = keypair(witness_seed);
-        let present: Vec<crate::presence::PresenceEntry> = peers
+        let present: Vec<crate::presence::PresenceEntry> = peer_seeds
             .iter()
-            .map(|p| crate::presence::PresenceEntry {
-                peer_id: *p,
-                proof_ref: "m".into(),
-                proof_type: crate::router::AckType::RelayForwarded,
-                seen_at_ms: now,
+            .map(|&seed| {
+                let (peer_id, peer_secret) = keypair(seed);
+                let ack_payload = crate::router::AckPayload {
+                    original_message_id: "m".into(),
+                    ack_type: crate::router::AckType::RelayForwarded,
+                };
+                let mut ack_env = crate::envelope::Envelope::new(
+                    peer_id,
+                    witness_id,
+                    MessageType::Ack,
+                    ack_payload.to_bytes(),
+                );
+                ack_env.timestamp = now;
+                ack_env.sign(&peer_secret);
+                crate::presence::PresenceEntry {
+                    peer_id,
+                    proof_ref: "m".into(),
+                    proof_type: crate::router::AckType::RelayForwarded,
+                    seen_at_ms: now,
+                    ack_proof: ack_env.to_bytes().expect("ack envelope serializes"),
+                }
             })
             .collect();
+        let peers: Vec<NodeId> = present.iter().map(|e| e.peer_id).collect();
         let mut view = crate::presence::RelayPresenceView {
             witness_id,
             epoch_ms: now,
-            scope: crate::presence::PresenceScope::Peers(peers.to_vec()),
+            scope: crate::presence::PresenceScope::Peers(peers),
             present,
             signature: Vec::new(),
         };
@@ -3981,7 +4075,7 @@ mod tests {
         let now = crate::types::now_ms();
 
         // Witness 1 alone → quorum not met (floor 2) → stays Known.
-        let v1 = signed_view_from(2, state.local_id, &[target], now);
+        let v1 = signed_view_from(2, state.local_id, &[50], now);
         let _ = state.handle_incoming(&v1.to_bytes().unwrap());
         assert_eq!(
             state.topology.get(&target).unwrap().status,
@@ -3990,7 +4084,7 @@ mod tests {
         );
 
         // Witness 2 (distinct) → quorum of 2 met → Online + event.
-        let v2 = signed_view_from(3, state.local_id, &[target], now);
+        let v2 = signed_view_from(3, state.local_id, &[50], now);
         let effects = state.handle_incoming(&v2.to_bytes().unwrap());
         assert_eq!(
             state.topology.get(&target).unwrap().status,
@@ -4016,8 +4110,8 @@ mod tests {
         });
         let now = crate::types::now_ms();
         // Same witness sends TWO views → still one distinct witness.
-        let v1 = signed_view_from(2, state.local_id, &[target], now);
-        let v1b = signed_view_from(2, state.local_id, &[target], now);
+        let v1 = signed_view_from(2, state.local_id, &[50], now);
+        let v1b = signed_view_from(2, state.local_id, &[50], now);
         let _ = state.handle_incoming(&v1.to_bytes().unwrap());
         let _ = state.handle_incoming(&v1b.to_bytes().unwrap());
         assert_eq!(
@@ -4032,13 +4126,66 @@ mod tests {
         let mut state = default_state(1);
         let target = node_id(50); // never added to topology (no address known)
         let now = crate::types::now_ms();
-        let v1 = signed_view_from(2, state.local_id, &[target], now);
-        let v2 = signed_view_from(3, state.local_id, &[target], now);
+        let v1 = signed_view_from(2, state.local_id, &[50], now);
+        let v2 = signed_view_from(3, state.local_id, &[50], now);
         let _ = state.handle_incoming(&v1.to_bytes().unwrap());
         let _ = state.handle_incoming(&v2.to_bytes().unwrap());
         assert!(
             state.topology.get(&target).is_none(),
             "quorum attests liveness but we still need an address — no phantom Online"
+        );
+    }
+
+    /// Regression: `verify_presence_entry_proof` must NEVER treat an
+    /// empty/absent `ack_proof` as implicitly valid. A prior draft of the
+    /// spot-check hardening special-cased empty proofs as "valid" for test
+    /// convenience — that is an actual bypass in production (a witness could
+    /// just omit the proof and skip every crypto check). Two DISTINCT
+    /// witnesses both sending an empty `ack_proof` must NOT reach quorum.
+    #[test]
+    fn empty_ack_proof_never_promotes() {
+        let mut state = default_state(1);
+        let target = node_id(50);
+        state.handle_command(RuntimeCommand::AddPeer {
+            node_id: target,
+            source: DiscoverySource::Direct,
+        });
+        let now = crate::types::now_ms();
+        let local_id = state.local_id;
+
+        let unproven_view = |witness_seed: u8| {
+            let (witness_id, witness_secret) = keypair(witness_seed);
+            let present = vec![crate::presence::PresenceEntry {
+                peer_id: target,
+                proof_ref: "m".into(),
+                proof_type: crate::router::AckType::RelayForwarded,
+                seen_at_ms: now,
+                ack_proof: Vec::new(), // no proof at all — must be rejected
+            }];
+            let mut view = crate::presence::RelayPresenceView {
+                witness_id,
+                epoch_ms: now,
+                scope: crate::presence::PresenceScope::Peers(vec![target]),
+                present,
+                signature: Vec::new(),
+            };
+            view.sign(&witness_secret);
+            let mut env = crate::envelope::Envelope::new(
+                witness_id,
+                local_id,
+                MessageType::RelayPresenceView,
+                view.to_bytes(),
+            );
+            env.sign(&witness_secret);
+            env
+        };
+
+        let _ = state.handle_incoming(&unproven_view(2).to_bytes().unwrap());
+        let _ = state.handle_incoming(&unproven_view(3).to_bytes().unwrap());
+        assert_eq!(
+            state.topology.get(&target).unwrap().status,
+            PeerStatus::Known,
+            "empty ack_proof from ANY number of witnesses must never promote to Online"
         );
     }
 

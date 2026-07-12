@@ -23,6 +23,8 @@
 | Phase tvOS | UI | **SwiftUI + MVVM** pour app tvOS | Workflow VSCode 80-95% + Xcode pour signing/device | TOM-TVOS-NODE-PLAN.md |
 | 2026-06-07 | Archi Swift tvOS | **Garder le wrapper local** (`TomNodeWrapper` actor + `TomNodeService`) — **ne PAS introduire `TomCoreKit`** | `TomCoreKit` ne débloque aucun problème immédiat : le FFI est déjà entièrement câblé et fonctionnel via le wrapper. Pas de nouvelle archi. | Audit code réel `apps/tom-node-tvos/TomNode/{Models,Services}` |
 | 2026-06-07 | Durcissement FFI | **`tom_node_status` sérialisé via serde** (`NodeStatusFFI`) au lieu d'un `format!` manuel | JSON toujours valide/échappé + contrat de clés verrouillé par tests Rust ; supprime le risque de corruption JSON → decode Swift nil → panneau figé | `crates/tom-protocol-ffi/src/{lib,types}.rs` |
+| 2026-07-12 | Présence appareil faible (§5 ADR-011, L1-003) | **Quorum ≥N témoins distincts requis pour promotion Online** (N dynamique 2-4, plancher dur 2) ; un témoin unique = `Known` au mieux, jamais `Online` | Ferme l'eclipse par relais unique (kill-shot #3 red-team Fable) — un relais Sybil seul ne peut plus fabriquer un faux `Online` ; appareil faible dégrade sciemment en `Known` plutôt que risquer un faux positif | `docs/plans/L1-003-vue-signee-relais.md` §4, commit `094ec96`, `crates/tom-protocol/src/presence/quorum.rs` |
+| 2026-07-12 | Sécurité git | **Gate mécanique email d'auteur gmail** — tout push avec auteur/committer ≠ `karaoui.malik@gmail.com` (hors comptes de service) est refusé par `pre-push-gate.sh` | Suite à l'incident `hmail` (148 commits non attribués sur GitHub) ; ne plus dépendre de la seule vigilance | `scripts/pre-push-gate.sh`, commit `42142b7` |
 
 ## 7 Décisions fondatrices non-négociables
 

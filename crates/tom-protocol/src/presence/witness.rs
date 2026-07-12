@@ -40,7 +40,8 @@ impl WitnessLog {
     }
 
     /// Record a first-hand observation that `peer_id` was alive at `now`,
-    /// evidenced by a REAL signed ACK (`proof_ref` = its message id). The
+    /// evidenced by a REAL signed ACK (`proof_ref` = its message id) with its
+    /// raw cryptographic proof (`ack_proof_bytes` = the signed Envelope). The
     /// caller (runtime) is responsible for only feeding genuine evidence — the
     /// wiring anchors this on ACKs the witness actually relayed.
     ///
@@ -48,12 +49,20 @@ impl WitnessLog {
     /// the stalest peer (oldest `seen_at_ms`) to admit the newcomer, so a fresh
     /// live peer is never starved by dead entries (same discipline as
     /// `Topology::upsert`).
-    pub fn record(&mut self, peer_id: NodeId, proof_ref: String, proof_type: AckType, now: u64) {
+    pub fn record(
+        &mut self,
+        peer_id: NodeId,
+        proof_ref: String,
+        proof_type: AckType,
+        now: u64,
+        ack_proof_bytes: Vec<u8>,
+    ) {
         let entry = PresenceEntry {
             peer_id,
             proof_ref,
             proof_type,
             seen_at_ms: now,
+            ack_proof: ack_proof_bytes,
         };
         if !self.observations.contains_key(&peer_id) && self.observations.len() >= self.max_entries {
             if let Some(stalest) = self
@@ -149,8 +158,20 @@ mod tests {
     #[test]
     fn record_then_build_view() {
         let mut log = WitnessLog::new();
-        log.record(node_id(2), "m-2".into(), AckType::RecipientReceived, 1_000);
-        log.record(node_id(3), "m-3".into(), AckType::RelayForwarded, 1_100);
+        log.record(
+            node_id(2),
+            "m-2".into(),
+            AckType::RecipientReceived,
+            1_000,
+            Vec::new(),
+        );
+        log.record(
+            node_id(3),
+            "m-3".into(),
+            AckType::RelayForwarded,
+            1_100,
+            Vec::new(),
+        );
 
         let view = log
             .build_view(node_id(1), PresenceScope::Group(crate::group::GroupId("g".into())), 1_200)
@@ -163,8 +184,20 @@ mod tests {
     #[test]
     fn latest_observation_supersedes() {
         let mut log = WitnessLog::new();
-        log.record(node_id(2), "m-old".into(), AckType::RelayForwarded, 1_000);
-        log.record(node_id(2), "m-new".into(), AckType::RecipientReceived, 1_500);
+        log.record(
+            node_id(2),
+            "m-old".into(),
+            AckType::RelayForwarded,
+            1_000,
+            Vec::new(),
+        );
+        log.record(
+            node_id(2),
+            "m-new".into(),
+            AckType::RecipientReceived,
+            1_500,
+            Vec::new(),
+        );
         assert_eq!(log.len(), 1, "same peer keeps one entry");
         let view = log
             .build_view(node_id(1), PresenceScope::Group(crate::group::GroupId("g".into())), 1_600)
@@ -176,7 +209,13 @@ mod tests {
     #[test]
     fn expired_observations_excluded_from_view() {
         let mut log = WitnessLog::new();
-        log.record(node_id(2), "m-2".into(), AckType::RecipientReceived, 1_000);
+        log.record(
+            node_id(2),
+            "m-2".into(),
+            AckType::RecipientReceived,
+            1_000,
+            Vec::new(),
+        );
         // now is > TTL after the observation → excluded.
         assert!(log
             .build_view(node_id(1), PresenceScope::Group(crate::group::GroupId("g".into())), 1_000 + PRESENCE_TTL_MS)
@@ -186,8 +225,20 @@ mod tests {
     #[test]
     fn purge_expired_drops_stale() {
         let mut log = WitnessLog::new();
-        log.record(node_id(2), "m-2".into(), AckType::RecipientReceived, 1_000);
-        log.record(node_id(3), "m-3".into(), AckType::RecipientReceived, 1_000 + PRESENCE_TTL_MS - 1);
+        log.record(
+            node_id(2),
+            "m-2".into(),
+            AckType::RecipientReceived,
+            1_000,
+            Vec::new(),
+        );
+        log.record(
+            node_id(3),
+            "m-3".into(),
+            AckType::RecipientReceived,
+            1_000 + PRESENCE_TTL_MS - 1,
+            Vec::new(),
+        );
         log.purge_expired(1_000 + PRESENCE_TTL_MS);
         assert_eq!(log.len(), 1, "only the still-fresh observation survives");
     }
@@ -195,8 +246,20 @@ mod tests {
     #[test]
     fn scope_peers_filters() {
         let mut log = WitnessLog::new();
-        log.record(node_id(2), "m-2".into(), AckType::RecipientReceived, 1_000);
-        log.record(node_id(3), "m-3".into(), AckType::RecipientReceived, 1_000);
+        log.record(
+            node_id(2),
+            "m-2".into(),
+            AckType::RecipientReceived,
+            1_000,
+            Vec::new(),
+        );
+        log.record(
+            node_id(3),
+            "m-3".into(),
+            AckType::RecipientReceived,
+            1_000,
+            Vec::new(),
+        );
         // Only ask about peer 2.
         let view = log
             .build_view(node_id(1), PresenceScope::Peers(vec![node_id(2)]), 1_100)
@@ -219,9 +282,27 @@ mod tests {
             observations: HashMap::new(),
             max_entries: 2,
         };
-        log.record(node_id(2), "m-2".into(), AckType::RelayForwarded, 1_000); // stalest
-        log.record(node_id(3), "m-3".into(), AckType::RelayForwarded, 2_000);
-        log.record(node_id(4), "m-4".into(), AckType::RelayForwarded, 3_000); // evicts peer 2
+        log.record(
+            node_id(2),
+            "m-2".into(),
+            AckType::RelayForwarded,
+            1_000,
+            Vec::new(),
+        ); // stalest
+        log.record(
+            node_id(3),
+            "m-3".into(),
+            AckType::RelayForwarded,
+            2_000,
+            Vec::new(),
+        );
+        log.record(
+            node_id(4),
+            "m-4".into(),
+            AckType::RelayForwarded,
+            3_000,
+            Vec::new(),
+        ); // evicts peer 2
         assert_eq!(log.len(), 2);
         let view = log
             .build_view(node_id(1), PresenceScope::Group(crate::group::GroupId("g".into())), 3_100)
@@ -235,7 +316,13 @@ mod tests {
     fn view_present_is_deterministically_ordered() {
         let mut log = WitnessLog::new();
         for s in [5u8, 2, 9, 3] {
-            log.record(node_id(s), format!("m-{s}"), AckType::RelayForwarded, 1_000);
+            log.record(
+                node_id(s),
+                format!("m-{s}"),
+                AckType::RelayForwarded,
+                1_000,
+                Vec::new(),
+            );
         }
         let v1 = log
             .build_view(node_id(1), PresenceScope::Group(crate::group::GroupId("g".into())), 1_100)

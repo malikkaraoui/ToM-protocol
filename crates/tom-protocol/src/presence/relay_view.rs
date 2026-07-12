@@ -96,6 +96,11 @@ pub struct PresenceEntry {
     pub proof_type: AckType,
     /// Witness clock (Unix ms) when it observed the proof.
     pub seen_at_ms: u64,
+    /// Raw bytes of the signed ACK Envelope that serves as cryptographic proof.
+    /// The consumer cryptographically verifies this Envelope before accepting
+    /// the entry toward quorum. Using serde_bytes to avoid MessagePack inflation.
+    #[serde(with = "serde_bytes")]
+    pub ack_proof: Vec<u8>,
 }
 
 /// A signed presence view published by a witness (relay) to its subscribers.
@@ -221,6 +226,7 @@ mod tests {
             proof_ref: format!("msg-{seed}"),
             proof_type: AckType::RelayForwarded,
             seen_at_ms: at,
+            ack_proof: Vec::new(), // tests use placeholder; real data filled by witness_log
         }
     }
 
@@ -374,5 +380,60 @@ mod tests {
     #[test]
     fn quorum_never_below_floor_even_if_density_zero() {
         assert!(required_witnesses(0, 0) >= MIN_PRESENCE_WITNESSES);
+    }
+
+    #[test]
+    fn entry_ack_proof_roundtrip() {
+        // Test that PresenceEntry with ack_proof serializes/deserializes correctly.
+        let peer = node_id(42);
+        let proof_bytes = b"fake-ack-envelope-bytes".to_vec();
+        let entry = PresenceEntry {
+            peer_id: peer,
+            proof_ref: "msg-1234".into(),
+            proof_type: AckType::RelayForwarded,
+            seen_at_ms: 5_000,
+            ack_proof: proof_bytes.clone(),
+        };
+        let v = RelayPresenceView {
+            witness_id: node_id(1),
+            epoch_ms: 5_100,
+            scope: PresenceScope::Peers(vec![peer]),
+            present: vec![entry.clone()],
+            signature: Vec::new(),
+        };
+        let bytes = v.to_bytes();
+        let v_back = RelayPresenceView::from_bytes(&bytes).unwrap();
+        assert_eq!(v_back.present[0].ack_proof, proof_bytes, "ack_proof must round-trip");
+        assert_eq!(v_back.present[0], entry);
+    }
+
+    #[test]
+    fn entry_ack_proof_uses_serde_bytes() {
+        // Verify serde_bytes avoids MessagePack inflation: a large ack_proof
+        // should serialize compactly as binary, not as an array of integers.
+        let large_proof = vec![42u8; 1_000]; // 1 KB ACK proof
+        let entry = PresenceEntry {
+            peer_id: node_id(1),
+            proof_ref: "msg-1".into(),
+            proof_type: AckType::RecipientReceived,
+            seen_at_ms: 1_000,
+            ack_proof: large_proof,
+        };
+        let v = RelayPresenceView {
+            witness_id: node_id(2),
+            epoch_ms: 1_100,
+            scope: PresenceScope::Peers(vec![node_id(1)]),
+            present: vec![entry],
+            signature: Vec::new(),
+        };
+        let serialized = v.to_bytes();
+        // With serde_bytes, the 1KB proof should be ~1KB + overhead (~200 bytes).
+        // Without it (as array of ints), it would be ~2-3 KB (MessagePack integer array).
+        // We check < 1500 to verify compact encoding.
+        assert!(
+            serialized.len() < 1_500,
+            "large ack_proof should be compacted by serde_bytes, got {} bytes",
+            serialized.len()
+        );
     }
 }

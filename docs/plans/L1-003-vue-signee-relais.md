@@ -91,3 +91,59 @@ L'appareil faible envoie sa liste de pairs-d'intérêt au relais (`scope`). Pas 
 ## 8. Cohérence avec les 7 décisions LOCKED
 
 #1 livraison=ACK (la vue référence des ACK signés) · #2 TTL (30s, éphémère) · #3 L1 rapporte, n'arbitre pas (le témoin publie ce qu'il a vu, ne juge pas) · #4 réputation en fondu (présence dérivée du score, décroît) · #5 anti-spam progressif (bornes mémoire) · #6 rôles imposés (le relais est témoin parce que le réseau l'a mis sur le chemin) · #7 fondation universelle.
+
+## 9. Addendum — Durcissements post-étape-3 (capacité + crypto spot-check)
+
+Après livraison des étapes 1-3 (types wire + câblage témoin + quorum basique), deux durcissements ont été implémentés pour L1-003 :
+
+### 9.1. Cap par témoin (anti-abus mémoire Sybil)
+
+**Problème :** `QuorumAggregator` et `WitnessLog` avaient un cap global (`MAX_TRACKED_PEERS` = 256) mais AUCUN cap par témoin. Un relais Sybil pouvait, en une seule vue, remplir la table entière de 256 pairs fictifs et évincer les attestations légitimes d'autres témoins.
+
+**Solution implémentée :**
+- Ajout d'une constante `MAX_PEERS_PER_WITNESS = MAX_TRACKED_PEERS / 4` (64 pairs max par témoin).
+- Tracking par-témoin : `HashMap<NodeId, HashSet<NodeId>>` dans `QuorumAggregator`.
+- Éviction stratifiée : quand un témoin dépasse son quota, ses **propres** pairs les plus anciens sont évincés EN PRIORITÉ (pas ceux d'autres témoins).
+- Garantie : aucun témoin Sybil ne peut évincer les attestations valides d'autres témoins distincts.
+
+**Impact mémoire :** ~+64 octets par témoins distinct (HashSet<NodeId>). Acceptable : la plupart des appareils faibles n'ont ≤ 4 relais, soit <1 KB.
+
+**Tests :** témoin A sature son quota (64 peers), témoin B légal atteste un peer → le peer de B survit, seuls les vieux pairs de A sont évincés.
+
+### 9.2. Spot-check crypto du proof_ref (vérification real ACK, pas assertion)
+
+**Problème :** `PresenceEntry.proof_ref` était une simple String assertée « c'est un id d'ACK réel ». Aucune vérification — un témoin pouvait prétendre avoir vu n'importe quel ACK sans preuve. La doc disait « consumer verifies this points to genuine evidence », mais c'était stubé.
+
+**Solution implémentée :**
+
+1. **Ajout champ `ack_proof: Vec<u8>`** à `PresenceEntry` (avec `#[serde(with = "serde_bytes")]` pour éviter l'inflation MessagePack ×8).
+   - Stocke les bytes bruts de l'`Envelope` ACK signé que le témoin a réellement relayé.
+   - Réutilise les primitives existantes (`Envelope::to_bytes()`, `Envelope::verify_signature()`, `AckPayload::from_bytes()`) — zéro duplication de crypto.
+
+2. **Point d'origine (witness side)** : dans `state.rs` lignes ~898-909 (relais qui forward un ACK signé), `envelope.to_bytes()` est capture et passé à `witness_log.record()`.
+
+3. **Vérification (consumer side)** : dans `handle_relay_presence_view()`, **avant** d'enregistrer dans `quorum.record()`, chaque entrée passe par un gate cryprographique :
+   - `Envelope::from_bytes(&entry.ack_proof)` parse correctement
+   - `envelope.msg_type == MessageType::Ack`
+   - `envelope.from == entry.peer_id` (le signataire EST le pair attesté)
+   - `envelope.verify_signature().is_ok()` (Ed25519 valide)
+   - `AckPayload::from_bytes()` décode et `.original_message_id == entry.proof_ref`, `.ack_type == entry.proof_type` (cohérence)
+   - `now - envelope.timestamp < PRESENCE_TTL_MS` (fraîcheur, empêche relay d'un vieil ACK réel avec timestamp frais menti)
+   - **Défaillance gracieuse :** une entrée qui échoue toute vérification est **silencieusement ignorée** ; les autres entrées de la même vue sont traitées normalement.
+
+**Garantie :** un ACK forgé, périmé, malformé, ou incohérent ne compte PAS pour le quorum.
+
+**Coût :**
+- Taille : `ack_proof` (~128 B/ACK) → vue de 256 pairs ~32 KB bruts. Avec compression MessagePack, ~10-15 KB/view (acceptable, un appareil faible reçoit ≤ 1 view/30s par témoin).
+- CPU : désérialisation + 1 vérif Ed25519/entrée. Sur 256 entrées, ~256 vérifs = ~10-30 ms par appareil faible (acceptable pour un tick 30s).
+
+**Non fermé :** cette vérification empêche un ACK **forgé de novo**, mais pas un ACK réel d'un pair MORT que le témoin rejoue. Mitigation : TTL 30s + le pair mort ne confirmera pas dans le quorum par d'autres témoins frais.
+
+### 9.3. Tests adversariaux ajoutés
+
+- ✅ Témoin Sybil flood : 65+ peers, max 64 admis, seul le plus ancien du Sybil évincé.
+- ✅ Plusieurs témoins complices : quorum stable même si 1 témoin sature (ne starve pas les autres).
+- ✅ ACK forgé/signature invalide dans `ack_proof` → entrée rejetée, traitement des autres entrées inchangé.
+- ✅ ACK périmé (`timestamp` > 30s) → entrée rejetée.
+- ✅ Incohérence `proof_ref`/`proof_type` vs contenu réel de `ack_proof` → entrée rejetée.
+- ✅ Vue mixte valides+invalides → seules les valides comptent pour quorum, pas de crash.
