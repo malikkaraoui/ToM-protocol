@@ -25,7 +25,9 @@
 - malik.karaoui.TomNode-macOS (macOS)
 
 ## Dev Team
-- K22558HU63
+- `UPES5479T5` (équipe payante, Apple Developer Program — corrigé 2026-07-12,
+  `K22558HU63` était l'ancienne Personal Team GRATUITE, plafonnée à 3 apps/7
+  jours, cause d'un échec d'install réel constaté ce jour)
 
 ## Architecture
 ```
@@ -86,6 +88,6 @@ package : `sdk/swift/TomProtocolKit/Sources/TomProtocolKit/`.
 
 ## Do Not Modify
 - `.xcodeproj` à la main → toujours passer par `project.yml` + `make gen`
-- Signing settings (DEVELOPMENT_TEAM K22558HU63, CODE_SIGN_STYLE Automatic dans project.yml)
+- Signing settings (DEVELOPMENT_TEAM UPES5479T5, CODE_SIGN_STYLE Automatic dans project.yml)
 - Bundle identifiers
 - Sources du package TomProtocolKit sans passer par le chantier SDK

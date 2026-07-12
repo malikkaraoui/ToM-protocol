@@ -189,11 +189,11 @@
 				LastUpgradeCheck = 1600;
 				TargetAttributes = {
 					E5E4B9A7E555F20A5B021C18 = {
-						DevelopmentTeam = K22558HU63;
+						DevelopmentTeam = UPES5479T5;
 						ProvisioningStyle = Automatic;
 					};
 					FD760943EB4D4477DF4A9197 = {
-						DevelopmentTeam = K22558HU63;
+						DevelopmentTeam = UPES5479T5;
 						ProvisioningStyle = Automatic;
 					};
 				};
@@ -312,7 +312,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
 				DEBUG_INFORMATION_FORMAT = dwarf;
-				DEVELOPMENT_TEAM = K22558HU63;
+				DEVELOPMENT_TEAM = UPES5479T5;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
@@ -484,7 +484,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
-				DEVELOPMENT_TEAM = K22558HU63;
+				DEVELOPMENT_TEAM = UPES5479T5;
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
