@@ -118,6 +118,13 @@ pub struct RuntimeState {
     // bounded. Never persisted.
     pub(crate) subscriptions: crate::presence::SubscriptionTable,
 
+    // L1-003: consumer-side quorum aggregator — a peer is only promoted
+    // Known → Online when ≥ required_witnesses DISTINCT witnesses concur
+    // (kill-shot #3). `presence_view_activity` is a per-window view counter
+    // feeding the dynamic quorum; reset each presence-cleanup tick.
+    pub(crate) quorum: crate::presence::QuorumAggregator,
+    pub(crate) presence_view_activity: usize,
+
     // Phase R16: Embedded relay logical state (tracked by pure state, no I/O)
     pub(crate) embedded_relay_state: super::LocalEmbeddedRelayState,
     pub(crate) embedded_relay_publication: super::EmbeddedRelayPublicationState,
@@ -224,6 +231,8 @@ impl RuntimeState {
             presence: crate::presence::PresenceManager::new(),
             witness_log: crate::presence::WitnessLog::new(),
             subscriptions: crate::presence::SubscriptionTable::new(),
+            quorum: crate::presence::QuorumAggregator::new(),
+            presence_view_activity: 0,
             local_id,
             secret_seed,
             embedded_relay_state: super::LocalEmbeddedRelayState::Stopped,
@@ -1932,6 +1941,10 @@ impl RuntimeState {
         // subscription table has its own (longer) TTL.
         self.witness_log.purge_expired(now);
         self.subscriptions.purge_expired(now);
+        // Consumer-side quorum: drop stale attestations and reset the
+        // per-window view-activity counter that feeds the dynamic quorum.
+        self.quorum.purge_expired(now);
+        self.presence_view_activity = 0;
         Vec::new()
     }
 
@@ -1983,10 +1996,43 @@ impl RuntimeState {
         {
             return Vec::new();
         }
-        // TODO(L1-003 step 3): feed a quorum aggregator keyed by (peer,
-        // proof_ref) across ≥ required_witnesses distinct witnesses before any
-        // Online promotion. Dropped here on purpose.
-        Vec::new()
+
+        // Feed the quorum aggregator: this witness attests each listed peer
+        // alive. A witness contributes at most once per peer (the aggregator
+        // dedups), so a single relay repeating itself cannot fake a quorum.
+        let now = now_ms();
+        self.presence_view_activity = self.presence_view_activity.saturating_add(1);
+        for entry in &view.present {
+            self.quorum.record(view.witness_id, entry.peer_id, now);
+        }
+
+        // Promote to Online ONLY the peers now backed by a quorum of ≥ N
+        // DISTINCT fresh witnesses (kill-shot #3: never trust a single view).
+        // Promotion is the whole point — the weak device learns liveness from
+        // the witness quorum without computing presence of N peers itself.
+        let mut effects = Vec::new();
+        for entry in &view.present {
+            if !self
+                .quorum
+                .at_quorum(&entry.peer_id, self.presence_view_activity, now)
+            {
+                continue;
+            }
+            // Only lift a peer we already have an address for (discovery), and
+            // only if it isn't already Online. Known/Stale/Offline → Online.
+            if let Some(peer) = self.topology.get(&entry.peer_id) {
+                if peer.status != PeerStatus::Online {
+                    let mut updated = peer.clone();
+                    updated.status = PeerStatus::Online;
+                    updated.last_seen = now;
+                    self.topology.upsert(updated);
+                    effects.push(RuntimeEffect::Emit(ProtocolEvent::PeerOnline {
+                        node_id: entry.peer_id,
+                    }));
+                }
+            }
+        }
+        effects
     }
 
     /// L1-003 (relay side): publish a signed presence view to each live
@@ -3886,6 +3932,113 @@ mod tests {
                 .iter()
                 .any(|e| matches!(e, RuntimeEffect::SendEnvelope(env) if env.msg_type == MessageType::RelayPresenceView)),
             "no in-scope observation → no view emitted"
+        );
+    }
+
+    // ── L1-003 consumer quorum promotion (step 3) ───────────────────────
+
+    /// A signed presence view from `witness_seed`, sent to `to`, attesting each
+    /// peer in `peers` alive at `now`.
+    fn signed_view_from(witness_seed: u8, to: NodeId, peers: &[NodeId], now: u64) -> Envelope {
+        let (witness_id, witness_secret) = keypair(witness_seed);
+        let present: Vec<crate::presence::PresenceEntry> = peers
+            .iter()
+            .map(|p| crate::presence::PresenceEntry {
+                peer_id: *p,
+                proof_ref: "m".into(),
+                proof_type: crate::router::AckType::RelayForwarded,
+                seen_at_ms: now,
+            })
+            .collect();
+        let mut view = crate::presence::RelayPresenceView {
+            witness_id,
+            epoch_ms: now,
+            scope: crate::presence::PresenceScope::Peers(peers.to_vec()),
+            present,
+            signature: Vec::new(),
+        };
+        view.sign(&witness_secret);
+        let mut env = crate::envelope::Envelope::new(
+            witness_id,
+            to,
+            MessageType::RelayPresenceView,
+            view.to_bytes(),
+        );
+        env.sign(&witness_secret);
+        env
+    }
+
+    #[test]
+    fn quorum_of_two_witnesses_promotes_known_to_online() {
+        let mut state = default_state(1);
+        let target = node_id(50);
+        // Discovered as an address only (Known) — not yet proven live.
+        state.handle_command(RuntimeCommand::AddPeer {
+            node_id: target,
+            source: DiscoverySource::Direct,
+        });
+        assert_eq!(state.topology.get(&target).unwrap().status, PeerStatus::Known);
+        let now = crate::types::now_ms();
+
+        // Witness 1 alone → quorum not met (floor 2) → stays Known.
+        let v1 = signed_view_from(2, state.local_id, &[target], now);
+        let _ = state.handle_incoming(&v1.to_bytes().unwrap());
+        assert_eq!(
+            state.topology.get(&target).unwrap().status,
+            PeerStatus::Known,
+            "a single witness must never eclipse-promote (kill-shot #3)"
+        );
+
+        // Witness 2 (distinct) → quorum of 2 met → Online + event.
+        let v2 = signed_view_from(3, state.local_id, &[target], now);
+        let effects = state.handle_incoming(&v2.to_bytes().unwrap());
+        assert_eq!(
+            state.topology.get(&target).unwrap().status,
+            PeerStatus::Online,
+            "two DISTINCT witnesses concur → Known promoted to Online"
+        );
+        assert!(
+            effects.iter().any(|e| matches!(
+                e,
+                RuntimeEffect::Emit(ProtocolEvent::PeerOnline { node_id }) if *node_id == target
+            )),
+            "promotion emits PeerOnline, got: {effects:?}"
+        );
+    }
+
+    #[test]
+    fn same_witness_twice_never_promotes() {
+        let mut state = default_state(1);
+        let target = node_id(50);
+        state.handle_command(RuntimeCommand::AddPeer {
+            node_id: target,
+            source: DiscoverySource::Direct,
+        });
+        let now = crate::types::now_ms();
+        // Same witness sends TWO views → still one distinct witness.
+        let v1 = signed_view_from(2, state.local_id, &[target], now);
+        let v1b = signed_view_from(2, state.local_id, &[target], now);
+        let _ = state.handle_incoming(&v1.to_bytes().unwrap());
+        let _ = state.handle_incoming(&v1b.to_bytes().unwrap());
+        assert_eq!(
+            state.topology.get(&target).unwrap().status,
+            PeerStatus::Known,
+            "one witness repeating itself cannot fake a quorum"
+        );
+    }
+
+    #[test]
+    fn quorum_does_not_promote_undiscovered_peer() {
+        let mut state = default_state(1);
+        let target = node_id(50); // never added to topology (no address known)
+        let now = crate::types::now_ms();
+        let v1 = signed_view_from(2, state.local_id, &[target], now);
+        let v2 = signed_view_from(3, state.local_id, &[target], now);
+        let _ = state.handle_incoming(&v1.to_bytes().unwrap());
+        let _ = state.handle_incoming(&v2.to_bytes().unwrap());
+        assert!(
+            state.topology.get(&target).is_none(),
+            "quorum attests liveness but we still need an address — no phantom Online"
         );
     }
 
