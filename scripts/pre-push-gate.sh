@@ -26,6 +26,27 @@ step()  { echo -e "\n${YELLOW}[$1/5]${NC} $2"; }
 QUICK=false
 [[ "${1:-}" == "--quick" ]] && QUICK=true
 
+# ─── 0/5 Email d'auteur (anti-typo hmail) ────────────────────────────────────
+#
+# Un typo `hmail` (au lieu de `gmail`) a rendu 148 commits NON ATTRIBUÉS sur
+# GitHub (email inconnu du compte → invisibles dans l'activité). Ce gate bloque
+# tout commit à pousser dont l'auteur OU le committer n'est pas l'email gmail
+# lié au compte. Les comptes de service (github noreply, bots) sont tolérés.
+
+echo -e "\n${YELLOW}[0/5]${NC} Email d'auteur des commits à pousser..."
+
+ALLOWED_EMAIL="karaoui.malik@gmail.com"
+EMAIL_RANGE="origin/main..HEAD"
+git rev-parse --verify -q origin/main >/dev/null 2>&1 || EMAIL_RANGE="HEAD"
+BAD_EMAILS=$(git log "$EMAIL_RANGE" --format='%ae%n%ce' 2>/dev/null | sort -u \
+    | grep -vE "^(${ALLOWED_EMAIL}|[0-9]+\+.*@users\.noreply\.github\.com|.*\[bot\]@.*|noreply@github\.com)$" || true)
+if [[ -n "$BAD_EMAILS" ]]; then
+    echo "  Emails non autorisés détectés :"
+    echo "$BAD_EMAILS" | sed 's/^/    /'
+    fail "Email d'auteur/committer ≠ ${ALLOWED_EMAIL}. Corriger AVANT push (git commit --amend --reset-author, ou filter-branch pour plusieurs commits)."
+fi
+pass "Emails d'auteur OK (${ALLOWED_EMAIL})"
+
 # ─── 1/5 Secrets in staged diff ──────────────────────────────────────────────
 
 step 1 "Audit secrets dans le diff..."
