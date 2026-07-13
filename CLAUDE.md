@@ -332,6 +332,21 @@ Quand l'utilisateur demande "commit push" (ou toute variante commit + push) :
 1. Si clippy ou test échoue → corriger d'abord, ne PAS push
 1. Pas d'exception, même pour "juste un petit fix"
 
+### Hygiène disque — PLAFOND NON-NÉGOCIABLE (`target/` ≤ 20 Go)
+
+`crates/target/` a atteint **130+ Go** le 2026-07-13 (disque à 36 Go libres) après une longue session de builds/tests répétés sans jamais nettoyer — jamais laisser ce scénario se reproduire.
+
+- **Plafond dur : `target/` ne doit JAMAIS dépasser 20 Go.** Vérifier avec `du -sh target/`.
+- Dès que `target/` approche 20 Go (ou en tout cas avant toute session longue de builds répétés) : `cargo clean` ou `bash scripts/clean-cruft.sh --apply --builds`.
+- `scripts/clean-cruft.sh` fait déjà tout le travail :
+  ```bash
+  bash scripts/clean-cruft.sh              # dry-run — cruft mort (.claude-backup-*, logs, .bak) uniquement
+  bash scripts/clean-cruft.sh --apply --builds  # exécute + purge target/, .build/, node_modules, DerivedData interne au repo
+  ```
+- Ne PAS lancer `--builds` pendant qu'une gate/build est en cours (ça casse le build en vol) — attendre la fin du process actif.
+- Penser aussi à `~/Library/Developer/Xcode/DerivedData` (hors repo, régénéré par Xcode, peut monter à plusieurs Go) et `~/Library/Caches/org.swift.swiftpm`.
+- Ce n'est PAS optionnel : une session autonome longue (mode nuit, boucle roadmap continue) DOIT inclure un `cargo clean` périodique, pas seulement en fin de crise.
+
 ### Rust Tests
 ```bash
 cargo test --workspace              # All Rust tests (~700+)
