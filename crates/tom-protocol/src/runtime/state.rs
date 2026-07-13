@@ -2741,6 +2741,25 @@ impl RuntimeState {
                 self.embedded_relay_publication = super::EmbeddedRelayPublicationState::NotPublished;
                 vec![RuntimeEffect::Emit(ProtocolEvent::EmbeddedRelayStopped)]
             }
+            RuntimeCommand::EmbeddedRelayPortMapped { external_addr } => {
+                // UPnP mapping obtained for the embedded relay port (Phase R13).
+                // Construct the external URL and republish if it's globally reachable.
+                let url_str = format!(
+                    "http://{}:{}",
+                    super::embedded_relay::format_ip_for_url(external_addr.ip()),
+                    external_addr.port()
+                );
+                match url_str.parse::<tom_connect::RelayUrl>() {
+                    Ok(url) => {
+                        tracing::info!(%url, "embedded relay UPnP mapped, republishing");
+                        self.build_relay_publication(url)
+                    }
+                    Err(e) => {
+                        tracing::warn!("invalid UPnP relay URL '{url_str}': {e}");
+                        Vec::new()
+                    }
+                }
+            }
         }
     }
 
@@ -6625,6 +6644,87 @@ mod tests {
         assert_eq!(
             challenges_sent, 8,
             "even when enabled, the probe must stay capped at 8 targets regardless of fleet size, got: {effects:?}"
+        );
+    }
+
+    #[test]
+    fn embedded_relay_port_mapped_publishes_global_url() {
+        // When a UPnP port mapping is obtained (external public IP + port),
+        // the embedded relay should republish with the new external URL.
+        let mut state = default_state(1);
+        state.config.enable_embedded_relay_publication = true;
+
+        // Simulate relay already being healthy.
+        let local_url: tom_connect::RelayUrl = "http://127.0.0.1:8080"
+            .parse()
+            .expect("valid local URL");
+        state.embedded_relay_state = LocalEmbeddedRelayState::Healthy {
+            bound_relay_url: local_url.clone(),
+        };
+
+        // Simulate a UPnP mapping obtained from a public IP.
+        let external_addr: std::net::SocketAddr =
+            "82.67.95.8:58870".parse().expect("valid public SocketAddr");
+
+        let effects = state.handle_command(RuntimeCommand::EmbeddedRelayPortMapped {
+            external_addr,
+        });
+
+        // Should produce a BroadcastRelayReady effect (publication to gossip).
+        let broadcast_effects: Vec<_> = effects
+            .iter()
+            .filter(|e| matches!(e, RuntimeEffect::BroadcastRelayReady(_)))
+            .collect();
+
+        assert_eq!(
+            broadcast_effects.len(),
+            1,
+            "port mapped external address should trigger BroadcastRelayReady"
+        );
+
+        // Verify the publication state was updated.
+        assert!(
+            matches!(
+                state.embedded_relay_publication,
+                EmbeddedRelayPublicationState::Published { .. }
+            ),
+            "after port mapping, relay should be marked as published"
+        );
+    }
+
+    #[test]
+    fn embedded_relay_port_mapped_with_private_ip_not_published() {
+        // A UPnP mapping to a private IP (unlikely but possible in double-NAT)
+        // should NOT pass the relay_url_is_globally_reachable gate.
+        let mut state = default_state(1);
+        state.config.enable_embedded_relay_publication = true;
+
+        // Simulate relay already being healthy.
+        let local_url: tom_connect::RelayUrl = "http://127.0.0.1:8080"
+            .parse()
+            .expect("valid local URL");
+        state.embedded_relay_state = LocalEmbeddedRelayState::Healthy {
+            bound_relay_url: local_url.clone(),
+        };
+
+        // Simulate a "mapping" to a private IP (should still be filtered).
+        let private_addr: std::net::SocketAddr =
+            "192.168.1.100:58870".parse().expect("valid private SocketAddr");
+
+        let effects = state.handle_command(RuntimeCommand::EmbeddedRelayPortMapped {
+            external_addr: private_addr,
+        });
+
+        // Should NOT produce any BroadcastRelayReady (gate filters private IPs).
+        let broadcast_effects: Vec<_> = effects
+            .iter()
+            .filter(|e| matches!(e, RuntimeEffect::BroadcastRelayReady(_)))
+            .collect();
+
+        assert_eq!(
+            broadcast_effects.len(),
+            0,
+            "private IP from port mapping should not be published"
         );
     }
 }

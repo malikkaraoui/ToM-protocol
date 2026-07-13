@@ -173,6 +173,14 @@ pub(super) async fn runtime_loop(
 
     // ── Embedded relay service ─────────────────────────────────────────
     let mut embedded_relay = super::EmbeddedRelayService::new();
+    // UPnP mapping watcher for the embedded relay (Phase R13). Held stable across
+    // select! iterations — a `watch::Receiver` recreated every tick (via a fresh
+    // `watch_mapped_address()` call inside the select branch) would silently miss
+    // any mapping change that lands between two loop iterations, since a freshly
+    // constructed receiver only observes *future* changes from its creation point.
+    let mut embedded_relay_mapped_watcher: Option<
+        tokio::sync::watch::Receiver<Option<std::net::SocketAddrV4>>,
+    > = None;
 
     // Auto-start embedded relay if enabled in config
     if state.config.enable_embedded_relay {
@@ -182,6 +190,10 @@ pub(super) async fn runtime_loop(
         };
         let startup_effects = match embedded_relay.start(relay_config).await {
             Ok(url) => {
+                // Grab the watcher BEFORE any other await point: a mapping that
+                // resolves during reprobe_relays() must still be observed by this
+                // receiver's initial seen_version, not silently skipped.
+                embedded_relay_mapped_watcher = embedded_relay.watch_mapped_address();
                 node.reprobe_relays().await;
                 state.handle_command(super::RuntimeCommand::EmbeddedRelayStarted { url })
             }
@@ -277,6 +289,7 @@ pub(super) async fn runtime_loop(
                     RuntimeCommand::StartEmbeddedRelay { config } => {
                         match embedded_relay.start(config).await {
                             Ok(url) => {
+                                embedded_relay_mapped_watcher = embedded_relay.watch_mapped_address();
                                 node.reprobe_relays().await;
                                 state.handle_command(RuntimeCommand::EmbeddedRelayStarted { url })
                             }
@@ -287,6 +300,7 @@ pub(super) async fn runtime_loop(
                     }
                     RuntimeCommand::StopEmbeddedRelay => {
                         embedded_relay.stop().await;
+                        embedded_relay_mapped_watcher = None;
                         state.handle_command(RuntimeCommand::EmbeddedRelayStopped)
                     }
                     RuntimeCommand::SaveState { reply } => {
@@ -651,6 +665,35 @@ pub(super) async fn runtime_loop(
                 Vec::new()
             }
 
+            // ── 17. UPnP port mapping change for embedded relay (Phase R13) ──
+            // Observe the SAME stable watcher across iterations (see declaration
+            // above) — recreating it here would silently drop any mapping change
+            // that lands between two select! iterations (a fresh watch::Receiver
+            // only sees changes from its own creation point onward).
+            mapped_change = async {
+                match embedded_relay_mapped_watcher.as_mut() {
+                    Some(watcher) => watcher.changed().await,
+                    None => std::future::pending().await,
+                }
+            }, if embedded_relay_mapped_watcher.is_some() => {
+                if let Ok(()) = mapped_change {
+                    if let Some(watcher) = embedded_relay_mapped_watcher.as_ref() {
+                        if let Some(socket_addr_v4) = *watcher.borrow() {
+                            // Convert SocketAddrV4 to SocketAddr (IPv4)
+                            let external_addr = std::net::SocketAddr::V4(socket_addr_v4);
+                            tracing::debug!("UPnP port mapping obtained: {external_addr}");
+                            state.handle_command(RuntimeCommand::EmbeddedRelayPortMapped { external_addr })
+                        } else {
+                            Vec::new()
+                        }
+                    } else {
+                        Vec::new()
+                    }
+                } else {
+                    Vec::new()
+                }
+            }
+
             else => break,
         };
 
@@ -670,6 +713,7 @@ pub(super) async fn runtime_loop(
                 RuntimeEffect::StartEmbeddedRelay { config } => {
                     let feedback_effects = match embedded_relay.start(config).await {
                         Ok(url) => {
+                            embedded_relay_mapped_watcher = embedded_relay.watch_mapped_address();
                             node.reprobe_relays().await;
                             state.handle_command(RuntimeCommand::EmbeddedRelayStarted { url })
                         }
@@ -679,6 +723,7 @@ pub(super) async fn runtime_loop(
                 }
                 RuntimeEffect::StopEmbeddedRelay => {
                     embedded_relay.stop().await;
+                    embedded_relay_mapped_watcher = None;
                     let feedback_effects = state.handle_command(RuntimeCommand::EmbeddedRelayStopped);
                     regular_effects.extend(feedback_effects);
                 }

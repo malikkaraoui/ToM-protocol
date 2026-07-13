@@ -220,6 +220,12 @@ pub enum RuntimeCommand {
     EmbeddedRelayFailed { error: String },
     /// Embedded relay stopped (loop → state feedback).
     EmbeddedRelayStopped,
+    /// UPnP port mapping obtained for embedded relay (loop → state feedback).
+    /// External address (IP + port) is now publicly reachable.
+    /// Phase R13: Auto-detection of public relay address via IGD.
+    EmbeddedRelayPortMapped {
+        external_addr: std::net::SocketAddr,
+    },
     /// Query the relay registry (read-only snapshot).
     GetKnownRelays {
         reply: oneshot::Sender<Vec<crate::discovery::RelayRegistryEntry>>,

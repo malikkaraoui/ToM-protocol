@@ -46,6 +46,9 @@ n0-future = "0.3"
 # Embedded relay (Phase R16)
 tom-relay = { path = "../tom-relay", features = ["server"] }
 
+# UPnP port mapping for embedded relay (R13)
+portmapper = { version = "0.13", default-features = false }
+
 [dev-dependencies]
 proptest = "1"
 tokio = { version = "1", features = ["full"] }

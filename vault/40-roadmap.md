@@ -132,10 +132,15 @@ Les 5 criticals de l'audit 6-agents sont corrigés (file:line revérifiés) :
     La Freebox répond bien à UPnP IGD par défaut, un port UDP public est
     obtenu automatiquement pour le port QUIC principal, zéro manip manuelle.
     Confirme l'hypothèse de départ de R13 sur du matériel réel, pas en théorie.
-    **Reste** : étape 2 (étendre au port du relais embarqué, cross-crate
-    tom-connect+tom-protocol, nécessite un doc de conception avant de coder
-    — voir [[design-doc-before-coding-protocol-features]]) et étape 3 (test
-    d'acceptation iPhone data ↔ maison sans le NAS).
+  - [x] **Étape 2 IMPLÉMENTÉE (2026-07-13)** — mapping UPnP du port du relais
+    embarqué câblé (`embedded_relay.rs` + `loop.rs` + `state.rs`), doc
+    `docs/plans/porte-automatique-self-relay-upnp.md` §Statut pour le détail.
+    2 bugs de robustesse trouvés en review (regénération de watcher à chaque
+    tick, ordre d'assignation vs un await) et corrigés avant commit. 632 tests
+    tom-protocol verts, workspace complet vert (dont `stability_2min` rejoué
+    isolément avant/après pour écarter un faux hang lié à un incident réseau
+    nocturne, pas au code). Build 40.
+  - [ ] Étape 3 (test d'acceptation réel : iPhone data ↔ maison sans le NAS).
 - [ ] **R14 — IPv6 first-class** : (1) règle pare-feu Freebox 43925 (déjà
   identifiée) + mesurer le DIRECT v6 ; (2) publier les GUA v6 au rendez-vous,
   préférence v6 au dial, hole-punch v6 (quasi 100% vs NAT v4) ; (3) pinhole

@@ -5267,6 +5267,7 @@ dependencies = [
  "hkdf",
  "lru 0.16.3",
  "n0-future",
+ "portmapper",
  "proptest",
  "rand 0.9.2",
  "rmp-serde",

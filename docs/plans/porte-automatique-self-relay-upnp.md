@@ -120,5 +120,29 @@ opportuniste, jamais un prérequis.
 ## Statut
 
 - [x] Étape 1 (mapping QUIC principal) — vérifiée empiriquement 2026-07-12.
-- [ ] Étape 2 (ce doc) — conception faite, implémentation pas commencée.
-- [ ] Étape 3 (test d'acceptation sans NAS).
+- [x] **Étape 2 — implémentée (2026-07-13)** — option (a) retenue (client
+  `portmapper` dédié dans `EmbeddedRelayService`), câblage complet :
+  `embedded_relay.rs` (client + watcher exposé) → `loop.rs` (observation dans
+  le `select!` principal, 3 sites de démarrage/arrêt du relais couverts) →
+  `state.rs` (`RuntimeCommand::EmbeddedRelayPortMapped` → `build_relay_publication`,
+  passe par le même gate `relay_url_is_globally_reachable` que le chemin
+  existant, pas de bypass). 2 tests ajoutés (`embedded_relay_port_mapped_publishes_global_url`,
+  `embedded_relay_port_mapped_with_private_ip_not_published`).
+  **2 bugs de robustesse trouvés en review et corrigés avant commit** (voir
+  [[verify-subagent-security-shortcuts]]) :
+  1. Le premier jet recréait un `watch::Receiver` À L'INTÉRIEUR du bloc async
+     de la branche `select!`, DONC à chaque itération de la boucle — un
+     receiver fraîchement créé ne voit que les changements FUTURS depuis sa
+     création, donc un mapping obtenu entre deux itérations pouvait être
+     silencieusement perdu (le nouveau receiver de l'itération suivante
+     démarre déjà "à jour" par rapport à ce changement passé). Fix : watcher
+     stable déclaré une fois en dehors de la boucle (`embedded_relay_mapped_watcher`),
+     réutilisé via `.as_mut()`, mis à jour uniquement aux 3 points où le
+     relais démarre avec succès, remis à `None` aux 2 points d'arrêt.
+  2. Aux 3 points de démarrage, le watcher était assigné APRÈS `node.reprobe_relays().await`
+     — fenêtre théorique où un mapping résolu pendant ce await ne serait
+     capturé par aucun watcher encore vivant. Fix : assignation déplacée
+     AVANT le `await`, dans les 3 sites.
+  Les deux trouvés par relecture indépendante (moi-même pour #1, un
+  sous-agent Relecteur pour #2, confirmé et appliqué).
+- [ ] Étape 3 (test d'acceptation réel : iPhone data ↔ maison sans le NAS).

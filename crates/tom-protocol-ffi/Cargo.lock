@@ -4166,6 +4166,7 @@ dependencies = [
  "hkdf",
  "lru",
  "n0-future",
+ "portmapper",
  "rmp-serde",
  "rusqlite",
  "serde",

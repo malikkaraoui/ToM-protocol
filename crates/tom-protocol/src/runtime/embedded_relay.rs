@@ -1,11 +1,15 @@
 /// Embedded relay service — starts/stops a real `tom-relay` server inside the node process.
 ///
 /// Phase R16: local relay lifecycle + publication-ready state.
-/// The service manages the server. RuntimeState tracks logical state and publication.
+/// R13: UPnP port mapping support for automatic public discovery.
+/// The service manages the server and optional port mapper. RuntimeState tracks logical state and publication.
 use std::net::SocketAddr;
+use std::num::NonZeroU16;
 
 use tom_connect::RelayUrl;
 use tom_relay::server::{AccessConfig, Limits, RelayConfig, Server, ServerConfig};
+use portmapper::Client as PortmapperClient;
+use tokio::sync::watch;
 
 /// Status of the embedded relay — lifecycle-local only.
 ///
@@ -67,11 +71,14 @@ pub struct EmbeddedRelayConfig {
 ///
 /// Lives outside `RuntimeState` — owned by the async runtime loop.
 /// RuntimeState communicates via effects/commands, never touches this directly.
+///
+/// Optionally manages a UPnP port mapper for automatic public discovery (Phase R13).
 pub struct EmbeddedRelayService {
     status: EmbeddedRelayStatus,
     server: Option<Server>,
     config: Option<EmbeddedRelayConfig>,
     bound_relay_url: Option<RelayUrl>,
+    port_mapper: Option<PortmapperClient>,
 }
 
 impl Default for EmbeddedRelayService {
@@ -88,6 +95,7 @@ impl EmbeddedRelayService {
             server: None,
             config: None,
             bound_relay_url: None,
+            port_mapper: None,
         }
     }
 
@@ -151,6 +159,19 @@ impl EmbeddedRelayService {
                 self.config = Some(config);
                 self.status = EmbeddedRelayStatus::Healthy;
 
+                // Initialize UPnP port mapper for automatic external address discovery (Phase R13)
+                let relay_port = http_addr.port();
+                if let Ok(non_zero_port) = NonZeroU16::try_from(relay_port) {
+                    let port_mapper =
+                        PortmapperClient::with_metrics(Default::default(), Default::default());
+                    port_mapper.update_local_port(non_zero_port);
+                    port_mapper.procure_mapping();
+                    self.port_mapper = Some(port_mapper);
+                    tracing::debug!("UPnP port mapper initialized for relay port {relay_port}");
+                } else {
+                    tracing::warn!("Relay bound to port 0 (dynamic) — UPnP mapping skipped");
+                }
+
                 Ok(url)
             }
             Err(e) => {
@@ -170,6 +191,10 @@ impl EmbeddedRelayService {
                 tracing::warn!("embedded relay shutdown error: {e}");
             }
         }
+        if let Some(port_mapper) = self.port_mapper.take() {
+            tracing::debug!("deactivating UPnP port mapper");
+            port_mapper.deactivate();
+        }
         self.status = EmbeddedRelayStatus::Stopped;
         self.bound_relay_url = None;
         self.config = None;
@@ -183,6 +208,16 @@ impl EmbeddedRelayService {
     /// The URL the relay is listening on, if healthy.
     pub fn bound_relay_url(&self) -> Option<&RelayUrl> {
         self.bound_relay_url.as_ref()
+    }
+
+    /// Get a watcher for UPnP external address changes (Phase R13).
+    ///
+    /// Returns `Some(watcher)` if port mapper is active, `None` otherwise.
+    /// The watcher can be awaited in a `tokio::select!` to detect when
+    /// `watch_external_address().changed()` fires, indicating a new UPnP mapping.
+    /// The receiver yields `Some(SocketAddrV4)` when a mapping is obtained.
+    pub fn watch_mapped_address(&self) -> Option<watch::Receiver<Option<std::net::SocketAddrV4>>> {
+        self.port_mapper.as_ref().map(|pm| pm.watch_external_address())
     }
 }
 
@@ -219,7 +254,7 @@ fn detect_outbound_ipv6() -> Result<std::net::Ipv6Addr, std::io::Error> {
 }
 
 /// Format an IP address for use in a URL (IPv6 needs brackets).
-fn format_ip_for_url(ip: std::net::IpAddr) -> String {
+pub fn format_ip_for_url(ip: std::net::IpAddr) -> String {
     match ip {
         std::net::IpAddr::V4(v4) => v4.to_string(),
         std::net::IpAddr::V6(v6) => format!("[{v6}]"),
@@ -302,5 +337,23 @@ mod tests {
         assert_eq!(*service.status(), EmbeddedRelayStatus::Healthy);
 
         service.stop().await;
+    }
+
+    #[tokio::test]
+    async fn test_portmapper_deactivate_on_stop() {
+        // Verify that stop() deactivates the port mapper without panicking,
+        // even if no mapping was obtained (Mapping remains None).
+        let mut service = EmbeddedRelayService::new();
+        let config = EmbeddedRelayConfig {
+            bind_addr: "127.0.0.1:0".parse().unwrap(),
+            advertise_addr: None,
+        };
+        let _url = service.start(config).await.expect("should start");
+
+        // Port mapper is initialized (even if no actual UPnP mapping succeeded).
+        // Stop should not panic.
+        service.stop().await;
+        assert_eq!(*service.status(), EmbeddedRelayStatus::Stopped);
+        assert!(service.port_mapper.is_none());
     }
 }
