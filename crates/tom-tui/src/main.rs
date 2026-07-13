@@ -458,6 +458,7 @@ fn spawn_control_server(port: u16, handle: RuntimeHandle, inbox: Inbox) {
 /// tom-chat — TUI chat demo for the ToM protocol.
 #[derive(Parser, Debug)]
 #[command(name = "tom-chat", version)]
+#[command(group(clap::ArgGroup::new("relay_enabled").args(["self_relay", "embedded_relay"]).multiple(true)))]
 struct Cli {
     /// Peer node ID to connect to (gossip bootstrap).
     peer: Option<String>,
@@ -496,7 +497,7 @@ struct Cli {
     embedded_relay: bool,
 
     /// Enable publication of RelayReadyAnnounce via gossip (requires --embedded-relay or --self-relay).
-    #[arg(long, requires = "embedded_relay")]
+    #[arg(long, requires = "relay_enabled")]
     embedded_relay_publish: bool,
 
     /// Republication interval in seconds for RelayReadyAnnounce (publisher option, requires --embedded-relay-publish).
@@ -506,12 +507,12 @@ struct Cli {
 
     /// Bind address for the embedded relay (default: [::]:0 = dual-stack, all interfaces).
     /// Use 127.0.0.1:0 for localhost-only, or a specific IP:PORT.
-    #[arg(long, value_name = "ADDR", requires = "embedded_relay")]
+    #[arg(long, value_name = "ADDR", requires = "relay_enabled")]
     embedded_relay_bind: Option<std::net::SocketAddr>,
 
     /// Advertised IP for the embedded relay URL (overrides auto-detection).
     /// Use when auto-detection picks the wrong interface (e.g. VPN, Docker).
-    #[arg(long, value_name = "IP", requires = "embedded_relay")]
+    #[arg(long, value_name = "IP", requires = "relay_enabled")]
     embedded_relay_advertise: Option<std::net::IpAddr>,
 
     // ── Bot ping options ──
