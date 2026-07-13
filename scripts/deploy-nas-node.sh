@@ -1,40 +1,42 @@
 #!/usr/bin/env bash
-# Déploiement du nœud complet ToM sur le NAS (ARM64, Debian)
-# Usage: ./scripts/deploy-nas-node.sh [NAS_HOST]
+# Déploiement du nœud ToM sur le NAS (ARM64, Debian) — service systemd tom-node.service.
+#
+# Le NAS est géré par systemd (ExecStart=/usr/local/bin/tom-chat ..., Restart=always),
+# PAS par un lancement manuel nohup — un ancien script visait /root/tom-node en nohup,
+# ce qui se battait contre le service systemd (qui relançait l'ancien binaire toutes les
+# 5s) et échouait de toute façon (voir scripts/nas-node-ctl.sh pour le contrôle du service).
+# Corrigé 2026-07-13, même classe de bug que apps/tom-node-ios (script visant un chemin
+# de déploiement obsolète pendant qu'un autre, réel, tournait déjà en parallèle).
+#
+# Usage: ./scripts/deploy-nas-node.sh [SSH_HOST] [SSH_PORT]
+# Défaut : hôte public (82.67.95.8:2222) — l'IP LAN du NAS change au fil des redémarrages
+# de VM (DHCP), l'hôte public via le port-forward Freebox est stable.
 
 set -euo pipefail
 
-NAS="${1:-192.168.0.21}"
+SSH_HOST="${1:-82.67.95.8}"
+SSH_PORT="${2:-2222}"
 BINARY="target/aarch64-unknown-linux-musl/release/tom-chat"
-REMOTE_PATH="/root/tom-node"
-STATUS_PORT=9091
-RELAY_PORT=3340
-PUBLIC_IP="82.67.95.8"
-USERNAME="NAS"
+REMOTE_BIN="/usr/local/bin/tom-chat"
+NAS_SSH="ssh -p ${SSH_PORT} root@${SSH_HOST}"
+NAS_SCP="scp -P ${SSH_PORT}"
 
 if [[ ! -f "$BINARY" ]]; then
     echo "Binaire manquant — lancer: cargo zigbuild -p tom-tui --target aarch64-unknown-linux-musl --release"
     exit 1
 fi
 
-echo "→ Envoi du binaire vers $NAS..."
-scp "$BINARY" "root@${NAS}:${REMOTE_PATH}"
+echo "→ Envoi du binaire vers ${SSH_HOST}:${SSH_PORT} (chemin temporaire, pas d'écrasement à chaud)..."
+${NAS_SCP} "$BINARY" "root@${SSH_HOST}:${REMOTE_BIN}.new"
 
-echo "→ Arrêt des anciens processus (tom-relay, tom-chat, tom-node)..."
-ssh "root@${NAS}" "pkill -f 'tom-relay|tom-chat|tom-node' 2>/dev/null; sleep 1; true"
-
-echo "→ Lancement nœud complet..."
-ssh "root@${NAS}" "
-    chmod +x ${REMOTE_PATH}
-    nohup ${REMOTE_PATH} \
-        --bot \
-        --self-relay \
-        --username ${USERNAME} \
-        --status-port ${STATUS_PORT} \
-        --embedded-relay-advertise ${PUBLIC_IP} \
-        > /var/log/tom-node.log 2>&1 &
+echo "→ Bascule atomique + redémarrage du service tom-node..."
+${NAS_SSH} "
+    mv ${REMOTE_BIN} ${REMOTE_BIN}.bak
+    mv ${REMOTE_BIN}.new ${REMOTE_BIN}
+    chmod +x ${REMOTE_BIN}
+    systemctl restart tom-node
     sleep 2
-    curl -s http://localhost:${STATUS_PORT}/status || echo 'status server pas encore démarré'
+    systemctl is-active tom-node
 "
 
-echo "✓ NAS node déployé — logs: ssh root@${NAS} 'tail -f /var/log/tom-node.log'"
+echo "✓ NAS node redéployé — statut: bash scripts/nas-node-ctl.sh status | logs: bash scripts/nas-node-ctl.sh logs"

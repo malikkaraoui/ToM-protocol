@@ -1,6 +1,13 @@
 #!/usr/bin/env bash
 # nas-node-ctl.sh — contrôle du nœud ToM sur le NAS
-# Usage: ./scripts/nas-node-ctl.sh [status|stop|start|restart|relay-stop|relay-start|logs]
+#
+# Un seul service systemd : tom-node.service, lancé avec --self-relay
+# (relais embarqué dans le même process, pas de service tom-relay séparé).
+# Un ancien tom-relay.service référencé ici n'a jamais existé/plus jamais
+# existé sur ce NAS — corrigé 2026-07-13 après un `status` qui échouait
+# silencieusement dessus ("Unit tom-relay.service could not be found").
+#
+# Usage: ./scripts/nas-node-ctl.sh [status|stop|start|restart|logs]
 set -euo pipefail
 
 NAS_SSH="ssh -p 2222 root@82.67.95.8"
@@ -8,39 +15,27 @@ CMD="${1:-status}"
 
 case "$CMD" in
   status)
-    echo "=== tom-node (protocole) ==="
+    echo "=== tom-node (protocole + relais embarqué) ==="
     $NAS_SSH "systemctl status tom-node --no-pager | head -8" 2>&1
-    echo ""
-    echo "=== tom-relay (QUIC NAT) ==="
-    $NAS_SSH "systemctl status tom-relay --no-pager | head -8" 2>&1
     ;;
   stop)
-    $NAS_SSH "systemctl stop tom-node tom-relay"
+    $NAS_SSH "systemctl stop tom-node"
     $NAS_SSH "ss -tlnp | grep 3340 || echo 'port 3340: libre'" 2>&1
-    echo "tom-node + tom-relay: arrêtés"
+    echo "tom-node: arrêté"
     ;;
   start)
-    $NAS_SSH "systemctl start tom-relay tom-node"
-    echo "tom-relay + tom-node: démarrés"
+    $NAS_SSH "systemctl start tom-node"
+    echo "tom-node: démarré"
     ;;
   restart)
-    $NAS_SSH "systemctl restart tom-relay tom-node"
-    echo "tom-relay + tom-node: redémarrés"
-    ;;
-  relay-stop)
-    $NAS_SSH "systemctl stop tom-relay"
-    $NAS_SSH "ss -tlnp | grep 3340 || echo 'port 3340: libre'" 2>&1
-    echo "tom-relay: arrêté"
-    ;;
-  relay-start)
-    $NAS_SSH "systemctl start tom-relay"
-    echo "tom-relay: démarré"
+    $NAS_SSH "systemctl restart tom-node"
+    echo "tom-node: redémarré"
     ;;
   logs)
     $NAS_SSH "journalctl -u tom-node -n 20 --no-pager" 2>&1
     ;;
   *)
-    echo "Usage: $0 [status|stop|start|restart|relay-stop|relay-start|logs]"
+    echo "Usage: $0 [status|stop|start|restart|logs]"
     exit 1
     ;;
 esac
