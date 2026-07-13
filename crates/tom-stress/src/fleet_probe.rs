@@ -184,9 +184,14 @@ async fn print_report(
         );
     }
 
-    // Machine-readable relevé line (presence counters).
+    // Machine-readable relevé line (presence counters). Routed through the
+    // shared `emit()` helper (crate::events) so it lands in the --output-dir
+    // .jsonl file, not just raw stdout — a raw `println!` here was silently
+    // dropped from the persisted archive whenever the process ran detached
+    // (nohup/background), leaving the .jsonl empty with no peer/presence
+    // history even though the run itself worked (found 2026-07-13).
     if let Some(m) = handle.presence_metrics().await {
-        if let Ok(json) = serde_json::to_string(&serde_json::json!({
+        crate::events::emit(&serde_json::json!({
             "event": "fleet-probe-relevé",
             "elapsed_s": elapsed,
             "peers_discovered": peers.len(),
@@ -204,8 +209,6 @@ async fn print_report(
                 "latency_mean_ms": m.mean_latency_ms(),
                 "latency_max_ms": m.latency_max_ms,
             }
-        })) {
-            println!("{json}");
-        }
+        }));
     }
 }
