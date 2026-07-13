@@ -46,6 +46,14 @@
 
 ## Sur le feu
 
+### 🚧 Suite stress-test réel flotte + outillage tom-stress (2026-07-13)
+> Demande explicite : validation complète non-unitaire, adversariale, sur device réel — pas de ping-pong isolé. Voir `vault/30-discoveries.md` (2026-07-13) pour le détail complet.
+- [x] Red-team réel `presence-attack` sur QUIC live : 6/6 PASS (forge/replay/malformed/flood/sybil bloqués, cap global tenu)
+- [x] `chaos-monkey` : 6/6 PASS (kills/revives/clock-skew, réseau jamais mort)
+- [ ] **Bug `tom-stress fleet-probe`** : 0 pair découvert en 300s+ contre la vraie flotte LAN (n0/DHT désactivé volontairement, `local_discovery` seul insuffisant ou cassé) — root cause non confirmée
+- [ ] **Bug `tom-stress campaign`** : connexion directe vers la cible dégrade/meurt après la phase Ping (Burst/E2E/Group/Failover/Endurance en échec croissant) alors que la cible (NAS) reste saine et échange du trafic réel avec le reste du réseau pendant ce temps — bug d'outillage probable, pas confirmé comme bug protocole
+- [ ] **Stall NAS reconfirmé, plus rapide** : `tom-node.service` se fige (0 log, status-port muet) après ~5 min d'uptime cette fois (vs ~15min documenté avant) — cause toujours inconnue, prioritaire
+
 ### 🚧 L1-003 — Vue signée du relais (§5 ADR-011, présence scopée appareil faible)
 > Doc de conception : `docs/plans/L1-003-vue-signee-relais.md`. Suite du red-team Fable PoP (voir section suivante) — ferme le kill-shot #3 (eclipse témoin unique).
 - [x] Étape 1 — type wire `RelayPresenceView`/`PresenceEntry` (`0c78e70`, build 34)

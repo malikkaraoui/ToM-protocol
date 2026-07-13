@@ -109,6 +109,11 @@ if [ "$BUILDS" -eq 1 ]; then
   run "find . -name 'node_modules' -type d -prune -exec rm -rf {} +"
   # Xcode DerivedData éventuel dans le projet
   run "find . -name 'DerivedData' -type d -prune -exec rm -rf {} +"
+  # Xcode build/ à la racine (derived-data manuel des builds -derivedDataPath build/...) —
+  # réutilisé sur plusieurs heures sans nettoyage, XCBuild a raté un edit source du
+  # package Swift local TomProtocolKit (build affiché 39 sur un device, 41 sur un autre
+  # alors que la source disait 41 partout) — découvert 2026-07-13.
+  run "rm -rf build"
 else
   echo "[5] Artefacts régénérables: IGNORÉS (ajouter --builds pour les purger)"
 fi

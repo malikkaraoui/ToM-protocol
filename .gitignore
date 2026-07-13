@@ -61,6 +61,9 @@ apps/tom-node-tvos/build/
 # Campagne de tests multi-devices — logs/sorties volumineux, pas du code
 docs/test-campaign/*.log
 docs/test-campaign/*.out
+docs/test-campaign/**/*.log
+docs/test-campaign/**/*.out
+docs/test-campaign/**/*.jsonl
 
 # Config cargo locale (TOM_EXTRA_FALLBACK_RELAY = relais privé par machine)
 .cargo/config.toml
