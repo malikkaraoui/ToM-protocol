@@ -429,7 +429,7 @@ impl MdnsAddressLookup {
 
     /// Subscribe to discovered endpoints
     pub async fn subscribe(&self) -> impl Stream<Item = DiscoveryEvent> + Unpin + use<> {
-        let (sender, recv) = mpsc::channel(20);
+        let (sender, recv) = mpsc::channel(64);
         let address_lookup_sender = self.sender.clone();
         address_lookup_sender
             .send(Message::Subscribe(sender))

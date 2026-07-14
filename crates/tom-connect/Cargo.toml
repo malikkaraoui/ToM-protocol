@@ -8,7 +8,9 @@ rust-version = "1.89"
 
 [dependencies]
 # Core QUIC (tom-quinn fork)
-quinn = { package = "tom-quinn", path = "../tom-quinn", default-features = false, features = ["runtime-tokio", "rustls-ring"] }
+# lock_tracking: nomme les détenteurs du mutex d'état de Connection dans les logs
+# (diagnostic gel NAS 2026-07-13 — deadlock lock_contended open_path_ensure/on_closed)
+quinn = { package = "tom-quinn", path = "../tom-quinn", default-features = false, features = ["runtime-tokio", "rustls-ring", "lock_tracking"] }
 quinn-proto = { package = "tom-quinn-proto", path = "../tom-quinn-proto" }
 quinn-udp = { package = "iroh-quinn-udp", version = "0.8" }
 rustls = { version = "0.23", default-features = false, features = ["ring"] }

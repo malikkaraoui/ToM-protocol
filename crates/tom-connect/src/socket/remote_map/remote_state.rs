@@ -223,7 +223,7 @@ impl RemoteStateActor {
         tasks: &mut JoinSet<(EndpointId, Vec<RemoteStateMessage>)>,
         shutdown_token: CancellationToken,
     ) -> mpsc::Sender<RemoteStateMessage> {
-        let (tx, rx) = mpsc::channel(16);
+        let (tx, rx) = mpsc::channel(64);
         let me = self.local_endpoint_id;
         let endpoint_id = self.endpoint_id;
 

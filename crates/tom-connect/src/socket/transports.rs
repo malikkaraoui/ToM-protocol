@@ -15,7 +15,7 @@ use n0_watcher::Watcher;
 use relay::{RelayNetworkChangeSender, RelaySender};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, error, instrument, trace, warn};
+use tracing::{error, instrument, trace, warn};
 
 use super::{Socket, mapped_addrs::MultipathMappedAddr};
 use crate::{metrics::EndpointMetrics, net_report::Report};
@@ -790,11 +790,11 @@ impl quinn::UdpSender for Sender {
                         // different transport.  Instead we let Quinn handle this as
                         // a lost datagram.
                         // TODO: Revisit this: we might want to do something better.
-                        debug!(
+                        warn!(
                             dst = ?mapped_addr,
                             dst_endpoint = %endpoint_id.fmt_short(),
                             ?msg,
-                            "RemoteStateActor inbox dropped message"
+                            "RemoteStateActor inbox dropped message (buffer exhausted)"
                         );
                         return Poll::Ready(Ok(()));
                     }

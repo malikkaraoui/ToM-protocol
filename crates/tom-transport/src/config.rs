@@ -3,11 +3,13 @@ use std::path::PathBuf;
 
 /// Fallback relay list (public relays) used when discovery fails
 /// and no static relay is configured.
-pub const DEFAULT_RELAY_URLS: &[&str] = &[
-    "https://relay-eu.tom-protocol.org",
-    "https://relay-us.tom-protocol.org",
-    "https://relay-asia.tom-protocol.org",
-];
+///
+/// EMPTY: Default public relays (relay-eu/us/asia.tom-protocol.org) are NXDOMAIN
+/// in prod and trigger starvation of RemoteStateActor inbox (mpsc::channel(16)
+/// → drops when full, simulating handshake failure). Discovery via DNS TXT
+/// and EXTRA_FALLBACK_RELAY compile-time inject provide alternatives.
+/// Cf. iroh #4325, iroh-gossip #149, ADR-010.
+pub const DEFAULT_RELAY_URLS: &[&str] = &[];
 
 /// Relais fallback privé injecté à la COMPILATION, prioritaire sur les
 /// relais publics. Réservé aux déploiements privés (flotte perso, tests) :
@@ -304,7 +306,7 @@ impl TomNodeConfig {
 
 #[cfg(test)]
 mod tests {
-    use super::{DEFAULT_RELAY_URLS, TomNodeConfig, fallback_relay_urls};
+    use super::{TomNodeConfig, fallback_relay_urls};
 
     #[test]
     fn relay_url_sets_single_priority_list() {
@@ -360,14 +362,10 @@ mod tests {
     #[test]
     fn fallback_relay_urls_contains_default_public_relays() {
         let parsed = fallback_relay_urls();
-        // Robuste à TOM_EXTRA_FALLBACK_RELAY (compile-time) : les relais
-        // publics sont toujours là, l'extra s'ajoute devant s'il est défini.
+        // DEFAULT_RELAY_URLS is now empty (NXDOMAIN protection, cf. ADR-010).
+        // Fallback relies only on EXTRA_FALLBACK_RELAY (compile-time) and DNS TXT discovery.
         let extra = usize::from(super::EXTRA_FALLBACK_RELAY.is_some());
-        assert_eq!(parsed.len(), DEFAULT_RELAY_URLS.len() + extra);
-        for url in DEFAULT_RELAY_URLS {
-            let parsed_url: tom_connect::RelayUrl = url.parse().unwrap();
-            assert!(parsed.contains(&parsed_url), "relais public manquant: {url}");
-        }
+        assert_eq!(parsed.len(), extra);
         if let Some(extra_url) = super::EXTRA_FALLBACK_RELAY {
             assert_eq!(parsed[0], extra_url.parse::<tom_connect::RelayUrl>().unwrap());
         }

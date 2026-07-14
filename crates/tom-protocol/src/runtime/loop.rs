@@ -982,8 +982,11 @@ async fn bootstrap_join_peer(
 
     if let Some(sender) = gossip_sender {
         if let Err(error) = sender.join_peers(vec![endpoint_id]).await {
-            tracing::debug!(peer = %node_id, source = %source, %error, "bootstrap: gossip join failed");
+            tracing::warn!(peer = %node_id, source = %source, %error, "bootstrap: gossip join failed — dial/join will not be attempted");
         }
+    } else {
+        // Gossip subscription failed at startup — cannot attempt join_peers, so peer won't be contacted
+        tracing::warn!(peer = %node_id, source = %source, "bootstrap: gossip unavailable — peer hint accepted but join_peers not possible");
     }
 
     if *bootstrap_phase != BootstrapPhase::Converged {

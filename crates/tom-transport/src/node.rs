@@ -13,11 +13,13 @@ use tom_connect::{Endpoint, RelayMode};
 use tom_gossip::Gossip;
 use n0_future::StreamExt;
 use serde::Deserialize;
+use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{broadcast, mpsc, oneshot};
 use tokio::task::JoinHandle;
+use tokio::time::Instant;
 
 #[derive(Debug, Deserialize)]
 struct DiscoveryRelay {
@@ -379,8 +381,40 @@ impl TomNode {
                     let (hint_tx, hint_rx) = mpsc::channel(64);
                     let mut mdns_events = mdns.subscribe().await;
                     tokio::spawn(async move {
+                        let mut last_hint_time: HashMap<tom_base::EndpointId, Instant> = HashMap::new();
+                        const HINT_DEDUP_WINDOW: Duration = Duration::from_secs(5);
+                        // Eviction: periodically clean up stale entries to prevent unbounded growth
+                        let mut cleanup_counter = 0usize;
+                        const CLEANUP_INTERVAL: usize = 100; // After 100 hints, evict stale entries
+
                         while let Some(event) = mdns_events.next().await {
                             if let Some(hint) = crate::bootstrap::mdns_event_to_hint(event) {
+                                // Temporal dedup: skip hints for the same endpoint within 5s window
+                                // Note: only one variant exists, so this always matches
+                                let crate::BootstrapHint::MdnsDiscovered { endpoint_addr } = &hint;
+                                let endpoint_id = endpoint_addr.id;
+                                let now = Instant::now();
+
+                                let should_send = if let Some(last_time) = last_hint_time.get(&endpoint_id) {
+                                    now.duration_since(*last_time) >= HINT_DEDUP_WINDOW
+                                } else {
+                                    true
+                                };
+
+                                if !should_send {
+                                    // Hint is too recent, skip it (reduces mDNS buffer saturation)
+                                    continue;
+                                }
+
+                                last_hint_time.insert(endpoint_id, now);
+
+                                // Periodically evict entries older than the dedup window
+                                cleanup_counter += 1;
+                                if cleanup_counter >= CLEANUP_INTERVAL {
+                                    last_hint_time.retain(|_, t| now.duration_since(*t) < HINT_DEDUP_WINDOW);
+                                    cleanup_counter = 0;
+                                }
+
                                 if hint_tx.send(hint).await.is_err() {
                                     break;
                                 }
@@ -1040,8 +1074,8 @@ mod tests {
     #[test]
     fn parse_dns_txt_relays_accepts_commas_and_spaces() {
         let records = vec![
-            "https://relay-eu.tom-protocol.org,https://relay-us.tom-protocol.org".to_string(),
-            "https://relay-asia.tom-protocol.org".to_string(),
+            "http://127.0.0.1:3340,http://127.0.0.1:3341".to_string(),
+            "http://127.0.0.1:3342".to_string(),
             "invalid-url".to_string(),
         ];
 
@@ -1121,17 +1155,10 @@ mod tests {
         let node = TomNode::bind(config).await.unwrap();
         let relays = node.pool.default_relay_urls().await;
 
-        let eu: tom_connect::RelayUrl = "https://relay-eu.tom-protocol.org".parse().unwrap();
-        let us: tom_connect::RelayUrl = "https://relay-us.tom-protocol.org".parse().unwrap();
-        let asia: tom_connect::RelayUrl = "https://relay-asia.tom-protocol.org".parse().unwrap();
-
-        // Robuste à TOM_EXTRA_FALLBACK_RELAY (compile-time, builds privés) :
-        // les 3 relais publics sont toujours présents, l'extra s'ajoute.
+        // DEFAULT_RELAY_URLS is now empty (NXDOMAIN in prod, causes starvation).
+        // Fallback relies only on EXTRA_FALLBACK_RELAY (compile-time) and DNS TXT discovery.
         let extra = usize::from(crate::config::EXTRA_FALLBACK_RELAY.is_some());
-        assert_eq!(relays.len(), 3 + extra);
-        assert!(relays.contains(&eu));
-        assert!(relays.contains(&us));
-        assert!(relays.contains(&asia));
+        assert_eq!(relays.len(), extra, "only EXTRA_FALLBACK_RELAY should be present");
         if let Some(extra_url) = crate::config::EXTRA_FALLBACK_RELAY {
             assert!(relays.contains(&extra_url.parse::<tom_connect::RelayUrl>().unwrap()));
         }
@@ -1154,11 +1181,12 @@ mod tests {
         let relays = node.pool.default_relay_urls().await;
 
         let discovered: tom_connect::RelayUrl = "http://127.0.0.1:3340".parse().unwrap();
-        let fallback_eu: tom_connect::RelayUrl =
-            "https://relay-eu.tom-protocol.org".parse().unwrap();
 
+        // When discovery succeeds, only discovered relays are used.
+        // DEFAULT_RELAY_URLS is empty (cf. ADR-010, NXDOMAIN protection).
+        // Fallbacks (EXTRA_FALLBACK_RELAY and public defaults) are not merged into discovered list.
         assert!(relays.contains(&discovered));
-        assert!(!relays.contains(&fallback_eu));
+        assert_eq!(relays.len(), 1, "only discovered relay should be present");
 
         node.shutdown().await.unwrap();
         let _ = shutdown_tx.send(());
