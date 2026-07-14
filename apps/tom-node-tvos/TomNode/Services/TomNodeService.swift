@@ -876,18 +876,21 @@ final class TomNodeService: ObservableObject {
                 // Poll and integrate protocol events into activity log
                 let newEvents = await self.node.receiveEvents()
                 for event in newEvents {
+                    // Texte avec NOMS d'appareils résolus (« Freebox · 11d5bb11 »
+                    // au lieu de l'ID brut) — l'utilisatrice veut lire des noms.
+                    let text = event.displayLine(resolvingNames: { self.displayName(for: $0) })
                     // Anti-bruit : ne pas empiler un événement identique (même
                     // type + même texte) à la toute dernière entrée. Le churn
                     // discovery/stale d'un même pair spammait la liste.
                     if let last = self.activityLog.last,
-                       last.type == event.type, last.displayText == event.displayText {
+                       last.type == event.type, last.displayText == text {
                         continue
                     }
                     let entry = ActivityEntry(
                         id: UUID(),
                         timestamp: TimeInterval(event.ts_ms) / 1000,
                         type: event.type,
-                        displayText: event.displayText,
+                        displayText: text,
                         relativeTime: event.relativeTime
                     )
                     self.activityLog.append(entry)
@@ -896,7 +899,7 @@ final class TomNodeService: ObservableObject {
                         self.activityLog = Array(self.activityLog.suffix(100))
                     }
                     // Also send to Live Log (UDP + local append)
-                    self.appendLog(.info, event.displayText)
+                    self.appendLog(.info, text)
                 }
 
                 // Purge expired probe messages (TTL 5 min) — du dictionnaire TTL
