@@ -181,6 +181,11 @@ final class TomNodeService: ObservableObject {
 
     // MARK: - Device Name Mapping & Persistence
 
+    /// Nom joli de CE device (pour le titre) : "Mac" → "MacBook Pro", etc.
+    var localDisplayName: String {
+        Self.prettifyNames[username] ?? username
+    }
+
     /// Table de noms jolis : username brut → affichage utilisatrice
     private static let prettifyNames: [String: String] = [
         "nas": "Freebox",
@@ -232,29 +237,38 @@ final class TomNodeService: ObservableObject {
     /// - Sinon cherche dans discoveredPeers (id complet OU préfixe 8)
     /// - Applique le mapping joli (nas→Freebox, etc.)
     /// - Retour : "Freebox (01f9bff9…)" ou "01f9bff9…" si inconnu
+    /// Format d'affichage : NOM d'abord, puis le début de l'ID unique.
+    /// Ex : "Freebox · 11d5bb11" · "Apple TV · 75145c05". Deux iPhones se
+    /// distinguent naturellement par leur début d'ID.
+    private func formatName(_ pretty: String, _ nodeId: String) -> String {
+        "\(pretty) · \(String(nodeId.prefix(8)))"
+    }
+
+    /// Résout le username brut d'un pair depuis le cache ou discoveredPeers.
+    private func rawUsername(for nodeId: String) -> String? {
+        if let peer = discoveredPeers.first(where: { $0.nodeId == nodeId
+            || $0.nodeId.hasPrefix(nodeId.prefix(8)) }), !peer.username.isEmpty {
+            return peer.username
+        }
+        return nil
+    }
+
     func displayName(for nodeId: String) -> String {
-        // 1. Cache knownNames (id complet)
-        if let cachedName = knownNames[nodeId] {
-            return cachedName
-        }
-
-        // 2. Cherche dans discoveredPeers (id complet OU préfixe 8)
-        let peer = discoveredPeers.first { p in
-            p.nodeId == nodeId || p.nodeId.hasPrefix(nodeId.prefix(8))
-        }
-
-        if let peer = peer, !peer.username.isEmpty {
-            // Applique le mapping joli
-            let prettyName = Self.prettifyNames[peer.username] ?? peer.username
-            let display = "\(prettyName) (\(String(peer.nodeId.prefix(8)))…)"
-            knownNames[nodeId] = display
-            savePersistentNames()
+        // Résout le nom courant (peut arriver APRÈS un premier affichage sans
+        // nom — on ne fige donc pas un fallback dans le cache).
+        if let raw = rawUsername(for: nodeId) {
+            let pretty = Self.prettifyNames[raw] ?? raw
+            let display = formatName(pretty, nodeId)
+            if knownNames[nodeId] != display {
+                knownNames[nodeId] = display
+                savePersistentNames()
+            }
             return display
         }
-
-        // 3. Fallback : affiche juste le shortId
-        let shortId = String(nodeId.prefix(8)) + "…"
-        return shortId
+        // Nom déjà connu (persisté) même si le pair n'est plus dans discoveredPeers.
+        if let cached = knownNames[nodeId] { return cached }
+        // Fallback : début d'ID seul, jamais mémorisé (pour laisser le vrai nom arriver).
+        return String(nodeId.prefix(8))
     }
 
     private var normalizedRelayUrl: String? {
@@ -862,6 +876,13 @@ final class TomNodeService: ObservableObject {
                 // Poll and integrate protocol events into activity log
                 let newEvents = await self.node.receiveEvents()
                 for event in newEvents {
+                    // Anti-bruit : ne pas empiler un événement identique (même
+                    // type + même texte) à la toute dernière entrée. Le churn
+                    // discovery/stale d'un même pair spammait la liste.
+                    if let last = self.activityLog.last,
+                       last.type == event.type, last.displayText == event.displayText {
+                        continue
+                    }
                     let entry = ActivityEntry(
                         id: UUID(),
                         timestamp: TimeInterval(event.ts_ms) / 1000,

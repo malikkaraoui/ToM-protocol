@@ -289,9 +289,12 @@ public struct TomProtocolEvent: Codable, Hashable, Identifiable {
             return String(f.prefix(8))
         }
 
+        // Nom non vide, sinon nil (un username "" ne doit pas afficher du vide).
+        let name = (username?.isEmpty == false) ? username : nil
+
         switch type {
         case "PeerDiscovered":
-            return "👤 Pair découvert : \(username ?? shortId(node_id))"
+            return "👤 Pair découvert : \(name ?? shortId(node_id))"
         case "PeerOnline":
             return "🟢 Pair en ligne : \(shortId(node_id))"
         case "PeerOffline":
