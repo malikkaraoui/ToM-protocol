@@ -96,8 +96,11 @@ pub struct RuntimeState {
     /// Peers already surfaced to the app as PeerDiscovered (dedup of the
     /// discovery *signal*, independent of topology membership — hints/AddPeer
     /// register peers in topology silently, so "new in topology" can't be the
-    /// emit criterion). Bounded: cleared beyond SURFACED_PEERS_MAX.
-    surfaced_peers: std::collections::HashSet<NodeId>,
+    /// emit criterion). Value = whether we surfaced it WITH a non-empty
+    /// username, so a later announce carrying the real name can re-emit once
+    /// (a nameless NeighborUp arriving first must not suppress the name
+    /// forever). Bounded: cleared beyond SURFACED_PEERS_MAX.
+    surfaced_peers: std::collections::HashMap<NodeId, bool>,
 
     // Phase R7.1: DHT-based peer discovery
     pub(crate) dht: Option<DhtDiscovery>,
@@ -232,7 +235,7 @@ impl RuntimeState {
             role_manager,
             local_roles: vec![PeerRole::Peer],
             role_announce_throttle: std::collections::HashMap::new(),
-            surfaced_peers: std::collections::HashSet::new(),
+            surfaced_peers: std::collections::HashMap::new(),
             dht,
             antispam: crate::roles::AntiSpam::new(config.antispam_config.clone()),
             presence: crate::presence::PresenceManager::new(),
@@ -1554,9 +1557,16 @@ impl RuntimeState {
         if self.surfaced_peers.len() >= Self::SURFACED_PEERS_MAX {
             self.surfaced_peers.clear();
         }
-        if !self.surfaced_peers.insert(node_id) {
-            return None;
+        let has_name = !username.is_empty();
+        match self.surfaced_peers.get(&node_id) {
+            // Already surfaced WITH a name → nothing new to say.
+            Some(true) => return None,
+            // Surfaced nameless before, and still nameless → no re-emit.
+            Some(false) if !has_name => return None,
+            // First time, or now we finally have the name → emit (once for the name).
+            _ => {}
         }
+        self.surfaced_peers.insert(node_id, has_name);
         Some(RuntimeEffect::Emit(ProtocolEvent::PeerDiscovered {
             node_id,
             username,
