@@ -149,6 +149,13 @@ pub(super) async fn runtime_loop(
     // see this, so a stale inbound clock means we are effectively isolated.
     let mut last_inbound_at = now_ms();
 
+    // Throttle the mass-rejoin triggered on gossip NeighborDown. Without it, a
+    // flapping neighbor (or several at once) fires join_peers(ALL known peers)
+    // dozens of times per second — a rejoin storm that burns CPU on weak
+    // devices (Apple TV) and floods the activity log with PeerStale churn.
+    let mut last_gossip_rejoin_at: u64 = 0;
+    const GOSSIP_REJOIN_THROTTLE_MS: u64 = 3_000;
+
     // Announce into the shared rendezvous + pull live peers immediately, so a
     // node with no prior knowledge starts finding the network from the first tick.
     spawn_rendezvous_round(
@@ -455,19 +462,28 @@ pub(super) async fn runtime_loop(
                             let node_id = NodeId::from_endpoint_id(endpoint_id);
                             let effects = state.handle_gossip_event(GossipInput::NeighborDown(node_id));
 
-                            // If we lost all gossip neighbors, re-bootstrap:
-                            // rejoin known peers so we reconnect instead of staying isolated.
-                            if let Some(ref sender) = gossip_sender {
-                                let known_peers: Vec<_> = state.topology.peers()
-                                    .map(|p| *p.node_id.as_endpoint_id())
-                                    .collect();
-                                if !known_peers.is_empty() {
-                                    tracing::info!(
-                                        peers = known_peers.len(),
-                                        "neighbor down — rejoining {} known peers",
-                                        known_peers.len()
-                                    );
-                                    let _ = sender.join_peers(known_peers).await;
+                            // Re-bootstrap on neighbor loss: rejoin known peers so
+                            // we reconnect instead of staying isolated — but THROTTLED.
+                            // A flapping neighbor otherwise fires this dozens of times
+                            // per second (rejoin storm). At most once per throttle
+                            // window; flaps within the window are coalesced.
+                            let now = now_ms();
+                            if now.saturating_sub(last_gossip_rejoin_at)
+                                > GOSSIP_REJOIN_THROTTLE_MS
+                            {
+                                if let Some(ref sender) = gossip_sender {
+                                    let known_peers: Vec<_> = state.topology.peers()
+                                        .map(|p| *p.node_id.as_endpoint_id())
+                                        .collect();
+                                    if !known_peers.is_empty() {
+                                        last_gossip_rejoin_at = now;
+                                        tracing::info!(
+                                            peers = known_peers.len(),
+                                            "neighbor down — rejoining {} known peers (throttled)",
+                                            known_peers.len()
+                                        );
+                                        let _ = sender.join_peers(known_peers).await;
+                                    }
                                 }
                             }
 
