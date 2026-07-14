@@ -21,9 +21,9 @@ struct ContentView: View {
                     Label("Messages", systemImage: "message")
                 }
 
-            GroupsView()
+            ActivityView()
                 .tabItem {
-                    Label("Groups", systemImage: "person.3")
+                    Label("Activité", systemImage: "waveform.circle.fill")
                 }
 
             SettingsView()

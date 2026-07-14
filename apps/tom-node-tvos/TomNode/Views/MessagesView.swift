@@ -7,10 +7,9 @@ struct MessagesView: View {
     @State private var targetPeerId = ""
     @State private var messageText = ""
 
-    /// Resolve a NodeId to a display name from discovered peers
+    /// Resolve a NodeId to a display name via the service's central mapping
     private func displayName(for nodeId: NodeId) -> String {
-        nodeService.discoveredPeers.first(where: { $0.nodeId == nodeId })?.displayName
-            ?? (String(nodeId.prefix(8)) + "...")
+        nodeService.displayName(for: nodeId)
     }
 
     var body: some View {

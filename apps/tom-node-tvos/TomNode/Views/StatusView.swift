@@ -68,15 +68,10 @@ struct StatusView: View {
                 Text("Aucune connexion").font(.subheadline).foregroundColor(.secondary)
             } else {
                 ForEach(shown, id: \.self) { peerId in
-                    let known = nodeService.discoveredPeers.first { $0.nodeId == peerId }
                     HStack(spacing: 10) {
                         Circle().fill(.green).frame(width: 7, height: 7)
-                        if let name = known?.username, !name.isEmpty {
-                            Text(name).font(.body).fontWeight(.medium)
-                        }
-                        Text(shortId(peerId))
-                            .font(.system(.caption, design: .monospaced))
-                            .foregroundColor(.secondary)
+                        Text(nodeService.displayName(for: peerId))
+                            .font(.body).fontWeight(.medium)
                         Spacer()
                     }
                     .padding(.vertical, 2)
@@ -252,15 +247,10 @@ struct StatusView: View {
                 Text("Aucune connexion").font(.subheadline).foregroundColor(.secondary)
             } else {
                 ForEach(nodeService.connectedPeers, id: \.self) { peerId in
-                    let known = nodeService.discoveredPeers.first { $0.nodeId == peerId }
                     HStack(spacing: 10) {
                         Circle().fill(.green).frame(width: 7, height: 7)
-                        if let name = known?.username, !name.isEmpty {
-                            Text(name).font(.body).fontWeight(.medium)
-                        }
-                        Text(shortId(peerId))
-                            .font(.system(.caption, design: .monospaced))
-                            .foregroundColor(.secondary)
+                        Text(nodeService.displayName(for: peerId))
+                            .font(.body).fontWeight(.medium)
                         Spacer()
                     }
                     .padding(.vertical, 2)

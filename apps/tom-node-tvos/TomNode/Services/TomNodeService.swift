@@ -27,6 +27,11 @@ final class TomNodeService: ObservableObject {
     private var autoMessageAttemptedAt: [String: Date] = [:]
     private var seededPeerIds = Set<String>()
 
+    // Mapping id→nom découvert, persisté en UserDefaults (anti-reset tvOS)
+    private var knownNames: [String: String] = [:]
+    private static let knownNamesKey = "tom_known_names"
+    private var lastSaveTime: Date = Date()
+
     @Published var state: TomNodeState = .stopped
     @Published var nodeId: String = ""
     @Published var peersCount: Int = 0
@@ -111,6 +116,10 @@ final class TomNodeService: ObservableObject {
     private var nodeStartTime: Date?
     /// Count of messages sent by this node (used in structured logs).
     private var totalMessagesSentCount: Int = 0
+    /// Cumulative count of messages RECEIVED — monotone, independent of the
+    /// message store (the probe TTL purge shrinks the store, and deriving
+    /// recv from total-sent went negative once probes outnumbered receipts).
+    private var totalMessagesReceivedCount: Int = 0
     /// First bootstrap source observed — persisted across all subsequent log lines.
     private var firstBootstrapSource: String? = nil
 
@@ -166,7 +175,87 @@ final class TomNodeService: ObservableObject {
     private var wasRunningBeforeSleep = false
     private static let cachedPeerKey = "tom_bg_peers"
 
-    private init() {}
+    private init() {
+        loadPersistentNames()
+    }
+
+    // MARK: - Device Name Mapping & Persistence
+
+    /// Table de noms jolis : username brut → affichage utilisatrice
+    private static let prettifyNames: [String: String] = [
+        "nas": "Freebox",
+        "Mac": "MacBook Pro",
+        "iPad": "iPad",
+        "iPhone": "iPhone",
+        "AppleTV": "Apple TV"
+    ]
+
+    /// Charge le cache knownNames depuis UserDefaults (anti-reset tvOS)
+    private func loadPersistentNames() {
+        guard let jsonData = UserDefaults.standard.data(forKey: Self.knownNamesKey),
+              let dict = try? JSONDecoder().decode([String: String].self, from: jsonData) else {
+            knownNames = [:]
+            return
+        }
+        knownNames = dict
+    }
+
+    /// Sauvegarde knownNames en UserDefaults (throttled : max 1×/5s)
+    private func savePersistentNames() {
+        let now = Date()
+        guard now.timeIntervalSince(lastSaveTime) >= 5 else { return }
+        lastSaveTime = now
+
+        if let jsonData = try? JSONEncoder().encode(knownNames) {
+            UserDefaults.standard.set(jsonData, forKey: Self.knownNamesKey)
+        }
+    }
+
+    /// Charge les compteurs persistants depuis UserDefaults
+    private func loadPersistentCounters() {
+        let saved = UserDefaults.standard
+        totalMessagesCount = saved.integer(forKey: "tom_total_messages_count")
+        totalMessagesSentCount = saved.integer(forKey: "tom_total_messages_sent_count")
+        totalMessagesReceivedCount = saved.integer(forKey: "tom_total_messages_received_count")
+    }
+
+    /// Sauvegarde les compteurs en UserDefaults (throttled : max 1×/50 messages)
+    private func savePersistentCounters() {
+        let saved = UserDefaults.standard
+        saved.set(totalMessagesCount, forKey: "tom_total_messages_count")
+        saved.set(totalMessagesSentCount, forKey: "tom_total_messages_sent_count")
+        saved.set(totalMessagesReceivedCount, forKey: "tom_total_messages_received_count")
+    }
+
+    /// Retourne le nom affichable pour un nodeId :
+    /// - Cherche dans le cache knownNames (id complet)
+    /// - Sinon cherche dans discoveredPeers (id complet OU préfixe 8)
+    /// - Applique le mapping joli (nas→Freebox, etc.)
+    /// - Retour : "Freebox (01f9bff9…)" ou "01f9bff9…" si inconnu
+    func displayName(for nodeId: String) -> String {
+        // 1. Cache knownNames (id complet)
+        if let cachedName = knownNames[nodeId] {
+            return cachedName
+        }
+
+        // 2. Cherche dans discoveredPeers (id complet OU préfixe 8)
+        let peer = discoveredPeers.first { p in
+            p.nodeId == nodeId || p.nodeId.hasPrefix(nodeId.prefix(8))
+        }
+
+        if let peer = peer, !peer.username.isEmpty {
+            // Applique le mapping joli
+            let prettyName = Self.prettifyNames[peer.username] ?? peer.username
+            let display = "\(prettyName) (\(String(peer.nodeId.prefix(8)))…)"
+            knownNames[nodeId] = display
+            savePersistentNames()
+            return display
+        }
+
+        // 3. Fallback : affiche juste le shortId
+        let shortId = String(nodeId.prefix(8)) + "…"
+        return shortId
+    }
 
     private var normalizedRelayUrl: String? {
         let trimmed = relayUrl.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -200,7 +289,7 @@ final class TomNodeService: ObservableObject {
             .replacingOccurrences(of: "\n", with: " ")
         let uptimeS = nodeStartTime.map { Int(-$0.timeIntervalSinceNow) } ?? 0
         let msgsSent = totalMessagesSentCount
-        let msgsRecv = totalMessagesCount - totalMessagesSentCount
+        let msgsRecv = totalMessagesReceivedCount
         let shortId = String(nodeId.prefix(8))
         let effectiveSource = sourceAmorcage ?? firstBootstrapSource
         let srcField = effectiveSource.map { ",\"source_amorcage\":\"\($0)\"" } ?? ""
@@ -353,6 +442,9 @@ final class TomNodeService: ObservableObject {
         stopNetworkLogExport()
         startNetworkLogExportIfNeeded()
 
+        // Charge les compteurs persistants (anti-reset tvOS)
+        loadPersistentCounters()
+
         appendLog(.info, "Starting node...")
         appendLog(.info, "Relay mode: \(relayStatusLabel)")
         appendLog(.info, "Username: \(username), Encryption: \(encryption)")
@@ -482,6 +574,8 @@ final class TomNodeService: ObservableObject {
         groupsCount = 0
         nodeStartTime = nil
         totalMessagesSentCount = 0
+        savePersistentNames()
+        savePersistentCounters()
         appendLog(.info, "Node stopped. Echo count: \(echoCount)")
         log.info("Node stopped")
 
@@ -660,9 +754,11 @@ final class TomNodeService: ObservableObject {
                         try await self.node.sendMessage(to: peer, payload: payload)
                         self.totalMessagesSentCount += 1
                         self.probeExpirationTimes[uuid] = now.addingTimeInterval(Self.probeTtlMinutes)
-                        self.appendLog(.network, "PROBE↑ seq=\(self.probeSeq) → \(String(peer.prefix(8)))")
+                        let displayName = self.displayName(for: peer)
+                        self.appendLog(.network, "PROBE↑ seq=\(self.probeSeq) → \(displayName)")
                     } catch {
-                        self.appendLog(.error, "PROBE✗ seq=\(self.probeSeq) → \(String(peer.prefix(8))): \(error.localizedDescription)")
+                        let displayName = self.displayName(for: peer)
+                        self.appendLog(.error, "PROBE✗ seq=\(self.probeSeq) → \(displayName): \(error.localizedDescription)")
                     }
                 }
             }
@@ -673,6 +769,7 @@ final class TomNodeService: ObservableObject {
         var knownPeerIds = Set<String>()
         var lastPeerCount = 0
         var lastPresenceTotal: UInt64 = 0
+        var lastSaveMessageCount = 0
 
         pollTask = Task { [weak self] in
             while !Task.isCancelled {
@@ -730,13 +827,15 @@ final class TomNodeService: ObservableObject {
                     )
                     self.messages.append(display)
                     self.totalMessagesCount += 1
+                    self.totalMessagesReceivedCount += 1
 
                     // Log et TTL pour les sondes
+                    let senderDisplay = self.displayName(for: msg.from)
                     if isProbe {
                         self.probeExpirationTimes[msg.id] = Date().addingTimeInterval(Self.probeTtlMinutes)
-                        self.appendLog(.network, "PROBE↓ from \(senderShort): \(textPreview)")
+                        self.appendLog(.network, "PROBE↓ from \(senderDisplay): \(textPreview)")
                     } else {
-                        self.appendLog(.network, "MSG from \(senderShort): \(textPreview)")
+                        self.appendLog(.network, "MSG from \(senderDisplay): \(textPreview)")
                     }
 
                     // Auto-echo : réponse FIXE (accusé), y compris pour un gros
@@ -791,6 +890,12 @@ final class TomNodeService: ObservableObject {
                     self.messages.removeAll { expiredKeys.contains($0.id) }
                     let purgeCnt = before - self.messages.count
                     self.appendLog(.info, "PROBE✕ \(expiredKeys.count) TTL expirés, \(purgeCnt) messages retirés du store")
+                }
+
+                // Sauvegarde les compteurs tous les 50 messages
+                if self.totalMessagesCount - lastSaveMessageCount >= 50 {
+                    lastSaveMessageCount = self.totalMessagesCount
+                    self.savePersistentCounters()
                 }
 
                 // Poll status + peers
@@ -862,7 +967,8 @@ final class TomNodeService: ObservableObject {
                 let payload = Data(probe.utf8)
                 try await node.sendMessage(to: peer.nodeId, payload: payload)
                 autoMessagedPeerIds.insert(peer.nodeId)
-                appendLog(.network, "AUTO-PING → \(targetLabel): \(probe)")
+                let displayName = displayName(for: peer.nodeId)
+                appendLog(.network, "AUTO-PING → \(displayName): \(probe)")
 
                 let sent = TomMessage(
                     id: UUID().uuidString,
@@ -1101,7 +1207,7 @@ final class TomNodeService: ObservableObject {
         }
         let uptimeSec = nodeStartTime.map { Int(-$0.timeIntervalSinceNow) } ?? 0
         let sentCount = totalMessagesSentCount
-        let recvCount = max(0, totalMessagesCount - totalMessagesSentCount)
+        let recvCount = totalMessagesReceivedCount
         let dict: [String: Any] = [
             "schema_version": 1,
             "node": username,
