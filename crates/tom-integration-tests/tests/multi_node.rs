@@ -261,11 +261,29 @@ async fn idle_then_reply() -> anyhow::Result<()> {
     // B répond après 30 secondes d'inactivité
     bob.handle.send_message(alice.id, b"oui je suis la".to_vec()).await?;
 
-    let msg = timeout(Duration::from_secs(10), alice.messages.recv())
-        .await
-        .map_err(|_| anyhow::anyhow!("A didn't receive reply after 30s idle"))?;
-    assert!(msg.is_some());
-    assert_eq!(msg.unwrap().payload, b"oui je suis la");
+    // Filter messages to ensure we get the one from Bob (not from other nodes on the LAN)
+    let mut reply_from_bob = None;
+    let start_reply = tokio::time::Instant::now();
+    while start_reply.elapsed() < Duration::from_secs(10) {
+        match timeout(Duration::from_millis(500), alice.messages.recv()).await {
+            Ok(Some(msg)) => {
+                eprintln!("Alice got message from {}: {:?}", msg.from, String::from_utf8_lossy(&msg.payload));
+                if msg.from == bob.id {
+                    reply_from_bob = Some(msg);
+                    break;
+                }
+                // Otherwise skip and wait for next message
+            }
+            Ok(None) => break, // Channel closed
+            Err(_) => {
+                // Timeout on single message, continue loop
+            }
+        }
+    }
+
+    let msg = reply_from_bob
+        .ok_or_else(|| anyhow::anyhow!("A didn't receive reply from B after 30s idle"))?;
+    assert_eq!(msg.payload, b"oui je suis la");
     eprintln!("Reply received after 30s idle: OK");
 
     Ok(())

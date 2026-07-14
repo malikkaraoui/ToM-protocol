@@ -45,7 +45,9 @@ mod tracking {
             // We don't bother dispatching through Runtime::now because they're pure performance
             // diagnostics.
             let now = Instant::now();
-            let guard = self.inner.lock().unwrap();
+            // Handle poisoned mutex gracefully: recover the value even if another thread panicked
+            // while holding the lock. This prevents cascading panics in Drop impls.
+            let guard = self.inner.lock().unwrap_or_else(|e| e.into_inner());
 
             let lock_time = Instant::now();
             let elapsed = lock_time.duration_since(now);
@@ -134,8 +136,11 @@ mod non_tracking {
         ///
         /// The purpose will be recorded in the list of last lock owners
         pub(crate) fn lock(&self, _purpose: &'static str) -> MutexGuard<'_, T> {
+            // Handle poisoned mutex gracefully: recover the value even if another thread panicked
+            // while holding the lock. This prevents cascading panics in Drop impls.
+            let guard = self.inner.lock().unwrap_or_else(|e| e.into_inner());
             MutexGuard {
-                guard: self.inner.lock().unwrap(),
+                guard,
             }
         }
     }
