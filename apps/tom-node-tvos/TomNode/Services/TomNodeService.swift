@@ -48,6 +48,11 @@ final class TomNodeService: ObservableObject {
     // Activity log (events from runtime) — cappé à 100 entrées FIFO
     @Published var activityLog: [ActivityEntry] = []
 
+    // Security alerts — Phase 2 Sprint 3 (indicateur ATTAQUE)
+    @Published var securityAlerts: Int = 0
+    @Published var lastSecurityEventAt: Date?
+    @Published var lastSecurityEventText: String = ""
+
     // Live log
     @Published var logEntries: [LogEntry] = []
 
@@ -588,6 +593,10 @@ final class TomNodeService: ObservableObject {
         groupsCount = 0
         nodeStartTime = nil
         totalMessagesSentCount = 0
+        // Phase 2 Sprint 3 : reset security alerts on stop
+        securityAlerts = 0
+        lastSecurityEventAt = nil
+        lastSecurityEventText = ""
         savePersistentNames()
         savePersistentCounters()
         appendLog(.info, "Node stopped. Echo count: \(echoCount)")
@@ -900,6 +909,16 @@ final class TomNodeService: ObservableObject {
                     }
                     // Also send to Live Log (UDP + local append)
                     self.appendLog(.info, text)
+
+                    // Phase 2 Sprint 3 : détecter les events de sécurité
+                    let isSecurityEvent = event.type.contains("Throttled")
+                        || event.type.contains("Rejected")
+                        || event.type.contains("GroupSecurity")
+                    if isSecurityEvent {
+                        self.securityAlerts += 1
+                        self.lastSecurityEventAt = Date()
+                        self.lastSecurityEventText = text
+                    }
                 }
 
                 // Purge expired probe messages (TTL 5 min) — du dictionnaire TTL
