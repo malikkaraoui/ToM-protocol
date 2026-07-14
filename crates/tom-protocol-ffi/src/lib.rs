@@ -22,7 +22,7 @@ use tom_protocol::{DeliveredMessage, ProtocolEvent, ProtocolRuntime, RuntimeChan
 use tom_transport::TomNodeConfig;
 
 mod types;
-use types::{DeliveredMessageFFI, DiscoveredPeerFFI, GroupConfigFFI, NodeConfigFFI, NodeStatusFFI, PeerAddrFFI, PresenceMetricsFFI, PresenceStatsFFI, RuntimeConfigFFI};
+use types::{DeliveredMessageFFI, DiscoveredPeerFFI, GroupConfigFFI, NodeConfigFFI, NodeStatusFFI, PeerAddrFFI, PresenceMetricsFFI, PresenceStatsFFI, ProtocolEventFFI, RuntimeConfigFFI};
 
 /// Hard cap for discovered peer cache exposed over FFI.
 /// Prevents unbounded growth on long-running tvOS sessions.
@@ -34,8 +34,10 @@ pub struct TomNodeHandle {
     handle: Arc<Mutex<Option<RuntimeHandle>>>,
     /// Buffered messages from runtime (polled by Swift)
     message_queue: Arc<Mutex<VecDeque<DeliveredMessage>>>,
-    /// Buffered events from runtime (for status/debug)
+    /// Buffered events from runtime (for status/debug) — excludes GroupMessageReceived
     event_queue: Arc<Mutex<VecDeque<ProtocolEvent>>>,
+    /// Buffered group message events (polled separately by Swift) — isolated queue
+    group_message_queue: Arc<Mutex<VecDeque<ProtocolEvent>>>,
     /// Peers discovered via gossip/DHT (cached from PeerDiscovered events)
     discovered_peers: Arc<Mutex<HashMap<String, DiscoveredPeerFFI>>>,
     /// Node ID (cached after bind)
@@ -158,6 +160,7 @@ pub unsafe extern "C" fn tom_node_create(config_json: *const c_char) -> *mut Tom
         handle: Arc::new(Mutex::new(None)),
         message_queue: Arc::new(Mutex::new(VecDeque::new())),
         event_queue: Arc::new(Mutex::new(VecDeque::new())),
+        group_message_queue: Arc::new(Mutex::new(VecDeque::new())),
         discovered_peers: Arc::new(Mutex::new(HashMap::new())),
         node_id: Arc::new(Mutex::new(None)),
         last_error: Arc::new(std::sync::Mutex::new(None)),
@@ -259,6 +262,7 @@ pub unsafe extern "C" fn tom_node_start(
     let handle_clone = handle_ref.handle.clone();
     let msg_queue = handle_ref.message_queue.clone();
     let event_queue = handle_ref.event_queue.clone();
+    let group_message_queue = handle_ref.group_message_queue.clone();
     let node_id_arc = handle_ref.node_id.clone();
     let last_error_arc = handle_ref.last_error.clone();
 
@@ -294,6 +298,7 @@ pub unsafe extern "C" fn tom_node_start(
         // Background task: drain messages + events into queues
         let msg_queue_clone = msg_queue.clone();
         let event_queue_clone = event_queue.clone();
+        let group_message_queue_clone = group_message_queue.clone();
         let discovered_peers_clone = handle_ref.discovered_peers.clone();
         let last_path_clone = handle_ref.last_path.clone();
         let local_role_clone = handle_ref.local_role.clone();
@@ -387,10 +392,20 @@ pub unsafe extern "C" fn tom_node_start(
                                 }
                             }
                         }
-                        let mut eq = event_queue_clone.lock().await;
-                        eq.push_back(event);
-                        while eq.len() > 500 {
-                            eq.pop_front();
+
+                        // Route GroupMessageReceived to dedicated queue, all others to event_queue
+                        if matches!(event, ProtocolEvent::GroupMessageReceived { .. }) {
+                            let mut gmq = group_message_queue_clone.lock().await;
+                            gmq.push_back(event);
+                            while gmq.len() > 500 {
+                                gmq.pop_front();
+                            }
+                        } else {
+                            let mut eq = event_queue_clone.lock().await;
+                            eq.push_back(event);
+                            while eq.len() > 500 {
+                                eq.pop_front();
+                            }
                         }
                     }
                     else => break,
@@ -808,6 +823,9 @@ pub unsafe extern "C" fn tom_node_get_pending_invites(
 /// recovered via R13 offline gap-fill (SyncResponse). This is the observation
 /// surface used to validate R13 on real devices.
 ///
+/// ISOLATION: This function drains its own dedicated queue (group_message_queue),
+/// separate from tom_node_receive_events(). No events are lost between callers.
+///
 /// # Returns
 /// * JSON array: `[{"group_id":"...","from":"...","seq":N,"text":"...","encrypted":bool}, ...]`
 /// * Empty array `[]` if none
@@ -825,7 +843,7 @@ pub unsafe extern "C" fn tom_node_receive_group_messages(
     let handle_ref = unsafe { &*handle };
 
     let json = handle_ref.runtime.block_on(async {
-        let mut queue = handle_ref.event_queue.lock().await;
+        let mut queue = handle_ref.group_message_queue.lock().await;
         let events: Vec<ProtocolEvent> = queue.drain(..).collect();
         drop(queue);
 
@@ -892,6 +910,64 @@ pub unsafe extern "C" fn tom_node_receive_messages(
     });
 
     match CString::new(messages_json) {
+        Ok(c_str) => c_str.into_raw(),
+        Err(_) => std::ptr::null_mut(),
+    }
+}
+
+/// Drain protocol events from the runtime event queue.
+///
+/// Returns a JSON array of events that occurred since the last poll:
+/// ```json
+/// [
+///   {
+///     "type": "RolePromoted",
+///     "ts_ms": 1234567890,
+///     "node_id": "abc123...",
+///     "score": 42.5
+///   },
+///   ...
+/// ]
+/// ```
+///
+/// # Returns
+/// * JSON array of events: `[{"type": "...", ...}, ...]`
+/// * Empty array `[]` if no events
+/// * NULL on error
+///
+/// # Safety
+/// * Caller must free returned string with `tom_node_free_string()`
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn tom_node_receive_events(
+    handle: *const TomNodeHandle,
+) -> *mut c_char {
+    if handle.is_null() {
+        return std::ptr::null_mut();
+    }
+
+    let handle_ref = unsafe { &*handle };
+
+    let events_json = handle_ref.runtime.block_on(async {
+        let mut queue = handle_ref.event_queue.lock().await;
+        let batch: Vec<ProtocolEvent> = queue.drain(..).collect();
+
+        // Convert to FFI-serializable type
+        let ffi_batch: Vec<ProtocolEventFFI> = batch
+            .into_iter()
+            .map(ProtocolEventFFI::from_protocol_event)
+            .collect();
+
+        // Serialize to JSON
+        match serde_json::to_string(&ffi_batch) {
+            Ok(json) => json,
+            Err(e) => {
+                tracing::error!("Failed to serialize events: {}", e);
+                "[]".to_string()
+            }
+        }
+    });
+
+    match CString::new(events_json) {
         Ok(c_str) => c_str.into_raw(),
         Err(_) => std::ptr::null_mut(),
     }
@@ -1410,6 +1486,8 @@ mod tests {
             enable_embedded_relay: Some(false),
             enable_embedded_relay_publication: Some(false),
             enable_transport_relay_discovery: Some(false),
+            presence_contribution_min: None,
+            presence_probe_interval_secs: None,
         };
         let runtime_config_json = serde_json::to_string(&runtime_config).unwrap();
         let runtime_config_cstr = CString::new(runtime_config_json).unwrap();

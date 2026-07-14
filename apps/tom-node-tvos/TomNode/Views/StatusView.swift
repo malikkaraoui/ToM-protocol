@@ -33,12 +33,15 @@ struct StatusView: View {
             }
             .frame(maxWidth: .infinity)
 
-            // ── Colonne droite : réseau ────────────────────────────────
+            // ── Colonne droite : réseau + activité ────────────────────
             if nodeService.state == .running {
                 VStack(alignment: .leading, spacing: 16) {
                     tvConnectionsSection
                     if !nodeService.discoveredPeers.isEmpty {
                         tvKnownNodesSection
+                    }
+                    if !nodeService.activityLog.isEmpty {
+                        tvActivitySection
                     }
                     Spacer()
                 }
@@ -138,6 +141,7 @@ struct StatusView: View {
                     countersRow
                     connectionsSection
                     if !nodeService.discoveredPeers.isEmpty { knownNodesSection }
+                    activitySection
                 }
                 controlsSection
                 if let error = nodeService.errorMessage { errorView(error) }
@@ -295,6 +299,82 @@ struct StatusView: View {
         }
         .padding(14)
         .background(Color.secondary.opacity(0.06))
+        .cornerRadius(12)
+    }
+
+    // ── Activité (5 derniers événements) ──────────────────────────────
+
+    private var activitySection: some View {
+        let recentEvents = Array(nodeService.activityLog.suffix(5).reversed())
+        return VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Image(systemName: "bell.badge.fill").foregroundColor(.blue)
+                Text("Activité").font(.headline)
+                Spacer()
+                Text("\(nodeService.activityLog.count)")
+                    .font(.caption).foregroundColor(.secondary)
+                    .padding(.horizontal, 8).padding(.vertical, 4)
+                    .background(Color.secondary.opacity(0.2))
+                    .cornerRadius(6)
+            }
+            if recentEvents.isEmpty {
+                Text("Aucune activité").font(.subheadline).foregroundColor(.secondary)
+            } else {
+                ForEach(recentEvents) { entry in
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(entry.displayText)
+                            .font(.subheadline)
+                            .lineLimit(2)
+                        Text(entry.relativeTime)
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                    }
+                    .padding(.vertical, 8)
+                    .padding(.horizontal, 10)
+                    .background(Color.blue.opacity(0.08))
+                    .cornerRadius(8)
+                }
+            }
+        }
+        .padding(14)
+        .background(Color.blue.opacity(0.06))
+        .cornerRadius(12)
+    }
+
+    // ── Activité tvOS ─────────────────────────────────────────────────
+
+    private var tvActivitySection: some View {
+        let recentEvents = Array(nodeService.activityLog.suffix(Self.MAX_TV_ROWS).reversed())
+        let overflow = nodeService.activityLog.count - recentEvents.count
+        return VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Image(systemName: "bell.badge.fill").foregroundColor(.blue)
+                Text("Activité").font(.headline)
+                Spacer()
+                Text("\(nodeService.activityLog.count)").font(.headline).foregroundColor(.blue)
+            }
+            if recentEvents.isEmpty {
+                Text("Aucune activité").font(.subheadline).foregroundColor(.secondary)
+            } else {
+                ForEach(recentEvents) { entry in
+                    HStack(spacing: 12) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(entry.displayText).font(.body).lineLimit(2)
+                            Text(entry.relativeTime).font(.caption).foregroundColor(.secondary)
+                        }
+                        Spacer()
+                    }
+                    .padding(.vertical, 6)
+                }
+                if overflow > 0 {
+                    Text("+ \(overflow) autre\(overflow > 1 ? "s" : "")")
+                        .font(.caption).foregroundColor(.secondary)
+                }
+            }
+        }
+        .padding(14)
+        .background(Color.blue.opacity(0.06))
+        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.blue.opacity(0.2), lineWidth: 1))
         .cornerRadius(12)
     }
 

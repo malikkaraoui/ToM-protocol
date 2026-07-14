@@ -154,6 +154,9 @@ char *tom_node_get_pending_invites(const struct TomNodeHandle *handle);
 // recovered via R13 offline gap-fill (SyncResponse). This is the observation
 // surface used to validate R13 on real devices.
 //
+// ISOLATION: This function drains its own dedicated queue (group_message_queue),
+// separate from tom_node_receive_events(). No events are lost between callers.
+//
 // # Returns
 // * JSON array: `[{"group_id":"...","from":"...","seq":N,"text":"...","encrypted":bool}, ...]`
 // * Empty array `[]` if none
@@ -173,6 +176,30 @@ char *tom_node_receive_group_messages(const struct TomNodeHandle *handle);
 // # Safety
 // * Caller must free returned string with `tom_node_free_string()`
 char *tom_node_receive_messages(const struct TomNodeHandle *handle);
+
+// Drain protocol events from the runtime event queue.
+//
+// Returns a JSON array of events that occurred since the last poll:
+// ```json
+// [
+//   {
+//     "type": "RolePromoted",
+//     "ts_ms": 1234567890,
+//     "node_id": "abc123...",
+//     "score": 42.5
+//   },
+//   ...
+// ]
+// ```
+//
+// # Returns
+// * JSON array of events: `[{"type": "...", ...}, ...]`
+// * Empty array `[]` if no events
+// * NULL on error
+//
+// # Safety
+// * Caller must free returned string with `tom_node_free_string()`
+char *tom_node_receive_events(const struct TomNodeHandle *handle);
 
 // Get node status
 //

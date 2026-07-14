@@ -222,3 +222,146 @@ public enum TomNodeState: String {
     case stopping = "Stopping"
     case error = "Error"
 }
+
+/// Protocol event from the Rust runtime (drained from the queue, JSON decoded).
+/// Each event carries a type (event name) + optional typed fields depending on the variant.
+/// Designed for UI display (activity log, notifications, debugging).
+public struct TomProtocolEvent: Codable, Hashable, Identifiable {
+    /// Unique identifier for sorting/de-duplication in UI.
+    public var id: UUID { UUID() }
+
+    /// Event type name (e.g., "PeerDiscovered", "RolePromoted", "SenderThrottled")
+    public let type: String
+
+    /// Timestamp when event was added to the queue (milliseconds since epoch).
+    public let ts_ms: UInt64
+
+    // ── Peer/Node IDs (short hex for display) ──
+    public let node_id: String?
+    public let username: String?
+    public let source: String? // DiscoverySource format
+
+    // ── Scores and rates ──
+    public let score: Double?
+    public let current_rate: Double?
+
+    // ── Strings ──
+    public let reason: String?
+    public let message_id: String?
+    public let group_id: String?
+    public let description: String?
+
+    // ── Path/Role info ──
+    public let path_kind: String? // "RELAY" | "DIRECT"
+    public let rtt_ms: UInt64?
+    public let new_role: String? // "Client" | "Relay" | "Backup"
+
+    // ── Presence ──
+    public let latency_ms: UInt64?
+
+    // ── Delivery/retry ──
+    public let attempt: UInt8?
+    public let last_status: String? // "Pending" | "Sent" | "Delivered" | ...
+
+    /// Relative timestamp for UI display (e.g., "il y a 12 s").
+    public var relativeTime: String {
+        let now = UInt64(Date().timeIntervalSince1970 * 1000)
+        let elapsedMs = now > ts_ms ? (now - ts_ms) : 0
+        let seconds = elapsedMs / 1000
+        let minutes = seconds / 60
+        let hours = minutes / 60
+
+        if hours > 0 {
+            return "il y a \(hours)h"
+        } else if minutes > 0 {
+            return "il y a \(minutes)m"
+        } else if seconds > 0 {
+            return "il y a \(seconds)s"
+        } else {
+            return "à l'instant"
+        }
+    }
+
+    /// Human-readable summary for activity log display.
+    public var displayText: String {
+        let shortId = { (full: String?) -> String in
+            guard let f = full, f.count > 8 else { return full ?? "?" }
+            return String(f.prefix(8))
+        }
+
+        switch type {
+        case "PeerDiscovered":
+            return "👤 Pair découvert : \(username ?? shortId(node_id))"
+        case "PeerOnline":
+            return "🟢 Pair en ligne : \(shortId(node_id))"
+        case "PeerOffline":
+            return "🔴 Pair hors ligne : \(shortId(node_id))"
+        case "PeerStale":
+            return "⚠️ Pair vieilli : \(shortId(node_id))"
+        case "RolePromoted":
+            return "🎭 Rôle promu → Relais (score \(Int(score ?? 0)))"
+        case "RoleDemoted":
+            return "⬇️ Rôle rétrogradé (score \(Int(score ?? 0)))"
+        case "LocalRoleChanged":
+            return "🔄 Mon rôle : \(new_role ?? "?")"
+        case "BackupStored":
+            return "📥 Backup stocké pour \(shortId(node_id))"
+        case "BackupDelivered":
+            return "✅ Backup livré à \(shortId(node_id))"
+        case "BackupExpired":
+            return "⏰ Backup expiré pour \(shortId(node_id))"
+        case "SenderThrottled":
+            return "🚨 Pair ralenti \(shortId(node_id)) (antispam)"
+        case "PathChanged":
+            return "🔀 Chemin → \(path_kind ?? "?")"
+        case "MessageRejected":
+            return "❌ Message rejeté : \(reason ?? "?")"
+        case "Forwarded":
+            return "➡️ Relayé vers \(shortId(node_id))"
+        case "GroupCreated":
+            return "👥 Groupe créé : \(username ?? shortId(group_id))"
+        case "GroupJoined":
+            return "✅ Rejoint groupe : \(username ?? shortId(group_id))"
+        case "GroupMemberJoined":
+            return "➕ \(username ?? shortId(node_id)) a rejoint"
+        case "GroupMemberLeft":
+            return "➖ \(username ?? shortId(node_id)) a quitté"
+        case "GossipNeighborUp":
+            return "🔗 Voisin gossip actif : \(shortId(node_id))"
+        case "GossipNeighborDown":
+            return "🔌 Voisin gossip inactif : \(shortId(node_id))"
+        case "EmbeddedRelayStarted":
+            return "🚀 Relai embarqué démarré"
+        case "EmbeddedRelayFailed":
+            return "💥 Relai embarqué : \(description ?? "erreur")"
+        case "DeliveryRetry":
+            return "🔄 Nouvelle tentative \(attempt ?? 0) vers \(shortId(node_id))"
+        case "DeliveryTimeout":
+            return "⏱️ Livraison échouée : \(shortId(node_id))"
+        case "PresenceAttestationReceived":
+            return "🔐 Présence attestée (latence \(latency_ms ?? 0)ms)"
+        default:
+            return "📌 \(type)"
+        }
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case type
+        case ts_ms
+        case node_id
+        case username
+        case source
+        case score
+        case current_rate
+        case reason
+        case message_id
+        case group_id
+        case description
+        case path_kind
+        case rtt_ms
+        case new_role
+        case latency_ms
+        case attempt
+        case last_status
+    }
+}

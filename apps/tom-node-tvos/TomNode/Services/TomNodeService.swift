@@ -19,8 +19,9 @@ final class TomNodeService: ObservableObject {
     private var pollTask: Task<Void, Never>?
     private var startTask: Task<Void, Never>?
     private var autoStartTask: Task<Void, Never>?
-    private var campaignTask: Task<Void, Never>?
-    private var campaignSeq: Int = 0
+    private var probeTask: Task<Void, Never>?
+    private var probeSeq: Int = 0
+    private var probeExpirationTimes: [String: Date] = [:]
     private var hasScheduledInitialAutoStart = false
     private var autoMessagedPeerIds = Set<String>()
     private var autoMessageAttemptedAt: [String: Date] = [:]
@@ -39,6 +40,9 @@ final class TomNodeService: ObservableObject {
     @Published var pathKind: String = "RELAY"
     @Published var pathRttMs: UInt64 = 0
 
+    // Activity log (events from runtime) — cappé à 100 entrées FIFO
+    @Published var activityLog: [ActivityEntry] = []
+
     // Live log
     @Published var logEntries: [LogEntry] = []
 
@@ -46,14 +50,14 @@ final class TomNodeService: ObservableObject {
     @Published var autoEchoEnabled: Bool = true
     @Published var echoCount: Int = 0
 
-    // Mode campagne : paliers de taille dérivés de l'horloge murale —
-    // MÊMES valeurs que CAMPAIGN_SIZES dans tom-tui (nœud NAS) : tous les
-    // nœuds changent de palier ensemble, sans coordination.
-    // Outil de TEST — DÉSACTIVÉ par défaut (envoie des gros fichiers toutes les
-    // 5s à tous les pairs ; en permanence il charge inutilement le réseau/CPU).
-    @Published var campaignEnabled: Bool = false
-    static let campaignSizes: [Int] = [1_000, 10_000, 50_000, 100_000, 150_000, 250_000]
-    static let campaignPhaseSeconds = 120
+    // Mode sonde : petit message texte (~40 octets) envoyé toutes les 30s à
+    // chaque pair connecté. Permet de valider que le réseau reste vivant +
+    // de tester le backup (quand une app tue, les sondes sont backupées par
+    // un relais, et l'utilisatrice peut vérifier la purge après 5 min).
+    // ACTIVÉ par défaut pour pré-livraison — pas de charge réseau importante.
+    @Published var probeEnabled: Bool = true
+    private static let probeIntervalNanoseconds: UInt64 = 30_000_000_000 // 30s
+    private static let probeTtlMinutes: TimeInterval = 5 * 60 // 5 minutes
 
     static func fmtTaille(_ n: Int) -> String {
         if n >= 1_000_000 { return String(format: "%.1f Mo", Double(n) / 1_000_000) }
@@ -436,7 +440,7 @@ final class TomNodeService: ObservableObject {
 
                 startAntiSleep()
                 startPolling()
-                startCampaign()
+                startProbe()
                 startStatusServer()
                 log.info("Node started — identity: \(self.identityPath ?? "ephemeral"), data: \(self.dataDir ?? "none")")
 
@@ -458,8 +462,8 @@ final class TomNodeService: ObservableObject {
         let wasStarting = (state == .starting)
         startTask?.cancel()
         startTask = nil
-        campaignTask?.cancel()
-        campaignTask = nil
+        probeTask?.cancel()
+        probeTask = nil
         // Flip UI state IMMEDIATELY — never leave the user stuck on "Stopping".
         // The node teardown is I/O (QUIC/DHT close) and must not gate the UI.
         state = .stopped
@@ -632,28 +636,33 @@ final class TomNodeService: ObservableObject {
         return dir?.appendingPathComponent("tom_data").path
     }
 
-    /// Boucle du mode campagne : toutes les 5 s, un message de la taille du
-    /// palier courant vers chaque pair connecté. Palier = (epoch/120s) % paliers.
-    private func startCampaign() {
-        campaignTask?.cancel()
-        campaignTask = Task { [weak self] in
+    /// Boucle de sonde légère : toutes les 30s, un petit message texte (~40 octets)
+    /// vers chaque pair connecté. Permet de valider la liveness du réseau et
+    /// de tester le backup (quand l'app est tuée, les sondes sont backupées).
+    /// TTL local : chaque sonde reçue/envoyée est purgée après ~5 min.
+    private func startProbe() {
+        probeTask?.cancel()
+        probeTask = Task { [weak self] in
             while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: 5_000_000_000)
+                try? await Task.sleep(nanoseconds: Self.probeIntervalNanoseconds)
                 guard let self = self else { break }
-                guard self.campaignEnabled, self.state == .running else { continue }
-                let idx = (Int(Date().timeIntervalSince1970) / Self.campaignPhaseSeconds) % Self.campaignSizes.count
-                let size = Self.campaignSizes[idx]
+                guard self.probeEnabled, self.state == .running else { continue }
+
+                let now = Date()
+                self.probeSeq += 1
+                let epochMs = Int64(now.timeIntervalSince1970 * 1000)
+                let probeMsg = "probe \(self.probeSeq) \(epochMs)"
+
                 for peer in self.connectedPeers {
-                    self.campaignSeq += 1
-                    let header = "CAMP:\(size):\(self.campaignSeq):"
-                    let pad = max(0, size - header.utf8.count)
-                    let payload = Data((header + String(repeating: "A", count: pad)).utf8)
+                    let payload = Data(probeMsg.utf8)
                     do {
+                        let uuid = UUID().uuidString
                         try await self.node.sendMessage(to: peer, payload: payload)
                         self.totalMessagesSentCount += 1
-                        self.appendLog(.network, "CAMP↑ \(Self.fmtTaille(size)) #\(self.campaignSeq) → \(String(peer.prefix(8)))")
+                        self.probeExpirationTimes[uuid] = now.addingTimeInterval(Self.probeTtlMinutes)
+                        self.appendLog(.network, "PROBE↑ seq=\(self.probeSeq) → \(String(peer.prefix(8)))")
                     } catch {
-                        self.appendLog(.error, "CAMP✗ \(Self.fmtTaille(size)) #\(self.campaignSeq) → \(String(peer.prefix(8))): \(error.localizedDescription)")
+                        self.appendLog(.error, "PROBE✗ seq=\(self.probeSeq) → \(String(peer.prefix(8))): \(error.localizedDescription)")
                     }
                 }
             }
@@ -695,11 +704,14 @@ final class TomNodeService: ObservableObject {
                     let smallText: String? = isLarge ? nil : msg.text
 
                     let textPreview: String
+                    let isProbe = smallText?.hasPrefix("probe ") ?? false
                     if let t = smallText, t.hasPrefix("CAMP:") || t.hasPrefix("CTRL:") {
                         let parts = t.split(separator: ":", maxSplits: 3)
                         let sz = parts.count > 1 ? (Int(parts[1]) ?? approxBytes) : approxBytes
                         let seq = parts.count > 2 ? String(parts[2]) : "?"
                         textPreview = "📦 \(Self.fmtTaille(sz)) #\(seq)"
+                    } else if isProbe {
+                        textPreview = smallText ?? "probe ?"
                     } else if isLarge {
                         textPreview = "📦 \(Self.fmtTaille(approxBytes))"
                     } else {
@@ -718,13 +730,21 @@ final class TomNodeService: ObservableObject {
                     )
                     self.messages.append(display)
                     self.totalMessagesCount += 1
-                    self.appendLog(.network, "MSG from \(senderShort): \(textPreview)")
+
+                    // Log et TTL pour les sondes
+                    if isProbe {
+                        self.probeExpirationTimes[msg.id] = Date().addingTimeInterval(Self.probeTtlMinutes)
+                        self.appendLog(.network, "PROBE↓ from \(senderShort): \(textPreview)")
+                    } else {
+                        self.appendLog(.network, "MSG from \(senderShort): \(textPreview)")
+                    }
 
                     // Auto-echo : réponse FIXE (accusé), y compris pour un gros
                     // message. Un écho est toujours petit → un gros message n'en
                     // est jamais un, pas besoin de décoder pour le savoir.
+                    // ATTENTION : NE PAS echo les sondes (boucle infinie de trafic).
                     let isEcho = !isLarge && (smallText?.hasPrefix("recu 5/5") ?? false)
-                    if self.autoEchoEnabled, !isEcho {
+                    if self.autoEchoEnabled, !isEcho, !isProbe {
                         do {
                             let reply = "recu 5/5 (msg #\(self.totalMessagesCount))"
                             let replyData = reply.data(using: .utf8) ?? Data()
@@ -738,6 +758,39 @@ final class TomNodeService: ObservableObject {
                 // Keep last 500 messages
                 if self.messages.count > 500 {
                     self.messages = Array(self.messages.suffix(500))
+                }
+
+                // Poll and integrate protocol events into activity log
+                let newEvents = await self.node.receiveEvents()
+                for event in newEvents {
+                    let entry = ActivityEntry(
+                        id: UUID(),
+                        timestamp: TimeInterval(event.ts_ms) / 1000,
+                        type: event.type,
+                        displayText: event.displayText,
+                        relativeTime: event.relativeTime
+                    )
+                    self.activityLog.append(entry)
+                    // Cap activity log to 100 entries (FIFO)
+                    if self.activityLog.count > 100 {
+                        self.activityLog = Array(self.activityLog.suffix(100))
+                    }
+                    // Also send to Live Log (UDP + local append)
+                    self.appendLog(.info, event.displayText)
+                }
+
+                // Purge expired probe messages (TTL 5 min) — du dictionnaire TTL
+                // ET du store UI, sinon le cache ne se vide jamais réellement.
+                let now = Date()
+                let expiredKeys = Set(self.probeExpirationTimes.filter { $0.value <= now }.keys)
+                if !expiredKeys.isEmpty {
+                    for key in expiredKeys {
+                        self.probeExpirationTimes.removeValue(forKey: key)
+                    }
+                    let before = self.messages.count
+                    self.messages.removeAll { expiredKeys.contains($0.id) }
+                    let purgeCnt = before - self.messages.count
+                    self.appendLog(.info, "PROBE✕ \(expiredKeys.count) TTL expirés, \(purgeCnt) messages retirés du store")
                 }
 
                 // Poll status + peers
@@ -1082,5 +1135,18 @@ final class TomNodeService: ObservableObject {
                 }
             }
         }
+    }
+}
+
+/// Activity log entry from a protocol event (used in the Activity section of StatusView).
+struct ActivityEntry: Identifiable, Equatable {
+    let id: UUID
+    let timestamp: TimeInterval // seconds since epoch
+    let type: String
+    let displayText: String
+    let relativeTime: String
+
+    static func == (lhs: ActivityEntry, rhs: ActivityEntry) -> Bool {
+        lhs.id == rhs.id
     }
 }

@@ -253,6 +253,403 @@ where
         .collect()
 }
 
+/// Serializable version of ProtocolEvent for FFI
+/// Flattened structure with type + optional fields per variant
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ProtocolEventFFI {
+    /// Event type name (e.g., "PeerDiscovered", "RolePromoted", "SenderThrottled")
+    pub r#type: String,
+    /// Timestamp when event was added to the queue (milliseconds)
+    pub ts_ms: u64,
+
+    // Peer/Node IDs (short hex, not full, for UI display)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub node_id: Option<String>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub username: Option<String>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>, // DiscoverySource
+
+    // Scores and rates
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub score: Option<f64>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub current_rate: Option<f64>,
+
+    // Strings
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub message_id: Option<String>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub group_id: Option<String>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+
+    // Path/Role info
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub path_kind: Option<String>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rtt_ms: Option<u64>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub new_role: Option<String>,
+
+    // Presence
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub latency_ms: Option<u64>,
+
+    // Delivery/retry
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub attempt: Option<u8>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_status: Option<String>,
+}
+
+impl ProtocolEventFFI {
+    /// Convert ProtocolEvent to FFI-serializable format
+    pub fn from_protocol_event(event: tom_protocol::ProtocolEvent) -> Self {
+        let ts_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64;
+
+        match event {
+            tom_protocol::ProtocolEvent::PeerDiscovered {
+                node_id,
+                username,
+                source,
+            } => {
+                Self {
+                    r#type: "PeerDiscovered".to_string(),
+                    ts_ms,
+                    node_id: Some(node_id.to_string()),
+                    username: Some(username),
+                    source: Some(format!("{:?}", source)),
+                    ..Default::default()
+                }
+            }
+            tom_protocol::ProtocolEvent::PeerStale { node_id } => {
+                Self {
+                    r#type: "PeerStale".to_string(),
+                    ts_ms,
+                    node_id: Some(node_id.to_string()),
+                    ..Default::default()
+                }
+            }
+            tom_protocol::ProtocolEvent::PeerOffline { node_id } => {
+                Self {
+                    r#type: "PeerOffline".to_string(),
+                    ts_ms,
+                    node_id: Some(node_id.to_string()),
+                    ..Default::default()
+                }
+            }
+            tom_protocol::ProtocolEvent::PeerOnline { node_id } => {
+                Self {
+                    r#type: "PeerOnline".to_string(),
+                    ts_ms,
+                    node_id: Some(node_id.to_string()),
+                    ..Default::default()
+                }
+            }
+            tom_protocol::ProtocolEvent::MessageRejected { reason } => {
+                Self {
+                    r#type: "MessageRejected".to_string(),
+                    ts_ms,
+                    reason: Some(reason),
+                    ..Default::default()
+                }
+            }
+            tom_protocol::ProtocolEvent::Forwarded {
+                envelope_id,
+                next_hop,
+            } => {
+                Self {
+                    r#type: "Forwarded".to_string(),
+                    ts_ms,
+                    message_id: Some(envelope_id),
+                    node_id: Some(next_hop.to_string()),
+                    ..Default::default()
+                }
+            }
+            tom_protocol::ProtocolEvent::PathChanged { event } => {
+                Self {
+                    r#type: "PathChanged".to_string(),
+                    ts_ms,
+                    path_kind: Some(format!("{}", event.kind)),
+                    rtt_ms: Some(event.rtt.as_millis() as u64),
+                    ..Default::default()
+                }
+            }
+            tom_protocol::ProtocolEvent::Error { description } => {
+                Self {
+                    r#type: "Error".to_string(),
+                    ts_ms,
+                    description: Some(description),
+                    ..Default::default()
+                }
+            }
+            tom_protocol::ProtocolEvent::PresenceAttestationReceived {
+                attester_id,
+                challenge_id,
+                latency_ms,
+            } => {
+                Self {
+                    r#type: "PresenceAttestationReceived".to_string(),
+                    ts_ms,
+                    node_id: Some(attester_id.to_string()),
+                    message_id: Some(challenge_id),
+                    latency_ms: Some(latency_ms),
+                    ..Default::default()
+                }
+            }
+            tom_protocol::ProtocolEvent::RolePromoted { node_id, score } => {
+                Self {
+                    r#type: "RolePromoted".to_string(),
+                    ts_ms,
+                    node_id: Some(node_id.to_string()),
+                    score: Some(score),
+                    ..Default::default()
+                }
+            }
+            tom_protocol::ProtocolEvent::RoleDemoted { node_id, score } => {
+                Self {
+                    r#type: "RoleDemoted".to_string(),
+                    ts_ms,
+                    node_id: Some(node_id.to_string()),
+                    score: Some(score),
+                    ..Default::default()
+                }
+            }
+            tom_protocol::ProtocolEvent::LocalRoleChanged { new_role } => {
+                Self {
+                    r#type: "LocalRoleChanged".to_string(),
+                    ts_ms,
+                    new_role: Some(format!("{:?}", new_role)),
+                    ..Default::default()
+                }
+            }
+            tom_protocol::ProtocolEvent::BackupStored {
+                message_id,
+                recipient_id,
+            } => {
+                Self {
+                    r#type: "BackupStored".to_string(),
+                    ts_ms,
+                    message_id: Some(message_id),
+                    node_id: Some(recipient_id.to_string()),
+                    ..Default::default()
+                }
+            }
+            tom_protocol::ProtocolEvent::BackupDelivered {
+                message_id,
+                recipient_id,
+            } => {
+                Self {
+                    r#type: "BackupDelivered".to_string(),
+                    ts_ms,
+                    message_id: Some(message_id),
+                    node_id: Some(recipient_id.to_string()),
+                    ..Default::default()
+                }
+            }
+            tom_protocol::ProtocolEvent::BackupExpired {
+                message_id,
+                recipient_id,
+            } => {
+                Self {
+                    r#type: "BackupExpired".to_string(),
+                    ts_ms,
+                    message_id: Some(message_id),
+                    node_id: Some(recipient_id.to_string()),
+                    ..Default::default()
+                }
+            }
+            tom_protocol::ProtocolEvent::SenderThrottled {
+                node_id,
+                score,
+                current_rate,
+            } => {
+                Self {
+                    r#type: "SenderThrottled".to_string(),
+                    ts_ms,
+                    node_id: Some(node_id.to_string()),
+                    score: Some(score),
+                    current_rate: Some(current_rate),
+                    ..Default::default()
+                }
+            }
+            tom_protocol::ProtocolEvent::DeliveryRetry {
+                message_id,
+                to,
+                attempt,
+            } => {
+                Self {
+                    r#type: "DeliveryRetry".to_string(),
+                    ts_ms,
+                    message_id: Some(message_id),
+                    node_id: Some(to.to_string()),
+                    attempt: Some(attempt),
+                    ..Default::default()
+                }
+            }
+            tom_protocol::ProtocolEvent::DeliveryTimeout {
+                message_id,
+                to,
+                last_status,
+            } => {
+                Self {
+                    r#type: "DeliveryTimeout".to_string(),
+                    ts_ms,
+                    message_id: Some(message_id),
+                    node_id: Some(to.to_string()),
+                    last_status: Some(format!("{:?}", last_status)),
+                    ..Default::default()
+                }
+            }
+            // Group events — simplified capture
+            tom_protocol::ProtocolEvent::GroupCreated { group } => {
+                Self {
+                    r#type: "GroupCreated".to_string(),
+                    ts_ms,
+                    group_id: Some(group.group_id.to_string()),
+                    username: Some(group.name.clone()),
+                    ..Default::default()
+                }
+            }
+            tom_protocol::ProtocolEvent::GroupInviteReceived { invite } => {
+                Self {
+                    r#type: "GroupInviteReceived".to_string(),
+                    ts_ms,
+                    group_id: Some(invite.group_id.to_string()),
+                    username: Some(invite.group_name.clone()),
+                    ..Default::default()
+                }
+            }
+            tom_protocol::ProtocolEvent::GroupJoined {
+                group_id,
+                group_name,
+            } => {
+                Self {
+                    r#type: "GroupJoined".to_string(),
+                    ts_ms,
+                    group_id: Some(group_id.to_string()),
+                    username: Some(group_name),
+                    ..Default::default()
+                }
+            }
+            tom_protocol::ProtocolEvent::GroupMemberJoined { group_id, member } => {
+                Self {
+                    r#type: "GroupMemberJoined".to_string(),
+                    ts_ms,
+                    group_id: Some(group_id.to_string()),
+                    node_id: Some(member.node_id.to_string()),
+                    username: Some(member.username),
+                    ..Default::default()
+                }
+            }
+            tom_protocol::ProtocolEvent::GroupMemberLeft {
+                group_id,
+                node_id,
+                username,
+                reason,
+            } => {
+                Self {
+                    r#type: "GroupMemberLeft".to_string(),
+                    ts_ms,
+                    group_id: Some(group_id.to_string()),
+                    node_id: Some(node_id.to_string()),
+                    username: Some(username),
+                    reason: Some(format!("{:?}", reason)),
+                    ..Default::default()
+                }
+            }
+            tom_protocol::ProtocolEvent::GroupMessageReceived { .. } => {
+                Self {
+                    r#type: "GroupMessageReceived".to_string(),
+                    ts_ms,
+                    ..Default::default()
+                }
+            }
+            tom_protocol::ProtocolEvent::GroupHubMigrated {
+                group_id,
+                new_hub_id,
+            } => {
+                Self {
+                    r#type: "GroupHubMigrated".to_string(),
+                    ts_ms,
+                    group_id: Some(group_id.to_string()),
+                    node_id: Some(new_hub_id.to_string()),
+                    ..Default::default()
+                }
+            }
+            tom_protocol::ProtocolEvent::GroupSecurityViolation {
+                group_id,
+                node_id,
+                reason,
+            } => {
+                Self {
+                    r#type: "GroupSecurityViolation".to_string(),
+                    ts_ms,
+                    group_id: Some(group_id.to_string()),
+                    node_id: Some(node_id.to_string()),
+                    reason: Some(reason),
+                    ..Default::default()
+                }
+            }
+            tom_protocol::ProtocolEvent::GossipNeighborUp { node_id } => {
+                Self {
+                    r#type: "GossipNeighborUp".to_string(),
+                    ts_ms,
+                    node_id: Some(node_id.to_string()),
+                    ..Default::default()
+                }
+            }
+            tom_protocol::ProtocolEvent::GossipNeighborDown { node_id } => {
+                Self {
+                    r#type: "GossipNeighborDown".to_string(),
+                    ts_ms,
+                    node_id: Some(node_id.to_string()),
+                    ..Default::default()
+                }
+            }
+            tom_protocol::ProtocolEvent::EmbeddedRelayStarted { url } => {
+                Self {
+                    r#type: "EmbeddedRelayStarted".to_string(),
+                    ts_ms,
+                    description: Some(url.to_string()),
+                    ..Default::default()
+                }
+            }
+            tom_protocol::ProtocolEvent::EmbeddedRelayFailed { error } => {
+                Self {
+                    r#type: "EmbeddedRelayFailed".to_string(),
+                    ts_ms,
+                    description: Some(error),
+                    ..Default::default()
+                }
+            }
+            // Catch-all for remaining variants (expand as needed)
+            _ => {
+                Self {
+                    r#type: format!("{:?}", event),
+                    ts_ms,
+                    ..Default::default()
+                }
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

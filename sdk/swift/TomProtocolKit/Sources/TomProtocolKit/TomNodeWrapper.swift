@@ -395,4 +395,23 @@ public actor TomNodeWrapper {
             return nil
         }
     }
+
+    /// Drain protocol events from the runtime queue.
+    /// Returns an array of decoded events since the last poll.
+    public func receiveEvents() -> [TomProtocolEvent] {
+        guard let h = handle else { return [] }
+
+        guard let cStr = tom_node_receive_events(h) else { return [] }
+        let jsonStr = String(cString: cStr)
+        tom_node_free_string(cStr)
+
+        guard let data = jsonStr.data(using: .utf8) else { return [] }
+
+        do {
+            return try JSONDecoder().decode([TomProtocolEvent].self, from: data)
+        } catch {
+            log.error("Failed to decode events: \(error.localizedDescription)")
+            return []
+        }
+    }
 }
