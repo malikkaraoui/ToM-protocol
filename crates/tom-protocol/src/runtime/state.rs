@@ -93,6 +93,12 @@ pub struct RuntimeState {
     /// Throttle role announcements (max 1 per peer per 30s).
     role_announce_throttle: std::collections::HashMap<NodeId, u64>,
 
+    /// Peers already surfaced to the app as PeerDiscovered (dedup of the
+    /// discovery *signal*, independent of topology membership — hints/AddPeer
+    /// register peers in topology silently, so "new in topology" can't be the
+    /// emit criterion). Bounded: cleared beyond SURFACED_PEERS_MAX.
+    surfaced_peers: std::collections::HashSet<NodeId>,
+
     // Phase R7.1: DHT-based peer discovery
     pub(crate) dht: Option<DhtDiscovery>,
 
@@ -226,6 +232,7 @@ impl RuntimeState {
             role_manager,
             local_roles: vec![PeerRole::Peer],
             role_announce_throttle: std::collections::HashMap::new(),
+            surfaced_peers: std::collections::HashSet::new(),
             dht,
             antispam: crate::roles::AntiSpam::new(config.antispam_config.clone()),
             presence: crate::presence::PresenceManager::new(),
@@ -1513,9 +1520,11 @@ impl RuntimeState {
     /// known with a stronger status (`Online`/`Stale`), this is a no-op: a
     /// re-announce must never downgrade a status earned by real work back to
     /// merely `Known`, nor refresh its `last_seen` for free.
-    fn mark_known(&mut self, node_id: NodeId, role: PeerRole) {
+    /// Record a peer as Known (discovery only — ADR-011: no heartbeat/Online
+    /// credit without real work). Returns `true` if the peer was NEW.
+    fn mark_known(&mut self, node_id: NodeId, role: PeerRole) -> bool {
         if self.topology.get(&node_id).is_some() {
-            return;
+            return false;
         }
         self.topology.upsert(PeerInfo {
             node_id,
@@ -1523,6 +1532,36 @@ impl RuntimeState {
             status: PeerStatus::Known,
             last_seen: now_ms(),
         });
+        true
+    }
+
+    /// Cap on the discovery-signal dedup set (way above any real fleet size).
+    const SURFACED_PEERS_MAX: usize = 10_000;
+
+    /// Surface a peer to the application as `PeerDiscovered` — once per peer.
+    ///
+    /// Pure discovery *signal* (auto-contact, UI): grants NO protocol credit,
+    /// so ADR-011 (no heartbeat/Online without real work) still holds. Dedup
+    /// is independent of topology membership because hints/AddPeer/DHT insert
+    /// peers into topology silently — "new in topology" would (and did) starve
+    /// the signal and kill the organic bootstrap chain entirely.
+    fn surface_discovery(
+        &mut self,
+        node_id: NodeId,
+        username: String,
+        source: DiscoverySource,
+    ) -> Option<RuntimeEffect> {
+        if self.surfaced_peers.len() >= Self::SURFACED_PEERS_MAX {
+            self.surfaced_peers.clear();
+        }
+        if !self.surfaced_peers.insert(node_id) {
+            return None;
+        }
+        Some(RuntimeEffect::Emit(ProtocolEvent::PeerDiscovered {
+            node_id,
+            username,
+            source,
+        }))
     }
 
     // ── Task 8: handle_incoming (unified dispatcher) ─────────────────────
@@ -2789,8 +2828,17 @@ impl RuntimeState {
                             };
                         // Discovery only (ADR-011 ghost-peer fix) — no
                         // heartbeat/Online credit without real work.
+                        // The peer must still surface ONCE as PeerDiscovered
+                        // (discovery signal, zero credit) or organic bootstrap dies.
                         self.mark_known(peer_id, role);
-                        return vec![];
+                        return self
+                            .surface_discovery(
+                                peer_id,
+                                announce.username.clone(),
+                                DiscoverySource::Announce,
+                            )
+                            .into_iter()
+                            .collect();
                     }
                 }
 
@@ -2813,11 +2861,18 @@ impl RuntimeState {
 
             GossipInput::NeighborUp(node_id) => {
                 // Discovery only (ADR-011 ghost-peer fix) — no heartbeat/Online
-                // credit without real work.
+                // credit without real work. A live gossip neighbor is real and
+                // reachable → surface it ONCE as PeerDiscovered (signal only).
                 self.mark_known(node_id, PeerRole::Peer);
-                let mut effects = vec![RuntimeEffect::Emit(
+                let mut effects = Vec::new();
+                if let Some(eff) =
+                    self.surface_discovery(node_id, String::new(), DiscoverySource::Gossip)
+                {
+                    effects.push(eff);
+                }
+                effects.push(RuntimeEffect::Emit(
                     ProtocolEvent::GossipNeighborUp { node_id },
-                )];
+                ));
 
                 // Re-publish embedded relay announcement to new neighbor.
                 // The initial publication at startup is missed by nodes that join
@@ -4552,11 +4607,24 @@ mod tests {
         let effects =
             state.handle_gossip_event(super::GossipInput::PeerAnnounce(bytes));
 
-        // PeerAnnounce no longer emits immediately — PeerDiscovered comes from tick_heartbeat
+        // A NEW peer announce emits exactly one PeerDiscovered — a pure
+        // discovery signal for the app layer (auto-contact/UI). ADR-011 still
+        // holds: no Online status, no heartbeat credit (asserted below).
+        assert_eq!(effects.len(), 1, "expected one PeerDiscovered, got: {effects:?}");
         assert!(
-            effects.is_empty(),
-            "PeerAnnounce should not emit directly, got: {effects:?}"
+            matches!(
+                &effects[0],
+                RuntimeEffect::Emit(ProtocolEvent::PeerDiscovered { node_id, username, .. })
+                    if *node_id == peer && username == "bob"
+            ),
+            "expected PeerDiscovered for the announced peer, got: {effects:?}"
         );
+
+        // Re-announce of a KNOWN peer stays silent (no event spam).
+        let announce2 = PeerAnnounce::new(peer, "bob".to_string(), vec![PeerRole::Peer]);
+        let bytes2 = rmp_serde::to_vec(&announce2).expect("serialize announce");
+        let effects2 = state.handle_gossip_event(super::GossipInput::PeerAnnounce(bytes2));
+        assert!(effects2.is_empty(), "re-announce must not re-emit, got: {effects2:?}");
 
         let topo_peer = state.topology.get(&peer);
         assert!(
