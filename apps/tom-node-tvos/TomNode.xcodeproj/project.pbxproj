@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		1A29201771A8318A14452DB1 /* ActivityView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0F3DD78914A993A4CC4E4D0 /* ActivityView.swift */; };
 		1B672B941B8F95B44C05DDE6 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45813363A1382F72D7F0947A /* SettingsView.swift */; };
 		25229C6EC822AFC091BC5DCA /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 191922F2C94FA0A68AA6A4DE /* ContentView.swift */; };
 		2ABA5356362C4130D4A2FED1 /* MessagesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D12F7C0E8531E573AFA7F76D /* MessagesView.swift */; };
@@ -14,6 +15,7 @@
 		59161C155E01FAFDEEC1F40E /* LogView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A3C9EC9FECD7D5F3D08002E /* LogView.swift */; };
 		5A2C4926DE8C969B7EE9E93C /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 0683CB2C9158A7A4DD53F8E3 /* Assets.xcassets */; };
 		5B2D544A1B725C97C60868BB /* StatusServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3DFEBD198070CBB779377E39 /* StatusServer.swift */; };
+		5E5A9CF0FB75DE3687A9E702 /* ActivityView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0F3DD78914A993A4CC4E4D0 /* ActivityView.swift */; };
 		603BA64BA7B15900CC0F2AEC /* StatusServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3DFEBD198070CBB779377E39 /* StatusServer.swift */; };
 		64130DB531BC6232846956C6 /* TomProtocolKit in Frameworks */ = {isa = PBXBuildFile; productRef = 8DD2D18964FF90C8DC1BBFAA /* TomProtocolKit */; };
 		7C43DDC1CDD0FD83CDAE6916 /* LogView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A3C9EC9FECD7D5F3D08002E /* LogView.swift */; };
@@ -41,6 +43,7 @@
 		544B0854790671AF4F82D577 /* TomNode.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = TomNode.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		814BD1CD6DC34B6DCEFCF11A /* StatusView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatusView.swift; sourceTree = "<group>"; };
 		A454C3C1E1A233EB5354BAF0 /* GroupsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroupsView.swift; sourceTree = "<group>"; };
+		B0F3DD78914A993A4CC4E4D0 /* ActivityView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityView.swift; sourceTree = "<group>"; };
 		C69FBBC4BEE7CCCB36F7E618 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		C926A58ED0A7305353329EDE /* TomNodeService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TomNodeService.swift; sourceTree = "<group>"; };
 		D12F7C0E8531E573AFA7F76D /* MessagesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessagesView.swift; sourceTree = "<group>"; };
@@ -90,6 +93,7 @@
 		83DB760BEF699356DBC81026 /* Views */ = {
 			isa = PBXGroup;
 			children = (
+				B0F3DD78914A993A4CC4E4D0 /* ActivityView.swift */,
 				191922F2C94FA0A68AA6A4DE /* ContentView.swift */,
 				A454C3C1E1A233EB5354BAF0 /* GroupsView.swift */,
 				0A3C9EC9FECD7D5F3D08002E /* LogView.swift */,
@@ -245,6 +249,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				1A29201771A8318A14452DB1 /* ActivityView.swift in Sources */,
 				25229C6EC822AFC091BC5DCA /* ContentView.swift in Sources */,
 				DFA7C7F0800C7B9EDCE4E655 /* GroupsView.swift in Sources */,
 				59161C155E01FAFDEEC1F40E /* LogView.swift in Sources */,
@@ -261,6 +266,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				5E5A9CF0FB75DE3687A9E702 /* ActivityView.swift in Sources */,
 				D2CCDA29BE3692E254BDE874 /* ContentView.swift in Sources */,
 				FB01859E27E6D87514966B1F /* GroupsView.swift in Sources */,
 				7C43DDC1CDD0FD83CDAE6916 /* LogView.swift in Sources */,
