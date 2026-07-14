@@ -283,10 +283,14 @@ public struct TomProtocolEvent: Codable, Hashable, Identifiable {
     }
 
     /// Human-readable summary for activity log display.
-    public var displayText: String {
+    /// Texte affichable, avec résolution optionnelle des noms d'appareils :
+    /// si `resolver` est fourni, chaque node_id est remplacé par le nom joli
+    /// (« Freebox · 11d5bb11 »). Sinon, ID court seul.
+    public func displayLine(resolvingNames resolver: ((String) -> String)? = nil) -> String {
         let shortId = { (full: String?) -> String in
-            guard let f = full, f.count > 8 else { return full ?? "?" }
-            return String(f.prefix(8))
+            guard let f = full, !f.isEmpty else { return "?" }
+            if let r = resolver { return r(f) }
+            return f.count > 8 ? String(f.prefix(8)) : f
         }
 
         // Nom non vide, sinon nil (un username "" ne doit pas afficher du vide).
@@ -347,6 +351,9 @@ public struct TomProtocolEvent: Codable, Hashable, Identifiable {
             return "📌 \(type)"
         }
     }
+
+    /// Texte par défaut (ID courts, sans résolution de noms).
+    public var displayText: String { displayLine() }
 
     enum CodingKeys: String, CodingKey {
         case type
