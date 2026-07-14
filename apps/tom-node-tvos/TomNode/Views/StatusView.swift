@@ -1,8 +1,10 @@
 import SwiftUI
+import Combine
 import TomProtocolKit
 
 struct StatusView: View {
     @EnvironmentObject var nodeService: TomNodeService
+    @State private var currentTime = Date()
 
     var body: some View {
         #if os(tvOS)
@@ -12,10 +14,25 @@ struct StatusView: View {
         #endif
     }
 
+    // MARK: - Detect active security alert (< 60 seconds)
+    private var hasActiveSecurityAlert: Bool {
+        guard let lastAt = nodeService.lastSecurityEventAt else { return false }
+        return Date().timeIntervalSince(lastAt) < 60
+    }
+
     // MARK: - tvOS : activité au centre, en-tête compact, layout 70/30
 
     private var tvOSLayout: some View {
         VStack(spacing: 0) {
+            // ── Bandeau ATTAQUE (si alerte de sécurité active) ────────────────────────────────
+            if hasActiveSecurityAlert {
+                securityAlertBanner
+                    .padding(.horizontal, 40)
+                    .padding(.vertical, 12)
+                    .background(Color.red.opacity(0.15))
+                    .border(Color.red.opacity(0.3), width: 1)
+            }
+
             // ── En-tête compact (haut) ────────────────────────────────
             compactHeader
                 .padding(.horizontal, 40)
@@ -159,6 +176,15 @@ struct StatusView: View {
 
     private var iosLayout: some View {
         VStack(spacing: 0) {
+            // ── Bandeau ATTAQUE (si alerte de sécurité active) ────────────────────────────────
+            if hasActiveSecurityAlert {
+                securityAlertBanner
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 10)
+                    .background(Color.red.opacity(0.15))
+                    .border(Color.red.opacity(0.3), width: 1)
+            }
+
             // ── En-tête compact (haut) ────────────────────────────────
             compactHeader
                 .padding(.horizontal, 20)
@@ -301,6 +327,21 @@ struct StatusView: View {
                     .font(.caption2).foregroundColor(statusColor).kerning(0.5)
                     .lineLimit(1).fixedSize(horizontal: true, vertical: false)
                 Spacer(minLength: 8)
+
+                // Compteur d'alertes de sécurité (badge rouge si > 0 ET actif)
+                if nodeService.securityAlerts > 0 {
+                    HStack(spacing: 3) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .font(.caption2)
+                        Text("\(nodeService.securityAlerts)")
+                            .font(.caption2).fontWeight(.semibold)
+                    }
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 6).padding(.vertical, 3)
+                    .background(hasActiveSecurityAlert ? Color.red : Color.orange)
+                    .cornerRadius(4)
+                }
+
                 if !nodeService.nodeId.isEmpty {
                     Text(shortId(nodeService.nodeId))
                         .font(.system(.caption, design: .monospaced))
@@ -344,6 +385,9 @@ struct StatusView: View {
 
                 Spacer(minLength: 8)
 
+                // Horloge locale
+                localClockChip
+
                 // Compteurs — jamais tronqués/verticaux (fixedSize + lineLimit)
                 HStack(spacing: 4) {
                     Image(systemName: "message.fill").font(.caption2).foregroundColor(.blue)
@@ -358,6 +402,55 @@ struct StatusView: View {
                         .lineLimit(1).fixedSize(horizontal: true, vertical: false)
                 }
             }
+        }
+    }
+
+    // MARK: - Indicateurs ATTAQUE & HORLOGE (Phase 2 Sprint 3)
+
+    private var securityAlertBanner: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 8) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundColor(.red)
+                    .font(.title3)
+                Text("🚨 Anomalie sécurité détectée")
+                    .font(.headline)
+                    .foregroundColor(.red)
+                Spacer()
+                if let lastAt = nodeService.lastSecurityEventAt {
+                    Text(formatSecurityEventTime(lastAt))
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+            }
+            if !nodeService.lastSecurityEventText.isEmpty {
+                Text(nodeService.lastSecurityEventText)
+                    .font(.subheadline)
+                    .foregroundColor(.primary)
+                    .lineLimit(2)
+            }
+        }
+        .padding(12)
+        .background(Color.red.opacity(0.08))
+        .cornerRadius(8)
+    }
+
+    private var localClockChip: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 4) {
+                Image(systemName: "clock.fill")
+                    .font(.caption2)
+                Text(formatTime(currentTime))
+                    .font(.caption).fontWeight(.semibold)
+                    .lineLimit(1).fixedSize(horizontal: true, vertical: false)
+            }
+            .foregroundColor(.secondary)
+            .padding(.horizontal, 8).padding(.vertical, 4)
+            .background(Color.secondary.opacity(0.12))
+            .cornerRadius(6)
+        }
+        .onReceive(Timer.publish(every: 1, on: .main, in: .common).autoconnect()) { _ in
+            currentTime = Date()
         }
     }
 
@@ -445,6 +538,29 @@ struct StatusView: View {
         case "Announce": return .orange
         case "DHT":      return .blue
         default:         return .secondary
+        }
+    }
+
+    // MARK: - Time Formatting Helpers (Phase 2 Sprint 3)
+
+    private func formatTime(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "HH:mm:ss"
+        return formatter.string(from: date)
+    }
+
+    private func formatSecurityEventTime(_ date: Date) -> String {
+        let elapsed = Date().timeIntervalSince(date)
+        let seconds = Int(elapsed)
+        let minutes = seconds / 60
+        let hours = minutes / 60
+
+        if hours > 0 {
+            return "il y a \(hours)h"
+        } else if minutes > 0 {
+            return "il y a \(minutes)m"
+        } else {
+            return "il y a \(seconds)s"
         }
     }
 }
