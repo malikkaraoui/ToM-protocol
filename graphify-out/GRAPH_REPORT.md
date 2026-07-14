@@ -1,16 +1,16 @@
-# Graph Report - tom-protocol  (2026-06-10)
+# Graph Report - tom-protocol  (2026-06-14)
 
 ## Corpus Check
-- 1093 files · ~1,094,602 words
+- 1113 files · ~1,112,602 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 22677 nodes · 44985 edges · 1291 communities (1133 shown, 158 thin omitted)
+- 22713 nodes · 44978 edges · 1310 communities (1154 shown, 156 thin omitted)
 - Extraction: 99% EXTRACTED · 1% INFERRED · 0% AMBIGUOUS · INFERRED: 344 edges (avg confidence: 0.82)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `b68cac9c`
+- Built from commit: `5be51f94`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -435,6 +435,7 @@
 - [[_COMMUNITY_Community 418|Community 418]]
 - [[_COMMUNITY_Community 419|Community 419]]
 - [[_COMMUNITY_Community 420|Community 420]]
+- [[_COMMUNITY_Community 421|Community 421]]
 - [[_COMMUNITY_Community 422|Community 422]]
 - [[_COMMUNITY_Community 423|Community 423]]
 - [[_COMMUNITY_Community 424|Community 424]]
@@ -493,6 +494,7 @@
 - [[_COMMUNITY_Community 477|Community 477]]
 - [[_COMMUNITY_Community 478|Community 478]]
 - [[_COMMUNITY_Community 479|Community 479]]
+- [[_COMMUNITY_Community 480|Community 480]]
 - [[_COMMUNITY_Community 481|Community 481]]
 - [[_COMMUNITY_Community 482|Community 482]]
 - [[_COMMUNITY_Community 483|Community 483]]
@@ -501,6 +503,7 @@
 - [[_COMMUNITY_Community 486|Community 486]]
 - [[_COMMUNITY_Community 487|Community 487]]
 - [[_COMMUNITY_Community 488|Community 488]]
+- [[_COMMUNITY_Community 489|Community 489]]
 - [[_COMMUNITY_Community 490|Community 490]]
 - [[_COMMUNITY_Community 491|Community 491]]
 - [[_COMMUNITY_Community 492|Community 492]]
@@ -519,6 +522,7 @@
 - [[_COMMUNITY_Community 505|Community 505]]
 - [[_COMMUNITY_Community 506|Community 506]]
 - [[_COMMUNITY_Community 507|Community 507]]
+- [[_COMMUNITY_Community 508|Community 508]]
 - [[_COMMUNITY_Community 509|Community 509]]
 - [[_COMMUNITY_Community 510|Community 510]]
 - [[_COMMUNITY_Community 511|Community 511]]
@@ -633,6 +637,7 @@
 - [[_COMMUNITY_Community 621|Community 621]]
 - [[_COMMUNITY_Community 622|Community 622]]
 - [[_COMMUNITY_Community 623|Community 623]]
+- [[_COMMUNITY_Community 624|Community 624]]
 - [[_COMMUNITY_Community 625|Community 625]]
 - [[_COMMUNITY_Community 626|Community 626]]
 - [[_COMMUNITY_Community 627|Community 627]]
@@ -685,6 +690,8 @@
 - [[_COMMUNITY_Community 682|Community 682]]
 - [[_COMMUNITY_Community 687|Community 687]]
 - [[_COMMUNITY_Community 688|Community 688]]
+- [[_COMMUNITY_Community 689|Community 689]]
+- [[_COMMUNITY_Community 690|Community 690]]
 - [[_COMMUNITY_Community 691|Community 691]]
 - [[_COMMUNITY_Community 692|Community 692]]
 - [[_COMMUNITY_Community 693|Community 693]]
@@ -796,6 +803,7 @@
 - [[_COMMUNITY_Community 846|Community 846]]
 - [[_COMMUNITY_Community 847|Community 847]]
 - [[_COMMUNITY_Community 848|Community 848]]
+- [[_COMMUNITY_Community 849|Community 849]]
 - [[_COMMUNITY_Community 850|Community 850]]
 - [[_COMMUNITY_Community 851|Community 851]]
 - [[_COMMUNITY_Community 852|Community 852]]
@@ -1004,12 +1012,6 @@
 - [[_COMMUNITY_Community 1055|Community 1055]]
 - [[_COMMUNITY_Community 1056|Community 1056]]
 - [[_COMMUNITY_Community 1057|Community 1057]]
-- [[_COMMUNITY_Community 1058|Community 1058]]
-- [[_COMMUNITY_Community 1059|Community 1059]]
-- [[_COMMUNITY_Community 1060|Community 1060]]
-- [[_COMMUNITY_Community 1061|Community 1061]]
-- [[_COMMUNITY_Community 1062|Community 1062]]
-- [[_COMMUNITY_Community 1063|Community 1063]]
 - [[_COMMUNITY_Community 1064|Community 1064]]
 - [[_COMMUNITY_Community 1065|Community 1065]]
 - [[_COMMUNITY_Community 1066|Community 1066]]
@@ -1031,13 +1033,13 @@
 - [[_COMMUNITY_Community 1082|Community 1082]]
 - [[_COMMUNITY_Community 1083|Community 1083]]
 - [[_COMMUNITY_Community 1084|Community 1084]]
-- [[_COMMUNITY_Community 1085|Community 1085]]
 - [[_COMMUNITY_Community 1086|Community 1086]]
 - [[_COMMUNITY_Community 1087|Community 1087]]
 - [[_COMMUNITY_Community 1088|Community 1088]]
 - [[_COMMUNITY_Community 1089|Community 1089]]
 - [[_COMMUNITY_Community 1090|Community 1090]]
 - [[_COMMUNITY_Community 1091|Community 1091]]
+- [[_COMMUNITY_Community 1092|Community 1092]]
 - [[_COMMUNITY_Community 1093|Community 1093]]
 - [[_COMMUNITY_Community 1094|Community 1094]]
 - [[_COMMUNITY_Community 1095|Community 1095]]
@@ -1064,6 +1066,7 @@
 - [[_COMMUNITY_Community 1116|Community 1116]]
 - [[_COMMUNITY_Community 1117|Community 1117]]
 - [[_COMMUNITY_Community 1118|Community 1118]]
+- [[_COMMUNITY_Community 1119|Community 1119]]
 - [[_COMMUNITY_Community 1120|Community 1120]]
 - [[_COMMUNITY_Community 1121|Community 1121]]
 - [[_COMMUNITY_Community 1122|Community 1122]]
@@ -1080,6 +1083,8 @@
 - [[_COMMUNITY_Community 1133|Community 1133]]
 - [[_COMMUNITY_Community 1134|Community 1134]]
 - [[_COMMUNITY_Community 1135|Community 1135]]
+- [[_COMMUNITY_Community 1136|Community 1136]]
+- [[_COMMUNITY_Community 1137|Community 1137]]
 - [[_COMMUNITY_Community 1138|Community 1138]]
 - [[_COMMUNITY_Community 1139|Community 1139]]
 - [[_COMMUNITY_Community 1140|Community 1140]]
@@ -1087,11 +1092,15 @@
 - [[_COMMUNITY_Community 1142|Community 1142]]
 - [[_COMMUNITY_Community 1143|Community 1143]]
 - [[_COMMUNITY_Community 1144|Community 1144]]
+- [[_COMMUNITY_Community 1145|Community 1145]]
+- [[_COMMUNITY_Community 1146|Community 1146]]
 - [[_COMMUNITY_Community 1147|Community 1147]]
 - [[_COMMUNITY_Community 1148|Community 1148]]
 - [[_COMMUNITY_Community 1149|Community 1149]]
 - [[_COMMUNITY_Community 1150|Community 1150]]
 - [[_COMMUNITY_Community 1151|Community 1151]]
+- [[_COMMUNITY_Community 1152|Community 1152]]
+- [[_COMMUNITY_Community 1153|Community 1153]]
 - [[_COMMUNITY_Community 1154|Community 1154]]
 - [[_COMMUNITY_Community 1155|Community 1155]]
 - [[_COMMUNITY_Community 1156|Community 1156]]
@@ -1122,6 +1131,11 @@
 - [[_COMMUNITY_Community 1181|Community 1181]]
 - [[_COMMUNITY_Community 1182|Community 1182]]
 - [[_COMMUNITY_Community 1183|Community 1183]]
+- [[_COMMUNITY_Community 1184|Community 1184]]
+- [[_COMMUNITY_Community 1185|Community 1185]]
+- [[_COMMUNITY_Community 1186|Community 1186]]
+- [[_COMMUNITY_Community 1187|Community 1187]]
+- [[_COMMUNITY_Community 1188|Community 1188]]
 - [[_COMMUNITY_Community 1202|Community 1202]]
 - [[_COMMUNITY_Community 1203|Community 1203]]
 - [[_COMMUNITY_Community 1204|Community 1204]]
@@ -1239,7 +1253,6 @@
   DEPLOY-APPLE.md → apps/tom-node-ios/TomNode/Services/TomNodeService.swift
 
 ## Import Cycles
-- 1-file cycle: `patches/netdev-0.40.1/src/os/windows/interface.rs -> patches/netdev-0.40.1/src/os/windows/interface.rs`
 - 1-file cycle: `crates/tom-relay/src/protos/handshake.rs -> crates/tom-relay/src/protos/handshake.rs`
 - 1-file cycle: `crates/tom-quinn-proto/src/connection/state.rs -> crates/tom-quinn-proto/src/connection/state.rs`
 - 1-file cycle: `crates/tom-gossip/src/net.rs -> crates/tom-gossip/src/net.rs`
@@ -1259,6 +1272,7 @@
 - 1-file cycle: `crates/tom-quinn-udp/src/unix.rs -> crates/tom-quinn-udp/src/unix.rs`
 - 1-file cycle: `crates/tom-connect/src/endpoint/connection.rs -> crates/tom-connect/src/endpoint/connection.rs`
 - 1-file cycle: `crates/tom-quinn-proto/src/endpoint.rs -> crates/tom-quinn-proto/src/endpoint.rs`
+- 1-file cycle: `crates/tom-connect/src/endpoint/hooks.rs -> crates/tom-connect/src/endpoint/hooks.rs`
 
 ## Hyperedges (group relationships)
 - **PeerPresent Full Validation Sequence** — peer_present, memory_lookup, peer_present_chain, peer_present_tx_chain, peerpresent_v1_review, peerpresent_v2_review, peerpresent_v3, peerpresent_impl_review, peerpresent_campaign_p1, cross_machine_proof [1.0]
@@ -1274,19 +1288,19 @@
 - **Organic Bootstrap Test Campaign** —  [INFERRED]
 - **Parallel Agent Worksplit** —  [INFERRED]
 
-## Communities (1291 total, 158 thin omitted)
+## Communities (1310 total, 156 thin omitted)
 
 ### Community 0 - "Community 0"
-Cohesion: 0.12
-Nodes (38): ConnectingError, BoxFuture, Connection, Data, EndpointAddr, EndpointId, OpenBi, PathsWatcher (+30 more)
+Cohesion: 0.06
+Nodes (65): AlpnError, ConnectingError, Accepting, Arc, BoxFuture, Connecting, Connection, Data (+57 more)
 
 ### Community 1 - "Community 1"
-Cohesion: 0.06
-Nodes (21): makePeer(), randomElement(), randomInt(), randomUsername(), NetworkTopology, NodeRole, PeerInfo, makePeer() (+13 more)
+Cohesion: 0.07
+Nodes (19): ActiveQuery, NetworkTopology, NodeRole, PeerInfo, makePeer(), ElectionResult, HubCandidate, HubElection (+11 more)
 
 ### Community 2 - "Community 2"
-Cohesion: 0.05
-Nodes (102): EncryptedSenderKey, GroupAction, GroupId, GroupInfo, GroupInvite, GroupMemberRole, GroupMessage, HashMap (+94 more)
+Cohesion: 0.12
+Nodes (21): GroupAction, GroupId, GroupInfo, GroupInvite, GroupMessage, HashMap, NodeId, Option (+13 more)
 
 ### Community 3 - "Community 3"
 Cohesion: 0.03
@@ -1294,23 +1308,23 @@ Nodes (59): ClientConfig, TokenStore, ConnectionHandle, Duration, F, Pair, RecvS
 
 ### Community 4 - "Community 4"
 Cohesion: 0.05
-Nodes (74): ConnectionIndex, AcceptError, Arc, Box, BytesMut, ClientConfig, ConnectError, Connection (+66 more)
+Nodes (70): ConnectionIndex, AcceptError, Arc, Box, BytesMut, ClientConfig, ConnectError, Connection (+62 more)
 
 ### Community 5 - "Community 5"
 Cohesion: 0.09
 Nodes (68): EncryptedSenderKey, GroupAction, GroupId, GroupInfo, GroupMemberRole, GroupMessage, GroupPayload, HashMap (+60 more)
 
 ### Community 6 - "Community 6"
-Cohesion: 0.03
-Nodes (39): ActiveQuery, BackupCoordinator, BackupCoordinatorEvents, PendingQueryPayload, PendingResponsePayload, ReceivedConfirmationPayload, BackupReplicator, BackupReplicatorEvents (+31 more)
+Cohesion: 0.05
+Nodes (23): BackupCoordinator, BackupCoordinatorEvents, PendingQueryPayload, PendingResponsePayload, ReceivedConfirmationPayload, BackupReplicator, BackupReplicatorEvents, PendingReplicationEntry (+15 more)
 
 ### Community 7 - "Community 7"
-Cohesion: 0.19
-Nodes (13): HashMap, HashSet, NodeId, Option, String, Vec, CommunicationEdge, edge_key() (+5 more)
+Cohesion: 0.09
+Nodes (32): HashMap, HashSet, NodeId, Option, Self, String, Vec, EphemeralSubnetManager (+24 more)
 
 ### Community 8 - "Community 8"
 Cohesion: 0.06
-Nodes (64): Conn, RecvError, SendError, MaybeTlsStream, MaybeTlsStream<IO>, ProxyStream, ClientToRelayMsg, Context (+56 more)
+Nodes (63): Conn, RecvError, SendError, MaybeTlsStream, MaybeTlsStream<IO>, ProxyStream, ClientToRelayMsg, Context (+55 more)
 
 ### Community 9 - "Community 9"
 Cohesion: 0.12
@@ -1321,8 +1335,8 @@ Cohesion: 0.06
 Nodes (59): CurrentMapping, Mapping, Arc, Box, Context, Debug, Duration, Ipv4Addr (+51 more)
 
 ### Community 11 - "Community 11"
-Cohesion: 0.14
-Nodes (24): AVAudioPlayer, Bool, Date, GroupId, Int, Int32, LogEntry, LogLevel (+16 more)
+Cohesion: 0.07
+Nodes (58): AVAudioPlayer, Bool, Date, GroupId, Int, Int32, LogEntry, LogLevel (+50 more)
 
 ### Community 12 - "Community 12"
 Cohesion: 0.08
@@ -1337,8 +1351,8 @@ Cohesion: 0.07
 Nodes (51): AsRef, Default, Display, Formatter, From, NodeId, Option, Result (+43 more)
 
 ### Community 15 - "Community 15"
-Cohesion: 0.21
-Nodes (32): BytesStreamSink, Bytes, ExportKeyingMaterial, F, FrameType, HeaderValue, PublicKey, Result (+24 more)
+Cohesion: 0.16
+Nodes (37): BytesStreamSink, String, Bytes, F, FrameType, HeaderValue, PublicKey, Result (+29 more)
 
 ### Community 16 - "Community 16"
 Cohesion: 0.07
@@ -1361,24 +1375,24 @@ Cohesion: 0.08
 Nodes (36): BinaryHeap, ChaCha12Rng, Default, Eq, FromIterator, HashMap, I, Instant (+28 more)
 
 ### Community 21 - "Community 21"
-Cohesion: 0.14
-Nodes (16): BTreeSet, ConnId, Event, FnMut, Item, Iterator, Option, R (+8 more)
+Cohesion: 0.12
+Nodes (18): EndpointAddr, Event, GroupId, GroupInfo, GroupInvite, GroupMemberRole, Into, MetricsSnapshot (+10 more)
 
 ### Community 22 - "Community 22"
 Cohesion: 0.12
 Nodes (48): MessageType, NodeId, Result, Self, String, TomProtocolError, Vec, encryptPayload() (+40 more)
 
 ### Community 23 - "Community 23"
-Cohesion: 0.04
-Nodes (54): GroupPayload, GroupHub, GroupHub, GroupHubEvents, GroupHubOptions, GroupMigrationData, RateLimitEntry, GroupManager (+46 more)
+Cohesion: 0.06
+Nodes (45): GroupPayload, GroupHub, GroupHub, GroupHubEvents, GroupHubOptions, GroupMigrationData, RateLimitEntry, GroupManagerEvents (+37 more)
 
 ### Community 24 - "Community 24"
 Cohesion: 0.09
 Nodes (48): BlackHoleDetector, black_hole_detector_counts_burst_containing_only_suspicious_packets(), black_hole_detector_ignores_burst_containing_non_suspicious_packet(), black_hole_detector_ignores_empty_burst(), BlackHoleDetector, bursts_count_once(), completed(), CurrentLossBurst (+40 more)
 
 ### Community 25 - "Community 25"
-Cohesion: 0.06
-Nodes (27): AckFrequencyConfig, MtuDiscoveryConfig, TransportConfig, AckFrequencyConfig, Arc, AsRef, ConnectionId, ControllerFactory (+19 more)
+Cohesion: 0.07
+Nodes (22): AckFrequencyConfig, MtuDiscoveryConfig, TransportConfig, AckFrequencyConfig, Arc, AsRef, ControllerFactory, Default (+14 more)
 
 ### Community 26 - "Community 26"
 Cohesion: 0.05
@@ -1398,11 +1412,11 @@ Nodes (69): Default, Duration, HashMap, HashSet, IO, Option, PeerData, PeerInfo 
 
 ### Community 30 - "Community 30"
 Cohesion: 0.06
-Nodes (62): AnyError, AbortOnDropHandle, AddressLookup, Arc, Box, BoxStream, Debug, Deref (+54 more)
+Nodes (63): AnyError, AbortOnDropHandle, AddressLookup, Arc, Box, BoxStream, Debug, Deref (+55 more)
 
 ### Community 31 - "Community 31"
-Cohesion: 0.09
-Nodes (36): Addr, Arc, Config, Context, EndpointMetrics, From, IoSliceMut, IpAddr (+28 more)
+Cohesion: 0.08
+Nodes (37): Addr, Arc, Config, Context, Direct, EndpointMetrics, From, IoSliceMut (+29 more)
 
 ### Community 32 - "Community 32"
 Cohesion: 0.06
@@ -1410,11 +1424,11 @@ Nodes (14): CapacityWarningHandler, ConnectionTypeChangedHandler, GroupCreatedHa
 
 ### Community 33 - "Community 33"
 Cohesion: 0.08
-Nodes (30): PeerGossip, decryptPayload(), EncryptedPayload, EncryptionKeypair, encryptionKeyToHex(), generateEncryptionKeypair(), getOrCreateEncryptionKeypair(), hexToEncryptionKey() (+22 more)
+Nodes (17): PeerGossip, CommunicationEdge, DEFAULT_CONFIG, SubnetConfig, SubnetEvents, SubnetInfo, HeartbeatEvents, HeartbeatManager (+9 more)
 
 ### Community 34 - "Community 34"
-Cohesion: 0.10
-Nodes (14): MessageTracker, MessageStatus, MessageStatusEntry, MessageStatusTimestamps, MessageTrackerEvents, STATUS_ORDER, OfflineDetector, OfflineDetectorEvents (+6 more)
+Cohesion: 0.18
+Nodes (20): makePeer(), randomElement(), randomInt(), randomUsername(), decryptPayload(), EncryptedPayload, EncryptionKeypair, encryptionKeyToHex() (+12 more)
 
 ### Community 35 - "Community 35"
 Cohesion: 0.03
@@ -1424,13 +1438,17 @@ Nodes (57): 1. Le pattern `EndpointGone` ne doit pas être copié aveuglément, 
 Cohesion: 0.09
 Nodes (43): Box, BTreeSet, Bytes, Client, Command, Context, DeliveryScope, EndpointId (+35 more)
 
+### Community 37 - "Community 37"
+Cohesion: 0.05
+Nodes (21): AckPayload, AckType, Router, RouterEvents, SignatureVerifier, LOCAL_ID, PEER_B, RELAY_R (+13 more)
+
 ### Community 38 - "Community 38"
 Cohesion: 0.08
 Nodes (27): AckAggregationState, BandwidthEstimation, AckAggregationState, Bbr, BbrConfig, calculate_min_window(), LossState, Mode (+19 more)
 
 ### Community 39 - "Community 39"
-Cohesion: 0.10
-Nodes (20): BackupAction, BackupEvent, HashMap, NodeId, Option, PeerRole, Router, RuntimeEffect (+12 more)
+Cohesion: 0.09
+Nodes (24): BackupAction, BackupEvent, GroupAction, GroupId, GroupMessage, GroupPayload, HashMap, MessageType (+16 more)
 
 ### Community 40 - "Community 40"
 Cohesion: 0.06
@@ -1469,8 +1487,8 @@ Cohesion: 0.13
 Nodes (23): type, properties, type, description, type, properties, files_analyzed, files_scanned (+15 more)
 
 ### Community 49 - "Community 49"
-Cohesion: 0.11
-Nodes (42): RelayUrl, RuntimeCommand, bandwidth_tracking_via_role_metrics_command(), default_state(), get_all_role_scores_via_command(), get_known_relays_sorted_by_freshest(), get_role_metrics_via_command(), GossipInput (+34 more)
+Cohesion: 0.10
+Nodes (46): RelayUrl, Router, RuntimeCommand, bandwidth_tracking_via_role_metrics_command(), default_state(), get_all_role_scores_via_command(), get_known_relays_sorted_by_freshest(), get_role_metrics_via_command() (+38 more)
 
 ### Community 50 - "Community 50"
 Cohesion: 0.14
@@ -1481,8 +1499,8 @@ Cohesion: 0.10
 Nodes (28): AddAddress, FxHashMap, FxHashSet, IntMap, IpAddr, Option, PathError, PathId (+20 more)
 
 ### Community 52 - "Community 52"
-Cohesion: 0.14
-Nodes (19): GroupAction, GroupId, GroupMessage, GroupPayload, MessageType, antispam_exempts_ack_and_heartbeat(), antispam_handle_incoming_records_bytes_received(), antispam_handle_incoming_rejects_oversized() (+11 more)
+Cohesion: 0.12
+Nodes (42): Envelope, HashMap, Instant, LruCache, NodeId, Result, Self, String (+34 more)
 
 ### Community 53 - "Community 53"
 Cohesion: 0.11
@@ -1501,8 +1519,8 @@ Cohesion: 0.09
 Nodes (44): BootstrapSource, DeliveredMessage, Envelope, NodeId, ProtocolEvent, ProtocolMetrics, RuntimeEffect, Sender (+36 more)
 
 ### Community 57 - "Community 57"
-Cohesion: 0.17
-Nodes (39): A, BindOpts, Accept, BindError, Connection, Endpoint, Result, SocketAddr (+31 more)
+Cohesion: 0.15
+Nodes (43): A, BindOpts, Accept, BindError, Connecting, Connection, Endpoint, EndpointAddr (+35 more)
 
 ### Community 58 - "Community 58"
 Cohesion: 0.07
@@ -1534,15 +1552,15 @@ Nodes (31): ConnsMap, Config, From, HashMap, Instant, Item, Iterator, MessageKin
 
 ### Community 65 - "Community 65"
 Cohesion: 0.10
-Nodes (33): B, Client, Option, Result, String, T, Vec, L2Ident (+25 more)
+Nodes (34): B, Client, Option, Result, String, T, Vec, L2Ident (+26 more)
 
 ### Community 66 - "Community 66"
-Cohesion: 0.09
-Nodes (17): Bytes, Default, DoubleEndedIterator, Item, Iterator, Range, StreamId, Crypto (+9 more)
+Cohesion: 0.07
+Nodes (22): Bytes, Default, DoubleEndedIterator, Item, Iterator, Range, StreamId, UnexpectedEnd (+14 more)
 
 ### Community 67 - "Community 67"
-Cohesion: 0.15
-Nodes (31): DeliveredMessage, Duration, Instant, NodeId, Option, ProtocolEvent, Receiver, Result (+23 more)
+Cohesion: 0.13
+Nodes (36): DeliveredMessage, Duration, Instant, NodeId, Option, ProtocolEvent, Receiver, Result (+28 more)
 
 ### Community 68 - "Community 68"
 Cohesion: 0.12
@@ -1565,28 +1583,28 @@ Cohesion: 0.14
 Nodes (38): Result, Self, TomProtocolError, Vec, EncryptedPayload, ciphertext_overhead(), decrypt(), decrypt_group_message() (+30 more)
 
 ### Community 73 - "Community 73"
-Cohesion: 0.15
-Nodes (27): Self, HeartbeatTracker, RelayReadyAnnounce, RoleChangeAnnounce, announce_refresh_same_url_no_insert(), announce_url_change_emits_insert_and_remove(), announce_url_change_shared_url_no_remove(), announce_with_flag_off_no_transport_effect() (+19 more)
+Cohesion: 0.16
+Nodes (32): Self, announce_refresh_same_url_no_insert(), announce_url_change_emits_insert_and_remove(), announce_url_change_shared_url_no_remove(), announce_with_flag_off_no_transport_effect(), announce_with_flag_on_emits_insert(), antispam_exempts_ack_and_heartbeat(), antispam_handle_incoming_records_bytes_received() (+24 more)
 
 ### Community 74 - "Community 74"
 Cohesion: 0.05
-Nodes (35): Result, ScenarioResult, Result, ScenarioResult, Duration, F, Instant, Option (+27 more)
+Nodes (30): Result, ScenarioResult, Result, ScenarioResult, F, Instant, Option, Self (+22 more)
 
 ### Community 75 - "Community 75"
-Cohesion: 0.30
-Nodes (18): Self, activity_prevents_dissolution(), already_subnetted_nodes_not_reclustered(), communicate(), density_score_calculation(), dissolve_on_inactivity(), DissolveReason, edge_decay_reduces_weight() (+10 more)
+Cohesion: 0.19
+Nodes (39): EncryptedSenderKey, GroupMemberRole, Self, all_groups_query(), create_group_sends_to_hub(), duplicate_seq_not_tracked(), encrypted_message_delivered_after_key_arrives(), epoch_minus_one_accepted_within_grace() (+31 more)
 
 ### Community 76 - "Community 76"
 Cohesion: 0.08
-Nodes (23): Box, DnsResolver, EndpointHooksList, From, IntoAddressLookup, IntoIterator, Item, RelayMap (+15 more)
+Nodes (26): ConnectOptions, Box, DnsResolver, EndpointHooksList, From, IntoIterator, Item, QuicTransportConfig (+18 more)
 
 ### Community 77 - "Community 77"
 Cohesion: 0.08
 Nodes (27): Async, Arc, AsyncTimer, AsyncUdpSocket, Box, Context, Future, Instant (+19 more)
 
 ### Community 78 - "Community 78"
-Cohesion: 0.05
-Nodes (23): Decodable, Dir, Encodable, TransportErrorCode, TryFrom, W, AckEncoder<'a>, CloseEncoder<'a> (+15 more)
+Cohesion: 0.06
+Nodes (18): Dir, Encodable, IpAddr, SocketAddr, W, N, SOCKET_ADDRESS, AckEncoder<'a> (+10 more)
 
 ### Community 79 - "Community 79"
 Cohesion: 0.08
@@ -1601,12 +1619,12 @@ Cohesion: 0.22
 Nodes (23): ActiveRelayMessage, ActiveRelayPrioMessage, AbortOnDropHandle, CancellationToken, Datagrams, EndpointId, Receiver, RelayRecvDatagram (+15 more)
 
 ### Community 82 - "Community 82"
-Cohesion: 0.11
-Nodes (11): B, Error, R, Result, Self, EncodableFrame<'a>, InvalidFrameId, MaxPathId (+3 more)
+Cohesion: 0.07
+Nodes (20): B, Decodable, Error, R, Result, Self, TransportErrorCode, TryFrom (+12 more)
 
 ### Community 83 - "Community 83"
-Cohesion: 0.23
-Nodes (19): T, UnexpectedEnd, Vec, IterErr, ack_coding(), DisplayOption, frames(), immediate_ack_coding() (+11 more)
+Cohesion: 0.18
+Nodes (26): T, VarInt, Vec, ack_coding(), ack_frequency_coding(), DataBlocked, DisplayOption, EncodableFrame (+18 more)
 
 ### Community 84 - "Community 84"
 Cohesion: 0.09
@@ -1622,15 +1640,15 @@ Nodes (37): collect_interfaces(), collect_routes(), dump_addrs(), dump_links(), 
 
 ### Community 87 - "Community 87"
 Cohesion: 0.17
-Nodes (27): BackupCoordinator, cleanup_queries_timeout(), confirm_delivery_clears_store(), handle_delivery_confirmation_from_network(), handle_incoming_replication(), node_id(), query_pending_debounce(), query_response_dedup() (+19 more)
+Nodes (26): BackupCoordinator, cleanup_queries_timeout(), confirm_delivery_clears_store(), handle_delivery_confirmation_from_network(), handle_incoming_replication(), node_id(), query_pending_debounce(), query_response_dedup() (+18 more)
 
 ### Community 88 - "Community 88"
 Cohesion: 0.24
 Nodes (21): AbortOnDropHandle, BindError, Duration, Endpoint, Result, ExpectedLoss, BindError, echo_receiver() (+13 more)
 
 ### Community 89 - "Community 89"
-Cohesion: 0.19
-Nodes (21): ContributionMetrics, HashMap, NodeId, Option, PeerRole, RoleMetrics, Self, Topology (+13 more)
+Cohesion: 0.13
+Nodes (22): ContributionMetrics, HashMap, NodeId, Option, PeerRole, RoleMetrics, Self, Topology (+14 more)
 
 ### Community 90 - "Community 90"
 Cohesion: 0.10
@@ -1670,7 +1688,7 @@ Nodes (13): Arc, CancellationToken, Clients, Duration, Metrics, PingTracker, Rec
 
 ### Community 99 - "Community 99"
 Cohesion: 0.09
-Nodes (31): AddrMapInner, Addr, Arc, Default, Display, Error, Formatter, From (+23 more)
+Nodes (30): AddrMapInner, Addr, Arc, Default, Display, Error, Formatter, From (+22 more)
 
 ### Community 100 - "Community 100"
 Cohesion: 0.14
@@ -1685,8 +1703,8 @@ Cohesion: 0.11
 Nodes (29): Dir, FxHashMap, Side, StreamMeta, StreamMetaVec, TransportParameters, duplicate_reset_flow_control(), expand_receive_window() (+21 more)
 
 ### Community 103 - "Community 103"
-Cohesion: 0.14
-Nodes (18): Advanced Elicitation Protocol, Architecture Decision Output Document, Architecture Decision Document Template, Step 01 - Architecture Workflow Initialization, Step 01b - Workflow Continuation Handler (Architecture), Step 02 - Project Context Analysis (Architecture), Step 03 - Starter Template Evaluation (Architecture), Step 04 - Core Architectural Decisions (+10 more)
+Cohesion: 0.09
+Nodes (4): GroupManager, PublicGroupInfo, GroupId, acceptInvite()
 
 ### Community 104 - "Community 104"
 Cohesion: 0.12
@@ -1705,8 +1723,8 @@ Cohesion: 0.08
 Nodes (49): DiscoveryEvent, isolation_lock(), make_address_lookup(), mdns_publish_expire(), mdns_publish_resolve(), mdns_subscribe(), MdnsAddressLookup, MdnsAddressLookupBuilder (+41 more)
 
 ### Community 108 - "Community 108"
-Cohesion: 0.20
-Nodes (12): Certificate, CertificateDer, ClientRateLimit, Option, RelayUrl, ServerHandle, SocketAddr, Vec (+4 more)
+Cohesion: 0.15
+Nodes (18): CertConfig, Certificate, CertificateDer, Option, QuicConfig, RelayConfig, RelayUrl, ServerHandle (+10 more)
 
 ### Community 109 - "Community 109"
 Cohesion: 0.10
@@ -1721,8 +1739,8 @@ Cohesion: 0.13
 Nodes (26): Arc, AtomicU64, Client, Config, Conn, Datagrams, Default, EndpointId (+18 more)
 
 ### Community 112 - "Community 112"
-Cohesion: 0.12
-Nodes (16): HeartbeatEvents, HeartbeatManager, HeartbeatSender, IdentityManager, generateKeypair(), NodeIdentity, publicKeyToNodeId(), signData() (+8 more)
+Cohesion: 0.18
+Nodes (13): IdentityManager, generateKeypair(), NodeIdentity, publicKeyToNodeId(), signData(), verifySignature(), FileStorageAdapter, fromHex() (+5 more)
 
 ### Community 113 - "Community 113"
 Cohesion: 0.10
@@ -1769,7 +1787,7 @@ Cohesion: 0.17
 Nodes (15): DnsAddressLookup, DnsAddressLookupBuilder, AddressLookup, AddressLookupError, AddressLookupItem, BoxStream, DnsResolver, Endpoint (+7 more)
 
 ### Community 124 - "Community 124"
-Cohesion: 0.11
+Cohesion: 0.10
 Nodes (23): AVAudioPlayer, Bool, Date, GroupId, Int, Int32, LogEntry, LogLevel (+15 more)
 
 ### Community 125 - "Community 125"
@@ -1822,7 +1840,7 @@ Nodes (21): Clone, D, Debug, Default, Deserialize, Error, Formatter, Ok (+13 mor
 
 ### Community 137 - "Community 137"
 Cohesion: 0.09
-Nodes (53): Arc, c_char, DeliveredMessage, HashMap, Mutex, MutexGuard, NodeId, Option (+45 more)
+Nodes (56): Arc, c_char, DeliveredMessage, HashMap, Mutex, MutexGuard, NodeId, Option (+48 more)
 
 ### Community 138 - "Community 138"
 Cohesion: 0.14
@@ -1845,8 +1863,8 @@ Cohesion: 0.22
 Nodes (7): SentFrames, EncodableFrame, FxHashMap, Retransmits, StreamMetaVec, StreamsState, ThinRetransmits
 
 ### Community 143 - "Community 143"
-Cohesion: 0.15
-Nodes (24): AddressLookupStream, AddrEvents, AddrMap, Arc, BTreeSet, ConcurrentAddressLookup, Connection, Direct (+16 more)
+Cohesion: 0.14
+Nodes (25): AddressLookupStream, AddrEvents, AddrMap, Arc, BTreeSet, ConcurrentAddressLookup, Connection, Direct (+17 more)
 
 ### Community 144 - "Community 144"
 Cohesion: 0.14
@@ -1881,8 +1899,8 @@ Cohesion: 0.05
 Nodes (65): Bucket, Default, LruCache, NodeId, Result, Self, String, Arc (+57 more)
 
 ### Community 152 - "Community 152"
-Cohesion: 0.17
-Nodes (15): Scene, TomNodeApp, Scene, TomNodeApp, ChatMessage, Stats, String, App (+7 more)
+Cohesion: 0.13
+Nodes (13): MessageTracker, MessageStatus, MessageStatusEntry, MessageStatusTimestamps, MessageTrackerEvents, STATUS_ORDER, OfflineDetector, OfflineDetectorEvents (+5 more)
 
 ### Community 153 - "Community 153"
 Cohesion: 0.13
@@ -1933,12 +1951,12 @@ Cohesion: 0.24
 Nodes (10): IoSliceMut, NonZeroUsize, RecvMeta, Result, Self, Transmit, UdpSockRef, send() (+2 more)
 
 ### Community 165 - "Community 165"
-Cohesion: 0.05
-Nodes (68): AbortOnDropHandle, Accepting, Arc, AsRef, Box, CancellationToken, ClosedStream, Connection (+60 more)
+Cohesion: 0.17
+Nodes (20): AbortOnDropHandle, CancellationToken, ClientConfig, Connection, Duration, Endpoint, QuicConfig, Result (+12 more)
 
 ### Community 166 - "Community 166"
-Cohesion: 0.15
-Nodes (26): Error, NodeId, ProtocolEvent, bot_ping_anonymous_then_named(), bot_ping_ignores_non_discovery_events(), bot_ping_selects_named_peer(), bot_ping_skips_anonymous_peer(), bot_ping_target_locked_after_first() (+18 more)
+Cohesion: 0.06
+Nodes (63): Scene, TomNodeApp, Scene, TomNodeApp, ChatMessage, Arc, DeliveredMessage, Error (+55 more)
 
 ### Community 167 - "Community 167"
 Cohesion: 0.17
@@ -2021,8 +2039,8 @@ Cohesion: 0.14
 Nodes (16): BTreeMap, Display, Duration, Formatter, Item, Iterator, Option, Probe (+8 more)
 
 ### Community 187 - "Community 187"
-Cohesion: 0.31
-Nodes (9): Duration, F, SocketAddrV4, SocketAddrV6, T, now_or_never(), select_best_path(), select_v4_v6() (+1 more)
+Cohesion: 0.14
+Nodes (16): BTreeSet, ConnId, Event, FnMut, Item, Iterator, Option, R (+8 more)
 
 ### Community 188 - "Community 188"
 Cohesion: 0.22
@@ -2037,12 +2055,12 @@ Cohesion: 0.21
 Nodes (24): AddressFamily, DefaultRouteDetails, Err, Handle, create_link_get_message(), create_route_message(), default_route(), default_route_netlink_family() (+16 more)
 
 ### Community 191 - "Community 191"
-Cohesion: 0.12
-Nodes (26): AckEncoder, AddAssign, Ack, Arbitrary, ArrayRangeSet, ConnectionId, EcnCodepoint, EcnCounts (+18 more)
+Cohesion: 0.11
+Nodes (27): AckEncoder, AddAssign, Ack, Arbitrary, ArrayRangeSet, ConnectionId, EcnCodepoint, EcnCounts (+19 more)
 
 ### Community 192 - "Community 192"
 Cohesion: 0.10
-Nodes (23): Borrow, AsRef, Copy, Debug, Deref, Deserialize, Display, Formatter (+15 more)
+Nodes (19): Borrow, AsRef, Copy, Debug, Deref, Display, H, Hash (+11 more)
 
 ### Community 193 - "Community 193"
 Cohesion: 0.19
@@ -2057,16 +2075,16 @@ Cohesion: 0.26
 Nodes (15): CFArray, CFRetained, get_sc_interface_map(), load_sc_interfaces_plist_map(), map_sc_interface_type(), read_sc_interfaces_plist_map(), sc_network_interfaces_all(), SCInterface (+7 more)
 
 ### Community 196 - "Community 196"
-Cohesion: 0.12
-Nodes (17): API, Ce qui est hors scope, Champ, Choix API, Config, Data Model, Events, Fichiers impactés (+9 more)
+Cohesion: 0.13
+Nodes (17): Default, DeliveredMessage, Event, Into, Option, PathBuf, ProtocolEvent, Receiver (+9 more)
 
 ### Community 197 - "Community 197"
 Cohesion: 0.05
 Nodes (52): ConnectionIdParser, Buf, BufMut, Bytes, BytesMut, ConnectionId, Cursor, From (+44 more)
 
 ### Community 198 - "Community 198"
-Cohesion: 0.25
-Nodes (5): IpNetworkChangeSender, NetworkChangeSender, RelayNetworkChangeSender, Report, NetworkChangeSender
+Cohesion: 0.22
+Nodes (16): AsRef, Box, Debug, Fn, Future, Into, Output, Pin (+8 more)
 
 ### Community 199 - "Community 199"
 Cohesion: 0.06
@@ -2093,8 +2111,8 @@ Cohesion: 0.14
 Nodes (14): AntiSpam, NodeId, PeerRole, Topology, get_all_scores_returns_topology_peers(), make_topology(), multiple_relays_fail_then_recover(), node_id() (+6 more)
 
 ### Community 205 - "Community 205"
-Cohesion: 0.14
-Nodes (10): Bool, Data, GroupId, TomNodeWrapper, NodeId, String, TomMessage, TomNodeHandle (+2 more)
+Cohesion: 0.12
+Nodes (10): OpaquePointer, Bool, Data, GroupId, NodeId, String, TomMessage, TomPeer (+2 more)
 
 ### Community 206 - "Community 206"
 Cohesion: 0.15
@@ -2103,6 +2121,10 @@ Nodes (19): backup_entry_new(), BackupAction, BackupEntry, BackupEvent, expiry_c
 ### Community 207 - "Community 207"
 Cohesion: 0.09
 Nodes (22): _comment, env, CLAUDE_AUTOCOMPACT_PCT_OVERRIDE, CLAUDE_CODE_SUBAGENT_MODEL, DISABLE_NON_ESSENTIAL_MODEL_CALLS, MAX_THINKING_TOKENS, hooks, PostToolUse (+14 more)
+
+### Community 208 - "Community 208"
+Cohesion: 0.13
+Nodes (13): Deserialize, Formatter, From, FromStr, R, Serialize, TryFrom, SigningKey (+5 more)
 
 ### Community 210 - "Community 210"
 Cohesion: 0.15
@@ -2113,8 +2135,8 @@ Cohesion: 0.13
 Nodes (12): Any, Box, Controller, Duration, IpAddr, Option, Path, PathId (+4 more)
 
 ### Community 212 - "Community 212"
-Cohesion: 0.09
-Nodes (24): Group Chat Architecture Review (Story 4.6), Group Protocol Message Types, Group Message Rate Limit (5 msg/sec/user), Relay-as-Hub Group Design Pattern, ADR-001: WebRTC DataChannel via Relay, ADR-002: Signaling Bootstrap (Temporary WebSocket), ADR-006: Unified Node Model (Event-Driven), ADR-007: Role Model (Network-Imposed) (+16 more)
+Cohesion: 0.06
+Nodes (37): Group Chat Architecture Review (Story 4.6), Group Protocol Message Types, Group Message Rate Limit (5 msg/sec/user), Relay-as-Hub Group Design Pattern, MessagePack Wire Format Decision, ADR-001: WebRTC DataChannel via Relay, ADR-003: Wire Format (JSON → MessagePack), ADR-006: Unified Node Model (Event-Driven) (+29 more)
 
 ### Community 213 - "Community 213"
 Cohesion: 0.11
@@ -2165,8 +2187,8 @@ Cohesion: 0.10
 Nodes (21): iOS Bonjour Service _iroh._udp, TomNode iOS Project Configuration (XcodeGen), TomNode iOS Xcode Setup Guide, TomProtocolFFI XCFramework, TomNode tvOS Claude Context, Build FFI Troubleshooting Guide (tvOS), Rust tvOS Targets (aarch64-apple-tvos, aarch64-apple-tvos-sim), tvOS Swift FFI Architecture Stack (+13 more)
 
 ### Community 225 - "Community 225"
-Cohesion: 0.12
-Nodes (10): CancellationToken, ConnId, JoinSet, PathsWatcher, Receiver, RemoteStateMessage, Sender, Vec (+2 more)
+Cohesion: 0.13
+Nodes (9): CancellationToken, ConnId, JoinSet, PathsWatcher, Receiver, RemoteStateMessage, Sender, Vec (+1 more)
 
 ### Community 226 - "Community 226"
 Cohesion: 0.18
@@ -2186,15 +2208,15 @@ Nodes (16): BTreeMap, BTreeSet, DirectAddr, Display, Formatter, Instant, Item, I
 
 ### Community 230 - "Community 230"
 Cohesion: 0.06
-Nodes (59): AppError, AppState, Arc, Bytes, ConcurrentAddressLookup, DnsResolver, Duration, EndpointId (+51 more)
+Nodes (53): AppError, AppState, Arc, Bytes, ConcurrentAddressLookup, DnsResolver, Duration, EndpointId (+45 more)
 
 ### Community 231 - "Community 231"
 Cohesion: 0.09
 Nodes (24): Bytes, ClientConfig, ConnectionEvent, ConnectionHandle, Debug, EcnCodepoint, EndpointEvent, Formatter (+16 more)
 
 ### Community 232 - "Community 232"
-Cohesion: 0.16
-Nodes (7): Bytes, PathStatus, SendDatagram, SendDatagramError, VarInt, OpenPath, SendDatagramError
+Cohesion: 0.09
+Nodes (15): AcceptBi, AcceptUni, Connection, Future, OpenBi, OpenUni, ReadDatagram, Side (+7 more)
 
 ### Community 233 - "Community 233"
 Cohesion: 0.15
@@ -2218,7 +2240,7 @@ Nodes (28): Action 4: E2E Automated Testing Framework (Playwright), Action 1: Hu
 
 ### Community 238 - "Community 238"
 Cohesion: 0.20
-Nodes (6): handleSendMessage(), clamp(), McpTool, McpToolCall, McpToolResult, TomMcpServer
+Nodes (5): clamp(), McpTool, McpToolCall, McpToolResult, TomMcpServer
 
 ### Community 239 - "Community 239"
 Cohesion: 0.07
@@ -2226,23 +2248,23 @@ Nodes (26): activationEvents, categories, contributes, commands, views, viewsCon
 
 ### Community 240 - "Community 240"
 Cohesion: 0.09
-Nodes (32): addNodeBtn, autoBtn, discLines, discoveryUrlInput, discSummary, endpointLine(), EndpointResult, esc() (+24 more)
+Nodes (31): $(), appearance(), buildNetwork(), emptyHintEl, ESC, fmtNum(), fmtUptime(), footEl (+23 more)
 
 ### Community 241 - "Community 241"
-Cohesion: 0.16
-Nodes (13): _ACResourceInitProtocol, AppKit.NSColor, AppKit.NSImage, ColorResource, ImageResource, ResourceBundleClass, SwiftUI.Color, SwiftUI.Image (+5 more)
+Cohesion: 0.09
+Nodes (21): 🔴 Action 1 — CRITIQUE (1-2h), 🟠 Action 2 — MOYEN TERME (backlog, v0.4+), 🟡 Action 3 — DOCUMENTAIRE, Contexte, Contraintes / hors scope, CRITIQUE — Perte d'événements silencieuse en merger, De : Claude (Fable 5), Fichiers à lire (+13 more)
 
 ### Community 242 - "Community 242"
-Cohesion: 0.10
-Nodes (19): TomError, alreadyRunning, ffiReturnedNull, groupCreateFailed, jsonParseFailed, notStarted, sendFailed, unknown (+11 more)
+Cohesion: 0.18
+Nodes (10): LocalizedError, String, TomError, alreadyRunning, ffiReturnedNull, groupCreateFailed, jsonParseFailed, notStarted (+2 more)
 
 ### Community 243 - "Community 243"
-Cohesion: 0.19
-Nodes (21): Bool, Data, Date, GroupId, Int, TomGroup, TomMessage, TomNodeState (+13 more)
+Cohesion: 0.28
+Nodes (14): Codable, Identifiable, Bool, Data, Date, GroupId, Int, NodeId (+6 more)
 
 ### Community 244 - "Community 244"
-Cohesion: 0.29
-Nodes (7): Core Architectural Decisions, Decision Impact Analysis, Decision Priority Analysis, Infrastructure & Deployment, Node Internal Architecture, Security & Cryptography, Transport & Communication
+Cohesion: 0.19
+Nodes (18): Arc, AsyncTimer, ConnectionEvent, ConnectionHandle, Debug, EndpointEvent, Event, Instant (+10 more)
 
 ### Community 245 - "Community 245"
 Cohesion: 0.19
@@ -2281,16 +2303,16 @@ Cohesion: 0.05
 Nodes (42): 1.1 Create tvOS Xcode Project, 1.2 Makefile (tvOS focused), 1.3 CLAUDE.md for tvOS, 1.4 VS Code Setup, 2.1 tom-protocol-ffi Crate (Rust), 2.2 Build Script, 2.3 Validate Compilation, 3.1 Local Swift Package: TomCoreKit (+34 more)
 
 ### Community 254 - "Community 254"
-Cohesion: 0.14
-Nodes (15): Box, Context, Future, Output, Pin, Poll, Result, Self (+7 more)
+Cohesion: 0.11
+Nodes (20): SendDatagramError, AddressLookupError, AddressLookupItem, Box, Context, F, Future, Output (+12 more)
 
 ### Community 255 - "Community 255"
-Cohesion: 0.10
-Nodes (17): IpAddr, SocketAddr, VarInt, N, SOCKET_ADDRESS, AddAddress, Datagram, DatagramInfo (+9 more)
+Cohesion: 0.12
+Nodes (10): ConnectionInner, Clone, ConnectionStats, Deref, Drop, Target, WeakConnectionHandle, ConnectionRef (+2 more)
 
 ### Community 256 - "Community 256"
-Cohesion: 0.09
-Nodes (25): ConnectOptions, Arc, Connecting, EndpointAddr, EndpointId, EndpointMetrics, Handle, Into (+17 more)
+Cohesion: 0.11
+Nodes (17): Arc, EndpointId, EndpointMetrics, Handle, Option, Receiver, RelayConfig, RelayUrl (+9 more)
 
 ### Community 257 - "Community 257"
 Cohesion: 0.05
@@ -2313,8 +2335,8 @@ Cohesion: 0.05
 Nodes (39): 10. Continue.dev — configuration type, 11. `.gitignore` recommandé, 12. Workflow quotidien conseillé, 13. Quand ouvrir Xcode, 14. Prompts utiles pour Claude, 15. Problèmes fréquents, 16. Vérification finale, 17. Conclusion (+31 more)
 
 ### Community 262 - "Community 262"
-Cohesion: 0.16
-Nodes (27): Any, Arc, Box, CertificateDer, ClientConfig, ConnectError, Error, KeyPair (+19 more)
+Cohesion: 0.23
+Nodes (21): Arc, CertificateDer, ClientConfig, ConnectError, Error, PrivateKeyDer, Result, Self (+13 more)
 
 ### Community 263 - "Community 263"
 Cohesion: 0.28
@@ -2341,20 +2363,20 @@ Cohesion: 0.12
 Nodes (13): activate(), ChatViewProvider, connectToNetwork(), deactivate(), disconnectFromNetwork(), doConnect(), getChatWebviewContent(), getNonce() (+5 more)
 
 ### Community 269 - "Community 269"
-Cohesion: 0.16
-Nodes (12): Bool, Data, GroupId, TomNodeWrapper, NodeId, String, TomMessage, TomNodeHandle (+4 more)
+Cohesion: 0.18
+Nodes (10): Any, Box, Connection, ExportKeyingMaterialError, KeyPair, Option, PacketKey, TransportError (+2 more)
 
 ### Community 270 - "Community 270"
 Cohesion: 0.11
 Nodes (18): dependencies, tweetnacl, devDependencies, tsup, @types/node, exports, import, main (+10 more)
 
 ### Community 271 - "Community 271"
-Cohesion: 0.50
-Nodes (3): Builder, N0, Preset
+Cohesion: 0.16
+Nodes (14): Arc, CancellationToken, EndpointId, Incoming, Item, Iterator, Option, Vec (+6 more)
 
 ### Community 272 - "Community 272"
-Cohesion: 0.33
-Nodes (6): Architecture Workflow, Configuration Loading, EXECUTION, INITIALIZATION, Paths, WORKFLOW ARCHITECTURE
+Cohesion: 0.16
+Nodes (7): Bytes, PathStatus, SendDatagram, SendDatagramError, VarInt, OpenPath, SendDatagramError
 
 ### Community 273 - "Community 273"
 Cohesion: 0.22
@@ -2394,11 +2416,11 @@ Nodes (11): CHAOS_CONFIG, disconnectUser(), maybeInjectChaos(), reconnectUser(),
 
 ### Community 283 - "Community 283"
 Cohesion: 0.10
-Nodes (21): CodingKeys, discoveredAt, from, groupId, groupsCount, id, localRole, members (+13 more)
+Nodes (21): CodingKey, CodingKeys, discoveredAt, from, groupId, groupsCount, id, localRole (+13 more)
 
 ### Community 284 - "Community 284"
-Cohesion: 0.07
-Nodes (38): Bool, Data, Date, GroupId, Int, CodingKeys, discoveredAt, from (+30 more)
+Cohesion: 0.10
+Nodes (19): 1. Verdict sur le design précédent, 2. Architecture V1 recommandée, 3. Contrat JSON V1, 4. Périmètre V1 / V2 / non retenu, 5. Plan d'implémentation, 6. Validation, 7. Risques, Annexe — Ce que ce plan ne fait pas (+11 more)
 
 ### Community 285 - "Community 285"
 Cohesion: 0.12
@@ -2433,8 +2455,8 @@ Cohesion: 0.05
 Nodes (39): 1. Sur MacBook, 2026-03-31 — Runbook campagne multi-device (NAS + Apple TV + MacBook), 2. Sur NAS, 3. Sur Apple TV / tvOS, But, Campagne d’exécution, Cas 1 — GO, Cas 2 — GO partiel (+31 more)
 
 ### Community 293 - "Community 293"
-Cohesion: 0.18
-Nodes (7): ConnectionError, Error, ExportKeyingMaterialError, Formatter, Result, SocketAddr, Vec
+Cohesion: 0.20
+Nodes (12): DeliveredMessage, NodeId, Option, ProtocolEvent, StatusChange, String, Vec, Event (+4 more)
 
 ### Community 294 - "Community 294"
 Cohesion: 0.15
@@ -2473,12 +2495,12 @@ Cohesion: 0.13
 Nodes (21): AddressLookupError, PkarrError, PkarrPublisher, PublisherService, AbortOnDropHandle, AddressLookup, AddressLookupItem, Arc (+13 more)
 
 ### Community 304 - "Community 304"
-Cohesion: 0.11
-Nodes (22): Append-Only Document Building, Create Epics and Stories Workflow, Step 01: Validate Prerequisites, Step 02: Design Epics, FR Coverage Map, User-Value-First Epic Design Principle, Step 03: Create Stories, No-Forward-Dependency Story Principle (+14 more)
+Cohesion: 0.10
+Nodes (21): Append-Only Document Building, Architecture Workflow, Configuration Loading, EXECUTION, INITIALIZATION, Paths, WORKFLOW ARCHITECTURE, Party Mode Facilitation (+13 more)
 
 ### Community 305 - "Community 305"
 Cohesion: 0.15
-Nodes (19): ConstValues, /Users/malik/Documents/tom-protocol/apps/tom-node-tvos/.build/xcode/Build/Intermediates.noindex/TomNode.build/Debug-appletvsimulator/TomNode.build/DerivedSources/GeneratedAssetSymbols.swift, const-values, dependencies, diagnostics, index-unit-output-path, llvm-bc, object (+11 more)
+Nodes (12): 2026-06-10 22:18 — Ouverture, 2026-06-10 22:30 — Intermède : commit push demandé (« au passage »), Backlog généré, Chantier S1 — API SDK Rust (façade tom-sdk) · Suivi d'exécution, Clôture S1 — bilan, 🔐 Findings sécurité (review auto post-commit) — 4 HIGH sur StatusServer.swift, Journal de chantier, S1.0-S1.2 ✅ — commit `0fd02db` : le crate `tom-sdk` existe (+4 more)
 
 ### Community 306 - "Community 306"
 Cohesion: 0.13
@@ -2497,7 +2519,7 @@ Cohesion: 0.07
 Nodes (31): Adversarial Review Task, Quick Dev Execution Modes (tech-spec vs direct), Ready For Development Standard, Step-File Architecture (just-in-time loading), Quick Dev Step 01: Mode Detection, Quick Dev Step 02: Context Gathering, Quick Dev Step 03: Execute Implementation, Quick Dev Step 04: Self-Check (+23 more)
 
 ### Community 310 - "Community 310"
-Cohesion: 0.17
+Cohesion: 0.19
 Nodes (12): AckFrequencyState, AckFrequency, AckFrequencyConfig, Duration, Option, PathId, Result, Self (+4 more)
 
 ### Community 311 - "Community 311"
@@ -2525,12 +2547,12 @@ Cohesion: 0.19
 Nodes (18): Box, HeaderKey, PacketKey, Send, Sync, T, AeadKey, ClientConfig (+10 more)
 
 ### Community 317 - "Community 317"
-Cohesion: 0.19
-Nodes (18): Arc, AsyncTimer, ConnectionEvent, ConnectionHandle, Debug, EndpointEvent, Event, Instant (+10 more)
+Cohesion: 0.15
+Nodes (12): Chantier S2.4 — Migration des apps iOS/tvOS vers TomProtocolKit · Suivi d'exécution, Journal de chantier, Notes, Phase 0 — Cartographie, Review de substitution (Copilot HS jusqu'au 2026-07-01), S2.4.a — linkerSettings dans le package, S2.4.b — iOS (xcodegen existant), S2.4.c — tvOS (sortie du pbxproj manuel) (+4 more)
 
 ### Community 318 - "Community 318"
-Cohesion: 0.09
-Nodes (15): AcceptBi, AcceptUni, Connection, Future, OpenBi, OpenUni, ReadDatagram, Side (+7 more)
+Cohesion: 0.17
+Nodes (11): Bilan advisories après ce chantier, Cartographie (Phase 0), Chantier hickory 0.26 — Suivi d'exécution, Incident 1 — disque saturé à 99 % pendant les tests, Incident 2 — 3 tests DNS en échec après la migration initiale, Journal de chantier, Leçon réappliquée — lock FFI, Ruptures d'API 0.25 → 0.26 rencontrées (15 erreurs de compile) (+3 more)
 
 ### Community 319 - "Community 319"
 Cohesion: 0.05
@@ -2545,16 +2567,16 @@ Cohesion: 0.23
 Nodes (12): Builder, BytesBody, Future, HyperResult, Incoming, Into, Request, Response (+4 more)
 
 ### Community 322 - "Community 322"
-Cohesion: 0.09
-Nodes (40): CertConfig, AbortOnDropHandle, Client, Datagrams, DnsResolver, EndpointId, JoinSet, QuicConfig (+32 more)
+Cohesion: 0.11
+Nodes (32): AbortOnDropHandle, Client, Datagrams, DnsResolver, EndpointId, JoinSet, RelayToClientMsg, Result (+24 more)
 
 ### Community 323 - "Community 323"
 Cohesion: 0.18
 Nodes (16): Self, String, T, Vec, emit(), EventBurstResult, EventDisconnected, EventFanoutResult (+8 more)
 
 ### Community 324 - "Community 324"
-Cohesion: 0.13
-Nodes (25): ifaddrs, Interface, Option, Result, SystemTime, AbortOnDropHandle, ActorMessage, Direct (+17 more)
+Cohesion: 0.18
+Nodes (18): ifaddrs, Interface, Option, Result, SystemTime, AbortOnDropHandle, ActorMessage, Direct (+10 more)
 
 ### Community 325 - "Community 325"
 Cohesion: 0.24
@@ -2572,6 +2594,10 @@ Nodes (8): BandwidthEstimation, Display, Duration, Formatter, Instant, MinMax, O
 Cohesion: 0.17
 Nodes (16): BMAD Workflow Config: create-story (yaml), BMAD Workflow Config: dev-story (yaml), BMAD Workflow Config: document-project (yaml), BMAD Workflow Config: qa-automate (yaml), BMAD Workflow Config: retrospective (yaml), BMAD Workflow Config: sprint-planning (yaml), BMAD Workflow Config: sprint-status (yaml), BMAD Core Workflow Engine (workflow.xml) (+8 more)
 
+### Community 329 - "Community 329"
+Cohesion: 0.18
+Nodes (7): ConnectionError, Error, ExportKeyingMaterialError, Formatter, Result, SocketAddr, Vec
+
 ### Community 330 - "Community 330"
 Cohesion: 0.15
 Nodes (8): crate::imp::msghdr_x, libc::cmsghdr, libc::msghdr, c_int, c_uchar, CMsgHdr, ControlMessage, MsgHdr
@@ -2581,8 +2607,8 @@ Cohesion: 0.26
 Nodes (9): Client, ClientStream, Future, Output, Result, T, DialError, RelayConnectionError (+1 more)
 
 ### Community 332 - "Community 332"
-Cohesion: 0.18
-Nodes (13): Connection, ConnectionId, ExportKeyingMaterialError, From, Keys, Side, Version, initial_keys() (+5 more)
+Cohesion: 0.31
+Nodes (9): ConnectionId, From, Keys, Side, Version, initial_keys(), interpret_version(), rustls::Side (+1 more)
 
 ### Community 333 - "Community 333"
 Cohesion: 0.07
@@ -2609,12 +2635,12 @@ Cohesion: 0.21
 Nodes (11): MapProtocol, Opcode, Error, Response, ResultCode, test_decode_external_addr_response(), test_encode_decode_map_response(), R (+3 more)
 
 ### Community 339 - "Community 339"
-Cohesion: 0.06
-Nodes (31): Consequences, Consequences, Consequences, Decision 1: Message Delivery Definition, Decision 2: Acceptable Loss & TTL, Decision 4: Reputation & Right to Be Forgotten, Decision 5: Anti-Spam ("The Sprinkler Gets Sprinkled"), Decision 7: ToM Scope (+23 more)
+Cohesion: 0.05
+Nodes (37): Comparison, Consequences, Consequences, Consequences, Consequences, Decision 1: Message Delivery Definition, Decision 2: Acceptable Loss & TTL, Decision 4: Reputation & Right to Be Forgotten (+29 more)
 
 ### Community 340 - "Community 340"
-Cohesion: 0.13
-Nodes (17): Micro-File Architecture Pattern (UX Design), UX Design Specification Template, Configuration Loading, Create UX Design Workflow, EXECUTION, INITIALIZATION, Paths, WORKFLOW ARCHITECTURE (+9 more)
+Cohesion: 0.08
+Nodes (31): Advanced Elicitation Protocol, Architecture Decision Output Document, Architecture Decision Document Template, Step 01 - Architecture Workflow Initialization, Step 01b - Workflow Continuation Handler (Architecture), Step 02 - Project Context Analysis (Architecture), Step 03 - Starter Template Evaluation (Architecture), Step 04 - Core Architectural Decisions (+23 more)
 
 ### Community 341 - "Community 341"
 Cohesion: 0.20
@@ -2649,8 +2675,8 @@ Cohesion: 0.23
 Nodes (12): ConnectionLoopError, ConnOrigin, AcceptError, Connection, ConnId, ProtoMessage, PublicKey, Result (+4 more)
 
 ### Community 349 - "Community 349"
-Cohesion: 0.18
-Nodes (13): Err, R, Self, SignatureError, KeyParsingError, decode_base32_hex(), KeyParsingError, public_key_json() (+5 more)
+Cohesion: 0.31
+Nodes (10): D, Err, Ok, Result, Self, KeyParsingError, decode_base32_hex(), public_key_json() (+2 more)
 
 ### Community 350 - "Community 350"
 Cohesion: 0.38
@@ -2661,16 +2687,16 @@ Cohesion: 0.22
 Nodes (5): ChaCha12Rng, PeerId, BootstrapMode, NetworkReport, Simulator
 
 ### Community 352 - "Community 352"
-Cohesion: 0.25
-Nodes (14): DeliveredMessage, NodeId, ProtocolEvent, Receiver, RelayUrl, Result, RuntimeHandle, Server (+6 more)
+Cohesion: 0.18
+Nodes (10): 2026-06-11 06:41 — Ouverture · tag v0.3.0 posé au préalable, Backlog généré, Chantier S2 — SDK Apple distribué (Swift Package) · Suivi d'exécution, Journal de chantier, S2.1 ✅ — commit `02eea51`, S2.2 ✅ — commit `3194ed2`, S2.3 ✅ — commit `7a66ea2`, 🔁 S2.4 REPORTÉ — migration des apps (chantier dédié) (+2 more)
 
 ### Community 353 - "Community 353"
 Cohesion: 0.27
 Nodes (14): Arc, c_char, Mutex, Option, Runtime, Server, init_tracing(), String (+6 more)
 
 ### Community 354 - "Community 354"
-Cohesion: 0.16
-Nodes (17): Arc, DeliveredMessage, Frame, Option, Receiver, Result, RuntimeHandle, Self (+9 more)
+Cohesion: 0.12
+Nodes (17): API, Ce qui est hors scope, Champ, Choix API, Config, Data Model, Events, Fichiers impactés (+9 more)
 
 ### Community 355 - "Community 355"
 Cohesion: 0.19
@@ -2741,8 +2767,8 @@ Cohesion: 0.22
 Nodes (12): BTreeSet, Default, Event, HashSet, Receiver, Sender, Key, ProtoEvent (+4 more)
 
 ### Community 372 - "Community 372"
-Cohesion: 0.33
-Nodes (6): Architectural Boundaries, Complete Project Directory Structure, Data Flow, File Organization Patterns, Project Structure & Boundaries, Requirements to Structure Mapping
+Cohesion: 0.27
+Nodes (7): AbortOnDropHandle, Endpoint, F, JoinError, Mutex, Router, RouterBuilder
 
 ### Community 373 - "Community 373"
 Cohesion: 0.21
@@ -2769,8 +2795,8 @@ Cohesion: 0.27
 Nodes (13): FxHashMap, Mutex, Notify, Shared, State, StreamId, Waker, ConnectionInner (+5 more)
 
 ### Community 379 - "Community 379"
-Cohesion: 0.13
-Nodes (34): code_to_error(), get_arp_table(), get_gateway_map(), in6_addr, in_addr, ip_from_sockaddr(), list_routes(), masklen_from_sockaddr() (+26 more)
+Cohesion: 0.18
+Nodes (10): 2026-06-11 12:34 — Ouverture, Backlog généré, Chantier S3 — Spec protocole publique + test vectors · Suivi d'exécution, Clôture S3 — bilan, Journal de chantier, Méthode anti-invention (§5) — vectors d'abord, spec ensuite, S3.1 + S3.2 ✅ — commit `fdd6c06`, S3.3 ✅ — commit `25da859` (+2 more)
 
 ### Community 380 - "Community 380"
 Cohesion: 0.23
@@ -2841,8 +2867,8 @@ Cohesion: 0.19
 Nodes (12): CACHE_TTL_MS, CHECK_TIMEOUT_MS, computeHealthyRelays(), fetchWithTimeout(), isRelayHealthy(), json(), loadRelayCatalog(), PORT (+4 more)
 
 ### Community 397 - "Community 397"
-Cohesion: 0.33
-Nodes (6): Comparison, Consequences, Decision 6: User Invisibility, Rationale, Rule, Specification
+Cohesion: 0.25
+Nodes (14): DeliveredMessage, NodeId, ProtocolEvent, Receiver, RelayUrl, Result, RuntimeHandle, Server (+6 more)
 
 ### Community 398 - "Community 398"
 Cohesion: 0.22
@@ -2881,8 +2907,8 @@ Cohesion: 0.38
 Nodes (12): convert_hex_ipv4(), convert_hex_ipv6(), get_arp_map(), get_gateway_map(), get_ipv4_gateway_map(), get_ipv6_gateway_map(), HashMap, Ipv4Addr (+4 more)
 
 ### Community 407 - "Community 407"
-Cohesion: 0.50
-Nodes (4): From, Self, ConnectError, UnsupportedVersion
+Cohesion: 0.31
+Nodes (10): calc_v6_scope_id(), interfaces(), push_ipv4(), push_ipv6(), Interface, Ipv4Addr, Ipv4Net, Ipv6Addr (+2 more)
 
 ### Community 408 - "Community 408"
 Cohesion: 0.19
@@ -2936,6 +2962,10 @@ Nodes (11): Deep Dive Exhaustive Scan Mode, Full Project Scan Mode, Deep Dive Do
 Cohesion: 0.06
 Nodes (33): 10. Document demo keyboard shortcuts, 11. Add connection quality indicator to SDK, 12. Add message retry with exponential backoff, 13. Add typing indicator support, 14. Add message read receipts to demo UI, 15. Add network stats display to demo, 16. Audit TomError usage consistency, 17. Verify ADR compliance in crypto module (+25 more)
 
+### Community 421 - "Community 421"
+Cohesion: 0.22
+Nodes (8): 1. Identité, 2. Envelope, 3. Signature, 4. Types de message, 5. TTL — deux notions distinctes, 6. Règles de relais (stateless), 7. Validation d'une implémentation tierce, ToM Wire Format — v1
+
 ### Community 422 - "Community 422"
 Cohesion: 0.19
 Nodes (11): AbortOnDropHandle, Arc, Deref, Inner, Metrics, ProtocolHandler, Target, GossipApi (+3 more)
@@ -2969,16 +2999,16 @@ Cohesion: 0.18
 Nodes (10): devDependencies, vite, name, private, scripts, build, clean, dev (+2 more)
 
 ### Community 430 - "Community 430"
-Cohesion: 0.22
-Nodes (9): Implementation Plan, Task 1: RelayRegistry struct + new/default + upsert — tests first, Task 2: RelayRegistry prune + tests, Task 3: Export RelayRegistry from discovery module, Task 4: RuntimeConfig + ProtocolEvent + RuntimeCommand, Task 5: Wire RelayRegistry into RuntimeState, Task 6: Integration tests in state.rs, Task 7: Clippy + full workspace validation (+1 more)
+Cohesion: 0.29
+Nodes (7): ADR-004: Encryption Stack, Encryption (TypeScript core), GroupManager (TypeScript), NetworkTopology (TypeScript), Router (TypeScript), TomClient SDK, GitHub Permanent Issue Backlog
 
 ### Community 431 - "Community 431"
-Cohesion: 0.16
-Nodes (14): TomNodeService, ContentView, NodeId, String, TomMessage, TomNodeService, TomPeer, MessageRow (+6 more)
+Cohesion: 0.25
+Nodes (9): NodeId, String, TomMessage, TomNodeService, TomPeer, MessageRow, MessagesView, SendMessageSheet (+1 more)
 
 ### Community 432 - "Community 432"
-Cohesion: 0.45
-Nodes (5): Color, String, TomNodeService, StatBox, StatusView
+Cohesion: 0.24
+Nodes (10): TomNodeService, ContentView, Color, String, TomNodeService, StatBox, StatusView, TomNodeService (+2 more)
 
 ### Community 433 - "Community 433"
 Cohesion: 0.13
@@ -2997,8 +3027,8 @@ Cohesion: 0.20
 Nodes (4): Error, From, Self, TomProtocolError
 
 ### Community 437 - "Community 437"
-Cohesion: 0.13
-Nodes (16): GroupId, GroupInfo, GroupInvite, GroupMemberRole, NodeId, PeerRole, ProtocolMetrics, Result (+8 more)
+Cohesion: 0.11
+Nodes (19): EndpointAddr, GroupId, GroupInfo, GroupInvite, GroupMemberRole, MetricsSnapshot, NodeId, PeerRole (+11 more)
 
 ### Community 438 - "Community 438"
 Cohesion: 0.36
@@ -3017,8 +3047,8 @@ Cohesion: 0.06
 Nodes (32): 10. Security - Crypto Primitives, 1. Edition 2024 Requirement, 1. Namespace Consistency, 1. tom-connect (Transport Layer Fork), 2. iroh-quinn Dependency, 2. tom-relay (Relay Server Fork), 2. Type Aliases & API Compatibility, 3. Dependencies - Version Conflicts (+24 more)
 
 ### Community 442 - "Community 442"
-Cohesion: 0.12
-Nodes (15): CloseEncoder, ApplicationClose, ConnectionClose, Display, Formatter, From, TransportError, ApplicationClose (+7 more)
+Cohesion: 0.11
+Nodes (16): CloseEncoder, ApplicationClose, ConnectionClose, Display, Formatter, From, TransportError, ApplicationClose (+8 more)
 
 ### Community 443 - "Community 443"
 Cohesion: 0.20
@@ -3029,8 +3059,8 @@ Cohesion: 0.24
 Nodes (8): Display, Duration, Formatter, Instant, NodeId, Result, PathEvent, PathKind
 
 ### Community 445 - "Community 445"
-Cohesion: 0.22
-Nodes (9): 1. `crates/tom-transport/Cargo.toml`, 2. `crates/tom-transport/src/config.rs`, 3. `crates/tom-transport/src/bootstrap.rs` (nouveau), 4. `crates/tom-transport/src/node.rs`, 5. `crates/tom-protocol/src/runtime/bootstrap.rs` (nouveau), 6. `crates/tom-protocol/src/runtime/mod.rs`, 7. `crates/tom-protocol/src/runtime/loop.rs`, 8. `crates/tom-relay/src/server/clients.rs` (+1 more)
+Cohesion: 0.29
+Nodes (7): Architecture Compliance, Critical Boundaries, Dev Notes, Git Intelligence, Previous Story Learnings (from Story 3.2), Project Structure Notes, References
 
 ### Community 446 - "Community 446"
 Cohesion: 0.13
@@ -3074,7 +3104,7 @@ Nodes (5): AddressDiscoveryRole, crate::address_discovery::Role, QlogSentPacket,
 
 ### Community 456 - "Community 456"
 Cohesion: 0.04
-Nodes (41): ConnectionMeta, AcceptBi, AcceptUni, Bytes, Controller, Duration, ExportKeyingMaterialError, OpenUni (+33 more)
+Nodes (45): ConnectionMeta, AcceptBi, AcceptUni, Bytes, Controller, Duration, ExportKeyingMaterialError, OpenUni (+37 more)
 
 ### Community 457 - "Community 457"
 Cohesion: 0.10
@@ -3165,8 +3195,12 @@ Cohesion: 0.25
 Nodes (7): Debug, Option, Send, Sync, Controller, ControllerFactory, ControllerMetrics
 
 ### Community 479 - "Community 479"
-Cohesion: 0.11
-Nodes (18): ADR-002: Bootstrap Elimination (Phase R7), Bootstrap Participation Vectors (ADR-002 temporary), Acceptance Criteria, Agent Model Used, Architecture Compliance, Code Review Fixes (GPT 5.2), Completion Notes List, Critical Boundaries (+10 more)
+Cohesion: 0.07
+Nodes (29): ADR-002: Bootstrap Elimination (Phase R7), Bootstrap Participation Vectors (ADR-002 temporary), pnpm Monorepo Structure, Acceptance Criteria, Agent Model Used, Change Log, Completion Notes List, Debug Log References (+21 more)
+
+### Community 480 - "Community 480"
+Cohesion: 0.38
+Nodes (7): ClosedStream, Error, From, Self, T, AcceptError, Box<dyn DynProtocolHandler>
 
 ### Community 481 - "Community 481"
 Cohesion: 0.36
@@ -3197,8 +3231,12 @@ Cohesion: 0.33
 Nodes (6): Bool, Color, String, TomNodeService, SettingsRow, SettingsView
 
 ### Community 488 - "Community 488"
-Cohesion: 0.07
-Nodes (46): Direct, Addr, Arc, AsyncUdpSocket, Box, Bytes, CancellationToken, Context (+38 more)
+Cohesion: 0.06
+Nodes (50): Addr, Arc, AsyncUdpSocket, Box, Bytes, CancellationToken, Context, Debug (+42 more)
+
+### Community 489 - "Community 489"
+Cohesion: 0.29
+Nodes (6): 1. Primitives, 2. Conversion Ed25519 → X25519, 3. Chiffrement E2E d'un message direct, 4. Chiffrement de groupe (Sender Keys), 5. Propriétés et limites (v1), ToM Cryptography — v1
 
 ### Community 490 - "Community 490"
 Cohesion: 0.07
@@ -3266,11 +3304,15 @@ Nodes (4): JsonRpcRequest, JsonRpcResponse, main(), parseArgs()
 
 ### Community 506 - "Community 506"
 Cohesion: 0.29
-Nodes (6): ABIRoot, json_format_version, kind, name, printedName, ConstValues
+Nodes (6): Concepts en 30 secondes, Démarrage en 10 lignes, Exemples, Garanties du protocole (décisions verrouillées), Installation, tom-sdk
 
 ### Community 507 - "Community 507"
 Cohesion: 0.29
 Nodes (6): chat.mcp.autostart, chat.tools.terminal.autoApprove, cargo check, git -C /Users/malik/Documents/tom-protocol, ipconfig, pnpm
+
+### Community 508 - "Community 508"
+Cohesion: 0.29
+Nodes (6): Depuis une release (recommandé, à venir), En local (monorepo), Installation, Notes, TomProtocolKit, Usage
 
 ### Community 509 - "Community 509"
 Cohesion: 0.07
@@ -3293,8 +3335,8 @@ Cohesion: 0.33
 Nodes (5): compilerOptions, outDir, rootDir, extends, include
 
 ### Community 514 - "Community 514"
-Cohesion: 0.18
-Nodes (19): Context, IO, Item, Option, Pin, Poll, R, SecretKey (+11 more)
+Cohesion: 0.16
+Nodes (20): Box, Context, ExportKeyingMaterial, IO, Item, Option, Pin, Poll (+12 more)
 
 ### Community 516 - "Community 516"
 Cohesion: 0.40
@@ -3333,8 +3375,8 @@ Cohesion: 0.33
 Nodes (5): compilerOptions, outDir, rootDir, extends, include
 
 ### Community 525 - "Community 525"
-Cohesion: 0.40
-Nodes (4): colors, info, author, version
+Cohesion: 0.60
+Nodes (6): RelayMap, RelayUrl, Server, SpawnError, run_relay_server(), run_relay_server_with()
 
 ### Community 526 - "Community 526"
 Cohesion: 0.40
@@ -3350,7 +3392,7 @@ Nodes (4): assets, info, author, version
 
 ### Community 529 - "Community 529"
 Cohesion: 0.40
-Nodes (4): images, info, author, version
+Nodes (5): NodeId, String, hex(), keypair(), main()
 
 ### Community 530 - "Community 530"
 Cohesion: 0.40
@@ -3393,8 +3435,8 @@ Cohesion: 0.07
 Nodes (27): 1. Contexte et Problème, 2. Architecture : Sender Keys, 3. Structures de Données, 4.1 Création de groupe, 4.2 Invitation + Join + Échange de clés, 4.3 Envoi de message chiffré, 4.4 Départ de membre + Rotation, 4.5 Messages en attente (buffering) (+19 more)
 
 ### Community 540 - "Community 540"
-Cohesion: 0.44
-Nodes (8): Envelope, ack_updates_tracker_status(), handle_incoming_chat_dedup_drops(), handle_incoming_chat_delivers_and_acks(), handle_incoming_chat_encrypted_decrypts(), handle_incoming_chat_forward_when_not_recipient(), make_signed_chat(), read_receipt_produces_status_read()
+Cohesion: 0.27
+Nodes (12): Envelope, NodeId, ack_updates_tracker_status(), handle_incoming_chat_dedup_drops(), handle_incoming_chat_delivers_and_acks(), handle_incoming_chat_encrypted_decrypts(), handle_incoming_chat_forward_when_not_recipient(), handle_send_message_encrypted_when_config_enabled() (+4 more)
 
 ### Community 541 - "Community 541"
 Cohesion: 0.07
@@ -3417,8 +3459,8 @@ Cohesion: 0.40
 Nodes (4): Error, From, Self, TomTransportError
 
 ### Community 546 - "Community 546"
-Cohesion: 0.40
-Nodes (5): IpAddr, PathBuf, SocketAddr, Cli, Vec
+Cohesion: 0.24
+Nodes (11): Create Epics and Stories Workflow, Step 01: Validate Prerequisites, Step 02: Design Epics, FR Coverage Map, User-Value-First Epic Design Principle, Step 03: Create Stories, No-Forward-Dependency Story Principle, Step 04: Final Validation (+3 more)
 
 ### Community 547 - "Community 547"
 Cohesion: 0.22
@@ -3489,8 +3531,8 @@ Cohesion: 0.50
 Nodes (3): info, author, version
 
 ### Community 565 - "Community 565"
-Cohesion: 0.50
-Nodes (3): info, author, version
+Cohesion: 0.33
+Nodes (6): TomNodeState, error, running, starting, stopped, stopping
 
 ### Community 566 - "Community 566"
 Cohesion: 0.50
@@ -3605,8 +3647,8 @@ Cohesion: 0.67
 Nodes (3): Option A1: Embedded Relay in First Node, PeerAnnounce to PeerDiscovered Bug (3-command scenario), ADR-M2: Reduce Demo from 4 to 3 Commands
 
 ### Community 600 - "Community 600"
-Cohesion: 0.50
-Nodes (3): build_ffi.sh script, PATH, build_ffi.sh script
+Cohesion: 0.40
+Nodes (4): colors, info, author, version
 
 ### Community 602 - "Community 602"
 Cohesion: 0.83
@@ -3620,6 +3662,10 @@ Nodes (16): Completion, Discovery Handler Implementation Plan, Success Criteria 
 Cohesion: 0.67
 Nodes (3): ContributionMetrics (messages_relayed + bytes_relayed + uptime), Dynamic Roles Bandwidth Tracking Design, Dynamic Roles Bandwidth Tracking Implementation Plan
 
+### Community 624 - "Community 624"
+Cohesion: 0.40
+Nodes (4): images, info, author, version
+
 ### Community 658 - "Community 658"
 Cohesion: 0.16
 Nodes (18): CacheEntry, Arc, Bytes, Default, HashMap, Option, Rng, Self (+10 more)
@@ -3627,6 +3673,18 @@ Nodes (18): CacheEntry, Arc, Bytes, Default, HashMap, Option, Rng, Self (+10 mor
 ### Community 677 - "Community 677"
 Cohesion: 0.08
 Nodes (25): ❌ 1. Découverte automatique absente, ❌ 2. Stabilité connexion faible, ❌ 3. Asymétrie envoi/réception, Actions recommandées, Analyse détaillée des erreurs, ✅ Backup mechanism, Cause probable, Ce qui a été fait (+17 more)
+
+### Community 689 - "Community 689"
+Cohesion: 0.40
+Nodes (4): colors, info, author, version
+
+### Community 690 - "Community 690"
+Cohesion: 0.40
+Nodes (4): images, info, author, version
+
+### Community 765 - "Community 765"
+Cohesion: 0.31
+Nodes (10): calc_v6_scope_id(), interfaces(), push_ipv4(), push_ipv6(), Interface, Ipv4Addr, Ipv4Net, Ipv6Addr (+2 more)
 
 ### Community 785 - "Community 785"
 Cohesion: 0.08
@@ -3845,8 +3903,8 @@ Cohesion: 0.09
 Nodes (23): 1. Apparition initiale, 2. Présentation minimale, 3. Handoff, 4. Rotation, A. l'amorçage actuel de test, B. la vraie pompe d'amorçage cible, Ce qu'on accepte, Ce qu'on refuse comme cible finale (+15 more)
 
 ### Community 839 - "Community 839"
-Cohesion: 0.09
-Nodes (22): 7 Locked Design Decisions, Architecture, Campaign V5 Results, Contributing, Core Concepts, Documentation, Dual Stack, Dynamic Roles (+14 more)
+Cohesion: 0.07
+Nodes (27): 1 · Rust — `tom-sdk` (15 lines to a live node), 2 · Apple — `TomProtocolKit` (iOS 16+ / tvOS 16+ / macOS 13+), 3 · Any language — implement the protocol, 7 Locked Design Decisions, Architecture, Campaign V5 Results, Contributing, Core Concepts (+19 more)
 
 ### Community 840 - "Community 840"
 Cohesion: 0.09
@@ -3883,6 +3941,10 @@ Nodes (21): 3. Handle User Choice, CONTEXT BOUNDARIES:, CONTINUATION SEQUENCE:, 
 ### Community 848 - "Community 848"
 Cohesion: 0.16
 Nodes (19): fmt_tuple_id(), packet_type(), stringify_cid(), TimerOp, tuple_endpoint_info(), ConnectionId, FourTuple, Header (+11 more)
+
+### Community 849 - "Community 849"
+Cohesion: 0.40
+Nodes (4): source, spec, vectors, version
 
 ### Community 850 - "Community 850"
 Cohesion: 0.09
@@ -3973,8 +4035,8 @@ Cohesion: 0.10
 Nodes (20): Ce qui ne change PAS, Changements, Changements, Changements, Changements, Changements, Interaction avec `GroupHubSnapshot`, Nouveau MessageType (+12 more)
 
 ### Community 872 - "Community 872"
-Cohesion: 0.10
-Nodes (20): 1. **Rust Not Installed or Not in PATH**, 2. **tvOS Target Not Installed**, 3. **Workspace Not Found**, 4. **Rust Compilation Errors**, 5. **Missing Cargo.toml Configuration**, 6. **Xcode Build Settings Issues**, 7. **Permissions Issues**, Common Causes of "Command PhaseScriptExecution failed" Error (+12 more)
+Cohesion: 0.50
+Nodes (3): info, author, version
 
 ### Community 873 - "Community 873"
 Cohesion: 0.10
@@ -4076,13 +4138,9 @@ Nodes (19): 1. Check for Product Brief, 2. Attempt Sub-Process Validation, 3. Gr
 Cohesion: 0.12
 Nodes (16): 2026-06-10 17:08 — Ouverture + constats préalables, Actions générées pour la suite (backlog priorisé), Chantier S0 — Hygiène de base · Suivi d'exécution, Clôture du chantier S0 — 2026-06-10 21:45, 🔁 Correction S0.2 — l'audit avait partiellement tort (commit final `57b268e`), 🔁 Déviation S0.3 — tom-protocol-ffi reste HORS workspace, Journal de chantier, S0.1 ✅ — commit `9fcd2a1` (+8 more)
 
-### Community 898 - "Community 898"
-Cohesion: 0.39
-Nodes (5): D, Error, Ok, Result, S
-
 ### Community 899 - "Community 899"
-Cohesion: 0.10
-Nodes (21): AlpnError, Any, Box, Connecting, ConnectionError, ConnectionStats, IpAddr, Option (+13 more)
+Cohesion: 0.14
+Nodes (14): Any, Box, ConnectionError, ConnectionStats, IpAddr, Option, Copy, Debug (+6 more)
 
 ### Community 900 - "Community 900"
 Cohesion: 0.12
@@ -4093,8 +4151,8 @@ Cohesion: 0.11
 Nodes (18): 1) `experiments/iroh-poc/scripts/test-localhost.sh`, 1) Job `Rust PoC (build + clippy + localhost test)`, 2) `.github/workflows/ci.yml` (job `rust-poc`), 2) Job `Rust stress (build + clippy + localhost test)`, 3) `crates/tom-stress/scripts/test-localhost.sh`, A. PoC — binaire introuvable, B. Stress — timeout global du job, Cause racine (+10 more)
 
 ### Community 902 - "Community 902"
-Cohesion: 0.11
-Nodes (18): 3.1 Create Xcode Project, 3.2 Add Source Files, 3.3 Add XCFramework, 3.4 Configure Build Settings, 3.5 Build and Run, Architecture: Swift → Rust, FFI Functions (14 total), File Layout Summary (+10 more)
+Cohesion: 0.14
+Nodes (13): Architecture: Swift → Rust, FFI Functions (14 total), File Layout Summary, macOS-specific behavior, Overview, Prerequisites, Relay Configuration, Step 1 — Build the Rust XCFramework (+5 more)
 
 ### Community 903 - "Community 903"
 Cohesion: 0.11
@@ -4169,8 +4227,8 @@ Cohesion: 0.19
 Nodes (11): EndpointId, From, Item, Iterator, Self, TransportAddr, TransportAddrInfo, Vec (+3 more)
 
 ### Community 921 - "Community 921"
-Cohesion: 0.14
-Nodes (12): AddressLookupError, AddressLookupItem, Eq, IntoIterator, Item, Iterator, PartialEq, PathInfo (+4 more)
+Cohesion: 0.13
+Nodes (17): Duration, Eq, IntoIterator, Item, Iterator, PartialEq, PathInfo, PathStats (+9 more)
 
 ### Community 922 - "Community 922"
 Cohesion: 0.11
@@ -4209,8 +4267,8 @@ Cohesion: 0.11
 Nodes (17): Architecture Highlights, Development Overview, Documentation Map, Executive Summary, Getting Started, How Parts Integrate, Key Commands, Key Features (+9 more)
 
 ### Community 931 - "Community 931"
-Cohesion: 0.29
-Nodes (6): EmbeddedRelayService, RelayRegistry, TransportRelayDiscovery, Sprint 1 Resultats, Sprint 1 Wow Moment Honnete, Sprint 1 Metrics (M0-M4)
+Cohesion: 0.50
+Nodes (3): info, author, version
 
 ### Community 932 - "Community 932"
 Cohesion: 0.12
@@ -4269,8 +4327,8 @@ Cohesion: 0.22
 Nodes (12): ConnectionHandlerError, Bytes, HeaderValue, MaybeTlsStream, String, AcceptError, ConnectionHandlerError, derive_accept_key() (+4 more)
 
 ### Community 946 - "Community 946"
-Cohesion: 0.33
-Nodes (5): Décision, Instruction, Keep the cap — consigne immédiate, Priorité absolue, Reformulation simple
+Cohesion: 0.50
+Nodes (3): Result, TomSdkError, main()
 
 ### Community 947 - "Community 947"
 Cohesion: 0.19
@@ -4361,12 +4419,12 @@ Cohesion: 0.13
 Nodes (14): 1. Begin Scope Confirmation, 2. Scope Confirmation, 3. Handle Continue Selection, APPEND TO DOCUMENT:, CONTEXT BOUNDARIES:, EXECUTION PROTOCOLS:, FAILURE MODES:, If 'C' (Continue): (+6 more)
 
 ### Community 969 - "Community 969"
-Cohesion: 0.09
-Nodes (22): Story 4.5: Demo Snake Multiplayer P2P Game, Direct Path Establishment via WebRTC, Multiplayer Snake P2P Demo Game, Acceptance Criteria, Agent Model Used, Architecture Compliance, Completion Notes List, Critical Boundaries (+14 more)
+Cohesion: 0.14
+Nodes (13): Story 4.5: Demo Snake Multiplayer P2P Game, Direct Path Establishment via WebRTC, Multiplayer Snake P2P Demo Game, Acceptance Criteria, Agent Model Used, Completion Notes List, Debug Log References, Dev Agent Record (+5 more)
 
 ### Community 970 - "Community 970"
-Cohesion: 0.13
-Nodes (22): Accepting, Arc, Context, Endpoint, Future, IntoFuture, Output, Pin (+14 more)
+Cohesion: 0.51
+Nodes (6): Context, Output, Pin, Poll, Self, IncomingFuture
 
 ### Community 971 - "Community 971"
 Cohesion: 0.29
@@ -4417,8 +4475,8 @@ Cohesion: 0.14
 Nodes (13): Améliorations infra, Chantier macOS (5 lots — prêt à démarrer), Ensuite, Infrastructure, Livré, Parking, Phase 1 TypeScript — complète, Phase 3 — Convergence TS+Rust (README.md) (+5 more)
 
 ### Community 983 - "Community 983"
-Cohesion: 0.06
-Nodes (35): ADR-004: Encryption Stack, Dynamic Role Assignment (client/relay/observer), Encryption (TypeScript core), GroupManager (TypeScript), NetworkTopology (TypeScript), RelaySelector (TypeScript), Router (TypeScript), TomClient SDK (+27 more)
+Cohesion: 0.17
+Nodes (11): Dynamic Role Assignment (client/relay/observer), RelaySelector (TypeScript), Acceptance Criteria, Story, Story 3.2: Dynamic Role Assignment, Tasks / Subtasks, Acceptance Criteria, Story (+3 more)
 
 ### Community 984 - "Community 984"
 Cohesion: 0.15
@@ -4458,7 +4516,7 @@ Nodes (12): 1. Tasks Complete, 2. Tests Passing, 3. Acceptance Criteria Satisfie
 
 ### Community 993 - "Community 993"
 Cohesion: 0.15
-Nodes (12): Architecture, Bundle ID, Commands, Core Stack, Dev Team, Do Not Modify, File Structure, Project (+4 more)
+Nodes (12): Architecture, Bundle IDs, Commands, Core Stack (S2.4 — migration package), Dev Team, Do Not Modify, File Structure, Project (+4 more)
 
 ### Community 994 - "Community 994"
 Cohesion: 0.40
@@ -4469,8 +4527,8 @@ Cohesion: 0.17
 Nodes (11): 1. Rapport de fin de tâche, 2. Surveillance contexte (hook UserPromptSubmit), 3. Heartbeat (cron toutes les 5min), 4. Polling messages entrants (cron toutes les 30s), Enregistrement config au démarrage, EXECUTOR — Comportement agent subordonné MasterClaude, Identité, Intégration hooks Claude Code (+3 more)
 
 ### Community 996 - "Community 996"
-Cohesion: 0.09
-Nodes (21): Delivery Confirmation & Read Receipts (sent→relayed→delivered→read), Acceptance Criteria, Agent Model Used, Architecture Compliance, Code Review Fixes (Opus 4.5), Completion Notes List, Critical Boundaries, Current ACK Implementation (from Story 2.4) (+13 more)
+Cohesion: 0.17
+Nodes (11): Delivery Confirmation & Read Receipts (sent→relayed→delivered→read), Acceptance Criteria, Agent Model Used, Code Review Fixes (Opus 4.5), Completion Notes List, Debug Log References, Dev Agent Record, File List (+3 more)
 
 ### Community 997 - "Community 997"
 Cohesion: 0.17
@@ -4573,12 +4631,12 @@ Cohesion: 0.18
 Nodes (10): Ce qui est compressé / préservé, Compress — Réduction tokens input, Procédure, Quand utiliser, Règles, Étape 1 — Backup, Étape 2 — Analyser, Étape 3 — Compresser (+2 more)
 
 ### Community 1022 - "Community 1022"
-Cohesion: 0.11
-Nodes (17): Peer Discovery via Gossip / Heartbeat, Acceptance Criteria, Agent Model Used, Architecture Compliance, Completion Notes List, Critical Boundaries, Debug Log References, Dev Agent Record (+9 more)
+Cohesion: 0.18
+Nodes (10): Peer Discovery via Gossip / Heartbeat, Acceptance Criteria, Agent Model Used, Completion Notes List, Debug Log References, Dev Agent Record, File List, Story (+2 more)
 
 ### Community 1023 - "Community 1023"
-Cohesion: 0.12
-Nodes (10): ConnectionInner, Clone, ConnectionStats, Deref, Drop, Target, WeakConnectionHandle, ConnectionRef (+2 more)
+Cohesion: 0.50
+Nodes (3): Result, TomSdkError, main()
 
 ### Community 1024 - "Community 1024"
 Cohesion: 0.18
@@ -4625,8 +4683,8 @@ Cohesion: 0.20
 Nodes (9): Direct, NetworkChangeSender, Receiver, State, Interval, Monitor, Actor, ActorMessage (+1 more)
 
 ### Community 1035 - "Community 1035"
-Cohesion: 0.20
-Nodes (9): /Users/malik/Documents/tom-protocol/apps/tom-node-tvos/TomNode/Views/SettingsView.swift, const-values, dependencies, diagnostics, index-unit-output-path, llvm-bc, object, swift-dependencies (+1 more)
+Cohesion: 0.50
+Nodes (3): Result, TomSdkError, main()
 
 ### Community 1036 - "Community 1036"
 Cohesion: 0.20
@@ -4644,9 +4702,13 @@ Nodes (4): EcnCodepoint, Transmit, udp_ecn(), udp_transmit()
 Cohesion: 0.40
 Nodes (5): 8. Anti-plan : ce que je déconseille, Anti-plan A — repartir trop haut dans la vision, Anti-plan B — ouvrir un gros chantier “relay rotatif complet” tout de suite, Anti-plan C — dériver vers du polish UI trop tôt, Anti-plan D — multiplier les outils ad hoc non intégrés
 
+### Community 1040 - "Community 1040"
+Cohesion: 0.50
+Nodes (3): Hors périmètre v1, Spécifications du protocole ToM, Test vectors
+
 ### Community 1041 - "Community 1041"
-Cohesion: 0.29
-Nodes (6): Box, Sized, KeyMaterialClientAuth, &T, VerificationError, WithTlsSharedSecret
+Cohesion: 0.47
+Nodes (4): Accepting, Connection, Result, AccessLimit<P>
 
 ### Community 1042 - "Community 1042"
 Cohesion: 0.20
@@ -4669,8 +4731,8 @@ Cohesion: 0.20
 Nodes (9): 1. Permissions par défaut larges, 2. Détection proactive (comportement Claude), 3. Ce qui reste bloqué — toujours, Architecture des permissions, La solution, Le bon équilibre, Le problème, Permissions Proactives — Arrête de me demander (+1 more)
 
 ### Community 1047 - "Community 1047"
-Cohesion: 0.50
-Nodes (4): 1.1 Ce qui reste parfaitement aligné avec la vision ToM, 1.2 Ce qui a divergé du découpage BMAD initial, 1.3 Ce que cette divergence implique pour les discussions d'équipe, 1. Constats de réalignement
+Cohesion: 0.20
+Nodes (10): Architecture Compliance, Critical Boundaries, Current ACK Implementation (from Story 2.4), Dev Notes, Existing Code Patterns (from Story 4.1), File Locations, Message Status State Machine, Previous Story Learnings (Story 4.1) (+2 more)
 
 ### Community 1048 - "Community 1048"
 Cohesion: 0.20
@@ -4689,8 +4751,8 @@ Cohesion: 0.20
 Nodes (9): Anti-patterns, Détection automatique de stack, Installation comme hook git, Les 5 étapes, Principe, Règle absolue, Security — Pre-push Gate, Usage (+1 more)
 
 ### Community 1052 - "Community 1052"
-Cohesion: 0.20
-Nodes (9): Multi-platform (Mac Catalyst), Prerequisites, Step 1 — Create Xcode Project, Step 2 — Add Source Files, Step 3 — Add XCFramework, Step 4 — Configure Bridging Header, Step 5 — Build & Run, TomNode iOS/iPadOS — Xcode Setup (+1 more)
+Cohesion: 0.29
+Nodes (6): Multi-platform (Mac Catalyst), Prerequisites, Step 1 — Generate the Xcode project, Step 2 — Build & Run, TomNode iOS/iPadOS — Setup, Troubleshooting
 
 ### Community 1053 - "Community 1053"
 Cohesion: 0.18
@@ -4699,42 +4761,6 @@ Nodes (10): 2026-05-22 — Session initialisation vault [auto], 2026-05-22 — V
 ### Community 1054 - "Community 1054"
 Cohesion: 0.20
 Nodes (9): Existing Documentation, Full Project Scan Instructions, Generated Documentation, Getting Started, {{part_name}} ({{part_id}}), Project Documentation Complete! ✓, Project Documentation Index, Project Overview (+1 more)
-
-### Community 1055 - "Community 1055"
-Cohesion: 0.50
-Nodes (4): 2.1 Socle réseau/protocole, 2.2 Discipline d'implémentation, 2.3 Ce que ce socle permet déjà de dire sans exagération, 2. Socle déjà livré ou fortement consolidé
-
-### Community 1056 - "Community 1056"
-Cohesion: 0.22
-Nodes (9): /Users/malik/Documents/tom-protocol/apps/tom-node-tvos/TomNode/Models/TomError.swift, const-values, dependencies, diagnostics, index-unit-output-path, llvm-bc, object, swift-dependencies (+1 more)
-
-### Community 1057 - "Community 1057"
-Cohesion: 0.22
-Nodes (9): /Users/malik/Documents/tom-protocol/apps/tom-node-tvos/TomNode/Models/TomModels.swift, const-values, dependencies, diagnostics, index-unit-output-path, llvm-bc, object, swift-dependencies (+1 more)
-
-### Community 1058 - "Community 1058"
-Cohesion: 0.22
-Nodes (9): /Users/malik/Documents/tom-protocol/apps/tom-node-tvos/TomNode/Models/TomNodeWrapper.swift, const-values, dependencies, diagnostics, index-unit-output-path, llvm-bc, object, swift-dependencies (+1 more)
-
-### Community 1059 - "Community 1059"
-Cohesion: 0.22
-Nodes (9): /Users/malik/Documents/tom-protocol/apps/tom-node-tvos/TomNode/Services/TomNodeService.swift, const-values, dependencies, diagnostics, index-unit-output-path, llvm-bc, object, swift-dependencies (+1 more)
-
-### Community 1060 - "Community 1060"
-Cohesion: 0.22
-Nodes (9): /Users/malik/Documents/tom-protocol/apps/tom-node-tvos/TomNode/Views/ContentView.swift, const-values, dependencies, diagnostics, index-unit-output-path, llvm-bc, object, swift-dependencies (+1 more)
-
-### Community 1061 - "Community 1061"
-Cohesion: 0.22
-Nodes (9): /Users/malik/Documents/tom-protocol/apps/tom-node-tvos/TomNode/Views/GroupsView.swift, const-values, dependencies, diagnostics, index-unit-output-path, llvm-bc, object, swift-dependencies (+1 more)
-
-### Community 1062 - "Community 1062"
-Cohesion: 0.22
-Nodes (9): /Users/malik/Documents/tom-protocol/apps/tom-node-tvos/TomNode/Views/MessagesView.swift, const-values, dependencies, diagnostics, index-unit-output-path, llvm-bc, object, swift-dependencies (+1 more)
-
-### Community 1063 - "Community 1063"
-Cohesion: 0.22
-Nodes (9): /Users/malik/Documents/tom-protocol/apps/tom-node-tvos/TomNode/Views/StatusView.swift, const-values, dependencies, diagnostics, index-unit-output-path, llvm-bc, object, swift-dependencies (+1 more)
 
 ### Community 1064 - "Community 1064"
 Cohesion: 0.22
@@ -4753,8 +4779,8 @@ Cohesion: 0.25
 Nodes (4): ClosePathError, ClosePathError, NonZeroU32, MultipathNotNegotiated
 
 ### Community 1068 - "Community 1068"
-Cohesion: 0.31
-Nodes (7): Display, Formatter, String, HandshakeData, NoInitialCipherSuite, NamedGroup, NoInitialCipherSuite
+Cohesion: 0.36
+Nodes (6): Display, Formatter, HandshakeData, NoInitialCipherSuite, NamedGroup, NoInitialCipherSuite
 
 ### Community 1069 - "Community 1069"
 Cohesion: 0.22
@@ -4817,8 +4843,8 @@ Cohesion: 0.22
 Nodes (8): Contexte, Contraintes / hors scope, De : Claude (Sonnet 4.6), Fichiers à lire, Handoff — PR #39 : Apple distribution + audit protocole + durcissement FFI, Intégration, Question précise, Réponse de : Copilot/GPT
 
 ### Community 1084 - "Community 1084"
-Cohesion: 0.10
-Nodes (20): pnpm Monorepo Structure, Acceptance Criteria, Agent Model Used, Architecture Compliance, Change Log, Completion Notes List, Debug Log References, Dev Agent Record (+12 more)
+Cohesion: 0.22
+Nodes (9): Architecture Compliance, Dev Notes, File Structure Requirements, Library/Framework Requirements, Naming Conventions (MUST follow), Project Structure Notes, References, Technical Requirements (+1 more)
 
 ### Community 1086 - "Community 1086"
 Cohesion: 0.22
@@ -4844,6 +4870,10 @@ Nodes (9): Bootstrap & Discovery, Community & Contribution, Developer Integratio
 Cohesion: 0.22
 Nodes (9): But, Côté connect (sélection relay), Côté transport/config, Fichiers ciblés (repo), Go/No-Go, Nouveau composant discovery (dans repo), Phase C2 — Discovery service + multi-relay côté client, Schéma JSON canonique (+1 more)
 
+### Community 1092 - "Community 1092"
+Cohesion: 0.40
+Nodes (7): From, RecvError, Result, Self, SendError, Error, T
+
 ### Community 1093 - "Community 1093"
 Cohesion: 0.22
 Nodes (8): Catalogue des relays, Démarrage, Endpoints, Métriques discovery, Relay Discovery Service (MVP), Santé relay, Smoke test (relay + discovery), Snapshot agrégé
@@ -4856,17 +4886,21 @@ Nodes (8): Procédure, Review Copilot, Règles, Étape 1 — Collecter le contex
 Cohesion: 0.22
 Nodes (9): type, type, type, properties, architecture_type, parts_count, primary_language, repository_type (+1 more)
 
+### Community 1096 - "Community 1096"
+Cohesion: 0.22
+Nodes (9): Architecture Compliance, Critical Boundaries, Dev Notes, Existing Code Patterns (from Story 3.5), File Locations, Implementation Strategy, Previous Story Learnings (Story 3.5), References (+1 more)
+
 ### Community 1097 - "Community 1097"
 Cohesion: 0.25
 Nodes (7): Atelier Help, Règles, À chaque invocation, Étape 1 — Diagnostic rapide, Étape 2 — Afficher l'état, Étape 3 — Afficher les commandes, Étape 4 — Recommandation contextuelle
 
-### Community 1099 - "Community 1099"
-Cohesion: 0.06
-Nodes (33): calc_v6_scope_id(), interfaces(), push_ipv4(), push_ipv6(), interfaces(), calc_v6_scope_id(), interfaces(), push_ipv4() (+25 more)
+### Community 1098 - "Community 1098"
+Cohesion: 0.22
+Nodes (9): Implementation Plan, Task 1: RelayRegistry struct + new/default + upsert — tests first, Task 2: RelayRegistry prune + tests, Task 3: Export RelayRegistry from discovery module, Task 4: RuntimeConfig + ProtocolEvent + RuntimeCommand, Task 5: Wire RelayRegistry into RuntimeState, Task 6: Integration tests in state.rs, Task 7: Clippy + full workspace validation (+1 more)
 
 ### Community 1100 - "Community 1100"
-Cohesion: 0.15
-Nodes (22): RelayConfig, RelayMap, AccessConfig, Limits, TlsConfig, CertificateDer, QuicConfig, RelayConfig (+14 more)
+Cohesion: 0.11
+Nodes (27): RelayConfig, RelayMap, Builder, AccessConfig, ClientRateLimit, Limits, TlsConfig, CertificateDer (+19 more)
 
 ### Community 1101 - "Community 1101"
 Cohesion: 0.14
@@ -4940,6 +4974,10 @@ Nodes (7): Action, Changer de modèle en cours de session, Configuration actuell
 Cohesion: 0.25
 Nodes (7): API Routes ({{api_route_count}} endpoints found), Deep-Dive Documentation, Deep-Dive Documentation Complete! ✓, Deep-Dive Documentation Instructions, Feature Modules ({{feature_count}} features), Services/Business Logic, UI Component Areas
 
+### Community 1119 - "Community 1119"
+Cohesion: 0.22
+Nodes (9): 1. `crates/tom-transport/Cargo.toml`, 2. `crates/tom-transport/src/config.rs`, 3. `crates/tom-transport/src/bootstrap.rs` (nouveau), 4. `crates/tom-transport/src/node.rs`, 5. `crates/tom-protocol/src/runtime/bootstrap.rs` (nouveau), 6. `crates/tom-protocol/src/runtime/mod.rs`, 7. `crates/tom-protocol/src/runtime/loop.rs`, 8. `crates/tom-relay/src/server/clients.rs` (+1 more)
+
 ### Community 1120 - "Community 1120"
 Cohesion: 0.29
 Nodes (6): C4 MVP — Infra Web Client, Ce que valide le client, Emplacement, Lancement, Paramétrage, Scope
@@ -5002,7 +5040,15 @@ Nodes (6): Architecture, Démarrer, Livre blanc, Ressources, Table des matières
 
 ### Community 1135 - "Community 1135"
 Cohesion: 0.29
-Nodes (7): Architecture Compliance, Critical Boundaries, Dev Notes, Git Intelligence, Previous Story Learnings (from Story 3.1), Project Structure Notes, References
+Nodes (6): EmbeddedRelayService, RelayRegistry, TransportRelayDiscovery, Sprint 1 Resultats, Sprint 1 Wow Moment Honnete, Sprint 1 Metrics (M0-M4)
+
+### Community 1136 - "Community 1136"
+Cohesion: 0.29
+Nodes (5): ConnectionId, Instant, QlogSink, Side, SocketAddr
+
+### Community 1137 - "Community 1137"
+Cohesion: 0.33
+Nodes (6): interfaces(), Interface, Vec, IpAddr, Vec, get_system_dns_conf()
 
 ### Community 1138 - "Community 1138"
 Cohesion: 0.29
@@ -5032,6 +5078,14 @@ Nodes (7): API Surface, Developer Tool Specific Requirements, Implementation Con
 Cohesion: 0.29
 Nodes (7): Business Ecosystem Impact, Measurable Outcomes, Project Success, Strategic Adoption Dynamics, Success Criteria, Technical Success, User Success
 
+### Community 1145 - "Community 1145"
+Cohesion: 0.29
+Nodes (7): Architecture Compliance, Critical Boundaries, Dev Notes, Git Intelligence, Previous Story Learnings (from Epic 2), Project Structure Notes, References
+
+### Community 1146 - "Community 1146"
+Cohesion: 0.29
+Nodes (7): Architecture Compliance, Critical Boundaries, Dev Notes, Git Intelligence, Previous Story Learnings (from Story 3.1), Project Structure Notes, References
+
 ### Community 1147 - "Community 1147"
 Cohesion: 0.29
 Nodes (6): Anti-patterns à refuser, Contexte à charger avant review, Discipline, Déclenchement, Runtime — Code Review, Template de sortie
@@ -5052,9 +5106,17 @@ Nodes (6): EXECUTION, INPUT ANALYSIS, KEY RULES, MODULE DETECTION, RECOMMENDED O
 Cohesion: 0.29
 Nodes (6): 1) Préparer le bundle sur MacBook Pro, 2) Copier sur la clé USB, 3) Installer sur MacBook Air, 4) Vérifier que le relay tourne, 5) Commandes utiles (MacBook Air), USB install — MacBook Air relay
 
-### Community 1154 - "Community 1154"
+### Community 1152 - "Community 1152"
+Cohesion: 0.48
+Nodes (6): c_int, ifaddrs, Interface, Vec, unix_interfaces(), unix_interfaces_inner()
+
+### Community 1153 - "Community 1153"
 Cohesion: 0.33
-Nodes (5): ABIRoot, json_format_version, kind, name, printedName
+Nodes (5): Décision, Instruction, Keep the cap — consigne immédiate, Priorité absolue, Reformulation simple
+
+### Community 1154 - "Community 1154"
+Cohesion: 0.40
+Nodes (5): Agent Model Used, Completion Notes List, Debug Log References, Dev Agent Record, File List
 
 ### Community 1155 - "Community 1155"
 Cohesion: 0.33
@@ -5172,9 +5234,25 @@ Nodes (6): validation_errors, validation_status, items, type, properties, type
 Cohesion: 0.33
 Nodes (5): Brief projet, Décisions actives, Risques / angles morts, À lire en priorité, État court
 
-### Community 1202 - "Community 1202"
+### Community 1184 - "Community 1184"
 Cohesion: 0.40
-Nodes (4): 1.0.0 (2026-02-05), Bug Fixes, Changelog, Features
+Nodes (5): Agent Model Used, Completion Notes List, Debug Log References, Dev Agent Record, File List
+
+### Community 1185 - "Community 1185"
+Cohesion: 0.50
+Nodes (3): HeartbeatTracker, RelayReadyAnnounce, RoleChangeAnnounce
+
+### Community 1186 - "Community 1186"
+Cohesion: 0.50
+Nodes (4): 1.1 Ce qui reste parfaitement aligné avec la vision ToM, 1.2 Ce qui a divergé du découpage BMAD initial, 1.3 Ce que cette divergence implique pour les discussions d'équipe, 1. Constats de réalignement
+
+### Community 1187 - "Community 1187"
+Cohesion: 0.50
+Nodes (4): 2.1 Socle réseau/protocole, 2.2 Discipline d'implémentation, 2.3 Ce que ce socle permet déjà de dire sans exagération, 2. Socle déjà livré ou fortement consolidé
+
+### Community 1202 - "Community 1202"
+Cohesion: 0.22
+Nodes (10): [0.4.0](https://github.com/malikkaraoui/ToM-protocol/compare/v0.3.0...v0.4.0) (2026-06-12), [0.5.0](https://github.com/malikkaraoui/ToM-protocol/compare/v0.4.0...v0.5.0) (2026-06-12), 1.0.0 (2026-02-05), Bug Fixes, Bug Fixes, Bug Fixes, Changelog, Features (+2 more)
 
 ### Community 1203 - "Community 1203"
 Cohesion: 0.40
@@ -5437,24 +5515,24 @@ Cohesion: 0.29
 Nodes (6): MessageHandler, MessageReadHandler, MessageStatusChangedHandler, ParticipantHandler, StatusHandler, TomClientOptions
 
 ## Knowledge Gaps
-- **8261 isolated node(s):** `EndpointResult`, `NodeStatus`, `relayUrlInput`, `discoveryUrlInput`, `refreshBtn` (+8256 more)
+- **8254 isolated node(s):** `NodeStatus`, `SEEDS`, `LiveNode`, `verdictEl`, `sublineEl` (+8249 more)
   These have ≤1 connection - possible missing edges or undocumented components.
-- **158 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
+- **156 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `ConnectionMeta` connect `Community 456` to `Community 0`, `Community 1`, `Community 130`, `Community 899`, `Community 4`, `Community 6`, `Community 8`, `Community 15`, `Community 17`, `Community 275`, `Community 47`, `Community 308`, `Community 317`, `Community 318`, `Community 831`, `Community 65`, `Community 68`, `Community 970`, `Community 333`, `Community 211`, `Community 102`, `Community 246`, `Community 378`, `Community 254`, `Community 1023`?**
-  _High betweenness centrality (0.083) - this node is a cross-community bridge._
-- **Why does `Connection` connect `Community 116` to `Community 226`, `Community 102`, `Community 1067`, `Community 971`, `Community 142`, `Community 92`, `Community 16`, `Community 78`, `Community 149`, `Community 54`, `Community 120`, `Community 121`, `Community 794`, `Community 251`, `Community 252`, `Community 126`, `Community 63`?**
-  _High betweenness centrality (0.060) - this node is a cross-community bridge._
-- **Why does `RemoteStateActor` connect `Community 143` to `Community 225`, `Community 2`, `Community 165`, `Community 246`, `Community 30`, `Community 120`, `Community 921`, `Community 187`, `Community 60`, `Community 254`?**
-  _High betweenness centrality (0.059) - this node is a cross-community bridge._
-- **What connects `EndpointResult`, `NodeStatus`, `relayUrlInput` to the rest of the system?**
-  _8284 weakly-connected nodes found - possible documentation gaps or missing edges._
+- **Why does `ConnectionMeta` connect `Community 456` to `Community 0`, `Community 130`, `Community 899`, `Community 4`, `Community 15`, `Community 17`, `Community 275`, `Community 37`, `Community 47`, `Community 308`, `Community 831`, `Community 65`, `Community 68`, `Community 970`, `Community 333`, `Community 211`, `Community 102`, `Community 232`, `Community 244`, `Community 246`, `Community 378`, `Community 254`, `Community 255`?**
+  _High betweenness centrality (0.079) - this node is a cross-community bridge._
+- **Why does `Connection` connect `Community 116` to `Community 226`, `Community 102`, `Community 1067`, `Community 971`, `Community 142`, `Community 92`, `Community 16`, `Community 83`, `Community 149`, `Community 54`, `Community 120`, `Community 121`, `Community 794`, `Community 251`, `Community 252`, `Community 126`, `Community 63`?**
+  _High betweenness centrality (0.077) - this node is a cross-community bridge._
+- **Why does `RemoteStateActor` connect `Community 143` to `Community 225`, `Community 75`, `Community 271`, `Community 246`, `Community 30`, `Community 120`, `Community 921`, `Community 60`, `Community 254`?**
+  _High betweenness centrality (0.068) - this node is a cross-community bridge._
+- **What connects `NodeStatus`, `SEEDS`, `LiveNode` to the rest of the system?**
+  _8277 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `Community 0` be split into smaller, more focused modules?**
-  _Cohesion score 0.12025901942645699 - nodes in this community are weakly interconnected._
+  _Cohesion score 0.06441947565543071 - nodes in this community are weakly interconnected._
 - **Should `Community 1` be split into smaller, more focused modules?**
-  _Cohesion score 0.057647801388596674 - nodes in this community are weakly interconnected._
+  _Cohesion score 0.0680517916290274 - nodes in this community are weakly interconnected._
 - **Should `Community 2` be split into smaller, more focused modules?**
-  _Cohesion score 0.05249361473316306 - nodes in this community are weakly interconnected._
+  _Cohesion score 0.11984196663740122 - nodes in this community are weakly interconnected._

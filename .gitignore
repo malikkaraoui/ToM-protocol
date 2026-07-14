@@ -77,3 +77,4 @@ apps/**/build-*/
 
 # Vault Obsidian local (notes perso, pas du code)
 .obsidian/
+.gstack/
