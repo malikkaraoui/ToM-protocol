@@ -422,7 +422,12 @@ impl Connection {
         state.wake();
         match open_res {
             Ok((path_id, existed)) if existed => {
-                match state.open_path.get(&path_id).map(|tx| tx.subscribe()) {
+                let recv = state.open_path.get(&path_id).map(|tx| tx.subscribe());
+                // Release the state lock BEFORE cloning the connection ref:
+                // OpenPath::new/ready -> ConnectionRef::from_arc re-locks the
+                // same non-reentrant state mutex (self-deadlock otherwise).
+                drop(state);
+                match recv {
                     Some(recv) => OpenPath::new(path_id, recv, self.0.clone()),
                     None => OpenPath::ready(path_id, self.0.clone()),
                 }
