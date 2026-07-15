@@ -146,6 +146,13 @@ struct StatusView: View {
                         .padding(20)
                     }
                 }
+                // Footer contrôles (cohérent avec tvOS) : le bouton Arrêter est
+                // désormais accessible en marche sur iPhone/iPad/Mac aussi, pas
+                // seulement sur l'Apple TV.
+                Divider().opacity(0.3)
+                controlsSection
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 10)
             } else {
                 VStack(spacing: 20) {
                     Spacer()
