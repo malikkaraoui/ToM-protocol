@@ -34,7 +34,7 @@ struct MessagesView: View {
                         }
                     }
                 } else {
-                    List(nodeService.messages.reversed()) { message in
+                    List(nodeService.messages.sorted { $0.date > $1.date }) { message in
                         MessageRow(message: message, senderName: displayName(for: message.from))
                     }
                 }

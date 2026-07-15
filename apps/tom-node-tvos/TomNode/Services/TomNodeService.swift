@@ -736,6 +736,7 @@ final class TomNodeService: ObservableObject {
 
     /// Called when the app enters background — persist state for fast reconnect.
     func handleEnterBackground() {
+        appendLog(.warning, "📱 BACKGROUND — app en arrière-plan")
         wasRunningBeforeSleep = (state == .running)
         let ids = discoveredPeers.map { $0.nodeId }
         UserDefaults.standard.set(ids, forKey: Self.cachedPeerKey)
@@ -750,6 +751,7 @@ final class TomNodeService: ObservableObject {
     /// restarting then would needlessly free + rebuild the whole node in a loop.
     /// Therefore restart ONLY after a real background. Keep history + seeded peers.
     func handleReturnToForeground() {
+        appendLog(.warning, "📱 FOREGROUND — app au premier plan (wasRunning=\(wasRunningBeforeSleep))")
         guard wasRunningBeforeSleep else { return }
         wasRunningBeforeSleep = false
 
@@ -823,26 +825,27 @@ final class TomNodeService: ObservableObject {
         lastPrimaryInterface = primaryInterface
         lanInterfaceAvailable = hasLan
 
+        // FLUSH D'ABORD (le socket UDP est encore ouvert). La reconnexion
+        // ci-dessous appelle stopNetworkLogExport() qui FERME le socket : si on
+        // flushait après, flushUDPLogBuffer trouverait le socket fermé et
+        // abandonnerait → les logs cellulaires seraient perdus.
+        if hasLan && !hadLan && !udpLogPendingBuffer.isEmpty {
+            appendLog(.info, "📤 Flush de \(udpLogPendingBuffer.count) logs bufferisés (retour LAN)")
+            flushUDPLogBuffer()
+        }
+
         if satisfied && !wasSatisfied {
-            appendLog(.warning, "RÉSEAU REVENU — relance immédiate de la découverte")
+            appendLog(.warning, "🌐 RÉSEAU REVENU — relance immédiate de la découverte")
             log.info("Network reachable again — restarting discovery")
             reconnectAfterNetworkChange(reason: "retour réseau")
         } else if !satisfied && wasSatisfied {
-            appendLog(.warning, "RÉSEAU PERDU — connexions QUIC mortes, attente du retour")
+            appendLog(.warning, "🌐 RÉSEAU PERDU — connexions QUIC mortes, attente du retour")
             log.info("Network lost — awaiting reconnection")
         } else if satisfied && wasSatisfied && wasPrimary != nil && primaryInterface != wasPrimary {
             // Handoff d'interface (ex. Wi-Fi → cellulaire en sortant de la maison).
-            appendLog(.warning, "RÉSEAU CHANGE D'INTERFACE (\(wasPrimary.map(Self.ifaceLabel) ?? "?")→\(primaryInterface.map(Self.ifaceLabel) ?? "?")) — relance (ancien chemin invalidé)")
+            appendLog(.warning, "🌐 RÉSEAU CHANGE D'INTERFACE (\(wasPrimary.map(Self.ifaceLabel) ?? "?")→\(primaryInterface.map(Self.ifaceLabel) ?? "?")) — relance (ancien chemin invalidé)")
             log.info("Network interface changed — restarting discovery")
             reconnectAfterNetworkChange(reason: "changement d'interface")
-        }
-
-        // Flush UDP log buffer quand un lien LAN (ré)apparaît (WiFi/Ethernet).
-        // lanInterfaceAvailable est déjà à jour ci-dessus → le flush ne
-        // re-bufferise pas. On flushe sur la transition sans-LAN → avec-LAN.
-        if hasLan && !hadLan && !udpLogPendingBuffer.isEmpty {
-            appendLog(.info, "Flush de \(udpLogPendingBuffer.count) logs bufferisés (retour LAN)")
-            flushUDPLogBuffer()
         }
     }
 

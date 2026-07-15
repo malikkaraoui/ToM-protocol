@@ -426,13 +426,13 @@ struct StatusView: View {
     private var controlsSection: some View {
         HStack(spacing: 12) {
             if nodeService.state == .stopped || nodeService.state == .error {
-                Button(action: { nodeService.start() }) {
+                Button(action: { nodeService.appendLog(.warning, "👆 BOUTON Démarrer pressé (utilisateur)"); nodeService.start() }) {
                     Label("Démarrer", systemImage: "play.fill")
                 }
                 .buttonStyle(.borderedProminent).tint(.green)
             }
             if nodeService.state == .running {
-                Button(action: { nodeService.stop() }) {
+                Button(action: { nodeService.appendLog(.warning, "👆 BOUTON Arrêter pressé (utilisateur)"); nodeService.stop() }) {
                     Label("Arrêter", systemImage: "stop.fill")
                 }
                 .buttonStyle(.bordered).tint(.red)
