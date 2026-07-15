@@ -141,6 +141,8 @@ public struct TomNodeStatus: Codable {
     public let localRole: String?
     public let pathKind: String?
     public let pathRttMs: UInt64?
+    public let clockSkewMs: Int64?
+    public let clockSkewSamples: UInt64?
 
     enum CodingKeys: String, CodingKey {
         case nodeId = "node_id"
@@ -150,6 +152,8 @@ public struct TomNodeStatus: Codable {
         case localRole = "local_role"
         case pathKind = "path_kind"
         case pathRttMs = "path_rtt_ms"
+        case clockSkewMs = "clock_skew_ms"
+        case clockSkewSamples = "clock_skew_samples"
     }
 }
 

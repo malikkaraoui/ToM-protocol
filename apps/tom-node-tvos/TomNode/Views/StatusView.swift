@@ -388,6 +388,9 @@ struct StatusView: View {
                 // Horloge locale
                 localClockChip
 
+                // Écart réseau (clock skew)
+                clockSkewChip
+
                 // Compteurs — jamais tronqués/verticaux (fixedSize + lineLimit)
                 HStack(spacing: 4) {
                     Image(systemName: "message.fill").font(.caption2).foregroundColor(.blue)
@@ -452,6 +455,39 @@ struct StatusView: View {
         .onReceive(Timer.publish(every: 1, on: .main, in: .common).autoconnect()) { _ in
             currentTime = Date()
         }
+    }
+
+    private var clockSkewChip: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 4) {
+                Image(systemName: "antenna.radiowaves.left.and.right")
+                    .font(.caption2)
+                if let skew = nodeService.status?.clockSkewMs,
+                   let samples = nodeService.status?.clockSkewSamples, samples > 0 {
+                    let skewSeconds = Double(skew) / 1000.0
+                    let sign = skew >= 0 ? "+" : ""
+                    Text("\(sign)\(String(format: "%.1f", skewSeconds))s")
+                        .font(.caption).fontWeight(.semibold)
+                        .lineLimit(1).fixedSize(horizontal: true, vertical: false)
+                } else {
+                    Text("—")
+                        .font(.caption).fontWeight(.semibold)
+                        .foregroundColor(.secondary)
+                }
+            }
+            .foregroundColor(clockSkewColor)
+            .padding(.horizontal, 8).padding(.vertical, 4)
+            .background(clockSkewColor.opacity(0.12))
+            .cornerRadius(6)
+        }
+    }
+
+    private var clockSkewColor: Color {
+        guard let skew = nodeService.status?.clockSkewMs else { return .gray }
+        let absSkew = abs(skew)
+        if absSkew < 2000 { return .green }
+        if absSkew < 30000 { return .orange }
+        return .red
     }
 
     // MARK: - Contrôles
