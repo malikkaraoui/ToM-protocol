@@ -447,6 +447,12 @@ pub enum ProtocolEvent {
     TransportRelayRemoved {
         relay_url: RelayUrl,
     },
+    // ── Discovery Timing (Instrumentation — Phase R12.1) ───────────────
+    /// Discovery timing landmark for cold-start analysis.
+    DiscoveryTiming {
+        elapsed_ms: u64,
+        detail: String,
+    },
 }
 
 // ── RuntimeHandle (app-facing API) ───────────────────────────────────

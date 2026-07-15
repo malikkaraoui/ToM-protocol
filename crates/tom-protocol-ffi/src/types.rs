@@ -314,6 +314,10 @@ pub struct ProtocolEventFFI {
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_status: Option<String>,
+
+    // Discovery timing (instrumentation)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub elapsed_ms: Option<u64>,
 }
 
 impl ProtocolEventFFI {
@@ -637,6 +641,15 @@ impl ProtocolEventFFI {
                     r#type: "EmbeddedRelayFailed".to_string(),
                     ts_ms,
                     description: Some(error),
+                    ..Default::default()
+                }
+            }
+            tom_protocol::ProtocolEvent::DiscoveryTiming { elapsed_ms, detail } => {
+                Self {
+                    r#type: "DiscoveryTiming".to_string(),
+                    ts_ms,
+                    elapsed_ms: Some(elapsed_ms),
+                    description: Some(detail),
                     ..Default::default()
                 }
             }

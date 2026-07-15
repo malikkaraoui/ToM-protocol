@@ -351,6 +351,9 @@ public struct TomProtocolEvent: Codable, Hashable, Identifiable {
             return "⏱️ Livraison échouée : \(shortId(node_id))"
         case "PresenceAttestationReceived":
             return "🔐 Présence attestée (latence \(latency_ms ?? 0)ms)"
+        case "DiscoveryTiming":
+            // Le détail contient déjà « ⏱️ DISCO t+Xms : … » (instrumentation #26).
+            return description ?? "⏱️ DISCO"
         default:
             return "📌 \(type)"
         }

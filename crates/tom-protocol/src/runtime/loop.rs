@@ -128,6 +128,17 @@ pub(super) async fn runtime_loop(
         }
     };
 
+    // ── Discovery timing instrumentation (Phase R12.1) ──────────────────
+    // Capture the exact moment the runtime loop starts to track cold-start delay.
+    let discovery_start = std::time::Instant::now();
+    tracing::info!("⏱️ DISCO t+0 : runtime_loop started");
+    let _ = event_tx
+        .send(ProtocolEvent::DiscoveryTiming {
+            elapsed_ms: 0,
+            detail: "🚀 runtime_loop started".to_string(),
+        })
+        .await;
+
     // ── DHT setup ──────────────────────────────────────────────────
     let secret_seed = node.secret_key_seed();
     // Clone the async DHT handle for spawned lookup tasks (cheap Arc clone)
@@ -138,6 +149,14 @@ pub(super) async fn runtime_loop(
     {
         let (relay_urls, direct_addrs) = extract_node_addrs(&node);
         state.publish_to_dht(&secret_seed, relay_urls, direct_addrs).await;
+        let elapsed = discovery_start.elapsed().as_millis() as u64;
+        tracing::info!("⏱️ DISCO t+{elapsed}ms : DHT startup publish done");
+        let _ = event_tx
+            .send(ProtocolEvent::DiscoveryTiming {
+                elapsed_ms: elapsed,
+                detail: "DHT startup publish done".to_string(),
+            })
+            .await;
     }
 
     // Monotonic floor for rendezvous publication timestamps (see build_self_dht_addr).
@@ -148,6 +167,7 @@ pub(super) async fn runtime_loop(
     // as "connected" but that have gone silent. connected_peers() alone can't
     // see this, so a stale inbound clock means we are effectively isolated.
     let mut last_inbound_at = now_ms();
+
 
     // Throttle the mass-rejoin triggered on gossip NeighborDown. Without it, a
     // flapping neighbor (or several at once) fires join_peers(ALL known peers)
@@ -169,6 +189,9 @@ pub(super) async fn runtime_loop(
         &cmd_tx,
         &mut rendezvous_ts_floor,
         &secret_seed,
+        discovery_start,
+        event_tx.clone(),
+        true, // startup round
     );
 
     // ── PeerPresent receiver from relay ────────────────────────────────
@@ -257,6 +280,8 @@ pub(super) async fn runtime_loop(
                             addr,
                             BootstrapSource::Manual,
                             &mut bootstrap_phase,
+                            discovery_start,
+                            event_tx.clone(),
                         ).await;
                         state.handle_command(RuntimeCommand::AddPeer { node_id, source: DiscoverySource::Direct })
                     }
@@ -293,6 +318,8 @@ pub(super) async fn runtime_loop(
                                 endpoint_addr,
                                 BootstrapSource::Dht,
                                 &mut bootstrap_phase,
+                                discovery_start,
+                                event_tx.clone(),
                             ).await;
                         }
                         state.handle_command(cmd)
@@ -353,12 +380,22 @@ pub(super) async fn runtime_loop(
                     Vec::new()
                 } else if let Some(BootstrapHint::MdnsDiscovered { endpoint_addr }) = event {
                     let node_id = NodeId::from_endpoint_id(endpoint_addr.id);
+                    let elapsed = discovery_start.elapsed().as_millis() as u64;
+                    tracing::info!("⏱️ DISCO t+{elapsed}ms : mDNS hint for peer {}", node_id);
+                    let _ = event_tx
+                        .send(ProtocolEvent::DiscoveryTiming {
+                            elapsed_ms: elapsed,
+                            detail: format!("mDNS hint for peer {}", node_id),
+                        })
+                        .await;
                     bootstrap_join_peer(
                         &node,
                         gossip_sender.as_ref(),
                         endpoint_addr,
                         BootstrapSource::Mdns,
                         &mut bootstrap_phase,
+                        discovery_start,
+                        event_tx.clone(),
                     ).await;
                     state.handle_command(RuntimeCommand::AddPeer { node_id, source: DiscoverySource::Mdns })
                 } else {
@@ -383,6 +420,14 @@ pub(super) async fn runtime_loop(
                     Vec::new()
                 } else if let Some((endpoint_id, relay_url)) = event {
                     let node_id = NodeId::from_endpoint_id(endpoint_id);
+                    let elapsed = discovery_start.elapsed().as_millis() as u64;
+                    tracing::info!("⏱️ DISCO t+{elapsed}ms : PeerPresent hint from relay for peer {}", node_id);
+                    let _ = event_tx
+                        .send(ProtocolEvent::DiscoveryTiming {
+                            elapsed_ms: elapsed,
+                            detail: format!("PeerPresent hint from relay for peer {}", node_id),
+                        })
+                        .await;
                     let addr = tom_connect::EndpointAddr::new(endpoint_id).with_relay_url(relay_url);
                     bootstrap_join_peer(
                         &node,
@@ -390,6 +435,8 @@ pub(super) async fn runtime_loop(
                         addr,
                         BootstrapSource::PeerPresent,
                         &mut bootstrap_phase,
+                        discovery_start,
+                        event_tx.clone(),
                     ).await;
                     state.handle_command(RuntimeCommand::AddPeer { node_id, source: DiscoverySource::PeerPresent })
                 } else {
@@ -448,10 +495,17 @@ pub(super) async fn runtime_loop(
                             // A gossip neighbor = bootstrap complete, regardless of hint source
                             if bootstrap_phase != BootstrapPhase::Converged {
                                 bootstrap_phase.on_hint_accepted();
+                                let elapsed = discovery_start.elapsed().as_millis() as u64;
                                 tracing::info!(
                                     peer = %node_id,
-                                    "bootstrap: converged via GossipNeighborUp"
+                                    "⏱️ DISCO t+{elapsed}ms : bootstrap CONVERGED via GossipNeighborUp"
                                 );
+                                let _ = event_tx
+                                    .send(ProtocolEvent::DiscoveryTiming {
+                                        elapsed_ms: elapsed,
+                                        detail: format!("GossipNeighborUp peer {} → CONVERGED", node_id),
+                                    })
+                                    .await;
                             }
                             // Re-broadcast announce on NeighborUp
                             // (key learning from PoC-3: initial broadcast has no neighbors)
@@ -578,6 +632,14 @@ pub(super) async fn runtime_loop(
 
             // ── 15b. Timer: DHT rendezvous (60s) — zero-config discovery ──
             _ = rendezvous_tick.tick() => {
+                let elapsed = discovery_start.elapsed().as_millis() as u64;
+                tracing::info!("⏱️ DISCO t+{elapsed}ms : 60s rendezvous tick");
+                let _ = event_tx
+                    .send(ProtocolEvent::DiscoveryTiming {
+                        elapsed_ms: elapsed,
+                        detail: "60s rendezvous tick (periodic)".to_string(),
+                    })
+                    .await;
                 spawn_rendezvous_round(
                     &node,
                     &state.local_id,
@@ -585,6 +647,9 @@ pub(super) async fn runtime_loop(
                     &cmd_tx,
                     &mut rendezvous_ts_floor,
                     &secret_seed,
+                    discovery_start,
+                    event_tx.clone(),
+                    false, // not startup
                 );
                 Vec::new()
             }
@@ -662,6 +727,14 @@ pub(super) async fn runtime_loop(
                         .await;
                         // Zero-config recovery: hit the shared rendezvous NOW (don't wait
                         // for the 60s tick) to find live peers we never heard of.
+                        let elapsed = discovery_start.elapsed().as_millis() as u64;
+                        tracing::info!("⏱️ DISCO t+{elapsed}ms : isolation recovery — rendezvous NOW");
+                        let _ = event_tx
+                            .send(ProtocolEvent::DiscoveryTiming {
+                                elapsed_ms: elapsed,
+                                detail: "Isolation recovery: rendezvous NOW".to_string(),
+                            })
+                            .await;
                         spawn_rendezvous_round(
                             &node,
                             &state.local_id,
@@ -669,6 +742,9 @@ pub(super) async fn runtime_loop(
                             &cmd_tx,
                             &mut rendezvous_ts_floor,
                             &secret_seed,
+                            discovery_start,
+                            event_tx.clone(),
+                            false, // not startup
                         );
                         if let Some(dht_client) = dht_handle.as_ref() {
                             for node_id in &known_node_ids {
@@ -961,6 +1037,7 @@ fn rendezvous_entry_authentic(addr: &tom_dht::DhtNodeAddr) -> bool {
 /// them and joins gossip. This is what lets a node with ZERO prior knowledge
 /// (e.g. a phone on cellular that lost its only peer) find the live network with
 /// no bootstrap peer, no relay, and no privileged node.
+#[allow(clippy::too_many_arguments)]
 fn spawn_rendezvous_round(
     node: &TomNode,
     local_id: &NodeId,
@@ -968,6 +1045,9 @@ fn spawn_rendezvous_round(
     cmd_tx: &mpsc::Sender<RuntimeCommand>,
     ts_floor: &mut u64,
     secret_seed: &[u8; 32],
+    discovery_start: std::time::Instant,
+    event_tx: mpsc::Sender<ProtocolEvent>,
+    is_startup: bool,
 ) {
     let Some(dht) = dht_handle.cloned() else {
         return;
@@ -985,12 +1065,24 @@ fn spawn_rendezvous_round(
         let total = found.len();
         let peers: Vec<_> = found.into_iter().filter(rendezvous_entry_authentic).collect();
         let rejected = total - peers.len();
+        let elapsed = discovery_start.elapsed().as_millis() as u64;
+        let phase_label = if is_startup { "startup" } else { "tick" };
         if !peers.is_empty() || rejected > 0 {
             tracing::info!(
                 injectés = peers.len(),
                 rejetés_sig = rejected,
-                "rendezvous: pairs découverts"
+                "⏱️ DISCO t+{elapsed}ms : rendezvous discover ({phase_label}) returned {total} — keeping {} peers",
+                peers.len()
             );
+            let _ = event_tx
+                .send(ProtocolEvent::DiscoveryTiming {
+                    elapsed_ms: elapsed,
+                    detail: format!(
+                        "Rendezvous {} returned {} peers, rejected {} (sig)",
+                        phase_label, peers.len(), rejected
+                    ),
+                })
+                .await;
         }
         for addr in peers {
             let _ = tx.send(RuntimeCommand::DhtLookupResult { addr }).await;
@@ -1004,10 +1096,32 @@ async fn bootstrap_join_peer(
     endpoint_addr: tom_connect::EndpointAddr,
     source: BootstrapSource,
     bootstrap_phase: &mut BootstrapPhase,
+    discovery_start: std::time::Instant,
+    event_tx: mpsc::Sender<ProtocolEvent>,
 ) {
     let endpoint_id = endpoint_addr.id;
     let node_id = NodeId::from_endpoint_id(endpoint_id);
-    tracing::info!(peer = %node_id, source = %source, phase = ?bootstrap_phase, "bootstrap: accepted peer hint");
+    let elapsed = discovery_start.elapsed().as_millis() as u64;
+    let source_name = match source {
+        BootstrapSource::Manual => "manual",
+        BootstrapSource::Mdns => "mdns",
+        BootstrapSource::Dht => "dht",
+        BootstrapSource::PeerPresent => "peer_present",
+    };
+    tracing::info!(
+        peer = %node_id,
+        source = %source,
+        phase = ?bootstrap_phase,
+        "⏱️ DISCO t+{elapsed}ms : join peer {} via {}",
+        node_id,
+        source_name
+    );
+    let _ = event_tx
+        .send(ProtocolEvent::DiscoveryTiming {
+            elapsed_ms: elapsed,
+            detail: format!("Join peer {} via {}", node_id, source_name),
+        })
+        .await;
 
     // INVARIANT: add_peer_addr() BEFORE join_peers()
     // so MemoryLookup has the address when gossip dials.
