@@ -462,8 +462,7 @@ struct StatusView: View {
             HStack(spacing: 4) {
                 Image(systemName: "antenna.radiowaves.left.and.right")
                     .font(.caption2)
-                if let skew = nodeService.status?.clockSkewMs,
-                   let samples = nodeService.status?.clockSkewSamples, samples > 0 {
+                if let skew = nodeService.clockSkewMs, nodeService.clockSkewSamples > 0 {
                     let skewSeconds = Double(skew) / 1000.0
                     let sign = skew >= 0 ? "+" : ""
                     Text("\(sign)\(String(format: "%.1f", skewSeconds))s")
@@ -483,7 +482,7 @@ struct StatusView: View {
     }
 
     private var clockSkewColor: Color {
-        guard let skew = nodeService.status?.clockSkewMs else { return .gray }
+        guard let skew = nodeService.clockSkewMs else { return .gray }
         let absSkew = abs(skew)
         if absSkew < 2000 { return .green }
         if absSkew < 30000 { return .orange }

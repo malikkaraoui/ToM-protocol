@@ -6,6 +6,7 @@ import UIKit
 import AVFoundation
 #endif
 import Combine
+import Network
 
 @MainActor
 final class TomNodeService: ObservableObject {
@@ -23,6 +24,27 @@ final class TomNodeService: ObservableObject {
     private var probeSeq: Int = 0
     private var probeExpirationTimes: [String: Date] = [:]
     private var hasScheduledInitialAutoStart = false
+
+    // Observateur de connectivité réseau (Wi-Fi / cellulaire / Ethernet).
+    // iOS ne change PAS le scenePhase quand seule la data bascule (ex. mode
+    // avion ON→OFF) : sans ce moniteur, un nœud .running dont les connexions
+    // QUIC sont mortes pendant la coupure restait figé sur « déconnexion »
+    // et ne relançait jamais la découverte. On observe donc le réseau
+    // directement et on relance comme au retour de background.
+    private let netMonitor = NWPathMonitor()
+    private let netMonitorQueue = DispatchQueue(label: "org.tom-protocol.netmonitor")
+    private var netMonitorStarted = false
+    private var lastPathSatisfied = true
+    /// Interface active courante (Wi-Fi / cellulaire / Ethernet). Un changement
+    /// pendant que le réseau reste « satisfait » (handoff Wi-Fi→cellulaire en
+    /// sortant de la maison) invalide silencieusement les sockets QUIC : on
+    /// relance aussi dans ce cas, pas seulement sur perte/retour.
+    private var lastPrimaryInterface: NWInterface.InterfaceType?
+    /// Anti-tempête : intervalle mini entre deux relances déclenchées réseau
+    /// (réseau qui flappe en train/ascenseur, ou .error qui se répète).
+    private var lastNetworkRestartAt: Date?
+    private static let networkRestartThrottle: TimeInterval = 3
+
     private var autoMessagedPeerIds = Set<String>()
     private var autoMessageAttemptedAt: [String: Date] = [:]
     private var seededPeerIds = Set<String>()
@@ -44,6 +66,10 @@ final class TomNodeService: ObservableObject {
     @Published var localRole: String = "Peer"
     @Published var pathKind: String = "RELAY"
     @Published var pathRttMs: UInt64 = 0
+    // Écart d'horloge médian vs le réseau (ms) — nil tant que < 5 échantillons.
+    // Signal honnête : inclut la latence réseau (pas une synchro NTP).
+    @Published var clockSkewMs: Int64?
+    @Published var clockSkewSamples: UInt64 = 0
 
     // Activity log (events from runtime) — cappé à 100 entrées FIFO
     @Published var activityLog: [ActivityEntry] = []
@@ -723,7 +749,110 @@ final class TomNodeService: ObservableObject {
         }
     }
 
+    /// Démarre l'observation de la connectivité réseau (une seule fois).
+    /// Appelé au lancement de l'app : le moniteur reste actif en permanence
+    /// pour réagir instantanément à un retour de réseau, même si aucune
+    /// transition de scenePhase n'a lieu.
+    func startNetworkMonitor() {
+        guard !netMonitorStarted else { return }
+        netMonitorStarted = true
+        netMonitor.pathUpdateHandler = { [weak self] path in
+            let satisfied = (path.status == .satisfied)
+            // Interface effectivement utilisée par le chemin (pas la simple
+            // liste des interfaces disponibles, qui fluctue) — signal fiable
+            // d'un handoff Wi-Fi↔cellulaire.
+            var primary: NWInterface.InterfaceType?
+            for t in [NWInterface.InterfaceType.wifi, .wiredEthernet, .cellular, .other] where path.usesInterfaceType(t) {
+                primary = t
+                break
+            }
+            Task { @MainActor [weak self] in
+                self?.handleNetworkPathChange(satisfied: satisfied, primaryInterface: primary)
+            }
+        }
+        netMonitor.start(queue: netMonitorQueue)
+    }
+
+    /// Réagit à un changement réseau rapporté par iOS. Deux déclencheurs de
+    /// relance : (1) transition perte→retour (ex. sortie du mode avion) ;
+    /// (2) changement d'interface active alors que le réseau reste satisfait
+    /// (handoff Wi-Fi→cellulaire) — les sockets QUIC liés à l'ancienne
+    /// interface deviennent muets sans que la disponibilité change.
+    private func handleNetworkPathChange(satisfied: Bool, primaryInterface: NWInterface.InterfaceType?) {
+        let wasSatisfied = lastPathSatisfied
+        let wasPrimary = lastPrimaryInterface
+        lastPathSatisfied = satisfied
+        lastPrimaryInterface = primaryInterface
+
+        if satisfied && !wasSatisfied {
+            appendLog(.warning, "RÉSEAU REVENU — relance immédiate de la découverte")
+            log.info("Network reachable again — restarting discovery")
+            reconnectAfterNetworkChange(reason: "retour réseau")
+        } else if !satisfied && wasSatisfied {
+            appendLog(.warning, "RÉSEAU PERDU — connexions QUIC mortes, attente du retour")
+            log.info("Network lost — awaiting reconnection")
+        } else if satisfied && wasSatisfied && wasPrimary != nil && primaryInterface != wasPrimary {
+            // Handoff d'interface (ex. Wi-Fi → cellulaire en sortant de la maison).
+            appendLog(.warning, "RÉSEAU CHANGE D'INTERFACE (\(wasPrimary.map(Self.ifaceLabel) ?? "?")→\(primaryInterface.map(Self.ifaceLabel) ?? "?")) — relance (ancien chemin invalidé)")
+            log.info("Network interface changed — restarting discovery")
+            reconnectAfterNetworkChange(reason: "changement d'interface")
+        }
+    }
+
+    private static func ifaceLabel(_ t: NWInterface.InterfaceType) -> String {
+        switch t {
+        case .wifi: return "Wi-Fi"
+        case .cellular: return "cellulaire"
+        case .wiredEthernet: return "Ethernet"
+        case .loopback: return "loopback"
+        case .other: return "autre"
+        @unknown default: return "?"
+        }
+    }
+
+    /// Relance le nœud après un changement de connectivité — même séquence que
+    /// le retour de foreground (les connexions QUIC ne survivent pas à une
+    /// coupure/handoff réseau ; un reset complet garantit une découverte
+    /// fraîche). N'agit que si le nœud était censé tourner (.running) ou est en
+    /// échec (.error, ex. démarrage sans réseau) : un arrêt MANUEL (.stopped)
+    /// n'est jamais outrepassé. Throttlé pour absorber un réseau qui flappe.
+    private func reconnectAfterNetworkChange(reason: String) {
+        guard state == .running || state == .error else {
+            appendLog(.info, "RÉSEAU (\(reason)): nœud non actif (\(state)) — pas de relance auto")
+            return
+        }
+        // Anti-tempête : ignore une relance si la précédente date de < 3s
+        // (réseau qui flappe, ou .error qui se répète). Le restart en vol met
+        // déjà state=.starting, cette garde borne en plus la fréquence.
+        if let last = lastNetworkRestartAt, Date().timeIntervalSince(last) < Self.networkRestartThrottle {
+            appendLog(.info, "RÉSEAU (\(reason)): relance ignorée (throttle < \(Int(Self.networkRestartThrottle))s)")
+            return
+        }
+        lastNetworkRestartAt = Date()
+
+        appendLog(.warning, "RÉSEAU RETOUR (\(reason)) — restart du nœud (connexions QUIC perdues)")
+        // Bascule l'état de façon SYNCHRONE avant le Task async : sans ça, une
+        // 2e transition réseau repasserait la garde pendant le `await
+        // forceReset()` et lancerait un second create/start concurrent
+        // (→ alreadyRunning / état incohérent).
+        state = .starting
+        pollTask?.cancel()
+        pollTask = nil
+        stopAntiSleep()
+        stopNetworkLogExport()
+
+        Task {
+            await node.forceReset()
+            state = .stopped
+            nodeId = ""
+            peersCount = 0
+            groupsCount = 0
+            start()
+        }
+    }
+
     func scheduleInitialAutoStart() {
+        startNetworkMonitor()
         guard !hasScheduledInitialAutoStart else { return }
         hasScheduledInitialAutoStart = true
 
@@ -949,6 +1078,8 @@ final class TomNodeService: ObservableObject {
                     if let role = status.localRole { self.localRole = role }
                     if let pk = status.pathKind { self.pathKind = pk }
                     if let rtt = status.pathRttMs { self.pathRttMs = rtt }
+                    self.clockSkewMs = status.clockSkewMs
+                    self.clockSkewSamples = status.clockSkewSamples ?? 0
                 }
                 // L1-001 presence : logge chaque attestation acceptée
                 // (sonde auto 15s → Live Log, zéro UI dédiée)
