@@ -71,7 +71,14 @@ impl HeartbeatTracker {
         username: String,
     ) {
         self.pending_source.insert(node_id, source);
-        self.pending_username.insert(node_id, username);
+        // Never clobber a known-good name with an empty one. A peer can be seen
+        // first via a channel that carries no name (a legacy DHT record without
+        // username, or an UpsertPeer) and only later via one that does — storing
+        // "" here would win the race and freeze the peer on its hex id. Empty is
+        // a "no name available" signal, not "clear the name".
+        if !username.is_empty() {
+            self.pending_username.insert(node_id, username);
+        }
         self.record_heartbeat(node_id);
     }
 
@@ -345,6 +352,34 @@ mod tests {
                 assert_eq!(node_id, &alice);
                 assert_eq!(username, "alice");
                 assert_eq!(*source, DiscoverySource::Announce);
+            }
+            other => panic!("Expected PeerDiscovered, got: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn empty_username_does_not_clobber_known_name() {
+        // A peer named via one channel, then re-seen via a nameless channel
+        // (empty username, e.g. a legacy DHT record), must keep its name.
+        let mut tracker = HeartbeatTracker::with_thresholds(100, 200);
+        let alice = node_id(1);
+        let mut topology = Topology::new();
+        topology.upsert(PeerInfo {
+            node_id: alice,
+            role: PeerRole::Peer,
+            status: PeerStatus::Online,
+            last_seen: 1000,
+        });
+
+        // Named first (gossip/announce), then re-seen nameless (DHT/upsert).
+        tracker.record_heartbeat_with_source(alice, DiscoverySource::Announce, "alice".into());
+        tracker.record_heartbeat_with_source(alice, DiscoverySource::Dht, String::new());
+
+        let events = tracker.check_all(&mut topology);
+        assert_eq!(events.len(), 1);
+        match &events[0] {
+            DiscoveryEvent::PeerDiscovered { username, .. } => {
+                assert_eq!(username, "alice", "empty username must not overwrite a known name");
             }
             other => panic!("Expected PeerDiscovered, got: {other:?}"),
         }

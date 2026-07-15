@@ -2766,14 +2766,27 @@ impl RuntimeState {
                     tracing::warn!("DHT lookup result: invalid node_id '{}'", addr.node_id);
                     return Vec::new();
                 };
+                // Sanitize and record username for this peer (DHT hint, non-authoritative).
+                let username = tom_dht::DhtNodeAddr::sanitize_username(&addr.username);
+
                 // Discovery only (ADR-011 ghost-peer fix) — no heartbeat/Online
-                // credit without real work.
+                // credit without real work. But do record the username hint.
                 self.mark_known(node_id, PeerRole::Peer);
+                // Log the SANITIZED username (never the raw record value): the raw
+                // string can carry newlines/control chars that would inject into
+                // the per-line JSON log/UDP collector. Logged before the move below.
                 tracing::info!(
                     node_id = %node_id,
                     relays = addr.relay_urls.len(),
                     addrs = addr.direct_addrs.len(),
+                    username = %username,
                     "DHT lookup result applied"
+                );
+                // Register username for future PeerDiscovered emission
+                self.heartbeat.record_heartbeat_with_source(
+                    node_id,
+                    DiscoverySource::Dht,
+                    username,
                 );
                 Vec::new()
             }

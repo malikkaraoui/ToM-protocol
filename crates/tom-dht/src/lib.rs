@@ -70,6 +70,10 @@ pub struct DhtNodeAddr {
     pub relay_urls: Vec<String>,
     /// Direct network addresses (e.g. "192.168.1.100:3340").
     pub direct_addrs: Vec<String>,
+    /// Human-readable display name (optional, non-authoritative hint).
+    /// Empty string means absent. Assaini (no control chars, ≤32 octets UTF-8).
+    #[serde(default)]
+    pub username: String,
     /// Publication timestamp (Unix ms).
     pub timestamp: u64,
     /// Ed25519 signature (64 bytes) over `signing_bytes()`, by the key matching
@@ -85,6 +89,7 @@ pub struct DhtNodeAddr {
 impl DhtNodeAddr {
     /// Canonical bytes signed by the node's key. EXCLUDES `sig`. Field order +
     /// NUL separators make it unambiguous; Vec order round-trips through JSON.
+    /// Includes username (if present) so any tampering is detected.
     pub fn signing_bytes(&self) -> Vec<u8> {
         let mut b = Vec::new();
         b.extend_from_slice(self.node_id.as_bytes());
@@ -99,8 +104,36 @@ impl DhtNodeAddr {
             b.push(0);
         }
         b.push(0);
+        b.extend_from_slice(self.username.as_bytes());
+        b.push(0);
         b.extend_from_slice(&self.timestamp.to_le_bytes());
         b
+    }
+
+    /// Sanitize a username: remove control characters, truncate to 32 UTF-8 bytes,
+    /// return empty string if all non-control chars removed.
+    ///
+    /// This ensures usernames are safe for display and network transmission.
+    pub fn sanitize_username(raw: &str) -> String {
+        // Remove control characters (char::is_control returns true for \n, \r, etc.)
+        let cleaned: String = raw
+            .chars()
+            .filter(|c| !c.is_control())
+            .collect();
+
+        // Truncate to 32 UTF-8 bytes, respecting char boundaries
+        let mut result = String::new();
+        for ch in cleaned.chars() {
+            let current_len = result.len();
+            let ch_len = ch.len_utf8();
+            if current_len + ch_len <= 32 {
+                result.push(ch);
+            } else {
+                break;
+            }
+        }
+
+        result
     }
 }
 
@@ -413,6 +446,111 @@ mod tests {
     }
 
     #[test]
+    fn test_dht_node_addr_serde_with_username() {
+        let addr = DhtNodeAddr {
+            node_id: "test-node-123".into(),
+            relay_urls: vec!["https://relay.example.com".into()],
+            direct_addrs: vec!["192.168.1.100:12345".into()],
+            username: "alice".into(),
+            timestamp: 1234567890,
+            ..Default::default()
+        };
+
+        let json = serde_json::to_string(&addr).unwrap();
+        let decoded: DhtNodeAddr = serde_json::from_str(&json).unwrap();
+        assert_eq!(decoded.username, "alice");
+        assert_eq!(decoded, addr);
+    }
+
+    #[test]
+    fn test_dht_node_addr_serde_backward_compat_no_username() {
+        // Old JSON without username field should deserialize with empty username.
+        let old_json = r#"{
+            "node_id": "test-node",
+            "relay_urls": ["https://relay.example.com"],
+            "direct_addrs": ["192.168.1.100:12345"],
+            "timestamp": 1234567890
+        }"#;
+        let decoded: DhtNodeAddr = serde_json::from_str(old_json).unwrap();
+        assert_eq!(decoded.username, "");
+        assert_eq!(decoded.node_id, "test-node");
+    }
+
+    #[test]
+    fn test_sanitize_username_basic() {
+        assert_eq!(DhtNodeAddr::sanitize_username("alice"), "alice");
+        assert_eq!(DhtNodeAddr::sanitize_username("iPhone"), "iPhone");
+        assert_eq!(DhtNodeAddr::sanitize_username(""), "");
+    }
+
+    #[test]
+    fn test_sanitize_username_removes_control_chars() {
+        assert_eq!(DhtNodeAddr::sanitize_username("alice\n"), "alice");
+        assert_eq!(DhtNodeAddr::sanitize_username("alice\r\nphone"), "alicephone");
+        assert_eq!(DhtNodeAddr::sanitize_username("test\ttab"), "testtab");
+    }
+
+    #[test]
+    fn test_sanitize_username_truncates_to_32_bytes() {
+        // 32-byte ASCII name: should fit.
+        let name_32 = "a".repeat(32);
+        assert_eq!(DhtNodeAddr::sanitize_username(&name_32).len(), 32);
+
+        // 33-byte ASCII name: should truncate to 32.
+        let name_33 = "a".repeat(33);
+        assert_eq!(DhtNodeAddr::sanitize_username(&name_33).len(), 32);
+
+        // Emoji (4 bytes each): fitting within 32.
+        let emoji_8 = "😀😀😀😀😀😀😀😀"; // 8 emojis × 4 bytes = 32 bytes
+        assert_eq!(DhtNodeAddr::sanitize_username(emoji_8).len(), 32);
+
+        // 9 emojis = 36 bytes: should truncate to exactly 8 emojis = 32 bytes.
+        let emoji_9 = "😀😀😀😀😀😀😀😀😀"; // 9 × 4 = 36 bytes
+        let sanitized = DhtNodeAddr::sanitize_username(emoji_9);
+        assert_eq!(sanitized.len(), 32);
+        assert_eq!(sanitized, emoji_8);
+    }
+
+    #[test]
+    fn test_sanitize_username_respects_char_boundaries() {
+        // Multi-byte char near the boundary: should not truncate mid-char.
+        // "a" × 30 = 30 bytes; then "😀" (4 bytes) = 34 bytes total.
+        // Sanitized should be 30 "a"s + "😀" = 34 bytes > 32.
+        // So should truncate to 30 "a"s only.
+        let mixed = "a".repeat(30) + "😀";
+        let sanitized = DhtNodeAddr::sanitize_username(&mixed);
+        assert_eq!(sanitized.len(), 30);
+        assert_eq!(sanitized, "a".repeat(30));
+    }
+
+    #[test]
+    fn test_sanitize_username_all_control_chars() {
+        // Only control chars → empty.
+        assert_eq!(DhtNodeAddr::sanitize_username("\n\r\t"), "");
+    }
+
+    #[test]
+    fn test_username_signature_coverage() {
+        // Change only the username → signature should differ.
+        let secret = secret_for(42);
+        let mut addr = fresh_addr(42);
+        let original_sig = addr.sig.clone();
+
+        // Mutate only username
+        addr.username = "alice".into();
+        addr.sig.clear();
+        addr.sig = secret.sign(&addr.signing_bytes()).to_bytes().to_vec();
+
+        assert_ne!(original_sig, addr.sig, "username change must change signature");
+        assert!(rendezvous_entry_authentic(&addr), "new signature should be valid for new username");
+
+        // Restore old username with new signature → should fail old sig
+        let mut addr_old_name = addr.clone();
+        addr_old_name.username = "".into();
+        assert!(!rendezvous_entry_authentic(&addr_old_name), "old-name with new-username-sig must fail");
+    }
+
+    #[test]
     fn test_dht_discovery_creation() {
         // May fail in environments without network access — that's OK.
         let _ = DhtDiscovery::new();
@@ -552,6 +690,7 @@ mod tests {
             node_id: secret.public().to_string(),
             relay_urls: vec![format!("http://relay/{seed}")],
             direct_addrs: vec!["10.0.0.1:3340".into()],
+            username: String::new(),
             timestamp: now_ms(),
             sig: Vec::new(),
         };
