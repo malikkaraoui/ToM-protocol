@@ -72,7 +72,7 @@ struct LogEntry: Identifiable {
 
     var levelColor: Color {
         switch level {
-        case .info: return .white
+        case .info: return .primary  // adaptatif : noir en clair, blanc en sombre (sinon blanc/blanc illisible)
         case .success: return .green
         case .warning: return .orange
         case .error: return .red

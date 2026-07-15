@@ -109,11 +109,10 @@ struct SettingsView: View {
 
                 Section("Peers") {
                     if !nodeService.connectedPeers.isEmpty {
-                        ForEach(nodeService.connectedPeers, id: \.self) { peer in
+                        ForEach(nodeService.connectedPeers, id: \.self) { peerId in
                             SettingsRow(
                                 label: "Connected",
-                                value: String(peer.prefix(8)) + "..." + String(peer.suffix(4)),
-                                monospaced: true,
+                                value: nodeService.displayName(for: peerId),
                                 valueColor: .green
                             )
                         }
@@ -122,7 +121,7 @@ struct SettingsView: View {
                         ForEach(nodeService.discoveredPeers) { peer in
                             SettingsRow(
                                 label: "Discovered",
-                                value: peer.displayName,
+                                value: nodeService.displayName(for: peer.nodeId),
                                 valueColor: .blue
                             )
                         }
