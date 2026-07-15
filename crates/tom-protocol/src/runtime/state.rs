@@ -6869,11 +6869,21 @@ mod tests {
             let _ = state.handle_incoming(&bytes);
         }
 
-        // Now we should have 5 samples, all with skew ~+1000
-        // (now - envelope.timestamp = now - (now - 1000) = 1000)
+        // Now we should have 5 samples, all with skew ~+1000.
+        // skew = now_ms()_at_receipt - envelope.timestamp
+        //      = now_ms()_at_receipt - (now_test - 1000)
+        //      = 1000 + (execution delay since `now` was captured)
+        // The delay is a few ms locally but can reach tens of ms on a loaded CI
+        // runner (5 ed25519 signatures + serialization), so a tight upper bound
+        // (<= 1020) flakes. We only assert the injected ~1000ms offset is
+        // reflected (never 0, never huge). Exact-median determinism is covered
+        // by the clock_skew.rs unit tests, which inject precise i64 values.
         assert_eq!(state.clock_skew_samples(), 5);
         let median = state.clock_skew_ms().expect("should have median");
-        // Median skew should be close to 1000 (allowing for small time differences)
-        assert!(median >= 990 && median <= 1020, "expected skew ~1000, got {}", median);
+        assert!(
+            (1000..3000).contains(&median),
+            "expected skew ~1000ms (+ execution delay), got {}",
+            median
+        );
     }
 }
