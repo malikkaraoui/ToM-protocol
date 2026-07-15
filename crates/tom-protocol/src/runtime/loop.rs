@@ -155,6 +155,10 @@ pub(super) async fn runtime_loop(
     // devices (Apple TV) and floods the activity log with PeerStale churn.
     let mut last_gossip_rejoin_at: u64 = 0;
     const GOSSIP_REJOIN_THROTTLE_MS: u64 = 3_000;
+    // Rejoin only peers seen within this window (exclude stale DHT-rendezvous
+    // noise), capped as a hard backstop against fan-out on weak devices.
+    const REJOIN_RECENT_WINDOW_MS: u64 = 5 * 60 * 1_000;
+    const REJOIN_MAX_PEERS: usize = 16;
 
     // Announce into the shared rendezvous + pull live peers immediately, so a
     // node with no prior knowledge starts finding the network from the first tick.
@@ -472,14 +476,27 @@ pub(super) async fn runtime_loop(
                                 > GOSSIP_REJOIN_THROTTLE_MS
                             {
                                 if let Some(ref sender) = gossip_sender {
-                                    let known_peers: Vec<_> = state.topology.peers()
-                                        .map(|p| *p.node_id.as_endpoint_id())
+                                    // Only rejoin peers seen RECENTLY: the topology
+                                    // holds hundreds of DHT-rendezvous entries that
+                                    // are mostly noise (never actually dialable), so
+                                    // rejoining all of them wastes dials on weak
+                                    // devices. Cap as a hard backstop.
+                                    let mut recent: Vec<_> = state.topology.peers()
+                                        .filter(|p| now.saturating_sub(p.last_seen)
+                                            < REJOIN_RECENT_WINDOW_MS)
+                                        .map(|p| (p.last_seen, *p.node_id.as_endpoint_id()))
+                                        .collect();
+                                    // Most-recently-seen first, then cap.
+                                    recent.sort_by_key(|(seen, _)| std::cmp::Reverse(*seen));
+                                    let known_peers: Vec<_> = recent.into_iter()
+                                        .take(REJOIN_MAX_PEERS)
+                                        .map(|(_, id)| id)
                                         .collect();
                                     if !known_peers.is_empty() {
                                         last_gossip_rejoin_at = now;
                                         tracing::info!(
                                             peers = known_peers.len(),
-                                            "neighbor down — rejoining {} known peers (throttled)",
+                                            "neighbor down — rejoining {} recent peers (throttled)",
                                             known_peers.len()
                                         );
                                         let _ = sender.join_peers(known_peers).await;
