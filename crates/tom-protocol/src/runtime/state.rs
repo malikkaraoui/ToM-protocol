@@ -1644,9 +1644,21 @@ impl RuntimeState {
         };
 
         if signature_valid {
-            // Record clock skew (now_ms - envelope.timestamp). Includes network latency.
-            let skew_ms = now as i64 - envelope.timestamp as i64;
-            self.clock_skew.record(skew_ms);
+            // Record clock skew (now_ms - envelope.timestamp), but ONLY for
+            // direct-hop messages (`via` empty). A relayed message's apparent skew
+            // absorbs each hop's forwarding delay plus any store-and-forward age,
+            // so it reflects the PATH, not the sender's clock — sampling it poisons
+            // the median (observed +8min on a relayed path). `via` is signed
+            // (part of signing_bytes()), so a relay cannot strip it to smuggle a
+            // relayed sample past this gate.
+            // Note: a message forwarded ONLY at the transport layer (MagicSock/QUIC
+            // relay, no applicative relay) keeps `via` empty and is still sampled —
+            // acceptable, its extra latency is sub-second, not the store-and-forward
+            // age that poisons the metric.
+            if envelope.via.is_empty() {
+                let skew_ms = now as i64 - envelope.timestamp as i64;
+                self.clock_skew.record(skew_ms);
+            }
 
             // Track bytes received (fixes bandwidth_ratio calculation)
             self.role_manager
@@ -6884,6 +6896,52 @@ mod tests {
             (1000..3000).contains(&median),
             "expected skew ~1000ms (+ execution delay), got {}",
             median
+        );
+    }
+
+    #[test]
+    fn clock_skew_ignores_relayed_envelopes() {
+        use crate::envelope::Envelope;
+        let mut state = default_state(1);
+        let now = crate::types::now_ms();
+        let (_, secret_seed) = keypair(2);
+
+        // A RELAYED envelope: `via` names a relay hop. Its apparent skew absorbs
+        // forwarding + store-and-forward age, so it reflects the PATH, not the
+        // sender's clock — it must NOT be sampled. `via` is signed, so the hop
+        // survives verification (can't be stripped to smuggle the sample in).
+        let mut relayed = Envelope::new_via(
+            node_id(2),
+            state.local_id,
+            vec![node_id(9)],
+            MessageType::Chat,
+            vec![1, 2, 3],
+        );
+        relayed.timestamp = now.saturating_sub(1000);
+        relayed.sign(&secret_seed);
+        assert!(
+            relayed.verify_signature().is_ok(),
+            "relayed envelope must be validly signed (via is part of signing_bytes)"
+        );
+        let bytes = relayed.to_bytes().expect("serialize");
+        let _ = state.handle_incoming(&bytes);
+        assert_eq!(
+            state.clock_skew_samples(),
+            0,
+            "relayed envelope must be excluded from clock-skew sampling"
+        );
+
+        // A DIRECT envelope (empty via) from the same peer IS sampled.
+        let mut direct =
+            Envelope::new(node_id(2), state.local_id, MessageType::Chat, vec![4, 5, 6]);
+        direct.timestamp = now.saturating_sub(1000);
+        direct.sign(&secret_seed);
+        let bytes = direct.to_bytes().expect("serialize");
+        let _ = state.handle_incoming(&bytes);
+        assert_eq!(
+            state.clock_skew_samples(),
+            1,
+            "direct envelope must be sampled"
         );
     }
 }
