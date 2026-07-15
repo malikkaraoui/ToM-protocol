@@ -40,6 +40,11 @@ final class TomNodeService: ObservableObject {
     /// sortant de la maison) invalide silencieusement les sockets QUIC : on
     /// relance aussi dans ce cas, pas seulement sur perte/retour.
     private var lastPrimaryInterface: NWInterface.InterfaceType?
+    /// Un lien LAN (WiFi/Ethernet) est-il disponible ? Sert à décider si le
+    /// broadcast UDP des logs peut atteindre le collecteur (true) ou doit être
+    /// bufferisé (false = cellulaire pur). Vrai par défaut (ne pas bufferiser
+    /// à froid avant le premier callback du moniteur réseau).
+    private var lanInterfaceAvailable = true
     /// Anti-tempête : intervalle mini entre deux relances déclenchées réseau
     /// (réseau qui flappe en train/ascenseur, ou .error qui se répète).
     private var lastNetworkRestartAt: Date?
@@ -792,8 +797,14 @@ final class TomNodeService: ObservableObject {
                 primary = t
                 break
             }
+            // Un lien LAN (WiFi/Ethernet) est-il disponible ? Le broadcast UDP
+            // vers 192.168.0.255 part par l'interface du bon sous-réseau, donc
+            // dès qu'un WiFi/Ethernet existe le collecteur LAN est joignable —
+            // même si le cellulaire est la route « primaire ». On ne bufferise
+            // QUE lorsqu'il n'y a aucun lien LAN (cellulaire pur).
+            let hasLan = path.usesInterfaceType(.wifi) || path.usesInterfaceType(.wiredEthernet)
             Task { @MainActor [weak self] in
-                self?.handleNetworkPathChange(satisfied: satisfied, primaryInterface: primary)
+                self?.handleNetworkPathChange(satisfied: satisfied, primaryInterface: primary, hasLan: hasLan)
             }
         }
         netMonitor.start(queue: netMonitorQueue)
@@ -804,11 +815,13 @@ final class TomNodeService: ObservableObject {
     /// (2) changement d'interface active alors que le réseau reste satisfait
     /// (handoff Wi-Fi→cellulaire) — les sockets QUIC liés à l'ancienne
     /// interface deviennent muets sans que la disponibilité change.
-    private func handleNetworkPathChange(satisfied: Bool, primaryInterface: NWInterface.InterfaceType?) {
+    private func handleNetworkPathChange(satisfied: Bool, primaryInterface: NWInterface.InterfaceType?, hasLan: Bool) {
         let wasSatisfied = lastPathSatisfied
         let wasPrimary = lastPrimaryInterface
+        let hadLan = lanInterfaceAvailable
         lastPathSatisfied = satisfied
         lastPrimaryInterface = primaryInterface
+        lanInterfaceAvailable = hasLan
 
         if satisfied && !wasSatisfied {
             appendLog(.warning, "RÉSEAU REVENU — relance immédiate de la découverte")
@@ -824,9 +837,10 @@ final class TomNodeService: ObservableObject {
             reconnectAfterNetworkChange(reason: "changement d'interface")
         }
 
-        // Flush UDP log buffer si on retourne sur LAN (WiFi ou Ethernet)
-        // Note: lastPrimaryInterface a déjà été mis à jour ci-dessus (ligne 811)
-        if (primaryInterface == .wifi || primaryInterface == .wiredEthernet) && !udpLogPendingBuffer.isEmpty {
+        // Flush UDP log buffer quand un lien LAN (ré)apparaît (WiFi/Ethernet).
+        // lanInterfaceAvailable est déjà à jour ci-dessus → le flush ne
+        // re-bufferise pas. On flushe sur la transition sans-LAN → avec-LAN.
+        if hasLan && !hadLan && !udpLogPendingBuffer.isEmpty {
             appendLog(.info, "Flush de \(udpLogPendingBuffer.count) logs bufferisés (retour LAN)")
             flushUDPLogBuffer()
         }
@@ -1470,11 +1484,13 @@ final class TomNodeService: ObservableObject {
     }
 
     /// Send a JSON log line over UDP (fire-and-forget).
-    /// En cellulaire : bufferiser (broadcast inutile hors LAN).
-    /// En WiFi/Ethernet : envoyer live.
+    /// Sans lien LAN (cellulaire pur) : bufferiser (broadcast inutile).
+    /// Dès qu'un WiFi/Ethernet existe : envoyer live (le broadcast atteint le
+    /// collecteur par l'interface du bon sous-réseau, même si le cellulaire
+    /// est la route primaire).
     private func sendLogUDP(_ message: String) {
-        // Détecte si on est en cellulaire — si oui, bufferiser au lieu d'envoyer
-        if lastPrimaryInterface == .cellular {
+        // Aucun lien LAN → bufferiser au lieu d'envoyer
+        if !lanInterfaceAvailable {
             // Bufferiser la ligne
             let line = "\(message)\n"
             udpLogPendingBuffer.append(line)
