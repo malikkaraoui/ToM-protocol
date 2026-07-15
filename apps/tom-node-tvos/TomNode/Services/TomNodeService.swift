@@ -206,6 +206,28 @@ final class TomNodeService: ObservableObject {
     private var wasRunningBeforeSleep = false
     private static let cachedPeerKey = "tom_bg_peers"
 
+    /// Le FIL D'ACTIVITÉ ne montre QUE des événements pertinents pour un humain.
+    /// Tout le reste (debug protocole brut type `RelayReadyReceived { NodeId(…) }`,
+    /// churn d'état des pairs « Pair vieilli »/voisins gossip qui vit désormais
+    /// dans la carte Pairs, attestations de présence à 15s, etc.) part au Live
+    /// Log mais PAS dans l'activité. Liste blanche explicite = des règles claires.
+    private static let activityFeedTypes: Set<String> = [
+        // Sécurité / anti-spam
+        "SenderThrottled", "MessageRejected", "GroupSecurityViolation",
+        // Livraison
+        "DeliveryTimeout", "DeliveryRetry",
+        // Relais embarqué
+        "EmbeddedRelayStarted", "EmbeddedRelayFailed",
+        // Groupes
+        "GroupCreated", "GroupJoined", "GroupMemberJoined", "GroupMemberLeft",
+        // Chemin réseau (Direct ↔ Relais)
+        "PathChanged",
+        // Backup (messages différés)
+        "BackupDelivered", "BackupExpired",
+        // Mon propre rôle change
+        "LocalRoleChanged",
+    ]
+
     private init() {
         loadPersistentNames()
     }
@@ -487,8 +509,12 @@ final class TomNodeService: ObservableObject {
         stopNetworkLogExport()
         startNetworkLogExportIfNeeded()
 
-        // Charge les compteurs persistants (anti-reset tvOS)
-        loadPersistentCounters()
+        // COMPTEUR SESSION : remet à zéro à chaque démarrage (par décision UX)
+        // Les compteurs persistants sont gardés pour d'autres usages, mais
+        // l'affichage repartira toujours de 0.
+        totalMessagesCount = 0
+        totalMessagesSentCount = 0
+        totalMessagesReceivedCount = 0
 
         appendLog(.info, "Starting node...")
         appendLog(.info, "Relay mode: \(relayStatusLabel)")
@@ -1017,9 +1043,26 @@ final class TomNodeService: ObservableObject {
                     // Texte avec NOMS d'appareils résolus (« Freebox · 11d5bb11 »
                     // au lieu de l'ID brut) — l'utilisatrice veut lire des noms.
                     let text = event.displayLine(resolvingNames: { self.displayName(for: $0) })
-                    // Anti-bruit : ne pas empiler un événement identique (même
-                    // type + même texte) à la toute dernière entrée. Le churn
-                    // discovery/stale d'un même pair spammait la liste.
+
+                    // Le Live Log reçoit TOUT (c'est là que vivent les logs bruts).
+                    self.appendLog(.info, text)
+
+                    // Détection sécurité sur TOUS les events (jamais filtrée).
+                    let isSecurityEvent = event.type.contains("Throttled")
+                        || event.type.contains("Rejected")
+                        || event.type.contains("GroupSecurity")
+                    if isSecurityEvent {
+                        self.securityAlerts += 1
+                        self.lastSecurityEventAt = Date()
+                        self.lastSecurityEventText = text
+                    }
+
+                    // Le FIL D'ACTIVITÉ ne montre QUE des événements humains
+                    // pertinents (liste blanche). Le debug protocole brut et le
+                    // churn d'état des pairs restent au Live Log, pas ici.
+                    guard Self.activityFeedTypes.contains(event.type) else { continue }
+
+                    // Anti-bruit : pas deux entrées identiques consécutives.
                     if let last = self.activityLog.last,
                        last.type == event.type, last.displayText == text {
                         continue
@@ -1035,18 +1078,6 @@ final class TomNodeService: ObservableObject {
                     // Cap activity log to 100 entries (FIFO)
                     if self.activityLog.count > 100 {
                         self.activityLog = Array(self.activityLog.suffix(100))
-                    }
-                    // Also send to Live Log (UDP + local append)
-                    self.appendLog(.info, text)
-
-                    // Phase 2 Sprint 3 : détecter les events de sécurité
-                    let isSecurityEvent = event.type.contains("Throttled")
-                        || event.type.contains("Rejected")
-                        || event.type.contains("GroupSecurity")
-                    if isSecurityEvent {
-                        self.securityAlerts += 1
-                        self.lastSecurityEventAt = Date()
-                        self.lastSecurityEventText = text
                     }
                 }
 
@@ -1089,7 +1120,11 @@ final class TomNodeService: ObservableObject {
                     lastPresenceTotal = ps.acceptedTotal
                 }
                 let currentConnected = await self.node.connectedPeers()
-                self.connectedPeers = currentConnected
+                // Dédoublonnage : le transport peut exposer plusieurs chemins /
+                // connexions vers un même pair → une seule entrée par NodeId
+                // (ordre préservé). Sinon la liste « Connected » affiche des doublons.
+                var seenConnected = Set<NodeId>()
+                self.connectedPeers = currentConnected.filter { seenConnected.insert($0).inserted }
 
                 let currentDiscovered = await self.node.discoveredPeers()
                 // Log new peer discoveries
