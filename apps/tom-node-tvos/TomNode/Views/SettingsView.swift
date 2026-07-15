@@ -29,7 +29,7 @@ struct SettingsView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("Settings")
+            Text("Réglages")
                 .font(.title2)
                 .fontWeight(.bold)
                 .padding(.horizontal, 48)
@@ -108,8 +108,12 @@ struct SettingsView: View {
                 }
 
                 Section("Peers") {
+                    // id: \.offset (index) et non \.self : un [String] avec des
+                    // doublons transitoires faisait délirer SwiftUI (lignes
+                    // fantômes + Discovered déplacé au milieu). L'index est
+                    // toujours unique → rendu stable.
                     if !nodeService.connectedPeers.isEmpty {
-                        ForEach(nodeService.connectedPeers, id: \.self) { peerId in
+                        ForEach(Array(nodeService.connectedPeers.enumerated()), id: \.offset) { _, peerId in
                             SettingsRow(
                                 label: "Connected",
                                 value: nodeService.displayName(for: peerId),
@@ -117,8 +121,12 @@ struct SettingsView: View {
                             )
                         }
                     }
-                    if !nodeService.discoveredPeers.isEmpty {
-                        ForEach(nodeService.discoveredPeers) { peer in
+                    // Découverts NON déjà connectés (évite de lister un pair deux fois).
+                    let discoveredOnly = nodeService.discoveredPeers.filter {
+                        !nodeService.connectedPeers.contains($0.nodeId)
+                    }
+                    if !discoveredOnly.isEmpty {
+                        ForEach(Array(discoveredOnly.enumerated()), id: \.offset) { _, peer in
                             SettingsRow(
                                 label: "Discovered",
                                 value: nodeService.displayName(for: peer.nodeId),
