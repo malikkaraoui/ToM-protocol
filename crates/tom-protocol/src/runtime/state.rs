@@ -16,6 +16,7 @@ use crate::tracker::MessageTracker;
 use crate::types::{now_ms, MessageStatus, MessageType, NodeId};
 
 use super::effect::RuntimeEffect;
+use super::clock_skew::ClockSkewMetrics;
 use super::{DeliveredMessage, ProtocolEvent, RuntimeCommand, RuntimeConfig};
 
 // Phase R7.1: DHT discovery
@@ -140,6 +141,9 @@ pub struct RuntimeState {
 
     // Phase R16: Relay registry (passive consumption of RelayReadyAnnounce)
     pub(crate) relay_registry: crate::discovery::RelayRegistry,
+
+    // Phase R17: Clock skew observability (median inter-peer time delta, from verified signatures)
+    pub(crate) clock_skew: ClockSkewMetrics,
 }
 
 impl RuntimeState {
@@ -250,6 +254,7 @@ impl RuntimeState {
             relay_registry: crate::discovery::RelayRegistry::new(
                 config.relay_registry_ttl.as_millis() as u64,
             ),
+            clock_skew: ClockSkewMetrics::default(),
             config,
             store,
             pending_envelopes: std::collections::HashMap::new(),
@@ -286,6 +291,17 @@ impl RuntimeState {
     /// Access the message tracker.
     pub fn tracker(&self) -> &MessageTracker {
         &self.tracker
+    }
+
+    /// Median peer clock skew (now_ms - envelope.timestamp) in milliseconds.
+    /// Returns None if fewer than 5 verified samples collected.
+    pub fn clock_skew_ms(&self) -> Option<i64> {
+        self.clock_skew.median_ms()
+    }
+
+    /// Number of clock skew samples collected.
+    pub fn clock_skew_samples(&self) -> usize {
+        self.clock_skew.sample_count()
     }
 
     /// Publish this node's address to the DHT (BEP-0044).
@@ -1628,6 +1644,10 @@ impl RuntimeState {
         };
 
         if signature_valid {
+            // Record clock skew (now_ms - envelope.timestamp). Includes network latency.
+            let skew_ms = now as i64 - envelope.timestamp as i64;
+            self.clock_skew.record(skew_ms);
+
             // Track bytes received (fixes bandwidth_ratio calculation)
             self.role_manager
                 .record_bytes_received(envelope.from, raw_data.len() as u64, now);
@@ -2713,6 +2733,13 @@ impl RuntimeState {
 
             RuntimeCommand::GetPresenceMetrics { reply } => {
                 let _ = reply.send(self.presence.metrics());
+                Vec::new()
+            }
+
+            RuntimeCommand::GetClockSkew { reply } => {
+                let median = self.clock_skew_ms();
+                let samples = self.clock_skew_samples();
+                let _ = reply.send((median, samples));
                 Vec::new()
             }
 
@@ -6804,5 +6831,49 @@ mod tests {
             0,
             "private IP from port mapping should not be published"
         );
+    }
+
+    #[test]
+    fn clock_skew_records_verified_signatures() {
+        use crate::envelope::Envelope;
+        let mut state = default_state(1);
+
+        // Create a signed envelope with timestamp set to (now - 1000) ms.
+        let now = crate::types::now_ms();
+        let timestamp = now.saturating_sub(1000);
+
+        let mut envelope = Envelope::new(node_id(2), state.local_id, MessageType::Chat, vec![1, 2, 3]);
+        envelope.timestamp = timestamp;
+
+        // Sign the envelope to make it valid
+        let (_, secret_seed) = keypair(2);
+        envelope.sign(&secret_seed);
+
+        // Serialize and pass to handle_incoming
+        let bytes = envelope.to_bytes().expect("serialize should succeed");
+        let _ = state.handle_incoming(&bytes);
+
+        // After one verified envelope, clock_skew_samples() should be 1
+        assert_eq!(state.clock_skew_samples(), 1);
+
+        // After fewer than 5 samples, median should be None
+        assert_eq!(state.clock_skew_ms(), None);
+
+        // Add 4 more samples (from different peers with same skew)
+        for i in 2..6 {
+            let mut env = Envelope::new(node_id(i as u8), state.local_id, MessageType::Chat, vec![i as u8]);
+            env.timestamp = now.saturating_sub(1000);
+            let (_, seed) = keypair(i as u8);
+            env.sign(&seed);
+            let bytes = env.to_bytes().expect("serialize");
+            let _ = state.handle_incoming(&bytes);
+        }
+
+        // Now we should have 5 samples, all with skew ~+1000
+        // (now - envelope.timestamp = now - (now - 1000) = 1000)
+        assert_eq!(state.clock_skew_samples(), 5);
+        let median = state.clock_skew_ms().expect("should have median");
+        // Median skew should be close to 1000 (allowing for small time differences)
+        assert!(median >= 990 && median <= 1020, "expected skew ~1000, got {}", median);
     }
 }

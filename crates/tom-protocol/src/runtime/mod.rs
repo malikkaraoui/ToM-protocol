@@ -5,6 +5,7 @@
 /// application (TUI, bot, SDK) never touches raw bytes or protocol internals.
 pub mod embedded_relay;
 pub mod bootstrap;
+mod clock_skew;
 mod effect;
 mod executor;
 mod r#loop;
@@ -254,6 +255,10 @@ pub enum RuntimeCommand {
     /// Effects are executed through the loop interceptor, including transport
     /// relay discovery if enabled.
     InjectGossipBytes { bytes: Vec<u8> },
+    /// Query clock skew metrics (median inter-peer time delta).
+    GetClockSkew {
+        reply: oneshot::Sender<(Option<i64>, usize)>,
+    },
     /// Graceful shutdown.
     Shutdown,
     /// Force an immediate state flush to persistent storage, replying when done.
@@ -546,6 +551,17 @@ impl RuntimeHandle {
             .cmd_tx
             .send(RuntimeCommand::SetPresenceClockOffset { offset_ms })
             .await;
+    }
+
+    /// Clock skew observability: median inter-peer time delta (ms) and sample count.
+    /// Returns (median_ms, sample_count). median_ms is None if < 5 samples collected.
+    pub async fn clock_skew(&self) -> Option<(Option<i64>, usize)> {
+        let (tx, rx) = oneshot::channel();
+        self.cmd_tx
+            .send(RuntimeCommand::GetClockSkew { reply: tx })
+            .await
+            .ok()?;
+        rx.await.ok()
     }
 
     /// Register a peer in the network (triggers iroh discovery).
