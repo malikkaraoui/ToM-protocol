@@ -823,6 +823,33 @@ final class TomNodeService: ObservableObject {
             log.info("Network interface changed — restarting discovery")
             reconnectAfterNetworkChange(reason: "changement d'interface")
         }
+
+        // Flush UDP log buffer si on retourne sur LAN (WiFi ou Ethernet)
+        // Note: lastPrimaryInterface a déjà été mis à jour ci-dessus (ligne 811)
+        if (primaryInterface == .wifi || primaryInterface == .wiredEthernet) && !udpLogPendingBuffer.isEmpty {
+            appendLog(.info, "Flush de \(udpLogPendingBuffer.count) logs bufferisés (retour LAN)")
+            flushUDPLogBuffer()
+        }
+    }
+
+    /// Flush tous les logs bufferisés en cellulaire et envoyer via UDP
+    private func flushUDPLogBuffer() {
+        guard udpLogSocket >= 0, var addr = udpLogAddr else {
+            // Socket pas prêt, laisser les logs en buffer pour la prochaine fois
+            return
+        }
+
+        for line in udpLogPendingBuffer {
+            line.withCString { ptr in
+                withUnsafePointer(to: &addr) { addrPtr in
+                    addrPtr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sa in
+                        sendto(udpLogSocket, ptr, strlen(ptr), 0, sa, socklen_t(MemoryLayout<sockaddr_in>.size))
+                    }
+                }
+            }
+        }
+
+        udpLogPendingBuffer.removeAll()
     }
 
     private static func ifaceLabel(_ t: NWInterface.InterfaceType) -> String {
@@ -1238,6 +1265,9 @@ final class TomNodeService: ObservableObject {
     /// Inbox des messages de groupe reçus (dont rattrapage R13), lu par
     /// l'endpoint /inbox du serveur de contrôle. Borné.
     private var groupInbox: [TomGroupMessage] = []
+    /// Buffer des logs UDP quand on est en cellulaire (hors LAN broadcast)
+    private var udpLogPendingBuffer: [String] = []
+    private static let udpLogBufferMax = 5000
 
     private func startNetworkLogExportIfNeeded() {
         guard udpLogExportEnabled else { return }
@@ -1439,8 +1469,25 @@ final class TomNodeService: ObservableObject {
         return str
     }
 
-    /// Send a JSON log line over UDP (fire-and-forget)
+    /// Send a JSON log line over UDP (fire-and-forget).
+    /// En cellulaire : bufferiser (broadcast inutile hors LAN).
+    /// En WiFi/Ethernet : envoyer live.
     private func sendLogUDP(_ message: String) {
+        // Détecte si on est en cellulaire — si oui, bufferiser au lieu d'envoyer
+        if lastPrimaryInterface == .cellular {
+            // Bufferiser la ligne
+            let line = "\(message)\n"
+            udpLogPendingBuffer.append(line)
+
+            // Borne mémoire : drop les plus anciennes lignes si buffer trop gros
+            if udpLogPendingBuffer.count > Self.udpLogBufferMax {
+                let excess = udpLogPendingBuffer.count - Self.udpLogBufferMax
+                udpLogPendingBuffer.removeFirst(excess)
+            }
+            return
+        }
+
+        // WiFi/Ethernet/nil : envoyer live comme avant
         guard udpLogSocket >= 0, var addr = udpLogAddr else { return }
         let line = "\(message)\n"
         line.withCString { ptr in
