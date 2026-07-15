@@ -5,6 +5,7 @@ import TomProtocolKit
 struct StatusView: View {
     @EnvironmentObject var nodeService: TomNodeService
     @State private var currentTime = Date()
+    @Environment(\.horizontalSizeClass) var sizeClass
 
     var body: some View {
         #if os(tvOS)
@@ -20,7 +21,7 @@ struct StatusView: View {
         return Date().timeIntervalSince(lastAt) < 60
     }
 
-    // MARK: - tvOS : activité au centre, en-tête compact, layout 70/30
+    // MARK: - tvOS : 10-foot UI avec typo plus grande
 
     private var tvOSLayout: some View {
         VStack(spacing: 0) {
@@ -33,136 +34,135 @@ struct StatusView: View {
                     .border(Color.red.opacity(0.3), width: 1)
             }
 
-            // ── En-tête compact (haut) ────────────────────────────────
-            compactHeader
+            // ── En-tête simple (point + nom + rôle) ────────────────────────────────
+            simpleHeader
                 .padding(.horizontal, 40)
                 .padding(.vertical, 20)
                 .background(Color.secondary.opacity(0.03))
                 .border(Color.secondary.opacity(0.1), width: 1)
 
-            // ── Contenu principal : Activité (gauche, flex) + Réseau (droite, fixed) ──
             if nodeService.state == .running {
-                HStack(alignment: .top, spacing: 32) {
-                    // Activité large (priorité)
-                    VStack(alignment: .leading, spacing: 10) {
-                        HStack {
-                            Image(systemName: "bell.badge.fill").foregroundColor(.blue)
-                            Text("Activité").font(.headline)
-                            Spacer()
-                            Text("\(nodeService.activityLog.count)")
-                                .font(.caption).foregroundColor(.secondary)
-                                .padding(.horizontal, 8).padding(.vertical, 4)
-                                .background(Color.secondary.opacity(0.2))
-                                .cornerRadius(6)
+                VStack(spacing: 24) {
+                    // Cartes 2×2 sur tvOS
+                    VStack(spacing: 24) {
+                        HStack(spacing: 24) {
+                            cardNetwork.frame(maxWidth: .infinity)
+                            cardHealth.frame(maxWidth: .infinity)
                         }
-                        if nodeService.activityLog.isEmpty {
-                            Text("Aucune activité").font(.subheadline).foregroundColor(.secondary)
-                        } else {
-                            ScrollView {
-                                LazyVStack(alignment: .leading, spacing: 8) {
-                                    ForEach(nodeService.activityLog.reversed()) { entry in
-                                        HStack(spacing: 12) {
-                                            Circle().fill(activityCategoryColor(entry)).frame(width: 6, height: 6)
-                                            VStack(alignment: .leading, spacing: 2) {
-                                                Text(entry.displayText).font(.body).lineLimit(2)
-                                                Text(entry.relativeTime).font(.caption).foregroundColor(.secondary)
-                                            }
-                                            Spacer()
-                                        }
-                                        .padding(.vertical, 6)
-                                        .padding(.horizontal, 10)
-                                        .background(Color.blue.opacity(0.06))
-                                        .cornerRadius(8)
-                                    }
+                        HStack(spacing: 24) {
+                            cardPeers.frame(maxWidth: .infinity, maxHeight: .infinity)
+                            VStack(spacing: 12) {
+                                controlsSection
+                                if let error = nodeService.errorMessage {
+                                    errorView(error)
                                 }
-                            }
-                        }
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(14)
-                    .background(Color.blue.opacity(0.04))
-                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.blue.opacity(0.15), lineWidth: 1))
-                    .cornerRadius(12)
-
-                    // Réseau compact (droite, fixed width)
-                    VStack(alignment: .leading, spacing: 16) {
-                        // Connexions
-                        VStack(alignment: .leading, spacing: 8) {
-                            HStack {
-                                Image(systemName: "bolt.horizontal.fill").foregroundColor(.green)
-                                Text("Actives").font(.headline)
                                 Spacer()
-                                Text("\(nodeService.connectedPeers.count)").font(.headline).foregroundColor(.green)
                             }
-                            if nodeService.connectedPeers.isEmpty {
-                                Text("—").font(.caption).foregroundColor(.secondary)
-                            } else {
-                                ForEach(nodeService.connectedPeers.prefix(8), id: \.self) { peerId in
-                                    HStack(spacing: 6) {
-                                        Circle().fill(.green).frame(width: 5, height: 5)
-                                        Text(nodeService.displayName(for: peerId))
-                                            .font(.caption).lineLimit(1)
-                                    }
-                                }
-                                if nodeService.connectedPeers.count > 8 {
-                                    Text("+ \(nodeService.connectedPeers.count - 8)")
-                                        .font(.caption2).foregroundColor(.secondary)
-                                }
-                            }
-                        }
-                        .padding(10)
-                        .background(Color.green.opacity(0.04))
-                        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.green.opacity(0.15), lineWidth: 1))
-                        .cornerRadius(10)
-
-                        // Nœuds connus
-                        if !nodeService.discoveredPeers.isEmpty {
-                            VStack(alignment: .leading, spacing: 8) {
-                                HStack {
-                                    Image(systemName: "network").font(.caption)
-                                    Text("Découverts").font(.headline)
-                                    Spacer()
-                                    Text("\(nodeService.discoveredPeers.count)").font(.headline).foregroundColor(.secondary)
-                                }
-                                ForEach(nodeService.discoveredPeers.prefix(6) ) { peer in
-                                    HStack(spacing: 6) {
-                                        Circle().fill(nodeService.connectedPeers.contains(peer.nodeId) ? .green : Color.gray.opacity(0.3))
-                                            .frame(width: 5, height: 5)
-                                        Text(nodeService.displayName(for: peer.nodeId))
-                                            .font(.caption).lineLimit(1)
-                                    }
-                                }
-                                if nodeService.discoveredPeers.count > 6 {
-                                    Text("+ \(nodeService.discoveredPeers.count - 6)")
-                                        .font(.caption2).foregroundColor(.secondary)
-                                }
-                            }
-                            .padding(10)
+                            .padding(16)
                             .background(Color.secondary.opacity(0.04))
-                            .cornerRadius(10)
-                        }
-
-                        Spacer()
-
-                        // Contrôles
-                        VStack(spacing: 8) {
-                            controlsSection
-                            if let error = nodeService.errorMessage {
-                                errorView(error)
-                            }
+                            .cornerRadius(12)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
                         }
                     }
-                    .frame(minWidth: 220, maxWidth: 280)
+                    Spacer()
                 }
-                .padding(32)
+                .padding(40)
             } else {
-                // Mode arrêté
                 VStack(spacing: 20) {
                     Spacer()
-                    Text("Nœud inactif").font(.title3).foregroundColor(.secondary)
-                    controlsSection
-                    if let error = nodeService.errorMessage {
-                        errorView(error)
+                    VStack(spacing: 16) {
+                        Text("Nœud inactif").font(.title2).foregroundColor(.secondary)
+                        HStack {
+                            Spacer()
+                            controlsSection
+                            Spacer()
+                        }
+                        if let error = nodeService.errorMessage {
+                            HStack {
+                                Spacer()
+                                errorView(error)
+                                Spacer()
+                            }
+                        }
+                    }
+                    Spacer()
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+    }
+
+    // MARK: - iOS/iPadOS : responsive avec grille 2 colonnes sur iPad
+
+    private var iosLayout: some View {
+        VStack(spacing: 0) {
+            // ── Bandeau ATTAQUE ────────────────────────────────
+            if hasActiveSecurityAlert {
+                securityAlertBanner
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 10)
+                    .background(Color.red.opacity(0.15))
+                    .border(Color.red.opacity(0.3), width: 1)
+            }
+
+            // ── En-tête simple ────────────────────────────────
+            simpleHeader
+                .padding(.horizontal, 20)
+                .padding(.vertical, 14)
+                .background(Color.secondary.opacity(0.03))
+                .border(Color.secondary.opacity(0.1), width: 1)
+
+            if nodeService.state == .running {
+                if sizeClass == .regular {
+                    // iPad : grille 2 colonnes, remplit hauteur
+                    VStack(spacing: 16) {
+                        Grid(horizontalSpacing: 16, verticalSpacing: 16) {
+                            // Rangée 1 : Réseau + Santé (hauteurs égales)
+                            GridRow {
+                                cardNetwork
+                                    .frame(maxHeight: .infinity)
+                                cardHealth
+                                    .frame(maxHeight: .infinity)
+                            }
+                            .frame(maxHeight: .infinity)
+
+                            // Rangée 2 : Pairs (pleine largeur)
+                            GridRow {
+                                cardPeers
+                                    .gridCellColumns(2)
+                            }
+                        }
+                        Spacer()
+                    }
+                    .padding(20)
+                } else {
+                    // iPhone : empilé, remplit hauteur
+                    ScrollView {
+                        VStack(spacing: 16) {
+                            cardNetwork
+                            cardHealth
+                            cardPeers
+                        }
+                        .padding(20)
+                    }
+                }
+            } else {
+                VStack(spacing: 20) {
+                    Spacer()
+                    VStack(spacing: 16) {
+                        Text("Nœud inactif").font(.title3).foregroundColor(.secondary)
+                        HStack {
+                            Spacer()
+                            controlsSection
+                            Spacer()
+                        }
+                        if let error = nodeService.errorMessage {
+                            HStack {
+                                Spacer()
+                                errorView(error)
+                                Spacer()
+                            }
+                        }
                     }
                     Spacer()
                 }
@@ -172,243 +172,211 @@ struct StatusView: View {
     }
 
 
-    // MARK: - iOS/iPadOS : en-tête compact + activité + sections secondaires repliables
 
-    private var iosLayout: some View {
-        VStack(spacing: 0) {
-            // ── Bandeau ATTAQUE (si alerte de sécurité active) ────────────────────────────────
-            if hasActiveSecurityAlert {
-                securityAlertBanner
-                    .padding(.horizontal, 20)
-                    .padding(.vertical, 10)
-                    .background(Color.red.opacity(0.15))
-                    .border(Color.red.opacity(0.3), width: 1)
-            }
+    // MARK: - En-tête simple (point + nom + rôle)
 
-            // ── En-tête compact (haut) ────────────────────────────────
-            compactHeader
-                .padding(.horizontal, 20)
-                .padding(.vertical, 16)
-                .background(Color.secondary.opacity(0.03))
-                .border(Color.secondary.opacity(0.1), width: 1)
-
-            // ── Contenu scrollable ────────────────────────────────────
-            if nodeService.state == .running {
-                ScrollView {
-                    VStack(spacing: 16) {
-                        // Activité (priorité)
-                        VStack(alignment: .leading, spacing: 10) {
-                            HStack {
-                                Image(systemName: "bell.badge.fill").foregroundColor(.blue)
-                                Text("Activité").font(.headline)
-                                Spacer()
-                                Text("\(nodeService.activityLog.count)")
-                                    .font(.caption).foregroundColor(.secondary)
-                                    .padding(.horizontal, 8).padding(.vertical, 4)
-                                    .background(Color.secondary.opacity(0.2))
-                                    .cornerRadius(6)
-                            }
-                            if nodeService.activityLog.isEmpty {
-                                Text("Aucune activité").font(.subheadline).foregroundColor(.secondary)
-                                    .padding(.vertical, 20)
-                            } else {
-                                VStack(alignment: .leading, spacing: 8) {
-                                    ForEach(nodeService.activityLog.reversed()) { entry in
-                                        HStack(spacing: 10) {
-                                            Circle().fill(activityCategoryColor(entry)).frame(width: 6, height: 6)
-                                            VStack(alignment: .leading, spacing: 2) {
-                                                Text(entry.displayText).font(.subheadline).lineLimit(2)
-                                                Text(entry.relativeTime).font(.caption2).foregroundColor(.secondary)
-                                            }
-                                            Spacer()
-                                        }
-                                        .padding(.vertical, 8)
-                                        .padding(.horizontal, 10)
-                                        .background(Color.blue.opacity(0.06))
-                                        .cornerRadius(8)
-                                    }
-                                }
-                            }
-                        }
-                        .padding(14)
-                        .background(Color.blue.opacity(0.04))
-                        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.blue.opacity(0.15), lineWidth: 1))
-                        .cornerRadius(12)
-
-                        // Connexions actives
-                        VStack(alignment: .leading, spacing: 10) {
-                            HStack {
-                                Image(systemName: "bolt.horizontal.fill").foregroundColor(.green)
-                                Text("Connexions actives").font(.headline)
-                                Spacer()
-                                Text("\(nodeService.connectedPeers.count)").font(.headline).foregroundColor(.green)
-                            }
-                            if nodeService.connectedPeers.isEmpty {
-                                Text("Aucune connexion").font(.subheadline).foregroundColor(.secondary)
-                            } else {
-                                ForEach(nodeService.connectedPeers, id: \.self) { peerId in
-                                    HStack(spacing: 10) {
-                                        Circle().fill(.green).frame(width: 7, height: 7)
-                                        Text(nodeService.displayName(for: peerId))
-                                            .font(.body).fontWeight(.medium)
-                                        Spacer()
-                                    }
-                                    .padding(.vertical, 2)
-                                }
-                            }
-                        }
-                        .padding(14)
-                        .background(Color.green.opacity(0.06))
-                        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.green.opacity(0.2), lineWidth: 1))
-                        .cornerRadius(12)
-
-                        // Nœuds connus
-                        if !nodeService.discoveredPeers.isEmpty {
-                            VStack(alignment: .leading, spacing: 10) {
-                                HStack {
-                                    Image(systemName: "network")
-                                    Text("Nœuds connus").font(.headline)
-                                    Spacer()
-                                    Text("\(nodeService.discoveredPeers.count)").font(.headline).foregroundColor(.secondary)
-                                }
-                                ForEach(nodeService.discoveredPeers) { peer in
-                                    let connected = nodeService.connectedPeers.contains(peer.nodeId)
-                                    HStack(spacing: 10) {
-                                        Circle().fill(connected ? .green : Color.gray.opacity(0.4)).frame(width: 7, height: 7)
-                                        Text(nodeService.displayName(for: peer.nodeId)).font(.body).fontWeight(.medium)
-                                        Spacer()
-                                        discoveryBadge(peer.source)
-                                    }
-                                    .padding(.vertical, 2)
-                                }
-                            }
-                            .padding(14)
-                            .background(Color.secondary.opacity(0.06))
-                            .cornerRadius(12)
-                        }
-
-                        // Contrôles + Erreur
-                        VStack(spacing: 12) {
-                            controlsSection
-                            if let error = nodeService.errorMessage {
-                                errorView(error)
-                            }
-                        }
-                    }
-                    .padding(20)
-                }
-            } else {
-                // Mode arrêté
-                VStack(spacing: 20) {
-                    Spacer()
-                    Text("Nœud inactif").font(.title3).foregroundColor(.secondary)
-                    controlsSection
-                    if let error = nodeService.errorMessage {
-                        errorView(error)
-                    }
-                    Spacer()
-                }
-                .frame(maxHeight: .infinity)
-            }
-        }
-    }
-
-    // MARK: - En-tête compact (une ligne ou deux max)
-
-    private var compactHeader: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            // Ligne 1 : Nom device + état (gauche) · ID court (droite)
-            HStack(spacing: 10) {
-                Text(nodeService.localDisplayName)
-                    .font(.headline).fontWeight(.semibold)
-                    .lineLimit(1).fixedSize(horizontal: true, vertical: false)
-                Circle().fill(statusColor).frame(width: 8, height: 8)
-                Text(nodeService.state.rawValue.uppercased())
-                    .font(.caption2).foregroundColor(statusColor).kerning(0.5)
-                    .lineLimit(1).fixedSize(horizontal: true, vertical: false)
-                Spacer(minLength: 8)
-
-                // Compteur d'alertes de sécurité (badge rouge si > 0 ET actif)
-                if nodeService.securityAlerts > 0 {
-                    HStack(spacing: 3) {
-                        Image(systemName: "exclamationmark.triangle.fill")
-                            .font(.caption2)
-                        Text("\(nodeService.securityAlerts)")
-                            .font(.caption2).fontWeight(.semibold)
-                    }
-                    .foregroundColor(.white)
-                    .padding(.horizontal, 6).padding(.vertical, 3)
-                    .background(hasActiveSecurityAlert ? Color.red : Color.orange)
-                    .cornerRadius(4)
-                }
-
-                if !nodeService.nodeId.isEmpty {
-                    Text(shortId(nodeService.nodeId))
-                        .font(.system(.caption, design: .monospaced))
-                        .foregroundColor(.secondary)
-                        .lineLimit(1).fixedSize(horizontal: true, vertical: false)
-                        .padding(.horizontal, 8).padding(.vertical, 4)
-                        .background(Color.secondary.opacity(0.08))
-                        .cornerRadius(6)
-                }
-            }
-
-            // Ligne 2 : Rôle · Transport (gauche) · Compteurs lisibles (droite)
+    private var simpleHeader: some View {
+        HStack(spacing: 12) {
+            // Point coloré + nom device + état
             HStack(spacing: 8) {
-                // Chip Rôle
-                HStack(spacing: 3) {
-                    Image(systemName: nodeService.localRole == "Relay"
-                          ? "antenna.radiowaves.left.and.right" : "person.fill")
-                        .font(.caption2)
-                    Text(nodeService.localRole).font(.caption).fontWeight(.semibold)
-                        .lineLimit(1).fixedSize(horizontal: true, vertical: false)
+                Circle().fill(statusColor).frame(width: 10, height: 10)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(nodeService.localDisplayName)
+                        .font(.headline).fontWeight(.semibold)
+                        .lineLimit(1)
+                    Text(nodeService.state.rawValue.uppercased())
+                        .font(.caption2).foregroundColor(.secondary).kerning(0.5)
+                        .lineLimit(1)
                 }
-                .foregroundColor(nodeService.localRole == "Relay" ? .orange : .blue)
-                .padding(.horizontal, 8).padding(.vertical, 4)
-                .background((nodeService.localRole == "Relay" ? Color.orange : .blue).opacity(0.12))
-                .cornerRadius(6)
+                Spacer()
+            }
 
-                // Chip Transport
-                HStack(spacing: 3) {
-                    Image(systemName: nodeService.pathKind == "DIRECT" ? "bolt.fill" : "cloud.fill")
-                        .font(.caption2)
-                    Text(nodeService.pathKind == "DIRECT"
-                         ? "Direct \(nodeService.pathRttMs)ms"
-                         : "Relais")
-                        .font(.caption).fontWeight(.semibold)
-                        .lineLimit(1).fixedSize(horizontal: true, vertical: false)
-                }
-                .foregroundColor(nodeService.pathKind == "DIRECT" ? .green : .secondary)
-                .padding(.horizontal, 8).padding(.vertical, 4)
-                .background((nodeService.pathKind == "DIRECT" ? Color.green : Color.gray).opacity(0.12))
-                .cornerRadius(6)
+            // Rôle en chip
+            HStack(spacing: 4) {
+                Image(systemName: nodeService.localRole == "Relay"
+                      ? "antenna.radiowaves.left.and.right" : "person.fill")
+                    .font(.caption2)
+                Text(nodeService.localRole)
+                    .font(.caption).fontWeight(.semibold)
+                    .lineLimit(1)
+            }
+            .foregroundColor(nodeService.localRole == "Relay" ? .orange : .blue)
+            .padding(.horizontal, 8).padding(.vertical, 4)
+            .background((nodeService.localRole == "Relay" ? Color.orange : .blue).opacity(0.12))
+            .cornerRadius(6)
 
-                Spacer(minLength: 8)
-
-                // Horloge locale
-                localClockChip
-
-                // Écart réseau (clock skew)
-                clockSkewChip
-
-                // Compteurs — jamais tronqués/verticaux (fixedSize + lineLimit)
-                HStack(spacing: 4) {
-                    Image(systemName: "message.fill").font(.caption2).foregroundColor(.blue)
-                    Text("\(nodeService.totalMessagesCount)")
-                        .font(.subheadline).fontWeight(.bold).foregroundColor(.blue)
-                        .lineLimit(1).fixedSize(horizontal: true, vertical: false)
-                }
-                HStack(spacing: 4) {
-                    Image(systemName: "person.3.fill").font(.caption2).foregroundColor(.green)
-                    Text("\(nodeService.connectedPeers.count)")
-                        .font(.subheadline).fontWeight(.bold).foregroundColor(.green)
-                        .lineLimit(1).fixedSize(horizontal: true, vertical: false)
-                }
+            // ID court en secondaire discret
+            if !nodeService.nodeId.isEmpty {
+                Text(shortId(nodeService.nodeId))
+                    .font(.system(.caption, design: .monospaced))
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
+                    .padding(.horizontal, 6).padding(.vertical, 2)
+                    .background(Color.secondary.opacity(0.08))
+                    .cornerRadius(4)
             }
         }
     }
 
-    // MARK: - Indicateurs ATTAQUE & HORLOGE (Phase 2 Sprint 3)
+    // MARK: - Cartes principales (Réseau, Pairs, Santé)
+
+    private var cardNetwork: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Image(systemName: "bolt.horizontal.fill").foregroundColor(.green)
+                Text("Réseau").font(.headline)
+                Spacer()
+            }
+
+            VStack(alignment: .leading, spacing: 10) {
+                // Nombre de pairs connectés en GROS
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Pairs connectés")
+                        .font(.caption).foregroundColor(.secondary)
+                    Text("\(nodeService.connectedPeers.count)")
+                        .font(.system(size: 32, weight: .bold))
+                        .foregroundColor(.green)
+                }
+
+                Divider().opacity(0.3)
+
+                // Rôle
+                HStack {
+                    Text("Rôle:").font(.caption).foregroundColor(.secondary)
+                    Text(nodeService.localRole)
+                        .font(.caption).fontWeight(.semibold)
+                }
+
+                // Chemin actif
+                HStack {
+                    Text("Chemin:").font(.caption).foregroundColor(.secondary)
+                    if nodeService.pathKind == "DIRECT" {
+                        HStack(spacing: 2) {
+                            Image(systemName: "bolt.fill").font(.caption2).foregroundColor(.green)
+                            Text("Direct \(nodeService.pathRttMs)ms")
+                                .font(.caption).fontWeight(.semibold).foregroundColor(.green)
+                        }
+                    } else {
+                        HStack(spacing: 2) {
+                            Image(systemName: "cloud.fill").font(.caption2).foregroundColor(.secondary)
+                            Text("Relais")
+                                .font(.caption).fontWeight(.semibold)
+                        }
+                    }
+                }
+            }
+        }
+        .padding(14)
+        .background(Color.green.opacity(0.06))
+        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.green.opacity(0.2), lineWidth: 1))
+        .cornerRadius(12)
+    }
+
+    private var cardPeers: some View {
+        let allPeers = nodeService.connectedPeers.map { ($0, true) } +
+                       nodeService.discoveredPeers
+                           .filter { !nodeService.connectedPeers.contains($0.nodeId) }
+                           .map { ($0.nodeId, false) }
+
+        return VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Image(systemName: "person.3.fill").foregroundColor(.purple)
+                Text("Pairs").font(.headline)
+                Spacer()
+                Text("\(allPeers.count)")
+                    .font(.caption).foregroundColor(.secondary)
+                    .padding(.horizontal, 8).padding(.vertical, 4)
+                    .background(Color.secondary.opacity(0.15))
+                    .cornerRadius(4)
+            }
+
+            if allPeers.isEmpty {
+                Text("Aucun pair découvert").font(.subheadline).foregroundColor(.secondary)
+            } else {
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(Array(allPeers.prefix(10)), id: \.0) { peerId, isConnected in
+                        HStack(spacing: 8) {
+                            Circle().fill(isConnected ? .green : Color.gray.opacity(0.4))
+                                .frame(width: 6, height: 6)
+                            Text(nodeService.displayName(for: peerId))
+                                .font(.subheadline)
+                                .fontWeight(isConnected ? .semibold : .regular)
+                                .lineLimit(1)
+                            Spacer()
+                            if isConnected {
+                                Text("✓").font(.caption2).foregroundColor(.green)
+                            }
+                        }
+                        .padding(.vertical, 4)
+                    }
+                    if allPeers.count > 10 {
+                        Text("+ \(allPeers.count - 10) autres")
+                            .font(.caption2).foregroundColor(.secondary)
+                            .padding(.vertical, 4)
+                    }
+                }
+            }
+        }
+        .padding(14)
+        .background(Color.purple.opacity(0.06))
+        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.purple.opacity(0.15), lineWidth: 1))
+        .cornerRadius(12)
+    }
+
+    private var cardHealth: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Image(systemName: "heart.fill").foregroundColor(.red)
+                Text("Santé").font(.headline)
+                Spacer()
+            }
+
+            VStack(alignment: .leading, spacing: 10) {
+                // Horloge locale
+                HStack {
+                    Text("Heure:").font(.caption).foregroundColor(.secondary)
+                    Text(formatTime(currentTime))
+                        .font(.caption).fontWeight(.semibold)
+                }
+                .onReceive(Timer.publish(every: 1, on: .main, in: .common).autoconnect()) { _ in
+                    currentTime = Date()
+                }
+
+                Divider().opacity(0.3)
+
+                // Écart d'horloge avec label honnête
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Écart horloge réseau")
+                        .font(.caption).foregroundColor(.secondary)
+                    if let skew = nodeService.clockSkewMs, nodeService.clockSkewSamples > 0 {
+                        Text(formatClockSkew(skew))
+                            .font(.caption).fontWeight(.semibold)
+                            .foregroundColor(clockSkewColor)
+                        Text("(inclut latence + âge relayés)")
+                            .font(.caption2).foregroundColor(.secondary)
+                    } else {
+                        Text("—").font(.caption).foregroundColor(.secondary)
+                    }
+                }
+
+                Divider().opacity(0.3)
+
+                // Compteur session
+                HStack {
+                    Text("Messages (session):").font(.caption).foregroundColor(.secondary)
+                    Text("\(nodeService.totalMessagesCount)")
+                        .font(.caption).fontWeight(.semibold).foregroundColor(.blue)
+                }
+            }
+        }
+        .padding(14)
+        .background(Color.red.opacity(0.05))
+        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.red.opacity(0.15), lineWidth: 1))
+        .cornerRadius(12)
+    }
+
+
+    // MARK: - Security Alert Banner
 
     private var securityAlertBanner: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -436,49 +404,6 @@ struct StatusView: View {
         .padding(12)
         .background(Color.red.opacity(0.08))
         .cornerRadius(8)
-    }
-
-    private var localClockChip: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 4) {
-                Image(systemName: "clock.fill")
-                    .font(.caption2)
-                Text(formatTime(currentTime))
-                    .font(.caption).fontWeight(.semibold)
-                    .lineLimit(1).fixedSize(horizontal: true, vertical: false)
-            }
-            .foregroundColor(.secondary)
-            .padding(.horizontal, 8).padding(.vertical, 4)
-            .background(Color.secondary.opacity(0.12))
-            .cornerRadius(6)
-        }
-        .onReceive(Timer.publish(every: 1, on: .main, in: .common).autoconnect()) { _ in
-            currentTime = Date()
-        }
-    }
-
-    private var clockSkewChip: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 4) {
-                Image(systemName: "antenna.radiowaves.left.and.right")
-                    .font(.caption2)
-                if let skew = nodeService.clockSkewMs, nodeService.clockSkewSamples > 0 {
-                    let skewSeconds = Double(skew) / 1000.0
-                    let sign = skew >= 0 ? "+" : ""
-                    Text("\(sign)\(String(format: "%.1f", skewSeconds))s")
-                        .font(.caption).fontWeight(.semibold)
-                        .lineLimit(1).fixedSize(horizontal: true, vertical: false)
-                } else {
-                    Text("—")
-                        .font(.caption).fontWeight(.semibold)
-                        .foregroundColor(.secondary)
-                }
-            }
-            .foregroundColor(clockSkewColor)
-            .padding(.horizontal, 8).padding(.vertical, 4)
-            .background(clockSkewColor.opacity(0.12))
-            .cornerRadius(6)
-        }
     }
 
     private var clockSkewColor: Color {
@@ -536,15 +461,6 @@ struct StatusView: View {
         return String(id.prefix(8))
     }
 
-    private func activityCategoryColor(_ entry: ActivityEntry) -> Color {
-        let text = entry.displayText.lowercased()
-        if text.contains("connex") || text.contains("connected") { return .green }
-        if text.contains("disconnect") || text.contains("error") { return .red }
-        if text.contains("message") || text.contains("sent") { return .blue }
-        if text.contains("discover") || text.contains("peer") { return .purple }
-        return .secondary
-    }
-
     @ViewBuilder
     private func discoveryBadge(_ source: String) -> some View {
         let label = discoveryLabel(source)
@@ -576,7 +492,7 @@ struct StatusView: View {
         }
     }
 
-    // MARK: - Time Formatting Helpers (Phase 2 Sprint 3)
+    // MARK: - Time Formatting Helpers
 
     private func formatTime(_ date: Date) -> String {
         let formatter = DateFormatter()
@@ -598,27 +514,21 @@ struct StatusView: View {
             return "il y a \(seconds)s"
         }
     }
-}
 
-// MARK: - StatBox
+    private func formatClockSkew(_ ms: Int64) -> String {
+        let absMs = abs(ms)
+        let sign = ms >= 0 ? "+" : "−"
 
-struct StatBox: View {
-    let title: String
-    let value: String
-    let icon: String
-
-    var body: some View {
-        VStack(spacing: 6) {
-            Image(systemName: icon).font(.title3).foregroundColor(.accentColor)
-            Text(value).font(.title2).fontWeight(.bold)
-            Text(title).font(.caption).foregroundColor(.secondary)
+        if absMs >= 60000 {
+            let minutes = Double(absMs) / 60000.0
+            return "\(sign)\(String(format: "%.1f", minutes)) min"
+        } else {
+            let seconds = Double(absMs) / 1000.0
+            return "\(sign)\(String(format: "%.1f", seconds)) s"
         }
-        .frame(minWidth: 90)
-        .padding(12)
-        .background(Color.secondary.opacity(0.1))
-        .cornerRadius(12)
     }
 }
+
 
 #Preview {
     StatusView()
