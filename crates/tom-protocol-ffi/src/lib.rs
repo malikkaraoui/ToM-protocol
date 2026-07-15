@@ -1012,6 +1012,16 @@ pub unsafe extern "C" fn tom_node_status(handle: *const TomNodeHandle) -> *mut c
             lp.clone().unwrap_or_else(|| ("RELAY".to_string(), 0))
         };
 
+        // Clock skew (optional, needs access to the runtime handle)
+        let (clock_skew_ms, clock_skew_samples) = if let Some(rh) = guard.as_ref() {
+            match rh.clock_skew().await {
+                Some((median, samples)) => (median, samples as u64),
+                None => (None, 0),
+            }
+        } else {
+            (None, 0)
+        };
+
         // relay_url_active = configured relay (explicit) or first discovered relay
         let configured = lock_recover(&handle_ref.configured_relay_url).clone();
         let relay_url_active = configured.or(relay_url_discovered).unwrap_or_default();
@@ -1028,6 +1038,8 @@ pub unsafe extern "C" fn tom_node_status(handle: *const TomNodeHandle) -> *mut c
             path_kind,
             path_rtt_ms,
             relay_url_active,
+            clock_skew_ms,
+            clock_skew_samples,
         };
         serde_json::to_string(&status_payload).unwrap_or_else(|_| "{}".to_string())
     });

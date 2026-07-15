@@ -168,6 +168,8 @@ pub struct NodeStatusFFI {
     pub path_kind: String,
     pub path_rtt_ms: u64,
     pub relay_url_active: String,
+    pub clock_skew_ms: Option<i64>,
+    pub clock_skew_samples: u64,
 }
 
 /// L1-001 presence stats snapshot polled by Swift (key contract with the
@@ -670,11 +672,13 @@ mod tests {
             path_kind: "DIRECT".into(),
             path_rtt_ms: 12,
             relay_url_active: "http://relay.example:3340".into(),
+            clock_skew_ms: Some(100),
+            clock_skew_samples: 5,
         };
         let json = serde_json::to_string(&status).unwrap();
         assert_eq!(
             json,
-            r#"{"node_id":"n","status":"Running","peers_count":3,"groups_count":1,"local_role":"Peer","path_kind":"DIRECT","path_rtt_ms":12,"relay_url_active":"http://relay.example:3340"}"#
+            r#"{"node_id":"n","status":"Running","peers_count":3,"groups_count":1,"local_role":"Peer","path_kind":"DIRECT","path_rtt_ms":12,"relay_url_active":"http://relay.example:3340","clock_skew_ms":100,"clock_skew_samples":5}"#
         );
     }
 
@@ -692,6 +696,8 @@ mod tests {
             path_kind: "DIRECT".into(),
             path_rtt_ms: 0,
             relay_url_active: "".into(),
+            clock_skew_ms: None,
+            clock_skew_samples: 0,
         };
         let json = serde_json::to_string(&status).unwrap();
         let round_trip: NodeStatusFFI = serde_json::from_str(&json).unwrap();
