@@ -339,6 +339,20 @@ final class TomNodeService: ObservableObject {
         return String(nodeId.prefix(8))
     }
 
+    /// Build (version) propagé par un pair, 0 si inconnu. Pour l'affichage « Nom 69 ».
+    func appBuild(for nodeId: String) -> Int {
+        discoveredPeers.first(where: { $0.nodeId == nodeId
+            || $0.nodeId.hasPrefix(nodeId.prefix(8)) })?.appBuild ?? 0
+    }
+
+    /// « Nom Build » (ex « iPad 69 »), le build accolé au nom comme un n° de série.
+    /// Build omis si inconnu (0).
+    func nameWithBuild(for nodeId: String) -> String {
+        let name = displayName(for: nodeId)
+        let b = appBuild(for: nodeId)
+        return b > 0 ? "\(name) \(b)" : name
+    }
+
     private var normalizedRelayUrl: String? {
         let trimmed = relayUrl.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed

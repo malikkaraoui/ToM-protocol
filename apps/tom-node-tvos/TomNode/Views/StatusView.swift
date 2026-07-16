@@ -192,11 +192,11 @@ struct StatusView: View {
                         Text(TomNodeService.shortDeviceName(nodeService.username))
                             .font(.headline).fontWeight(.semibold)
                             .lineLimit(1)
-                        if nodeService.appBuild > 0 {
-                            Text("\(nodeService.appBuild)")
-                                .font(.caption2).fontWeight(.semibold)
-                                .foregroundColor(.secondary)
-                        }
+                        // Build local = constante de compilation (toujours dispo),
+                        // pas l'aller-retour FFI (qui peut être 0). « iPhone 69 ».
+                        Text("\(TomVersion.build)")
+                            .font(.caption2).fontWeight(.semibold)
+                            .foregroundColor(.secondary)
                     }
                     Text(nodeService.state.rawValue.uppercased())
                         .font(.caption2).foregroundColor(.secondary).kerning(0.5)
@@ -312,7 +312,7 @@ struct StatusView: View {
                         HStack(spacing: 8) {
                             Circle().fill(isConnected ? .green : Color.gray.opacity(0.4))
                                 .frame(width: 6, height: 6)
-                            Text(nodeService.displayName(for: peerId))
+                            Text(nodeService.nameWithBuild(for: peerId))
                                 .font(.subheadline)
                                 .fontWeight(isConnected ? .semibold : .regular)
                                 .lineLimit(1)
