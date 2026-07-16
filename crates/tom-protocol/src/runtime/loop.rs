@@ -101,6 +101,18 @@ pub(super) async fn runtime_loop(
     // Phase R18.1: Backup redelivery queue drain (1s interval for throughput)
     let mut backup_drain_tick = maintenance_interval(std::time::Duration::from_secs(1));
 
+    // ── Containment des rafales mDNS (#34) ────────────────────────────
+    // swarm-discovery ré-annonce en continu ; la dédup transport n'est que de
+    // 5 s → sans garde, le runtime rejoue log + event FFI + add_peer_addr +
+    // join_peers gossip toutes les ~5 s PAR PAIR, indéfiniment, même connecté
+    // (rafale observée sur toute la flotte, collecteur pollué). Cooldown par
+    // pair : premier hint = join immédiat (vitesse de découverte intacte),
+    // suivants ignorés pendant la fenêtre. Vidé sur isolement (voir
+    // reconnect_check) pour ne JAMAIS affamer la redécouverte.
+    const MDNS_JOIN_COOLDOWN: std::time::Duration = std::time::Duration::from_secs(60);
+    let mut mdns_join_last: std::collections::HashMap<NodeId, std::time::Instant> =
+        std::collections::HashMap::new();
+
     // Skip the immediate first tick
     cache_cleanup.tick().await;
     tracker_cleanup.tick().await;
@@ -397,24 +409,37 @@ pub(super) async fn runtime_loop(
                     Vec::new()
                 } else if let Some(BootstrapHint::MdnsDiscovered { endpoint_addr }) = event {
                     let node_id = NodeId::from_endpoint_id(endpoint_addr.id);
-                    let elapsed = discovery_start.elapsed().as_millis() as u64;
-                    tracing::info!("⏱️ DISCO t+{elapsed}ms : mDNS hint for peer {}", node_id);
-                    let _ = event_tx
-                        .send(ProtocolEvent::DiscoveryTiming {
-                            elapsed_ms: elapsed,
-                            detail: format!("mDNS hint for peer {}", node_id),
-                        })
-                        .await;
-                    bootstrap_join_peer(
-                        &node,
-                        gossip_sender.as_ref(),
-                        endpoint_addr,
-                        BootstrapSource::Mdns,
-                        &mut bootstrap_phase,
-                        discovery_start,
-                        event_tx.clone(),
-                    ).await;
-                    state.handle_command(RuntimeCommand::AddPeer { node_id, source: DiscoverySource::Mdns })
+                    // Containment #34 : hint répété pour un pair récemment joint →
+                    // silencieux (trace), zéro join, zéro event. La ré-annonce mDNS
+                    // périodique n'est pas une information nouvelle.
+                    let now = std::time::Instant::now();
+                    if mdns_join_last
+                        .get(&node_id)
+                        .is_some_and(|t| now.duration_since(*t) < MDNS_JOIN_COOLDOWN)
+                    {
+                        tracing::trace!(peer = %node_id, "mDNS hint ignoré (cooldown)");
+                        Vec::new()
+                    } else {
+                        mdns_join_last.insert(node_id, now);
+                        let elapsed = discovery_start.elapsed().as_millis() as u64;
+                        tracing::info!("⏱️ DISCO t+{elapsed}ms : mDNS hint for peer {}", node_id);
+                        let _ = event_tx
+                            .send(ProtocolEvent::DiscoveryTiming {
+                                elapsed_ms: elapsed,
+                                detail: format!("mDNS hint for peer {}", node_id),
+                            })
+                            .await;
+                        bootstrap_join_peer(
+                            &node,
+                            gossip_sender.as_ref(),
+                            endpoint_addr,
+                            BootstrapSource::Mdns,
+                            &mut bootstrap_phase,
+                            discovery_start,
+                            event_tx.clone(),
+                        ).await;
+                        state.handle_command(RuntimeCommand::AddPeer { node_id, source: DiscoverySource::Mdns })
+                    }
                 } else {
                     Vec::new()
                 }
@@ -739,6 +764,9 @@ pub(super) async fn runtime_loop(
                         // Reset the liveness clock so a zombie state doesn't re-fire
                         // every tick; give the fresh discovery a chance to reconnect.
                         last_inbound_at = now_ms();
+                        // Containment #34 : en isolement, le cooldown mDNS saute —
+                        // la redécouverte doit pouvoir rejoindre immédiatement.
+                        mdns_join_last.clear();
                         // Re-announce ourselves and re-resolve known peers via DHT to
                         // pick up fresh addresses (old ones may be dead after a change).
                         let (relay_urls, direct_addrs) = extract_node_addrs(&node);
