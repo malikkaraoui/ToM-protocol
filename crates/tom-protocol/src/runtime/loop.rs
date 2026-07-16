@@ -1098,7 +1098,12 @@ fn join_cooldown_ok(
     let window = if connected {
         std::time::Duration::from_secs(60)
     } else {
-        std::time::Duration::from_secs(20)
+        // Pair NON connecté → retry rapide (5 s) pour une reconvergence <5 s
+        // après un restart : si le 1er dial échoue (adresse/gossip pas prêts),
+        // on re-tente au hint mDNS suivant (~5 s) au lieu d'attendre 20 s. Les
+        // fantômes du rendezvous (vus toutes les 60 s) ne sont pas plus
+        // sollicités — leur cadence est bornée par le tick rendezvous, pas ici.
+        std::time::Duration::from_secs(5)
     };
     if cooldown
         .get(node_id)
@@ -1335,10 +1340,10 @@ mod tests {
         let t0 = Instant::now();
         // 1er join autorisé (découverte immédiate).
         assert!(join_cooldown_ok(&phantom, &mut cooldown, &peer_paths, t0));
-        // Juste après : refusé (cooldown non-connecté 20 s → pas de hammering).
-        assert!(!join_cooldown_ok(&phantom, &mut cooldown, &peer_paths, t0 + Duration::from_secs(5)));
-        // Après 20 s : re-tenté (le pair pourrait être vivant).
-        assert!(join_cooldown_ok(&phantom, &mut cooldown, &peer_paths, t0 + Duration::from_secs(21)));
+        // Juste après : refusé (cooldown non-connecté 5 s → pas de hammering).
+        assert!(!join_cooldown_ok(&phantom, &mut cooldown, &peer_paths, t0 + Duration::from_secs(2)));
+        // Après 5 s : re-tenté (reconvergence rapide si le pair est vivant).
+        assert!(join_cooldown_ok(&phantom, &mut cooldown, &peer_paths, t0 + Duration::from_secs(6)));
     }
 
     #[test]
