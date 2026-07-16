@@ -108,7 +108,7 @@ pub async fn run(cfg: FleetProbeConfig) -> anyhow::Result<()> {
             // ── Drain protocol events: discovery, attestations, echoes ──
             Some(event) = channels.events.recv() => {
                 match event {
-                    ProtocolEvent::PeerDiscovered { node_id, username, source } => {
+                    ProtocolEvent::PeerDiscovered { node_id, username, source, .. } => {
                         let e = peers.entry(node_id.to_string()).or_default();
                         if !username.is_empty() { e.username = username; }
                         e.source = format!("{source:?}");

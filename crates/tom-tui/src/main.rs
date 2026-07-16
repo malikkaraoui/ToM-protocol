@@ -1074,7 +1074,7 @@ fn handle_incoming(app: &mut App, msg: &DeliveredMessage) {
 
 fn handle_protocol_event(app: &mut App, event: &ProtocolEvent) {
     match event {
-        ProtocolEvent::PeerDiscovered { node_id, username, source } => {
+        ProtocolEvent::PeerDiscovered { node_id, username, source, .. } => {
             app.add_system_message(format!(
                 "Peer discovered: {} \"{}\" (via {:?})",
                 short_node_id(node_id),
@@ -1424,7 +1424,7 @@ async fn run_size_ramp(ctx: Arc<BotContext>, handle: RuntimeHandle, target: Node
 
 fn handle_bot_event(ctx: &BotContext, event: &ProtocolEvent) {
     match event {
-        ProtocolEvent::PeerDiscovered { node_id, username, source } => {
+        ProtocolEvent::PeerDiscovered { node_id, username, source, .. } => {
             ctx.log_event_sourced(
                 "pair_trouve",
                 &format!("{} \"{}\"", short_node_id(node_id), username),
@@ -1681,6 +1681,7 @@ mod tests {
         ProtocolEvent::PeerDiscovered {
             node_id,
             username: username.to_string(),
+            app_build: 0,
             source: tom_protocol::DiscoverySource::Gossip,
         }
     }

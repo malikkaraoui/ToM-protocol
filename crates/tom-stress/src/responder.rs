@@ -82,7 +82,7 @@ pub async fn run(config: ResponderConfig) -> anyhow::Result<()> {
             evt = channels.events.recv() => {
                 let Some(evt) = evt else { break };
                 match &evt {
-                    ProtocolEvent::PeerDiscovered { node_id, username, source } => {
+                    ProtocolEvent::PeerDiscovered { node_id, username, source, .. } => {
                         eprintln!("[{:>7.1}s] Peer discovered: {} \"{}\" ({:?})", start.elapsed().as_secs_f64(), node_id, username, source);
                     }
                     ProtocolEvent::PeerStale { node_id } => {

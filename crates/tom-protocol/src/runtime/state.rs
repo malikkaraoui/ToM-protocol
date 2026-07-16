@@ -431,10 +431,11 @@ impl RuntimeState {
         let events = self.heartbeat.check_all(&mut self.topology);
         for disc_event in events {
             match disc_event {
-                DiscoveryEvent::PeerDiscovered { node_id, username, source } => {
+                DiscoveryEvent::PeerDiscovered { node_id, username, app_build, source } => {
                     effects.push(RuntimeEffect::Emit(ProtocolEvent::PeerDiscovered {
                         node_id,
                         username,
+                        app_build,
                         source,
                     }));
                 }
@@ -633,6 +634,7 @@ impl RuntimeState {
         let announce = PeerAnnounce::new(
             self.local_id,
             self.config.username.clone(),
+            self.config.app_build,
             self.local_roles.clone(),
         );
         rmp_serde::to_vec(&announce).ok()
@@ -1500,6 +1502,7 @@ impl RuntimeState {
                     announce.node_id,
                     DiscoverySource::Direct,
                     announce.username,
+                    announce.app_build,
                 );
                 self.topology.upsert(PeerInfo {
                     node_id: announce.node_id,
@@ -1568,6 +1571,7 @@ impl RuntimeState {
         &mut self,
         node_id: NodeId,
         username: String,
+        app_build: u32,
         source: DiscoverySource,
     ) -> Option<RuntimeEffect> {
         if self.surfaced_peers.len() >= Self::SURFACED_PEERS_MAX {
@@ -1586,6 +1590,7 @@ impl RuntimeState {
         Some(RuntimeEffect::Emit(ProtocolEvent::PeerDiscovered {
             node_id,
             username,
+            app_build,
             source,
         }))
     }
@@ -2538,6 +2543,7 @@ impl RuntimeState {
                     info.node_id,
                     DiscoverySource::Direct,
                     String::new(),
+                    0,
                 );
                 self.topology.upsert(info);
                 Vec::new()
@@ -2770,7 +2776,7 @@ impl RuntimeState {
                 let username = tom_dht::DhtNodeAddr::sanitize_username(&addr.username);
 
                 // Discovery only (ADR-011 ghost-peer fix) — no heartbeat/Online
-                // credit without real work. But do record the username hint.
+                // credit without real work. But do record the username and app_build hints.
                 self.mark_known(node_id, PeerRole::Peer);
                 // Log the SANITIZED username (never the raw record value): the raw
                 // string can carry newlines/control chars that would inject into
@@ -2780,13 +2786,15 @@ impl RuntimeState {
                     relays = addr.relay_urls.len(),
                     addrs = addr.direct_addrs.len(),
                     username = %username,
+                    app_build = addr.app_build,
                     "DHT lookup result applied"
                 );
-                // Register username for future PeerDiscovered emission
+                // Register username and app_build for future PeerDiscovered emission
                 self.heartbeat.record_heartbeat_with_source(
                     node_id,
                     DiscoverySource::Dht,
                     username,
+                    addr.app_build,
                 );
                 Vec::new()
             }
@@ -2897,6 +2905,7 @@ impl RuntimeState {
                             .surface_discovery(
                                 peer_id,
                                 announce.username.clone(),
+                                announce.app_build,
                                 DiscoverySource::Announce,
                             )
                             .into_iter()
@@ -2928,7 +2937,7 @@ impl RuntimeState {
                 self.mark_known(node_id, PeerRole::Peer);
                 let mut effects = Vec::new();
                 if let Some(eff) =
-                    self.surface_discovery(node_id, String::new(), DiscoverySource::Gossip)
+                    self.surface_discovery(node_id, String::new(), 0, DiscoverySource::Gossip)
                 {
                     effects.push(eff);
                 }
@@ -4661,7 +4670,7 @@ mod tests {
         let peer = node_id(2);
 
         // Build a PeerAnnounce
-        let announce = PeerAnnounce::new(peer, "bob".to_string(), vec![PeerRole::Peer]);
+        let announce = PeerAnnounce::new(peer, "bob".to_string(), 0, vec![PeerRole::Peer]);
         let bytes = rmp_serde::to_vec(&announce).expect("serialize announce");
 
         assert!(state.topology.get(&peer).is_none());
@@ -4683,7 +4692,7 @@ mod tests {
         );
 
         // Re-announce of a KNOWN peer stays silent (no event spam).
-        let announce2 = PeerAnnounce::new(peer, "bob".to_string(), vec![PeerRole::Peer]);
+        let announce2 = PeerAnnounce::new(peer, "bob".to_string(), 0, vec![PeerRole::Peer]);
         let bytes2 = rmp_serde::to_vec(&announce2).expect("serialize announce");
         let effects2 = state.handle_gossip_event(super::GossipInput::PeerAnnounce(bytes2));
         assert!(effects2.is_empty(), "re-announce must not re-emit, got: {effects2:?}");

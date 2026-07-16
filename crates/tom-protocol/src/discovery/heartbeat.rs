@@ -21,6 +21,8 @@ pub struct HeartbeatTracker {
     pending_source: HashMap<NodeId, DiscoverySource>,
     /// Pending usernames (consumed when PeerDiscovered emitted).
     pending_username: HashMap<NodeId, String>,
+    /// Pending app build numbers (consumed when PeerDiscovered emitted).
+    pending_app_build: HashMap<NodeId, u32>,
     /// Peers that have been discovered (PeerDiscovered already emitted).
     discovered: HashSet<NodeId>,
 }
@@ -34,6 +36,7 @@ impl HeartbeatTracker {
             offline_threshold: OFFLINE_THRESHOLD_MS,
             pending_source: HashMap::new(),
             pending_username: HashMap::new(),
+            pending_app_build: HashMap::new(),
             discovered: HashSet::new(),
         }
     }
@@ -46,6 +49,7 @@ impl HeartbeatTracker {
             offline_threshold: offline_ms,
             pending_source: HashMap::new(),
             pending_username: HashMap::new(),
+            pending_app_build: HashMap::new(),
             discovered: HashSet::new(),
         }
     }
@@ -60,15 +64,16 @@ impl HeartbeatTracker {
         self.last_heartbeat.insert(node_id, timestamp);
     }
 
-    /// Record a heartbeat with a discovery source and username.
+    /// Record a heartbeat with a discovery source, username, and app build.
     ///
-    /// Source and username are stored pending; consumed when PeerDiscovered
+    /// Source, username, and app_build are stored pending; consumed when PeerDiscovered
     /// is emitted from check_all.
     pub fn record_heartbeat_with_source(
         &mut self,
         node_id: NodeId,
         source: DiscoverySource,
         username: String,
+        app_build: u32,
     ) {
         self.pending_source.insert(node_id, source);
         // Never clobber a known-good name with an empty one. A peer can be seen
@@ -78,6 +83,9 @@ impl HeartbeatTracker {
         // a "no name available" signal, not "clear the name".
         if !username.is_empty() {
             self.pending_username.insert(node_id, username);
+        }
+        if app_build > 0 {
+            self.pending_app_build.insert(node_id, app_build);
         }
         self.record_heartbeat(node_id);
     }
@@ -167,6 +175,9 @@ impl HeartbeatTracker {
                 let username = self.pending_username
                     .remove(&node_id)
                     .unwrap_or_default();
+                let app_build = self.pending_app_build
+                    .remove(&node_id)
+                    .unwrap_or(0);
                 if let Some(peer) = topology.get(&node_id) {
                     let mut updated = peer.clone();
                     updated.status = PeerStatus::Online;
@@ -175,6 +186,7 @@ impl HeartbeatTracker {
                 events.push(DiscoveryEvent::PeerDiscovered {
                     node_id,
                     username,
+                    app_build,
                     source,
                 });
             } else if current_status == Some(PeerStatus::Stale)
@@ -343,14 +355,15 @@ mod tests {
         });
 
         // Record with source
-        tracker.record_heartbeat_with_source(alice, DiscoverySource::Announce, "alice".into());
+        tracker.record_heartbeat_with_source(alice, DiscoverySource::Announce, "alice".into(), 42);
 
         let events = tracker.check_all(&mut topology);
         assert_eq!(events.len(), 1);
         match &events[0] {
-            DiscoveryEvent::PeerDiscovered { node_id, username, source } => {
+            DiscoveryEvent::PeerDiscovered { node_id, username, app_build, source } => {
                 assert_eq!(node_id, &alice);
                 assert_eq!(username, "alice");
+                assert_eq!(*app_build, 42);
                 assert_eq!(*source, DiscoverySource::Announce);
             }
             other => panic!("Expected PeerDiscovered, got: {other:?}"),
@@ -372,8 +385,8 @@ mod tests {
         });
 
         // Named first (gossip/announce), then re-seen nameless (DHT/upsert).
-        tracker.record_heartbeat_with_source(alice, DiscoverySource::Announce, "alice".into());
-        tracker.record_heartbeat_with_source(alice, DiscoverySource::Dht, String::new());
+        tracker.record_heartbeat_with_source(alice, DiscoverySource::Announce, "alice".into(), 0);
+        tracker.record_heartbeat_with_source(alice, DiscoverySource::Dht, String::new(), 0);
 
         let events = tracker.check_all(&mut topology);
         assert_eq!(events.len(), 1);
@@ -424,7 +437,7 @@ mod tests {
             last_seen: 1000,
         });
 
-        tracker.record_heartbeat_with_source(alice, DiscoverySource::Gossip, "alice".into());
+        tracker.record_heartbeat_with_source(alice, DiscoverySource::Gossip, "alice".into(), 0);
         let _ = tracker.check_all(&mut topology); // Emits PeerDiscovered
 
         // Second check should NOT emit PeerDiscovered again

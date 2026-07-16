@@ -50,6 +50,8 @@ pub struct RuntimeConfig {
     pub tracker_cleanup_interval: Duration,
     /// Local username for group membership.
     pub username: String,
+    /// Application build number (non-authoritative hint, 0 = unknown).
+    pub app_build: u32,
     /// Interval for group hub heartbeats.
     pub group_hub_heartbeat_interval: Duration,
     /// Interval for backup maintenance ticks.
@@ -118,6 +120,7 @@ impl Default for RuntimeConfig {
             heartbeat_interval: Duration::from_secs(5),
             tracker_cleanup_interval: Duration::from_secs(300),
             username: "anonymous".to_string(),
+            app_build: 0,
             group_hub_heartbeat_interval: Duration::from_secs(30),
             backup_tick_interval: Duration::from_secs(60),
             gossip_announce_interval: Duration::from_secs(10),
@@ -289,6 +292,7 @@ pub enum ProtocolEvent {
     PeerDiscovered {
         node_id: NodeId,
         username: String,
+        app_build: u32,
         source: DiscoverySource,
     },
     /// A peer went stale (missed heartbeats but might recover).

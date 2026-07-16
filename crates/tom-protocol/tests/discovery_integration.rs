@@ -34,10 +34,10 @@ fn discovery_lifecycle() {
         .unwrap()
         .as_millis() as u64;
 
-    let alice_announce = PeerAnnounce::new(alice, "alice".into(), vec![PeerRole::Peer]);
+    let alice_announce = PeerAnnounce::new(alice, "alice".into(), 0, vec![PeerRole::Peer]);
     assert!(alice_announce.is_timestamp_valid(real_now));
 
-    let bob_announce = PeerAnnounce::new(bob, "bob".into(), vec![PeerRole::Relay]);
+    let bob_announce = PeerAnnounce::new(bob, "bob".into(), 0, vec![PeerRole::Relay]);
     assert!(bob_announce.is_timestamp_valid(real_now));
 
     // For heartbeat tests, use controlled timestamps
@@ -190,7 +190,7 @@ fn announce_timestamp_guards() {
     let now = 10_000_000_000u64; // ~2286, realistic epoch ms
 
     // Valid: recent announcement
-    let mut announce = PeerAnnounce::new(alice, "alice".into(), vec![PeerRole::Peer]);
+    let mut announce = PeerAnnounce::new(alice, "alice".into(), 0, vec![PeerRole::Peer]);
     announce.timestamp = now;
     assert!(announce.is_timestamp_valid(now));
 
@@ -387,7 +387,7 @@ fn gossip_role_announce_empty_sig_rejected() {
 #[test]
 fn gossip_peer_announce_far_future_timestamp_rejected() {
     let now = 10_000_000_000u64;
-    let mut announce = PeerAnnounce::new(node_id(9), "mallory".into(), vec![PeerRole::Relay]);
+    let mut announce = PeerAnnounce::new(node_id(9), "mallory".into(), 0, vec![PeerRole::Relay]);
     // 10 minutes in the future (> 5-minute MAX_FUTURE_DRIFT_MS)
     announce.timestamp = now + 10 * 60 * 1000;
     assert!(
@@ -400,7 +400,7 @@ fn gossip_peer_announce_far_future_timestamp_rejected() {
 #[test]
 fn gossip_peer_announce_stale_timestamp_rejected() {
     let now = 10_000_000_000u64;
-    let mut announce = PeerAnnounce::new(node_id(10), "zombie".into(), vec![PeerRole::Peer]);
+    let mut announce = PeerAnnounce::new(node_id(10), "zombie".into(), 0, vec![PeerRole::Peer]);
     announce.timestamp = now - 2 * 60 * 60 * 1000; // 2 hours old
     assert!(
         !announce.is_timestamp_valid(now),

@@ -200,6 +200,7 @@ pub(super) async fn runtime_loop(
         &mut rendezvous_ts_floor,
         &secret_seed,
         &state.config.username,
+        state.config.app_build,
         discovery_start,
         event_tx.clone(),
         true, // startup round
@@ -659,6 +660,7 @@ pub(super) async fn runtime_loop(
                     &mut rendezvous_ts_floor,
                     &secret_seed,
                     &state.config.username,
+                    state.config.app_build,
                     discovery_start,
                     event_tx.clone(),
                     false, // not startup
@@ -755,6 +757,7 @@ pub(super) async fn runtime_loop(
                             &mut rendezvous_ts_floor,
                             &secret_seed,
                             &state.config.username,
+                            state.config.app_build,
                             discovery_start,
                             event_tx.clone(),
                             false, // not startup
@@ -1007,6 +1010,7 @@ fn build_self_dht_addr(
     ts_floor: &mut u64,
     secret_seed: &[u8; 32],
     username: &str,
+    app_build: u32,
 ) -> tom_dht::DhtNodeAddr {
     let (relay_urls, direct_addrs) = extract_node_addrs(node);
     let ts = now_ms().max(ts_floor.saturating_add(1));
@@ -1016,6 +1020,7 @@ fn build_self_dht_addr(
         relay_urls,
         direct_addrs,
         username: tom_dht::DhtNodeAddr::sanitize_username(username),
+        app_build,
         timestamp: ts,
         sig: Vec::new(),
     };
@@ -1061,6 +1066,7 @@ fn spawn_rendezvous_round(
     ts_floor: &mut u64,
     secret_seed: &[u8; 32],
     username: &str,
+    app_build: u32,
     discovery_start: std::time::Instant,
     event_tx: mpsc::Sender<ProtocolEvent>,
     is_startup: bool,
@@ -1068,7 +1074,7 @@ fn spawn_rendezvous_round(
     let Some(dht) = dht_handle.cloned() else {
         return;
     };
-    let self_addr = build_self_dht_addr(node, local_id, ts_floor, secret_seed, username);
+    let self_addr = build_self_dht_addr(node, local_id, ts_floor, secret_seed, username, app_build);
     let own_id = self_addr.node_id.clone();
     let tx = cmd_tx.clone();
     tokio::spawn(async move {
@@ -1181,6 +1187,7 @@ mod tests {
             relay_urls: vec!["http://1.2.3.4:3340".into()],
             direct_addrs: vec!["1.2.3.4:43925".into()],
             username: String::new(),
+            app_build: 0,
             timestamp: 1_000_000,
             sig: Vec::new(),
         };

@@ -39,6 +39,9 @@ pub struct PeerAnnounce {
     pub node_id: NodeId,
     /// Human-readable display name.
     pub username: String,
+    /// Application build number (non-authoritative hint, 0 = unknown).
+    #[serde(default)]
+    pub app_build: u32,
     /// Roles this node can serve.
     pub roles: Vec<PeerRole>,
     /// Ed25519 public key for E2E encryption (32 bytes).
@@ -49,10 +52,11 @@ pub struct PeerAnnounce {
 
 impl PeerAnnounce {
     /// Create a new peer announcement.
-    pub fn new(node_id: NodeId, username: String, roles: Vec<PeerRole>) -> Self {
+    pub fn new(node_id: NodeId, username: String, app_build: u32, roles: Vec<PeerRole>) -> Self {
         Self {
             node_id,
             username,
+            app_build,
             roles,
             encryption_key: Some(node_id.as_bytes()),
             timestamp: now_ms(),
@@ -82,6 +86,7 @@ pub enum DiscoveryEvent {
     PeerDiscovered {
         node_id: NodeId,
         username: String,
+        app_build: u32,
         source: DiscoverySource,
     },
 
@@ -145,10 +150,11 @@ mod tests {
     #[test]
     fn peer_announce_new() {
         let id = node_id(1);
-        let announce = PeerAnnounce::new(id, "alice".into(), vec![PeerRole::Peer]);
+        let announce = PeerAnnounce::new(id, "alice".into(), 0, vec![PeerRole::Peer]);
 
         assert_eq!(announce.node_id, id);
         assert_eq!(announce.username, "alice");
+        assert_eq!(announce.app_build, 0);
         assert_eq!(announce.roles, vec![PeerRole::Peer]);
         assert!(announce.encryption_key.is_some());
         assert!(announce.timestamp > 0);
@@ -157,7 +163,7 @@ mod tests {
     #[test]
     fn peer_announce_roundtrip() {
         let id = node_id(1);
-        let announce = PeerAnnounce::new(id, "alice".into(), vec![PeerRole::Relay]);
+        let announce = PeerAnnounce::new(id, "alice".into(), 42, vec![PeerRole::Relay]);
 
         let bytes = rmp_serde::to_vec(&announce).expect("serialize");
         let decoded: PeerAnnounce = rmp_serde::from_slice(&bytes).expect("deserialize");
@@ -169,7 +175,7 @@ mod tests {
         let id = node_id(1);
         let now = now_ms();
 
-        let mut announce = PeerAnnounce::new(id, "alice".into(), vec![]);
+        let mut announce = PeerAnnounce::new(id, "alice".into(), 0, vec![]);
         announce.timestamp = now;
         assert!(announce.is_timestamp_valid(now));
 

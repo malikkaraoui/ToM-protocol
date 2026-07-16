@@ -74,6 +74,9 @@ pub struct DhtNodeAddr {
     /// Empty string means absent. Assaini (no control chars, ≤32 octets UTF-8).
     #[serde(default)]
     pub username: String,
+    /// Application build number (non-authoritative hint, 0 = unknown).
+    #[serde(default)]
+    pub app_build: u32,
     /// Publication timestamp (Unix ms).
     pub timestamp: u64,
     /// Ed25519 signature (64 bytes) over `signing_bytes()`, by the key matching
@@ -89,7 +92,7 @@ pub struct DhtNodeAddr {
 impl DhtNodeAddr {
     /// Canonical bytes signed by the node's key. EXCLUDES `sig`. Field order +
     /// NUL separators make it unambiguous; Vec order round-trips through JSON.
-    /// Includes username (if present) so any tampering is detected.
+    /// Includes username and app_build so any tampering is detected.
     pub fn signing_bytes(&self) -> Vec<u8> {
         let mut b = Vec::new();
         b.extend_from_slice(self.node_id.as_bytes());
@@ -105,6 +108,8 @@ impl DhtNodeAddr {
         }
         b.push(0);
         b.extend_from_slice(self.username.as_bytes());
+        b.push(0);
+        b.extend_from_slice(&self.app_build.to_le_bytes());
         b.push(0);
         b.extend_from_slice(&self.timestamp.to_le_bytes());
         b
@@ -551,6 +556,41 @@ mod tests {
     }
 
     #[test]
+    fn test_dht_node_addr_serde_backward_compat_no_app_build() {
+        // Old JSON without app_build field should deserialize with 0.
+        let old_json = r#"{
+            "node_id": "test-node",
+            "relay_urls": ["https://relay.example.com"],
+            "direct_addrs": ["192.168.1.100:12345"],
+            "timestamp": 1234567890
+        }"#;
+        let decoded: DhtNodeAddr = serde_json::from_str(old_json).unwrap();
+        assert_eq!(decoded.app_build, 0);
+        assert_eq!(decoded.node_id, "test-node");
+    }
+
+    #[test]
+    fn test_app_build_signature_coverage() {
+        // Change only the app_build → signature should differ.
+        let secret = secret_for(42);
+        let mut addr = fresh_addr(42);
+        let original_sig = addr.sig.clone();
+
+        // Mutate only app_build
+        addr.app_build = 67;
+        addr.sig.clear();
+        addr.sig = secret.sign(&addr.signing_bytes()).to_bytes().to_vec();
+
+        assert_ne!(original_sig, addr.sig, "app_build change must change signature");
+        assert!(rendezvous_entry_authentic(&addr), "new signature should be valid for new app_build");
+
+        // Restore old app_build with new signature → should fail old sig
+        let mut addr_old_build = addr.clone();
+        addr_old_build.app_build = 0;
+        assert!(!rendezvous_entry_authentic(&addr_old_build), "old-build with new-app_build-sig must fail");
+    }
+
+    #[test]
     fn test_dht_discovery_creation() {
         // May fail in environments without network access — that's OK.
         let _ = DhtDiscovery::new();
@@ -691,6 +731,7 @@ mod tests {
             relay_urls: vec![format!("http://relay/{seed}")],
             direct_addrs: vec!["10.0.0.1:3340".into()],
             username: String::new(),
+            app_build: 0,
             timestamp: now_ms(),
             sig: Vec::new(),
         };
