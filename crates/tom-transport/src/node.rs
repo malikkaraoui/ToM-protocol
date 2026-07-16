@@ -645,6 +645,19 @@ impl TomNodeSender {
         self.pool.connected_peers().await
     }
 
+    /// Proactively establish the transport connection to `to`, without
+    /// sending any payload.
+    ///
+    /// The transport dial is normally lazy: `get_or_connect` only runs on the
+    /// first `send_raw`, so `connected_peers()` stays empty until some
+    /// application message happens to go out (e.g. the next heartbeat tick).
+    /// Callers on a discovery path (bootstrap join) use this to warm the
+    /// connection immediately, symmetric to gossip's proactive dial.
+    pub async fn ensure_connected(&self, to: NodeId) -> Result<(), TomTransportError> {
+        self.pool.get_or_connect(to).await?;
+        Ok(())
+    }
+
     /// Send raw bytes to a peer. Connection is established on first use and
     /// cached for subsequent sends.
     ///

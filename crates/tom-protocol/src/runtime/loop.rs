@@ -1237,6 +1237,20 @@ async fn bootstrap_join_peer(
     // so MemoryLookup has the address when gossip dials.
     node.add_peer_addr(endpoint_addr).await;
 
+    // Le pool de transport (ALPN transport/0, celui qui alimente
+    // pairs_connectes) ne dial que paresseusement, au premier send()
+    // applicatif — contrairement au gossip, proactif. Sans ce chauffage,
+    // un pair fraîchement découvert reste invisible dans pairs_connectes
+    // jusqu'au prochain heartbeat (jusqu'à HEARTBEAT_INTERVAL_MS plus tard).
+    // Détaché : un pair injoignable ne doit jamais bloquer la boucle de
+    // découverte (même principe que le publish DHT détaché, #36).
+    let transport_sender = node.sender();
+    tokio::spawn(async move {
+        if let Err(error) = transport_sender.ensure_connected(node_id).await {
+            tracing::debug!(peer = %node_id, %error, "warm transport dial failed — will retry lazily on next send");
+        }
+    });
+
     if let Some(sender) = gossip_sender {
         if let Err(error) = sender.join_peers(vec![endpoint_id]).await {
             tracing::warn!(peer = %node_id, source = %source, %error, "bootstrap: gossip join failed — dial/join will not be attempted");
