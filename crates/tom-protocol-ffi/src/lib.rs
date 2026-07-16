@@ -346,10 +346,11 @@ pub unsafe extern "C" fn tom_node_start(
                             ps.2 = *latency_ms;
                         }
                         // Cache discovered peers from gossip/DHT
-                        if let ProtocolEvent::PeerDiscovered { ref node_id, ref username, ref source } = event {
+                        if let ProtocolEvent::PeerDiscovered { ref node_id, ref username, ref source, ref app_build } = event {
                             let incoming = DiscoveredPeerFFI {
                                 node_id: node_id.to_string(),
                                 username: username.clone(),
+                                app_build: *app_build,
                                 source: format!("{:?}", source),
                                 discovered_at: std::time::SystemTime::now()
                                     .duration_since(std::time::UNIX_EPOCH)
@@ -369,6 +370,13 @@ pub unsafe extern "C" fn tom_node_start(
                                         existing.username.clone()
                                     } else {
                                         incoming.username.clone()
+                                    },
+                                    // Anti-clobber: an event without a build (0) must
+                                    // not erase a build already learned for this peer.
+                                    app_build: if incoming.app_build == 0 {
+                                        existing.app_build
+                                    } else {
+                                        incoming.app_build
                                     },
                                     source: incoming.source.clone(),
                                     discovered_at: incoming.discovered_at,

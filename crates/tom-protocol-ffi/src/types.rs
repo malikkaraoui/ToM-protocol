@@ -146,6 +146,8 @@ pub struct GroupConfigFFI {
 pub struct DiscoveredPeerFFI {
     pub node_id: String,
     pub username: String,
+    /// App build number advertised by the peer (0 = unknown). Shown as « Nom Build ».
+    pub app_build: u32,
     pub source: String,
     pub discovered_at: u64,
 }
@@ -333,6 +335,7 @@ impl ProtocolEventFFI {
                 node_id,
                 username,
                 source,
+                app_build: _,
             } => {
                 Self {
                     r#type: "PeerDiscovered".to_string(),
