@@ -1150,6 +1150,23 @@ fn rendezvous_entry_authentic(addr: &tom_dht::DhtNodeAddr) -> bool {
         .is_ok()
 }
 
+/// Âge max toléré d'une entrée du rendez-vous partagé. Un nœud VIVANT se
+/// réannonce toutes les 60s (`rendezvous_tick`), donc son entrée a au plus
+/// ~1 min. 10 min = 10× cette cadence : très généreux (absorbe ticks manqués,
+/// réveils d'appareil, décalage d'horloge modéré) tout en bornant la durée de
+/// vie d'un FANTÔME — un nœud mort (mon nœud de test, un appareil éteint) cesse
+/// de se réannoncer, son entrée vieillit et n'est plus injectée passé ce délai.
+const RENDEZVOUS_MAX_AGE_MS: u64 = 10 * 60 * 1000;
+
+/// Une entrée rendez-vous est-elle FRAÎCHE (nœud probablement encore vivant) ?
+/// Rejette les entrées clairement abandonnées (timestamp trop ancien). Un
+/// timestamp dans le FUTUR (horloge du pair en avance) passe : l'authenticité
+/// est déjà prouvée par la signature, et clamper là créerait des faux négatifs
+/// sur les appareils à l'heure décalée (iPhone vu à +8 min).
+fn rendezvous_entry_fresh(addr: &tom_dht::DhtNodeAddr, now_ms: u64) -> bool {
+    now_ms <= addr.timestamp.saturating_add(RENDEZVOUS_MAX_AGE_MS)
+}
+
 /// Publish ourselves into the shared DHT rendezvous and inject any peers found.
 ///
 /// Runs off-loop (spawned) so DHT latency never blocks the runtime. Discovered
@@ -1183,9 +1200,18 @@ fn spawn_rendezvous_round(
         }
         let found = tom_dht::rendezvous_discover(&dht, &own_id).await;
         // SECURITY: only inject entries with a valid proof-of-possession signature.
-        // Drops squatted/poisoned slots (forged node_id or addrs).
+        // Drops squatted/poisoned slots (forged node_id or addrs) PUIS les
+        // entrées périmées (fantômes : nœuds morts qui ne se réannoncent plus).
+        // Sans le filtre de fraîcheur, un nœud arrêté restait injecté et redialé
+        // en boucle jusqu'à expiration DHT (~2 h) — pollution de la liste de
+        // pairs (cf. node de test 38ceabfe vu ~6 min après sa mort).
         let total = found.len();
-        let peers: Vec<_> = found.into_iter().filter(rendezvous_entry_authentic).collect();
+        let now = now_ms();
+        let peers: Vec<_> = found
+            .into_iter()
+            .filter(rendezvous_entry_authentic)
+            .filter(|a| rendezvous_entry_fresh(a, now))
+            .collect();
         let rejected = total - peers.len();
         let elapsed = discovery_start.elapsed().as_millis() as u64;
         let phase_label = if is_startup { "startup" } else { "tick" };
@@ -1289,7 +1315,10 @@ async fn bootstrap_join_peer(
 
 #[cfg(test)]
 mod tests {
-    use super::{liveness_is_stale, rendezvous_entry_authentic, NodeId, LIVENESS_STALE_MS};
+    use super::{
+        liveness_is_stale, rendezvous_entry_authentic, rendezvous_entry_fresh, NodeId,
+        LIVENESS_STALE_MS, RENDEZVOUS_MAX_AGE_MS,
+    };
     use ed25519_dalek::{Signer, SigningKey};
     use rand::SeedableRng;
 
@@ -1310,6 +1339,31 @@ mod tests {
         let sig = SigningKey::from_bytes(&seed).sign(&addr.signing_bytes());
         addr.sig = sig.to_bytes().to_vec();
         (addr, seed)
+    }
+
+    #[test]
+    fn rendezvous_fresh_entry_kept_stale_rejected() {
+        let (mut addr, _) = signed_rendezvous_addr(1);
+        // Entrée réannoncée « il y a 30s » → fraîche.
+        let now = 100_000_000u64;
+        addr.timestamp = now - 30_000;
+        assert!(rendezvous_entry_fresh(&addr, now), "30s doit être frais");
+        // Entrée d'un nœud mort il y a 20 min → périmée (fantôme).
+        addr.timestamp = now - 20 * 60 * 1000;
+        assert!(
+            !rendezvous_entry_fresh(&addr, now),
+            "20 min doit être rejeté (fantôme)"
+        );
+        // Juste au bord (10 min pile) → encore accepté.
+        addr.timestamp = now - RENDEZVOUS_MAX_AGE_MS;
+        assert!(rendezvous_entry_fresh(&addr, now), "10 min pile = limite incluse");
+        // Timestamp FUTUR (horloge du pair en avance de 8 min) → accepté
+        // (tolérance décalage d'horloge, l'authenticité est signée).
+        addr.timestamp = now + 8 * 60 * 1000;
+        assert!(
+            rendezvous_entry_fresh(&addr, now),
+            "timestamp futur (skew) doit passer"
+        );
     }
 
     #[test]
