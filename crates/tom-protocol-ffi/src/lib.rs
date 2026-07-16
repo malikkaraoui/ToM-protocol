@@ -338,14 +338,23 @@ pub unsafe extern "C" fn tom_node_start(
                     // Delivered/Failed). Réinjecté dans la même file d'events que
                     // le reste, en ProtocolEvent, pour l'UI Swift (statut visible).
                     Some(change) = status_rx.recv() => {
-                        let mut q = status_event_queue.lock().await;
-                        q.push_back(ProtocolEvent::MessageStatusChanged {
-                            message_id: change.message_id,
-                            to: change.to,
-                            status: change.current,
-                        });
-                        while q.len() > 1000 {
-                            q.pop_front();
+                        // Ignore les transitions NO-OP (previous == current) : le
+                        // tracker émet un seed Pending→Pending à l'enregistrement,
+                        // immédiatement suivi de Pending→Sent. Sans ce filtre, l'UI
+                        // recevait DEUX events « en cours » par message (Pending ET
+                        // Sent mappent tous deux sur « en cours ») → doublons
+                        // observés dans le Live Log. On ne surface qu'un vrai
+                        // changement d'état.
+                        if change.previous != change.current {
+                            let mut q = status_event_queue.lock().await;
+                            q.push_back(ProtocolEvent::MessageStatusChanged {
+                                message_id: change.message_id,
+                                to: change.to,
+                                status: change.current,
+                            });
+                            while q.len() > 1000 {
+                                q.pop_front();
+                            }
                         }
                     }
                     Some(event) = events_rx.recv() => {
