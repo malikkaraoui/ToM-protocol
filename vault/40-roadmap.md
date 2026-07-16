@@ -37,6 +37,14 @@
 - 🏆 **2026-06-08 : JALON — nœud iOS en 5G cross-réseau** rejoint le réseau ToM **décentralisé** (Pkarr/n0/DHT/IPv6, zéro relais à IP fixe). iPhone 5G (hors-LAN, CGNAT opérateur) ↔ NAS (derrière Freebox) connectés en ~1min30, 0 échec. NAS ajouté comme **nœud unifié** (`tom-node.service`, role Peer — ADR-006). Lien actuel via **fallback relais** (RTT 1856ms) → reste à obtenir le DIRECT (ouvrir IPv6 entrante Freebox + instrumenter `path_kind`).
 - ✅ **2026-07-05 : Build 18 déployé flotte complète** (iPad, iPhone, Apple TV, macOS, NAS) — 4 fixes DoS + fixes watchdog 0x8BADF00D (Text() lazy-decode) + fixes CPU 100% (tokio::select! busy-spin). Perf validée : LAN ~6 Mo/s jusqu'à 64 Mo (100%), WiFi/relais ~5 Mo/s, FOREGROUND seul (iOS suspension = contrainte OS, chantier R18 APNs).
 
+### 🏆 Release 2.1.0 — build 92 (2026-07-16)
+> Jalon « réseau rapide + observabilité honnête ». Flotte Mac/iPad/iPhone/AppleTV/NAS homogène, 4 pairs DIRECT chacun, 0 fantôme. Tag `v2.1.0` + bundle git backup. Détail complet : `vault/30-discoveries.md` (2026-07-16).
+- ✅ **Reconnexion <5s ATTEINTE** (nœud <1s, flotte simultanée <18s) — 4 causes racines : dial transport proactif, reprobe détaché, bootstrap borné 16 (fin des 951 fantômes réinjectés), registre inbound fiable (stable_id).
+- ✅ **Contribue à R13 (porte auto)** : le « brancher et oublier » est nettement plus proche — reconnexion quasi-instantanée, handoff Wi-Fi↔cell sans restart (le transport migre seul), fin de l'orage 5G.
+- ✅ **UX Messages** : statut de livraison bout-en-bout (en cours→relayé→délivré→purgé), « moi ≫ destinataire », badges AUTO/MANUEL, badge chemin jamais vide (relais/v4/v6/connecté).
+- ✅ **Durcissement red-team** : CRITIQUE déni-de-reconnexion (timestamp futur clampé) + HAUT OOM registre inbound borné 512. Chaîne de statut auditée → résiste.
+- ✅ **Anti-fantômes** : filtre de fraîcheur du rendez-vous DHT (rejet entrées >10min, tolérant skew) — un nœud mort n'est plus réinjecté/redialé.
+
 ### Infrastructure
 - ✅ NAS relay opérationnel : `tom-relay --dev` port 3340 (local + public `82.67.95.8:3340`) — ⚠️ **IP LAN DYNAMIQUE** (bail DHCP renouvelé à chaque redémarrage VM, ex. `.21`→`.83` le 2026-07-12) : `ping`/IP en dur ne sont PAS fiables pour vérifier la joignabilité, toujours tester le VRAI service (SSH/port relais) ou résoudre par hostname mDNS (`chk3wej...home`), jamais présumer le NAS mort sur un seul ping raté
 - ✅ mDNS local discovery activé par défaut
