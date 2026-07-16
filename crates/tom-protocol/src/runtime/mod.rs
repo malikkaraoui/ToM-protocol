@@ -917,7 +917,23 @@ impl ProtocolRuntime {
 
         // Auto-reconnect: inject persisted peers as bootstrap targets so the node
         // redials them on restart without relay assistance.
-        for peer in state.topology.peers() {
+        //
+        // BORNÉ aux pairs vus récemment + cap dur. La topologie persistée
+        // accumule les identités mortes (nœuds de test, fantômes du
+        // rendezvous) : mesuré « auto-reconnect: 951 peers queued » sur le
+        // Mac — le gossip les dialait TOUS en série (~300 ms d'échec chacun),
+        // noyant les vrais pairs pendant ~4 min à chaque démarrage. Mêmes
+        // bornes que le rejoin NeighborDown (REJOIN_RECENT_WINDOW_MS/16).
+        const BOOTSTRAP_RECENT_WINDOW_MS: u64 = 5 * 60 * 1_000;
+        const BOOTSTRAP_MAX_PEERS: usize = 16;
+        let now = crate::types::now_ms();
+        let mut recent_peers: Vec<_> = state
+            .topology
+            .peers()
+            .filter(|p| now.saturating_sub(p.last_seen) < BOOTSTRAP_RECENT_WINDOW_MS)
+            .collect();
+        recent_peers.sort_by_key(|p| std::cmp::Reverse(p.last_seen));
+        for peer in recent_peers.into_iter().take(BOOTSTRAP_MAX_PEERS) {
             if !gossip_bootstrap_peers.contains(&peer.node_id) {
                 gossip_bootstrap_peers.push(peer.node_id);
             }
