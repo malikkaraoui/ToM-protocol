@@ -20,6 +20,17 @@ final class TomNodeService: ObservableObject {
     private var pollTask: Task<Void, Never>?
     private var startTask: Task<Void, Never>?
     private var autoStartTask: Task<Void, Never>?
+    // Watchdog anti-blocage : `.starting` est autrement un état PIÈGE — ni le
+    // retour foreground (skip si .starting) ni la relance réseau (exige
+    // .running/.error) n'en sortent. Si `node.start()` hang pendant un handoff
+    // Wi-Fi↔cellulaire, le nœud restait « STARTING / Nœud inactif » à vie
+    // (observé terrain, iPhone build 70). Ce timer force reset+retry.
+    private var startWatchdogTask: Task<Void, Never>?
+    private static let startWatchdogTimeout: TimeInterval = 30
+    /// Horodatage d'entrée en `.starting` — permet au retour foreground de
+    /// détecter un démarrage figé et de le récupérer sans attendre le watchdog.
+    private var startingSince: Date?
+    private static let stuckStartForegroundThreshold: TimeInterval = 8
     private var probeTask: Task<Void, Never>?
     private var probeSeq: Int = 0
     private var probeExpirationTimes: [String: Date] = [:]
@@ -531,6 +542,8 @@ final class TomNodeService: ObservableObject {
     func start() {
         guard state == .stopped || state == .error else { return }
         state = .starting
+        startingSince = Date()
+        armStartWatchdog()
         errorMessage = nil
         echoCount = 0
         autoStartTask?.cancel()
@@ -610,6 +623,7 @@ final class TomNodeService: ObservableObject {
                 }
 
                 state = .running
+                cancelStartWatchdog()
                 nodeStartTime = Date()
                 appendLog(.success, "Runtime started")
                 appendLog(.network, "Local discovery: \(localDiscovery ? "enabled" : "disabled")")
@@ -644,6 +658,7 @@ final class TomNodeService: ObservableObject {
                 log.error("Failed to start node: \(error.localizedDescription)")
                 appendLog(.error, "START FAILED: \(error.localizedDescription)")
                 state = .error
+                cancelStartWatchdog()
                 errorMessage = error.localizedDescription
             }
             startTask = nil
@@ -658,6 +673,7 @@ final class TomNodeService: ObservableObject {
         let wasStarting = (state == .starting)
         startTask?.cancel()
         startTask = nil
+        cancelStartWatchdog()
         probeTask?.cancel()
         probeTask = nil
         // Flip UI state IMMEDIATELY — never leave the user stuck on "Stopping".
@@ -692,6 +708,50 @@ final class TomNodeService: ObservableObject {
         // libère le handle via forceReset — ne pas déclencher un stop concurrent.
         if !wasStarting {
             Task { await node.stop() }
+        }
+    }
+
+    // MARK: - Start watchdog (anti état-piège `.starting`)
+
+    /// Arme (ou réarme) le watchdog. À échéance, si le nœud est TOUJOURS
+    /// `.starting`, c'est que `node.start()` s'est bloqué (hang FFI, course
+    /// avec un handoff réseau, task perdue) : on force un reset + retry, seule
+    /// issue puisque ni foreground ni relance réseau ne récupèrent `.starting`.
+    private func armStartWatchdog() {
+        startWatchdogTask?.cancel()
+        startWatchdogTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(Self.startWatchdogTimeout * 1_000_000_000))
+            guard !Task.isCancelled else { return }
+            self?.recoverFromStuckStart()
+        }
+    }
+
+    private func cancelStartWatchdog() {
+        startWatchdogTask?.cancel()
+        startWatchdogTask = nil
+        startingSince = nil
+    }
+
+    /// Sort du `.starting` bloqué : reset complet puis relance propre.
+    private func recoverFromStuckStart() {
+        // Le start a pu aboutir juste avant l'échéance — ne rien casser.
+        guard state == .starting else { return }
+        appendLog(.error, "⏱️ START WATCHDOG — démarrage bloqué > \(Int(Self.startWatchdogTimeout))s, reset + retry")
+        log.error("Start watchdog fired — node stuck in .starting, forcing reset + retry")
+        startTask?.cancel()
+        startTask = nil
+        pollTask?.cancel()
+        pollTask = nil
+        stopAntiSleep()
+        stopNetworkLogExport()
+        Task {
+            await node.forceReset()
+            // Repasse par .stopped pour que start() (guard .stopped/.error) reparte.
+            state = .stopped
+            nodeId = ""
+            peersCount = 0
+            groupsCount = 0
+            start()
         }
     }
 
@@ -780,10 +840,24 @@ final class TomNodeService: ObservableObject {
     /// Therefore restart ONLY after a real background. Keep history + seeded peers.
     func handleReturnToForeground() {
         appendLog(.warning, "📱 FOREGROUND — app au premier plan (wasRunning=\(wasRunningBeforeSleep))")
+
+        // Démarrage figé (ex. handoff réseau ayant bloqué node.start() pendant
+        // la suspension) : au retour à l'écran, récupérer immédiatement plutôt
+        // que d'attendre le reliquat du watchdog. Couvre le cas terrain où le
+        // nœud restait « STARTING / Nœud inactif » indéfiniment.
+        if state == .starting,
+           let since = startingSince,
+           Date().timeIntervalSince(since) > Self.stuckStartForegroundThreshold {
+            appendLog(.warning, "FOREGROUND: démarrage figé depuis \(Int(Date().timeIntervalSince(since)))s — recovery")
+            wasRunningBeforeSleep = false
+            recoverFromStuckStart()
+            return
+        }
+
         guard wasRunningBeforeSleep else { return }
         wasRunningBeforeSleep = false
 
-        // Un démarrage est déjà en vol — ne pas empiler un second start
+        // Un démarrage RÉCENT est déjà en vol — ne pas empiler un second start
         // (forcer .stopped ici pendant un .starting créait deux séquences
         // create/start concurrentes → alreadyRunning / état incohérent).
         guard state != .starting else {
