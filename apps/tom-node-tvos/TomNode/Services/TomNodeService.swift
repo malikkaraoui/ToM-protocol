@@ -986,10 +986,16 @@ final class TomNodeService: ObservableObject {
             appendLog(.warning, "🌐 RÉSEAU PERDU — connexions QUIC mortes, attente du retour")
             log.info("Network lost — awaiting reconnection")
         } else if satisfied && wasSatisfied && wasPrimary != nil && primaryInterface != wasPrimary {
-            // Handoff d'interface (ex. Wi-Fi → cellulaire en sortant de la maison).
-            appendLog(.warning, "🌐 RÉSEAU CHANGE D'INTERFACE (\(wasPrimary.map(Self.ifaceLabel) ?? "?")→\(primaryInterface.map(Self.ifaceLabel) ?? "?")) — relance (ancien chemin invalidé)")
-            log.info("Network interface changed — restarting discovery")
-            reconnectAfterNetworkChange(reason: "changement d'interface")
+            // Handoff d'interface (Wi-Fi ↔ cellulaire). On NE relance PLUS le
+            // nœud : le transport (MagicSock/netmon, tom-connect) détecte et
+            // migre les sockets tout seul — il est conçu pour les réseaux
+            // mobiles. Le forceReset() d'avant jetait les connexions que le
+            // transport aurait migrées ET, sur un lien qui flappe (5G une barre),
+            // chaque bascule relançait tout → orage de restarts + envois
+            // dupliqués (observé en test réel). Si la migration échoue vraiment,
+            // le filet côté runtime (reconnect_check 15s + on_isolated) reprend.
+            appendLog(.info, "🌐 Interface \(wasPrimary.map(Self.ifaceLabel) ?? "?")→\(primaryInterface.map(Self.ifaceLabel) ?? "?") — migration gérée par le transport (pas de restart)")
+            log.info("Network interface changed — transport migrates, no node restart")
         }
     }
 
