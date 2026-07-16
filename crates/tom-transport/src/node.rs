@@ -301,6 +301,10 @@ impl TomNode {
         let (incoming_tx, incoming_rx) = mpsc::channel(config.recv_buffer);
         let (incoming_raw_tx, incoming_raw_rx) = mpsc::channel(config.recv_buffer);
         let (path_event_tx, _) = broadcast::channel(64);
+        // Buffers de réassemblage PARTAGÉS entre le handler d'accept (entrantes)
+        // et le pool (sortantes) : les deux lisent des streams et réassemblent
+        // les chunks du même pair — ils doivent viser le même état (#46).
+        let chunk_buffers: Arc<crate::protocol::ChunkBuffers> = Arc::new(Default::default());
 
         // Create pool first so we can share it with the handler
         let default_relays = if !config.n0_discovery {
@@ -313,6 +317,10 @@ impl TomNode {
             config.alpn.clone(),
             default_relays,
             path_event_tx.clone(),
+            incoming_tx.clone(),
+            incoming_raw_tx.clone(),
+            chunk_buffers.clone(),
+            config.max_message_size,
         ));
 
         let handler_state = Arc::new(HandlerState {
@@ -321,7 +329,7 @@ impl TomNode {
             path_event_tx: path_event_tx.clone(),
             pool: pool.clone(),
             max_message_size: config.max_message_size,
-            chunk_buffers: Arc::new(Default::default()),
+            chunk_buffers,
         });
 
         let handler = TomProtocolHandler {

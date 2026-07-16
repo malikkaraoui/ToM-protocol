@@ -309,6 +309,57 @@ impl tom_connect::protocol::ProtocolHandler for TomProtocolHandler {
     }
 }
 
+/// Lit en tâche de fond les streams bi-directionnels ENTRANTS d'une connexion
+/// SORTANTE (initiée par ce nœud via `get_or_connect`).
+///
+/// Une connexion QUIC est bidirectionnelle, mais côté ToM seul `accept()` (les
+/// connexions ENTRANTES) lisait les streams. Résultat : quand deux nœuds se
+/// dialaient mutuellement en même temps, le remote_map (tom-connect) fusionnait
+/// les deux en UNE connexion ; si la survivante était la SORTANTE d'un nœud,
+/// personne ne lisait ses streams entrants → messages perdus (#46). En lisant
+/// aussi les sortantes, UNE connexion par paire suffit dans les deux sens : plus
+/// aucune collision de dial ne peut casser la réception. Même logique de lecture
+/// que `accept()` (read_framed → reassemble → incoming_tx), sans le registre
+/// inbound (réservé aux connexions acceptées).
+pub(crate) fn spawn_inbound_stream_reader(
+    connection: Connection,
+    remote: NodeId,
+    incoming_tx: mpsc::Sender<(NodeId, MessageEnvelope)>,
+    incoming_raw_tx: mpsc::Sender<(NodeId, Vec<u8>)>,
+    chunk_buffers: std::sync::Arc<ChunkBuffers>,
+    max_message_size: usize,
+) {
+    tokio::spawn(async move {
+        loop {
+            let (mut send, mut recv) = match connection.accept_bi().await {
+                Ok(streams) => streams,
+                Err(_) => break, // connexion fermée
+            };
+            let incoming_tx = incoming_tx.clone();
+            let incoming_raw_tx = incoming_raw_tx.clone();
+            let chunk_buffers = chunk_buffers.clone();
+            tokio::spawn(async move {
+                match read_framed(&mut recv, max_message_size).await {
+                    Ok(data) => {
+                        if let Some(full) = reassemble(&chunk_buffers, remote, data) {
+                            match MessageEnvelope::from_bytes(&full) {
+                                Ok(envelope) => {
+                                    let _ = incoming_tx.send((remote, envelope)).await;
+                                }
+                                Err(_) => {
+                                    let _ = incoming_raw_tx.send((remote, full)).await;
+                                }
+                            }
+                        }
+                        let _ = send.finish();
+                    }
+                    Err(e) => tracing::warn!("Failed to read from {remote} (outbound): {e}"),
+                }
+            });
+        }
+    });
+}
+
 /// Spawn a background task that monitors path changes for a connection.
 /// Posé sur les connexions entrantes (accept) ET sortantes (pool) — sinon la
 /// vue par pair est asymétrique (un nœud qui ne fait que dialer n'émet rien).

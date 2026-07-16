@@ -1,10 +1,12 @@
-use crate::protocol::spawn_path_watcher;
+use crate::envelope::MessageEnvelope;
+use crate::protocol::{spawn_inbound_stream_reader, spawn_path_watcher, ChunkBuffers};
 use crate::{NodeId, PathEvent, TomTransportError};
 
 use tom_connect::endpoint::Connection;
 use tom_connect::{Endpoint, EndpointAddr};
 use std::collections::HashMap;
-use tokio::sync::{broadcast, Mutex};
+use std::sync::Arc;
+use tokio::sync::{broadcast, mpsc, Mutex};
 
 /// Caches QUIC connections per peer. First `send()` triggers connect,
 /// subsequent sends reuse the cached connection.
@@ -25,14 +27,26 @@ pub(crate) struct ConnectionPool {
     default_relay_urls: Mutex<Vec<tom_connect::RelayUrl>>,
     /// Path events for outbound connections (same channel as the accept side).
     path_event_tx: broadcast::Sender<PathEvent>,
+    /// Canaux de RÉCEPTION (mêmes que le handler d'accept) : permettent de lire
+    /// les streams entrants sur les connexions SORTANTES aussi (#46), pour que
+    /// UNE connexion par paire suffise dans les deux sens.
+    incoming_tx: mpsc::Sender<(NodeId, MessageEnvelope)>,
+    incoming_raw_tx: mpsc::Sender<(NodeId, Vec<u8>)>,
+    chunk_buffers: Arc<ChunkBuffers>,
+    max_message_size: usize,
 }
 
 impl ConnectionPool {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         endpoint: Endpoint,
         alpn: Vec<u8>,
         default_relay_urls: Vec<tom_connect::RelayUrl>,
         path_event_tx: broadcast::Sender<PathEvent>,
+        incoming_tx: mpsc::Sender<(NodeId, MessageEnvelope)>,
+        incoming_raw_tx: mpsc::Sender<(NodeId, Vec<u8>)>,
+        chunk_buffers: Arc<ChunkBuffers>,
+        max_message_size: usize,
     ) -> Self {
         Self {
             endpoint,
@@ -42,6 +56,10 @@ impl ConnectionPool {
             alpn,
             default_relay_urls: Mutex::new(default_relay_urls),
             path_event_tx,
+            incoming_tx,
+            incoming_raw_tx,
+            chunk_buffers,
+            max_message_size,
         }
     }
 
@@ -177,6 +195,19 @@ impl ConnectionPool {
         // Watcher aussi sur les connexions SORTANTES — sans lui, un nœud qui
         // ne fait que dialer n'émet aucun PathChanged (vue par pair asymétrique).
         spawn_path_watcher(&conn, target, self.path_event_tx.clone());
+
+        // LECTURE des streams entrants sur cette connexion SORTANTE (#46) : une
+        // connexion QUIC est bidirectionnelle, le pair peut nous envoyer des
+        // messages dessus. Sans ça, seul le côté qui ACCEPTE lisait → collision
+        // de dial mutuel = messages perdus. Voir spawn_inbound_stream_reader.
+        spawn_inbound_stream_reader(
+            conn.clone(),
+            target,
+            self.incoming_tx.clone(),
+            self.incoming_raw_tx.clone(),
+            self.chunk_buffers.clone(),
+            self.max_message_size,
+        );
 
         conns.insert(target, conn.clone());
         Ok(conn)
