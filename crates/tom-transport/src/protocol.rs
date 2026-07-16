@@ -326,8 +326,22 @@ pub(crate) fn spawn_path_watcher(
             let (kind, rtt, addr) = classify_path(&path_info);
             let family = AddrFamily::of(&addr);
 
+            // Jamais émettre Unknown : ça signifie juste « cette connexion n'a
+            // pas (encore/plus) de chemin sélectionné » — aucune info pour
+            // l'UI ni le protocole. Et comme un pair peut avoir PLUSIEURS
+            // connexions (sortante du pool + entrante acceptée), chacune avec
+            // son watcher écrivant dans la même carte par pair (dernier
+            // écrivain gagne), l'Unknown d'une connexion secondaire écrasait
+            // le DIRECT de la connexion vivante : pair affiché UNKNOWN à vie
+            // et cooldown de join le croyant déconnecté (re-join en boucle).
+            // La déconnexion réelle est signalée par PeerOffline (qui purge
+            // les cartes), pas par ce watcher.
+            if kind == PathKind::Unknown {
+                continue;
+            }
+
             // On n'émet que sur un changement SIGNIFICATIF : le kind
-            // (DIRECT/RELAY/UNKNOWN) ou la famille d'adresse (v4/v6/relais).
+            // (DIRECT/RELAY) ou la famille d'adresse (v4/v6/relais).
             // QUIC multipath re-sélectionne souvent un autre port sur le même
             // path DIRECT — inutile de spammer le collecteur/FFI/HashMap pour
             // ça (mesuré : ~1.75 event/min/pair à kind constant). On garde en

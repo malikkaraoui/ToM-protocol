@@ -90,6 +90,11 @@ struct StatusView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
+        // Marge de sur-balayage TV (overscan) : sans elle, l'en-tête (nom,
+        // build, RUNNING, pairs) sort du haut de l'écran sur les téléviseurs
+        // qui rognent les bords. Recommandation Apple : ~60 pt haut/bas.
+        .padding(.top, 60)
+        .padding(.bottom, 30)
     }
 
     // MARK: - iOS/iPadOS : responsive avec grille 2 colonnes sur iPad
