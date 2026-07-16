@@ -9,6 +9,7 @@
 //! At score=0: 30 msg/sec (never blocked). At score=10: 65 msg/sec. At score=50: 88 msg/sec.
 
 use std::num::NonZeroUsize;
+use std::collections::HashMap;
 
 use lru::LruCache;
 
@@ -40,6 +41,11 @@ pub const STRANGER_SCORE_MAX: f64 = 1.0;
 /// Generous enough that a real network of new peers never hits it; KNOWN peers
 /// (score ≥ [`STRANGER_SCORE_MAX`]) are never subject to it.
 pub const GLOBAL_STRANGER_RATE: f64 = 200.0;
+
+/// Dedup window for SenderThrottled alerts (ms). At most one alert per peer
+/// per window, to avoid spam of dozens/sec when a known peer reconnects and
+/// absorbs throttle briefly. After the window, another alert is allowed.
+pub const SENDER_THROTTLED_DEDUP_WINDOW: u64 = 10_000; // 10 seconds
 
 /// Configuration for progressive anti-spam rate limiting.
 #[derive(Debug, Clone)]
@@ -84,8 +90,20 @@ struct TokenBucket {
 }
 
 impl TokenBucket {
-    fn new(refill_rate: f64, now: u64) -> Self {
-        let capacity = refill_rate * 2.0;
+    /// Create a new token bucket for a sender.
+    ///
+    /// If `is_known` (peer is in topology), grant a higher initial burst capacity
+    /// to absorb reconnection traffic without throttle. A newly-reconnected known
+    /// peer gets capacity = refill_rate * 4.0 instead of * 2.0, ensuring the
+    /// brief burst of catch-up traffic (presence, pings, queued messages) passes.
+    /// Strangers (fresh identities) always get the lower burst, bounded by the
+    /// global cap.
+    fn new(refill_rate: f64, now: u64, is_known: bool) -> Self {
+        let capacity = if is_known {
+            refill_rate * 4.0  // Reconnection grace: higher burst
+        } else {
+            refill_rate * 2.0  // Normal burst
+        };
         Self {
             capacity,
             tokens: capacity, // start full
@@ -134,6 +152,9 @@ pub struct AntiSpam {
     /// (score < STRANGER_SCORE_MAX), so identity rotation can't scale ingress
     /// past a global ceiling (FINDING #8). Known peers never touch it.
     global_stranger: TokenBucket,
+    /// Dedup tracker: last SenderThrottled emission time (ms) per peer.
+    /// Prevents spam of dozens/sec alerts when a known peer reconnects briefly.
+    sender_throttled_last_emit: HashMap<NodeId, u64>,
 }
 
 impl AntiSpam {
@@ -143,7 +164,8 @@ impl AntiSpam {
         Self {
             config,
             buckets: LruCache::new(cap),
-            global_stranger: TokenBucket::new(GLOBAL_STRANGER_RATE, 0),
+            global_stranger: TokenBucket::new(GLOBAL_STRANGER_RATE, 0, false),
+            sender_throttled_last_emit: HashMap::new(),
         }
     }
 
@@ -161,13 +183,17 @@ impl AntiSpam {
     }
 
     /// Check if a message from `sender` is allowed.
-    pub fn check_rate(&mut self, sender: NodeId, score: f64, now: u64) -> Result<(), String> {
+    ///
+    /// `is_known`: true if the peer is in topology (recognized from before).
+    /// If true, a newly-created bucket for this peer gets higher burst capacity
+    /// to absorb reconnection traffic without throttle spam.
+    pub fn check_rate(&mut self, sender: NodeId, score: f64, now: u64, is_known: bool) -> Result<(), String> {
         let rate = self.compute_rate(score);
 
         let bucket = if let Some(b) = self.buckets.get_mut(&sender) {
             b
         } else {
-            self.buckets.push(sender, TokenBucket::new(rate, now));
+            self.buckets.push(sender, TokenBucket::new(rate, now, is_known));
             self.buckets.get_mut(&sender).unwrap()
         };
 
@@ -194,6 +220,31 @@ impl AntiSpam {
         }
 
         Ok(())
+    }
+
+    /// Check if a SenderThrottled alert should be emitted for this peer.
+    ///
+    /// Returns true if this is the first throttle for the peer, or if the
+    /// dedup window has expired (10s). Prevents spam of dozens of alerts/sec
+    /// when a known peer reconnects and briefly exceeds rate.
+    pub fn should_emit_sender_throttled(&mut self, sender: NodeId, now: u64) -> bool {
+        match self.sender_throttled_last_emit.get(&sender) {
+            None => {
+                // First throttle for this peer; emit and record
+                self.sender_throttled_last_emit.insert(sender, now);
+                true
+            }
+            Some(&last_emit) => {
+                if now.saturating_sub(last_emit) >= SENDER_THROTTLED_DEDUP_WINDOW {
+                    // Dedup window expired; emit and update
+                    self.sender_throttled_last_emit.insert(sender, now);
+                    true
+                } else {
+                    // Within dedup window; suppress
+                    false
+                }
+            }
+        }
     }
 
     /// Compute effective rate (msg/sec) for a given contribution score.
@@ -228,7 +279,7 @@ mod tests {
 
     #[test]
     fn token_bucket_allows_burst() {
-        let mut bucket = TokenBucket::new(5.0, 0);
+        let mut bucket = TokenBucket::new(5.0, 0, false);
         // Capacity = 10 (2× rate). Should allow 10 immediate messages.
         for i in 0..10 {
             assert!(bucket.try_consume(0), "message {i} should pass");
@@ -238,7 +289,7 @@ mod tests {
 
     #[test]
     fn token_bucket_refills() {
-        let mut bucket = TokenBucket::new(5.0, 0);
+        let mut bucket = TokenBucket::new(5.0, 0, false);
         // Drain all tokens
         for _ in 0..10 {
             bucket.try_consume(0);
@@ -252,7 +303,7 @@ mod tests {
 
     #[test]
     fn token_bucket_update_rate() {
-        let mut bucket = TokenBucket::new(5.0, 0);
+        let mut bucket = TokenBucket::new(5.0, 0, false);
         bucket.update_rate(50.0, 0);
         assert!((bucket.refill_rate - 50.0).abs() < f64::EPSILON);
         assert!((bucket.capacity - 100.0).abs() < f64::EPSILON);
@@ -291,7 +342,7 @@ mod tests {
         // score=50 → rate ~43, burst ~86 — should allow many rapid messages
         for i in 0..80 {
             assert!(
-                antispam.check_rate(alice, 50.0, i * 10).is_ok(),
+                antispam.check_rate(alice, 50.0, i * 10, false).is_ok(),
                 "high-score message {i} should pass"
             );
         }
@@ -304,7 +355,7 @@ mod tests {
         // score=0 → rate=30, burst=60
         let mut allowed = 0u32;
         for _ in 0..80 {
-            if antispam.check_rate(spammer, 0.0, 0).is_ok() {
+            if antispam.check_rate(spammer, 0.0, 0, false).is_ok() {
                 allowed += 1;
             }
         }
@@ -322,7 +373,7 @@ mod tests {
         for id in 0..100u8 {
             let sybil = test_node_id(id);
             for _ in 0..60 {
-                if antispam.check_rate(sybil, 0.0, now).is_ok() {
+                if antispam.check_rate(sybil, 0.0, now, false).is_ok() {
                     allowed += 1;
                 }
             }
@@ -343,13 +394,13 @@ mod tests {
         for id in 0..100u8 {
             let sybil = test_node_id(id);
             for _ in 0..60 {
-                let _ = antispam.check_rate(sybil, 0.0, now);
+                let _ = antispam.check_rate(sybil, 0.0, now, false);
             }
         }
         // Global stranger bucket is now empty; a known peer still passes.
         let known = test_node_id(200);
         assert!(
-            antispam.check_rate(known, 50.0, now).is_ok(),
+            antispam.check_rate(known, 50.0, now, false).is_ok(),
             "known peer (score ≥ threshold) must bypass the global stranger cap"
         );
     }
@@ -360,11 +411,11 @@ mod tests {
         let alice = test_node_id(1);
 
         // Start with low score
-        antispam.check_rate(alice, 0.0, 0).ok();
+        antispam.check_rate(alice, 0.0, 0, false).ok();
         let rate_low = antispam.buckets.peek(&alice).unwrap().refill_rate;
 
         // Score improves
-        antispam.check_rate(alice, 30.0, 1000).ok();
+        antispam.check_rate(alice, 30.0, 1000, false).ok();
         let rate_high = antispam.buckets.peek(&alice).unwrap().refill_rate;
 
         assert!(rate_high > rate_low, "rate should increase: {rate_low} → {rate_high}");
@@ -391,13 +442,153 @@ mod tests {
 
         // Fill cache
         for id in &ids[..3] {
-            antispam.check_rate(*id, 5.0, 0).ok();
+            antispam.check_rate(*id, 5.0, 0, false).ok();
         }
         assert_eq!(antispam.tracked_senders(), 3);
 
         // 4th sender evicts oldest
-        antispam.check_rate(ids[3], 5.0, 0).ok();
+        antispam.check_rate(ids[3], 5.0, 0, false).ok();
         assert_eq!(antispam.tracked_senders(), 3);
         assert!(antispam.buckets.peek(&ids[0]).is_none(), "oldest evicted");
+    }
+
+    // ── Grace for known peers ──────────────────────────────────────
+
+    #[test]
+    fn known_peer_gets_higher_burst() {
+        let mut antispam = AntiSpam::new(AntiSpamConfig::default());
+        let known = test_node_id(10);
+        let stranger = test_node_id(11);
+
+        // Score 0 → rate=30, normal burst=60, grace burst=120
+        let now = 0;
+
+        // Known peer: should allow ~120 messages (4x rate)
+        let mut known_allowed = 0;
+        for _ in 0..120 {
+            if antispam.check_rate(known, 0.0, now, true).is_ok() {
+                known_allowed += 1;
+            } else {
+                break;
+            }
+        }
+
+        // Stranger: should allow ~60 messages (2x rate)
+        let mut stranger_allowed = 0;
+        for _ in 0..120 {
+            if antispam.check_rate(stranger, 0.0, now, false).is_ok() {
+                stranger_allowed += 1;
+            } else {
+                break;
+            }
+        }
+
+        assert!(
+            known_allowed > stranger_allowed,
+            "known peer burst {known_allowed} should be > stranger burst {stranger_allowed}"
+        );
+        assert!(
+            known_allowed >= 100,
+            "known peer should allow >=100 messages, got {known_allowed}"
+        );
+        assert_eq!(
+            stranger_allowed, 60,
+            "stranger should allow 60 (2x rate of 30), got {stranger_allowed}"
+        );
+    }
+
+    #[test]
+    fn known_peer_still_rate_limited() {
+        let mut antispam = AntiSpam::new(AntiSpamConfig::default());
+        let known = test_node_id(12);
+        let now = 0;
+
+        // Burst should allow ~120 (4x), but after that still throttle
+        let mut allowed = 0;
+        for _ in 0..150 {
+            if antispam.check_rate(known, 0.0, now, true).is_ok() {
+                allowed += 1;
+            }
+        }
+
+        // Should NOT be allowed all 150 — after initial burst, rate-limited
+        assert!(
+            allowed < 150,
+            "known peer should still be rate-limited, allowed {allowed}/150"
+        );
+    }
+
+    #[test]
+    fn sybil_identities_dont_benefit_from_grace() {
+        // Multiple fresh strangers each get normal burst,
+        // but aggregate is still capped by GLOBAL_STRANGER_RATE
+        let mut antispam = AntiSpam::new(AntiSpamConfig::default());
+        let now = 1_000_000;
+        let mut allowed = 0;
+
+        // Sybil swarm: 100 identities, each marked as NOT known (is_known=false)
+        for id in 0..100u8 {
+            let sybil = test_node_id(id);
+            for _ in 0..60 {
+                if antispam.check_rate(sybil, 0.0, now, false).is_ok() {
+                    allowed += 1;
+                }
+            }
+        }
+
+        let global_burst = (GLOBAL_STRANGER_RATE * 2.0) as u32;
+        assert_eq!(
+            allowed, global_burst,
+            "sybil swarm (all is_known=false) must still be capped at global burst {global_burst}"
+        );
+    }
+
+    #[test]
+    fn sender_throttled_dedup() {
+        let mut antispam = AntiSpam::new(AntiSpamConfig::default());
+        let peer = test_node_id(20);
+        let now = 0u64;
+
+        // First throttle → should emit
+        assert!(
+            antispam.should_emit_sender_throttled(peer, now),
+            "first throttle should emit"
+        );
+
+        // Immediate second throttle (same timestamp) → should NOT emit
+        assert!(
+            !antispam.should_emit_sender_throttled(peer, now),
+            "second throttle within window should NOT emit"
+        );
+
+        // After dedup window (10s) → should emit again
+        let later = now + SENDER_THROTTLED_DEDUP_WINDOW;
+        assert!(
+            antispam.should_emit_sender_throttled(peer, later),
+            "throttle after dedup window should emit"
+        );
+
+        // Within new window → suppress again
+        assert!(
+            !antispam.should_emit_sender_throttled(peer, later + 1000),
+            "second throttle in new window should NOT emit"
+        );
+    }
+
+    #[test]
+    fn sender_throttled_dedup_multiple_peers() {
+        let mut antispam = AntiSpam::new(AntiSpamConfig::default());
+        let peer1 = test_node_id(21);
+        let peer2 = test_node_id(22);
+        let now = 0u64;
+
+        // peer1: first throttle → emit
+        assert!(antispam.should_emit_sender_throttled(peer1, now));
+        // peer2: first throttle → separate, should emit
+        assert!(antispam.should_emit_sender_throttled(peer2, now));
+        // peer1: second → suppress
+        assert!(!antispam.should_emit_sender_throttled(peer1, now));
+        // peer2: second → suppress independently
+        assert!(!antispam.should_emit_sender_throttled(peer2, now));
     }
 }

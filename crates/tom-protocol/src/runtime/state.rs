@@ -1627,13 +1627,21 @@ impl RuntimeState {
         );
         if !exempt {
             let sender_score = self.role_manager.score(&envelope.from, now);
-            if let Err(_reason) = self.antispam.check_rate(envelope.from, sender_score, now) {
+            // Grace for known peers: if this peer is in topology (recognized from before),
+            // pass is_known=true so it gets higher burst capacity on reconnection.
+            // Strangers (fresh identities) get is_known=false, still bounded by global cap.
+            let is_known = self.topology.get(&envelope.from).is_some();
+            if let Err(_reason) = self.antispam.check_rate(envelope.from, sender_score, now, is_known) {
                 let current_rate = self.antispam.compute_rate(sender_score);
-                return vec![RuntimeEffect::Emit(ProtocolEvent::SenderThrottled {
-                    node_id: envelope.from,
-                    score: sender_score,
-                    current_rate,
-                })];
+                // Dedup the alert: emit SenderThrottled at most once per peer per 10s window
+                // to prevent spam of dozens/sec when a known peer reconnects.
+                if self.antispam.should_emit_sender_throttled(envelope.from, now) {
+                    return vec![RuntimeEffect::Emit(ProtocolEvent::SenderThrottled {
+                        node_id: envelope.from,
+                        score: sender_score,
+                        current_rate,
+                    })];
+                }
             }
         }
 

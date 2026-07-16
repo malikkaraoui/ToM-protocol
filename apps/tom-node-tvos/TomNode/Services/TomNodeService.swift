@@ -108,7 +108,7 @@ final class TomNodeService: ObservableObject {
         return "\(n) o"
     }
 
-    static func shortDeviceName(_ fullName: String = defaultUsername()) -> String {
+    static func shortDeviceName(_ fullName: String) -> String {
         if fullName.contains("iPad") { return "iPad" }
         if fullName.contains("iPhone") { return "iPhone" }
         if fullName.contains("Mac") { return "Mac" }
@@ -1491,7 +1491,10 @@ final class TomNodeService: ObservableObject {
             "messages_envoyes": sentCount,
             "messages_recus": recvCount,
             "messages_echoues": 0,
-            "uptime_secondes": uptimeSec
+            "uptime_secondes": uptimeSec,
+            // Build affiché à l'écran — exposé ici pour vérifier à distance
+            // quel binaire tourne réellement (anti-staleness / anti-drift).
+            "app_build": TomVersion.build
         ]
         guard let data = try? JSONSerialization.data(withJSONObject: dict, options: [.sortedKeys]),
               let str = String(data: data, encoding: .utf8) else { return "{}" }
