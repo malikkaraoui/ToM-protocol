@@ -98,6 +98,8 @@ pub(super) async fn runtime_loop(
     );
     // L1-003: relay-side presence view publication (30s push, D2).
     let mut presence_publish = maintenance_interval(std::time::Duration::from_secs(30));
+    // Phase R18.1: Backup redelivery queue drain (1s interval for throughput)
+    let mut backup_drain_tick = maintenance_interval(std::time::Duration::from_secs(1));
 
     // Skip the immediate first tick
     cache_cleanup.tick().await;
@@ -117,6 +119,7 @@ pub(super) async fn runtime_loop(
     rendezvous_tick.tick().await;
     presence_purge.tick().await;
     presence_probe.tick().await;
+    backup_drain_tick.tick().await;
     presence_publish.tick().await;
 
     // ── Gossip subscription ──────────────────────────────────────────
@@ -371,6 +374,8 @@ pub(super) async fn runtime_loop(
                     rtt_ms = event.rtt.as_millis(),
                     "path changed"
                 );
+                // Store path kind for backup redelivery gating (Phase R18.1)
+                state.peer_paths.insert(event.remote, event.kind);
                 vec![RuntimeEffect::Emit(ProtocolEvent::PathChanged { event })]
             }
 
@@ -476,6 +481,9 @@ pub(super) async fn runtime_loop(
 
             // ── 8. Timer: backup maintenance ────────────────────
             _ = backup_tick.tick() => state.tick_backup(),
+
+            // ── 8a. Timer: backup redelivery queue drain (1s) ──────
+            _ = backup_drain_tick.tick() => state.drain_backup_queue(),
 
             // ── 9. Gossip events ────────────────────────────────
             event = async {

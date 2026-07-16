@@ -1,4 +1,5 @@
 use std::cmp::Reverse;
+use std::collections::VecDeque;
 
 use crate::backup::{BackupAction, BackupCoordinator, BackupEvent};
 use crate::discovery::{
@@ -21,6 +22,7 @@ use super::{DeliveredMessage, ProtocolEvent, RuntimeCommand, RuntimeConfig};
 
 // Phase R7.1: DHT discovery
 use tom_dht::{DhtDiscovery, DhtNodeAddr};
+use tom_transport::PathKind;
 
 /// Gossip event input for RuntimeState (avoids leaking gossip types).
 pub enum GossipInput {
@@ -144,6 +146,14 @@ pub struct RuntimeState {
 
     // Phase R17: Clock skew observability (median inter-peer time delta, from verified signatures)
     pub(crate) clock_skew: ClockSkewMetrics,
+
+    // Phase R18.1: Backup redelivery queue (paced per-peer redelivery)
+    /// Queue of backup messages to redeliver to each peer (msg_id, expires_at).
+    pub(crate) backup_redelivery_queue: std::collections::HashMap<NodeId, VecDeque<(String, u64)>>,
+    /// Last known path kind for each peer (Direct/Relay/Unknown).
+    pub(crate) peer_paths: std::collections::HashMap<NodeId, PathKind>,
+    /// Last redelivery attempt time per peer (for grace period logic).
+    pub(crate) backup_last_redelivery_at: std::collections::HashMap<NodeId, u64>,
 }
 
 impl RuntimeState {
@@ -258,6 +268,9 @@ impl RuntimeState {
             config,
             store,
             pending_envelopes: std::collections::HashMap::new(),
+            backup_redelivery_queue: std::collections::HashMap::new(),
+            peer_paths: std::collections::HashMap::new(),
+            backup_last_redelivery_at: std::collections::HashMap::new(),
         }
     }
 
@@ -450,6 +463,13 @@ impl RuntimeState {
                         effects.extend(self.surface_subnet_event(se));
                     }
                     self.role_manager.remove_node(&node_id);
+                    // Purge le suivi de path/grâce du pair parti (sinon fuite :
+                    // ces deux maps ne s'auto-nettoient pas comme la queue de
+                    // redelivery, qui se supprime quand elle se vide au drain).
+                    // Le backup lui-même survit dans le store (source de vérité)
+                    // et se ré-enqueue au retour du pair.
+                    self.peer_paths.remove(&node_id);
+                    self.backup_last_redelivery_at.remove(&node_id);
                     effects.push(RuntimeEffect::Emit(ProtocolEvent::PeerOffline {
                         node_id,
                     }));
@@ -3001,56 +3021,172 @@ impl RuntimeState {
 
     // ── Helper: prepare backup delivery for reconnected peer ─────────────
 
-    /// Build SendWithBackupFallback effects for each backed-up message
-    /// destined to the given peer.
+    /// Enqueue backup messages for reconnected peer into the redelivery queue.
+    /// Does NOT emit effects immediately; drain_backup_queue() handles paced delivery.
     fn prepare_backup_delivery(&mut self, peer_id: NodeId) -> Vec<RuntimeEffect> {
-        let entries: Vec<(String, Vec<u8>)> = self
+        let entries: Vec<(String, u64)> = self
             .backup
             .store()
             .get_for_recipient(&peer_id)
             .into_iter()
-            .map(|e| (e.message_id.clone(), e.payload.clone()))
+            .map(|e| (e.message_id.clone(), e.expires_at))
             .collect();
 
         if entries.is_empty() {
             return Vec::new();
         }
 
+        // Enqueue each message (with dedup by msg_id)
+        let queue = self
+            .backup_redelivery_queue
+            .entry(peer_id)
+            .or_default();
+
+        let mut enqueued = 0;
+        for (msg_id, expires_at) in entries {
+            // Skip if already in queue (dedup)
+            if !queue.iter().any(|(id, _)| id == &msg_id) {
+                queue.push_back((msg_id, expires_at));
+                enqueued += 1;
+            }
+        }
+
+        if enqueued > 0 {
+            // Initialize grace period on first enqueue (if not already set)
+            self.backup_last_redelivery_at
+                .entry(peer_id)
+                .or_insert_with(now_ms);
+
+            tracing::debug!(
+                peer = %peer_id,
+                enqueued,
+                "backup redelivery enqueued"
+            );
+        }
+
+        Vec::new()
+    }
+
+    // ── Helper: drain backup redelivery queue with pacing ──────────────────
+
+    /// Constants for backup redelivery pacing
+    const BACKUP_GRACE_MS: u64 = 3_000;
+    /// 5 messages per second per peer (via 1s drain interval in loop.rs).
+    /// Preserves ADR-009 (8/8 delivered in ~1.6s, 30/30 in 6s) without bursting.
+    const BACKUP_PACING_PER_TICK_PER_PEER: usize = 5;
+
+    /// Drain the backup redelivery queue: per-peer, max BACKUP_PACING_PER_TICK_PER_PEER
+    /// messages per 1s tick. Gate on path (DIRECT/RELAY → send, Unknown → wait unless grace expired).
+    /// Skip and drop expired entries. Emit SendWithBackupFallback effects.
+    pub(crate) fn drain_backup_queue(&mut self) -> Vec<RuntimeEffect> {
+        let now = now_ms();
         let mut effects = Vec::new();
 
-        for (message_id, payload) in entries {
-            let via = self.relay_selector.select_path(peer_id, &self.topology);
-            let builder = EnvelopeBuilder::new(
-                self.local_id,
-                peer_id,
-                MessageType::Chat,
-                payload,
-            )
-            .via(via);
+        // Collect peer IDs to iterate (avoid borrow conflicts)
+        let peer_ids: Vec<NodeId> = self.backup_redelivery_queue.keys().cloned().collect();
 
-            let envelope = if self.config.encryption {
-                let recipient_pk = peer_id.as_bytes();
-                match builder.encrypt_and_sign(&self.secret_seed, &recipient_pk) {
-                    Ok(env) => env,
-                    Err(_) => continue,
-                }
-            } else {
-                builder.sign(&self.secret_seed)
+        for peer_id in peer_ids {
+            let queue = match self.backup_redelivery_queue.get_mut(&peer_id) {
+                Some(q) => q,
+                None => continue,
             };
 
-            // On success: emit BackupDelivered.
-            // On failure: no action (message stays in backup store).
-            let on_success = vec![RuntimeEffect::Emit(ProtocolEvent::BackupDelivered {
-                message_id,
-                recipient_id: peer_id,
-            })];
-            let on_failure = Vec::new();
+            let mut sent_this_tick = 0;
 
-            effects.push(RuntimeEffect::SendWithBackupFallback {
-                envelope,
-                on_success,
-                on_failure,
-            });
+            while sent_this_tick < Self::BACKUP_PACING_PER_TICK_PER_PEER && !queue.is_empty() {
+                // Peek at the front message without removing yet
+                let (msg_id_peek, expires_at_peek) = match queue.front() {
+                    Some((id, exp)) => (id.clone(), *exp),
+                    None => break,
+                };
+
+                // Skip expired entries (drop them)
+                if now >= expires_at_peek {
+                    queue.pop_front();
+                    tracing::debug!(
+                        peer = %peer_id,
+                        msg_id = %msg_id_peek,
+                        "backup message expired, dropped from queue"
+                    );
+                    continue;
+                }
+
+                // Check path kind and grace logic
+                let path_kind = self.peer_paths.get(&peer_id).copied().unwrap_or(PathKind::Unknown);
+                let should_send = match path_kind {
+                    PathKind::Direct | PathKind::Relay => true,
+                    PathKind::Unknown => {
+                        let last_attempt = self.backup_last_redelivery_at.get(&peer_id).copied().unwrap_or(0);
+                        (now.saturating_sub(last_attempt)) >= Self::BACKUP_GRACE_MS
+                    }
+                };
+
+                if !should_send {
+                    // Skip this peer for now, try next peer
+                    break;
+                }
+
+                // Pop the message and build the effect
+                let (msg_id, _expires_at) = queue.pop_front().unwrap();
+
+                // Reconstruct the envelope from backup store (must fetch again)
+                let Some(backup_entry) = self.backup.store().get(&msg_id) else {
+                    tracing::warn!(
+                        msg_id = %msg_id,
+                        peer = %peer_id,
+                        "backup message not found in store, skipping"
+                    );
+                    continue;
+                };
+
+                let via = self.relay_selector.select_path(peer_id, &self.topology);
+                let builder = EnvelopeBuilder::new(
+                    self.local_id,
+                    peer_id,
+                    MessageType::Chat,
+                    backup_entry.payload.clone(),
+                )
+                .via(via);
+
+                let envelope = if self.config.encryption {
+                    let recipient_pk = peer_id.as_bytes();
+                    match builder.encrypt_and_sign(&self.secret_seed, &recipient_pk) {
+                        Ok(env) => env,
+                        Err(e) => {
+                            tracing::warn!(
+                                msg_id = %msg_id,
+                                peer = %peer_id,
+                                error = %e,
+                                "failed to encrypt backup message, skipping"
+                            );
+                            continue;
+                        }
+                    }
+                } else {
+                    builder.sign(&self.secret_seed)
+                };
+
+                let on_success = vec![RuntimeEffect::Emit(ProtocolEvent::BackupDelivered {
+                    message_id: msg_id.clone(),
+                    recipient_id: peer_id,
+                })];
+                let on_failure = Vec::new();
+
+                effects.push(RuntimeEffect::SendWithBackupFallback {
+                    envelope,
+                    on_success,
+                    on_failure,
+                });
+
+                // Update last redelivery time
+                self.backup_last_redelivery_at.insert(peer_id, now);
+                sent_this_tick += 1;
+            }
+
+            // Clean up empty queues
+            if queue.is_empty() {
+                self.backup_redelivery_queue.remove(&peer_id);
+            }
         }
 
         effects
@@ -3736,13 +3872,14 @@ mod tests {
         let (carol, _) = keypair(3);
 
         // 3 messages backupés pour B (hors-ligne) + 1 pour Carol (isolation).
+        let now = now_ms();
         for i in 0..3 {
             state.backup.store_message(
                 format!("pour-bob-{i}"),
                 format!("message differe {i}").into_bytes(),
                 bob,
                 state.local_id,
-                now_ms(),
+                now,
                 None,
             );
         }
@@ -3751,15 +3888,30 @@ mod tests {
             b"pas pour bob".to_vec(),
             carol,
             state.local_id,
-            now_ms(),
+            now,
             None,
         );
 
-        // B revient en ligne : c'est ce que déclenche PeerOnline via tick_heartbeat.
-        let effects = state.prepare_backup_delivery(bob);
+        // B revient en ligne : enqueue les messages
+        let enqueue_effects = state.prepare_backup_delivery(bob);
+        // prepare_backup_delivery now enqueues, doesn't emit effects
+        assert!(enqueue_effects.is_empty(), "prepare_backup_delivery should enqueue, not emit");
 
-        // Les 3 messages de B (et EUX SEULS) sont ré-émis vers B.
-        assert_eq!(effects.len(), 3, "les 3 messages backupés de B doivent être redélivrés");
+        // Ensure bob is in topology to allow draining
+        state.topology.upsert(crate::relay::PeerInfo {
+            node_id: bob,
+            role: PeerRole::Peer,
+            status: PeerStatus::Online,
+            last_seen: now,
+        });
+
+        // Direct path allows immediate drain
+        state.peer_paths.insert(bob, PathKind::Direct);
+
+        // Drain the queue to emit effects (paced: max 5 per tick)
+        let effects = state.drain_backup_queue();
+        // With pacing=5, all 3 messages should go in one drain
+        assert_eq!(effects.len(), 3, "all 3 messages should be sent in one drain (pacing=5)");
         for effect in &effects {
             match effect {
                 RuntimeEffect::SendWithBackupFallback { envelope, .. } => {
@@ -3769,9 +3921,25 @@ mod tests {
             }
         }
 
-        // Le message de Carol ne part PAS quand B revient.
+        // Le message de Carol est enqueue mais ne part PAS avec B.
+        // Queue de B est vide maintenant
+        assert!(
+            state.backup_redelivery_queue.get(&bob).is_none(),
+            "queue de B vide après drain"
+        );
+
+        // Enqueue et vérifier que le message de Carol est bien isolé
+        state.prepare_backup_delivery(carol);
+        state.topology.upsert(crate::relay::PeerInfo {
+            node_id: carol,
+            role: PeerRole::Peer,
+            status: PeerStatus::Online,
+            last_seen: now,
+        });
+        state.peer_paths.insert(carol, PathKind::Direct);
+        let carol_effects = state.drain_backup_queue();
         assert_eq!(
-            state.prepare_backup_delivery(carol).len(),
+            carol_effects.len(),
             1,
             "le backup est bien isolé par destinataire"
         );
@@ -6973,5 +7141,234 @@ mod tests {
             1,
             "direct envelope must be sampled"
         );
+    }
+
+    // ── Phase R18.1: Backup redelivery queue tests ──────────────────────
+
+    #[test]
+    fn test_backup_redelivery_enqueue_not_emit() {
+        // Test that prepare_backup_delivery enqueues without emitting effects
+        let mut state = default_state(1);
+        let peer_id = node_id(2);
+        let now = now_ms();
+
+        // Store a backup message
+        let msg_id = "msg-001".to_string();
+        let payload = vec![1, 2, 3];
+        state.backup.store_message(
+            msg_id.clone(),
+            payload,
+            peer_id,
+            state.local_id,
+            now,
+            None,
+        );
+
+        // Call prepare_backup_delivery
+        let effects = state.prepare_backup_delivery(peer_id);
+
+        // Should return empty effects (no immediate emit)
+        assert!(effects.is_empty(), "prepare_backup_delivery should not emit effects");
+
+        // But the queue should be populated
+        let queue = state.backup_redelivery_queue.get(&peer_id);
+        assert!(queue.is_some(), "message should be enqueued");
+        assert_eq!(queue.unwrap().len(), 1, "one message should be in queue");
+    }
+
+    #[test]
+    fn test_backup_redelivery_pacing() {
+        // Test that drain_backup_queue limits messages per tick per peer
+        let mut state = default_state(1);
+        let peer_id = node_id(2);
+        let now = now_ms();
+
+        // Enqueue 10 messages manually
+        {
+            let queue = state
+                .backup_redelivery_queue
+                .entry(peer_id)
+                .or_insert_with(VecDeque::new);
+            for i in 0..10 {
+                queue.push_back((format!("msg-{:03}", i), now + 3600_000)); // 1h from now
+            }
+        }
+
+        // Set peer to Direct path to allow sending
+        state.peer_paths.insert(peer_id, PathKind::Direct);
+
+        // Register peer in topology
+        state.topology.upsert(crate::relay::PeerInfo {
+            node_id: peer_id,
+            role: PeerRole::Peer,
+            status: PeerStatus::Online,
+            last_seen: now,
+        });
+
+        // Store dummy payloads in backup store for all messages
+        for i in 0..10 {
+            let _ = state.backup.store_message(
+                format!("msg-{:03}", i),
+                vec![1, 2, 3],
+                peer_id,
+                state.local_id,
+                now,
+                None,
+            );
+        }
+
+        // Drain once
+        let effects = state.drain_backup_queue();
+
+        // Should emit at most BACKUP_PACING_PER_TICK_PER_PEER effects
+        assert!(
+            effects.len() <= RuntimeState::BACKUP_PACING_PER_TICK_PER_PEER,
+            "should send at most {} messages per tick",
+            RuntimeState::BACKUP_PACING_PER_TICK_PER_PEER
+        );
+
+        // Queue should still have messages
+        let remaining = state.backup_redelivery_queue.get(&peer_id).map(|q| q.len()).unwrap_or(0);
+        assert!(remaining > 0, "queue should still have messages");
+    }
+
+    #[test]
+    fn test_backup_redelivery_drop_expired() {
+        // Test that expired messages are dropped without being sent
+        let mut state = default_state(1);
+        let peer_id = node_id(2);
+        let now = now_ms();
+
+        // Manually enqueue expired and valid messages
+        {
+            let queue = state
+                .backup_redelivery_queue
+                .entry(peer_id)
+                .or_insert_with(VecDeque::new);
+            queue.push_back(("msg-expired".to_string(), now - 1000)); // Already expired
+            queue.push_back(("msg-valid".to_string(), now + 3600_000)); // 1h from now
+        }
+
+        // Set peer to Direct
+        state.peer_paths.insert(peer_id, PathKind::Direct);
+
+        // Register peer
+        state.topology.upsert(crate::relay::PeerInfo {
+            node_id: peer_id,
+            role: PeerRole::Peer,
+            status: PeerStatus::Online,
+            last_seen: now,
+        });
+
+        // Store valid payload only (expired message won't be found)
+        let _ = state.backup.store_message(
+            "msg-valid".to_string(),
+            vec![1, 2, 3],
+            peer_id,
+            state.local_id,
+            now,
+            None,
+        );
+
+        // Drain
+        let effects = state.drain_backup_queue();
+
+        // Should skip expired, send valid (1 effect)
+        assert_eq!(effects.len(), 1, "should send only the valid message");
+
+        // Queue should be empty
+        assert!(
+            state.backup_redelivery_queue.get(&peer_id).is_none(),
+            "queue should be cleaned up"
+        );
+    }
+
+    #[test]
+    fn test_backup_redelivery_grace_fallback() {
+        // Test grace period logic: Unknown path with grace expired → send; without grace → skip
+        let mut state = default_state(1);
+        let peer_id = node_id(2);
+        let now = now_ms();
+
+        // Register peer
+        state.topology.upsert(crate::relay::PeerInfo {
+            node_id: peer_id,
+            role: PeerRole::Peer,
+            status: PeerStatus::Online,
+            last_seen: now,
+        });
+
+        // Store a message
+        let _ = state.backup.store_message(
+            "msg-grace".to_string(),
+            vec![1, 2, 3],
+            peer_id,
+            state.local_id,
+            now,
+            None,
+        );
+
+        // Enqueue via prepare_backup_delivery (initializes grace)
+        state.prepare_backup_delivery(peer_id);
+
+        // Path is Unknown (default)
+        state.peer_paths.remove(&peer_id);
+
+        // First drain: should skip (grace period just started, not expired yet)
+        let effects1 = state.drain_backup_queue();
+        assert!(
+            effects1.is_empty(),
+            "should skip Unknown path while grace period active"
+        );
+        assert_eq!(
+            state.backup_redelivery_queue.get(&peer_id).map(|q| q.len()),
+            Some(1),
+            "message should still be in queue"
+        );
+
+        // Simulate grace period passed: set last_redelivery_at to old value
+        state.backup_last_redelivery_at.insert(peer_id, now - RuntimeState::BACKUP_GRACE_MS - 1);
+
+        // Second drain: should send (grace expired)
+        let effects2 = state.drain_backup_queue();
+        assert_eq!(effects2.len(), 1, "should send after grace period expired");
+
+        // Queue should be empty
+        assert!(
+            state.backup_redelivery_queue.get(&peer_id).is_none(),
+            "message should be dequeued"
+        );
+    }
+
+    #[test]
+    fn test_backup_redelivery_dedup() {
+        // Test that duplicate message IDs are not enqueued twice
+        let mut state = default_state(1);
+        let peer_id = node_id(2);
+        let now = now_ms();
+
+        // Store a message
+        let msg_id = "msg-dedup".to_string();
+        let _ = state.backup.store_message(
+            msg_id.clone(),
+            vec![1, 2, 3],
+            peer_id,
+            state.local_id,
+            now,
+            None,
+        );
+
+        // Call prepare_backup_delivery twice
+        let effects1 = state.prepare_backup_delivery(peer_id);
+        let effects2 = state.prepare_backup_delivery(peer_id);
+
+        // Both should be empty (no effects)
+        assert!(effects1.is_empty());
+        assert!(effects2.is_empty());
+
+        // Queue should have only one message (dedup)
+        let queue = state.backup_redelivery_queue.get(&peer_id);
+        assert!(queue.is_some());
+        assert_eq!(queue.unwrap().len(), 1, "message should be enqueued only once (dedup)");
     }
 }
