@@ -301,8 +301,9 @@ impl tom_connect::protocol::ProtocolHandler for TomProtocolHandler {
             });
         }
 
-        // Connexion fermée : retirer du registre entrant.
-        state.pool.unregister_inbound(&remote).await;
+        // Connexion fermée : retirer du registre entrant (seulement si c'est
+        // encore CETTE connexion qui y est enregistrée — voir unregister_inbound).
+        state.pool.unregister_inbound(&remote, &connection).await;
 
         Ok(())
     }

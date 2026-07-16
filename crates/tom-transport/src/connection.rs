@@ -50,9 +50,21 @@ impl ConnectionPool {
         self.inbound.lock().await.insert(id, conn);
     }
 
-    /// Retire une connexion entrante (à la fermeture de l'accept-loop).
-    pub async fn unregister_inbound(&self, id: &NodeId) {
-        self.inbound.lock().await.remove(id);
+    /// Retire une connexion entrante (à la fermeture de l'accept-loop) —
+    /// SEULEMENT si l'entrée du registre est bien CETTE connexion. Un pair
+    /// qui redémarre re-dial : sa nouvelle connexion écrase l'ancienne dans
+    /// la map (même NodeId), puis l'accept-loop de l'ANCIENNE se termine et
+    /// venait supprimer l'entrée de la NOUVELLE pourtant vivante → le pair
+    /// disparaissait de connected_peers pour toujours (0 pair affiché côté
+    /// accepteur après un restart de flotte).
+    pub async fn unregister_inbound(&self, id: &NodeId, conn: &Connection) {
+        let mut inbound = self.inbound.lock().await;
+        if inbound
+            .get(id)
+            .is_some_and(|current| current.stable_id() == conn.stable_id())
+        {
+            inbound.remove(id);
+        }
     }
 
     /// Replace default relay URL candidates used when no peer address is known.
@@ -172,6 +184,11 @@ impl ConnectionPool {
                 }
             }
         }
-        set.into_iter().collect()
+        // Ordre STABLE (tri par id) : un HashSet renvoie un ordre différent à
+        // chaque appel → la liste de pairs « sautait » à l'écran à chaque
+        // rafraîchissement (1 s). L'UI ne doit pas re-trier, la source fait foi.
+        let mut peers: Vec<NodeId> = set.into_iter().collect();
+        peers.sort_by_key(|id| id.as_bytes());
+        peers
     }
 }
