@@ -261,22 +261,11 @@ struct StatusView: View {
                         .font(.caption).fontWeight(.semibold)
                 }
 
-                // Chemin actif
+                // Chemin actif — agrégat honnête des paths_by_peer
                 HStack {
-                    Text("Chemin:").font(.caption).foregroundColor(.secondary)
-                    if nodeService.pathKind == "DIRECT" {
-                        HStack(spacing: 2) {
-                            Image(systemName: "bolt.fill").font(.caption2).foregroundColor(.green)
-                            Text("Direct \(nodeService.pathRttMs)ms")
-                                .font(.caption).fontWeight(.semibold).foregroundColor(.green)
-                        }
-                    } else {
-                        HStack(spacing: 2) {
-                            Image(systemName: "cloud.fill").font(.caption2).foregroundColor(.secondary)
-                            Text("Relais")
-                                .font(.caption).fontWeight(.semibold)
-                        }
-                    }
+                    Text("Chemins:").font(.caption).foregroundColor(.secondary)
+                    Text(aggregatePathsLabel())
+                        .font(.caption).fontWeight(.semibold)
                 }
             }
         }
@@ -309,16 +298,25 @@ struct StatusView: View {
             } else {
                 VStack(alignment: .leading, spacing: 6) {
                     ForEach(Array(allPeers.prefix(10)), id: \.0) { peerId, isConnected in
-                        HStack(spacing: 8) {
-                            Circle().fill(isConnected ? .green : Color.gray.opacity(0.4))
-                                .frame(width: 6, height: 6)
-                            Text(nodeService.nameWithBuild(for: peerId))
-                                .font(.subheadline)
-                                .fontWeight(isConnected ? .semibold : .regular)
-                                .lineLimit(1)
-                            Spacer()
-                            if isConnected {
-                                Text("✓").font(.caption2).foregroundColor(.green)
+                        VStack(alignment: .leading, spacing: 2) {
+                            HStack(spacing: 8) {
+                                Circle().fill(isConnected ? .green : Color.gray.opacity(0.4))
+                                    .frame(width: 6, height: 6)
+                                Text(nodeService.nameWithBuild(for: peerId))
+                                    .font(.subheadline)
+                                    .fontWeight(isConnected ? .semibold : .regular)
+                                    .lineLimit(1)
+                                Spacer()
+                                if isConnected {
+                                    Text("✓").font(.caption2).foregroundColor(.green)
+                                }
+                            }
+                            // Path badge si connu
+                            if let pathInfo = nodeService.pathsByPeer[peerId] {
+                                let pathLabel = formatPathLabel(pathInfo)
+                                Text(pathLabel)
+                                    .font(.caption2).foregroundColor(.secondary)
+                                    .lineLimit(1)
                             }
                         }
                         .padding(.vertical, 4)
@@ -504,6 +502,39 @@ struct StatusView: View {
         case "DHT":      return .blue
         default:         return .secondary
         }
+    }
+
+    // MARK: - Path Formatting Helpers
+
+    private func formatPathLabel(_ pathInfo: PathInfo) -> String {
+        var result = pathInfo.kind
+
+        // v4/v6 n'a de sens que pour un path DIRECT ('[' = IPv6)
+        if pathInfo.kind == "DIRECT" {
+            result += pathInfo.addr.contains("[") ? " v6" : " v4"
+        }
+
+        if pathInfo.rtt_ms > 0 {
+            result += " \(pathInfo.rtt_ms)ms"
+        }
+
+        return result
+    }
+
+    private func aggregatePathsLabel() -> String {
+        if nodeService.pathsByPeer.isEmpty {
+            return "path=?"
+        }
+
+        var counts: [String: Int] = [:]
+        for pathInfo in nodeService.pathsByPeer.values {
+            counts[pathInfo.kind, default: 0] += 1
+        }
+
+        let parts = counts.sorted { $0.key < $1.key }
+            .map { "\($0.value) \($0.key)" }
+
+        return parts.joined(separator: " · ")
     }
 
     // MARK: - Time Formatting Helpers

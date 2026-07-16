@@ -33,4 +33,6 @@ pub struct PathEvent {
     pub remote: NodeId,
     /// When this event occurred.
     pub timestamp: Instant,
+    /// Remote address of the selected path (e.g., "192.168.0.82:61240", "relay:http://...").
+    pub addr: String,
 }

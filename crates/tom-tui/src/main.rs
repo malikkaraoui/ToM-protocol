@@ -2,7 +2,7 @@
 ///
 /// Full-stack demo: iroh QUIC transport + protocol layer (envelope,
 /// crypto, routing) + ratatui terminal UI.
-use std::collections::VecDeque;
+use std::collections::{VecDeque, HashMap};
 use std::io;
 use std::net::UdpSocket;
 use std::sync::{Arc, Mutex};
@@ -19,6 +19,45 @@ use tom_protocol::{
     RuntimeHandle,
 };
 use tom_transport::{TomNode, TomNodeConfig};
+
+/// Per-peer path information
+#[derive(Debug, Clone)]
+struct PathInfo {
+    kind: String,
+    rtt_ms: u64,
+    addr: String,
+}
+
+/// Type alias for per-peer path info: node_id → PathInfo
+type PathsByPeerMap = HashMap<String, PathInfo>;
+
+/// Hard cap for per-peer path tracking (same spirit as the FFI cache bound).
+const MAX_PATH_ENTRIES: usize = 2048;
+
+/// Track path changes per peer (bounded) and purge entries when a peer leaves.
+fn track_path_event(paths_by_peer: &Arc<Mutex<PathsByPeerMap>>, evt: &ProtocolEvent) {
+    match evt {
+        ProtocolEvent::PathChanged { event } => {
+            let mut pbp = paths_by_peer.lock().unwrap();
+            let node_id = event.remote.to_string();
+            // Bounded insert: ignore if at capacity and key is new
+            if pbp.contains_key(&node_id) || pbp.len() < MAX_PATH_ENTRIES {
+                pbp.insert(
+                    node_id,
+                    PathInfo {
+                        kind: format!("{}", event.kind),
+                        rtt_ms: event.rtt.as_millis() as u64,
+                        addr: event.addr.clone(),
+                    },
+                );
+            }
+        }
+        ProtocolEvent::PeerOffline { node_id } | ProtocolEvent::PeerStale { node_id } => {
+            paths_by_peer.lock().unwrap().remove(&node_id.to_string());
+        }
+        _ => {}
+    }
+}
 
 // ── UDP Log Sender ──────────────────────────────────────────────────────
 
@@ -136,7 +175,12 @@ fn timestamp_ms() -> u64 {
 
 /// Spawns a tiny HTTP server that responds to any GET with a JSON status page.
 /// No dependency on hyper — raw TCP + minimal HTTP response.
-fn spawn_status_server(port: u16, handle: RuntimeHandle, node_label: String) {
+fn spawn_status_server(
+    port: u16,
+    handle: RuntimeHandle,
+    node_label: String,
+    paths_by_peer: Arc<Mutex<PathsByPeerMap>>,
+) {
     tokio::spawn(async move {
         let listener = match tokio::net::TcpListener::bind(format!("0.0.0.0:{}", port)).await {
             Ok(l) => l,
@@ -151,6 +195,7 @@ fn spawn_status_server(port: u16, handle: RuntimeHandle, node_label: String) {
             let Ok((mut stream, _)) = listener.accept().await else { continue };
             let handle = handle.clone();
             let label = node_label.clone();
+            let paths_by_peer = paths_by_peer.clone();
 
             tokio::spawn(async move {
                 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -179,6 +224,20 @@ fn spawn_status_server(port: u16, handle: RuntimeHandle, node_label: String) {
                     else { "unknown" };
                 let relay_url = std::env::var("TOM_RELAY_URL").unwrap_or_default();
 
+                // Build paths_by_peer JSON array using serde_json for correct escaping
+                let paths_json = {
+                    let pbp = paths_by_peer.lock().unwrap();
+                    let paths_list: Vec<serde_json::Value> = pbp.iter().map(|(node_id, info)| {
+                        serde_json::json!({
+                            "node_id": node_id,
+                            "kind": &info.kind,
+                            "rtt_ms": info.rtt_ms,
+                            "addr": &info.addr
+                        })
+                    }).collect();
+                    serde_json::Value::Array(paths_list).to_string()
+                };
+
                 let body = format!(
                     concat!(
                         "{{",
@@ -193,6 +252,7 @@ fn spawn_status_server(port: u16, handle: RuntimeHandle, node_label: String) {
                         "\"relayeurs\":{relayeurs},",
                         "\"pairs_connectes\":[{peers}],",
                         "\"groupes\":[{groups}],",
+                        "\"paths_by_peer\":{paths},",
                         "\"messages_envoyes\":{sent},",
                         "\"messages_recus\":{recv},",
                         "\"messages_echoues\":{failed},",
@@ -209,6 +269,7 @@ fn spawn_status_server(port: u16, handle: RuntimeHandle, node_label: String) {
                     relayeurs = snap.relayeurs_connus,
                     peers = peers_json.join(","),
                     groups = groups_json.join(","),
+                    paths = paths_json,
                     sent = snap.messages_sent,
                     recv = snap.messages_received,
                     failed = snap.messages_failed,
@@ -810,9 +871,12 @@ async fn main() -> anyhow::Result<()> {
         mut events,
     } = ProtocolRuntime::spawn(node, config);
 
+    // Per-peer path tracking: node_id → (kind, rtt_ms, addr)
+    let paths_by_peer = Arc::new(Mutex::new(PathsByPeerMap::new()));
+
     // Start status HTTP server if requested
     if let Some(port) = cli.status_port {
-        spawn_status_server(port, handle.clone(), cli.node_label.clone());
+        spawn_status_server(port, handle.clone(), cli.node_label.clone(), paths_by_peer.clone());
     }
 
     // Inbox partagé pour l'observabilité des messages reçus (endpoint /inbox).
@@ -869,7 +933,7 @@ async fn main() -> anyhow::Result<()> {
             });
         }
 
-        return run_bot(ctx, handle, messages, events, cli.bot_ping, inbox).await;
+        return run_bot(ctx, handle, messages, events, cli.bot_ping, inbox, paths_by_peer).await;
     }
 
     let mut app = App::new(local_id);
@@ -948,6 +1012,8 @@ async fn main() -> anyhow::Result<()> {
 
         // Process protocol events
         while let Ok(evt) = events.try_recv() {
+            // Track path changes per peer (same as bot mode, for status server consistency)
+            track_path_event(&paths_by_peer, &evt);
             handle_protocol_event(&mut app, &evt);
         }
 
@@ -1239,6 +1305,7 @@ async fn run_bot(
     mut events: tokio::sync::mpsc::Receiver<ProtocolEvent>,
     bot_ping_secs: Option<u64>,
     inbox: Inbox,
+    paths_by_peer: Arc<Mutex<PathsByPeerMap>>,
 ) -> anyhow::Result<()> {
     ctx.log_event("bot_start", &format!("id={}", handle.local_id()));
 
@@ -1302,6 +1369,18 @@ async fn run_bot(
             }
             evt_opt = events.recv() => {
                 let Some(evt) = evt_opt else { break; };
+                // Track path changes per peer (both bot and TUI modes)
+                track_path_event(&paths_by_peer, &evt);
+                if let ProtocolEvent::PathChanged { event } = &evt {
+                    // Log path changes to collecteur
+                    ctx.log_event("path_change", &format!(
+                        "pair={} kind={} rtt_ms={} addr={}",
+                        short_node_id(&event.remote),
+                        event.kind,
+                        event.rtt.as_millis(),
+                        event.addr
+                    ));
+                }
                 // Capture des messages de groupe (canal events, pas DeliveredMessage)
                 // pour l'endpoint /inbox — indispensable à la validation R13.
                 if let ProtocolEvent::GroupMessageReceived { message } = &evt {

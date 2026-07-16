@@ -135,6 +135,13 @@ public struct TomGroupMessage: Codable, Identifiable {
     }
 }
 
+/// Per-peer path information
+public struct PathInfo: Codable {
+    public let kind: String
+    public let rtt_ms: UInt64
+    public let addr: String
+}
+
 /// Instantané d'état du nœud (depuis `tom_node_status`).
 public struct TomNodeStatus: Codable {
     public let nodeId: String
@@ -144,9 +151,12 @@ public struct TomNodeStatus: Codable {
     public let localRole: String?
     public let pathKind: String?
     public let pathRttMs: UInt64?
+    public let pathAddr: String?
     public let clockSkewMs: Int64?
     public let clockSkewSamples: UInt64?
     public let appBuild: UInt32
+    /// Per-peer path information: node_id → PathInfo
+    public let pathsByPeer: [String: PathInfo]?
 
     enum CodingKeys: String, CodingKey {
         case nodeId = "node_id"
@@ -156,9 +166,11 @@ public struct TomNodeStatus: Codable {
         case localRole = "local_role"
         case pathKind = "path_kind"
         case pathRttMs = "path_rtt_ms"
+        case pathAddr = "path_addr"
         case clockSkewMs = "clock_skew_ms"
         case clockSkewSamples = "clock_skew_samples"
         case appBuild = "app_build"
+        case pathsByPeer = "paths_by_peer"
     }
 }
 
@@ -263,6 +275,7 @@ public struct TomProtocolEvent: Codable, Hashable, Identifiable {
     // ── Path/Role info ──
     public let path_kind: String? // "RELAY" | "DIRECT"
     public let rtt_ms: UInt64?
+    public let path_addr: String?
     public let new_role: String? // "Client" | "Relay" | "Backup"
 
     // ── Presence ──
@@ -329,7 +342,11 @@ public struct TomProtocolEvent: Codable, Hashable, Identifiable {
         case "SenderThrottled":
             return "🚨 Pair ralenti \(shortId(node_id)) (antispam)"
         case "PathChanged":
-            return "🔀 Chemin → \(path_kind ?? "?")"
+            var detail = path_kind ?? "?"
+            if let addr = path_addr, !addr.isEmpty {
+                detail += " \(addr)"
+            }
+            return "🔀 Chemin \(shortId(node_id)) → \(detail)"
         case "MessageRejected":
             return "❌ Message rejeté : \(reason ?? "?")"
         case "Forwarded":
@@ -381,6 +398,7 @@ public struct TomProtocolEvent: Codable, Hashable, Identifiable {
         case description
         case path_kind
         case rtt_ms
+        case path_addr
         case new_role
         case latency_ms
         case attempt

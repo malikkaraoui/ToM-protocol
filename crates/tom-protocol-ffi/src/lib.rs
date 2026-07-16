@@ -22,11 +22,18 @@ use tom_protocol::{DeliveredMessage, ProtocolEvent, ProtocolRuntime, RuntimeChan
 use tom_transport::TomNodeConfig;
 
 mod types;
-use types::{DeliveredMessageFFI, DiscoveredPeerFFI, GroupConfigFFI, NodeConfigFFI, NodeStatusFFI, PeerAddrFFI, PresenceMetricsFFI, PresenceStatsFFI, ProtocolEventFFI, RuntimeConfigFFI};
+use types::{DeliveredMessageFFI, DiscoveredPeerFFI, GroupConfigFFI, NodeConfigFFI, NodeStatusFFI, PeerAddrFFI, PathInfoFFI, PresenceMetricsFFI, PresenceStatsFFI, ProtocolEventFFI, RuntimeConfigFFI};
+
+/// Type alias for per-peer path info: node_id → PathInfoFFI
+type PathsByPeerMap = HashMap<String, PathInfoFFI>;
 
 /// Hard cap for discovered peer cache exposed over FFI.
 /// Prevents unbounded growth on long-running tvOS sessions.
 const MAX_DISCOVERED_PEERS: usize = 2048;
+
+/// Hard cap for per-peer path tracking cache.
+/// Prevents unbounded growth in the paths_by_peer HashMap.
+const MAX_PATH_ENTRIES: usize = 2048;
 
 /// Opaque handle to the TOM protocol node (passed to/from Swift as void*)
 pub struct TomNodeHandle {
@@ -44,8 +51,8 @@ pub struct TomNodeHandle {
     node_id: Arc<Mutex<Option<String>>>,
     /// Last error message (retrievable by Swift after a -1 return)
     last_error: Arc<std::sync::Mutex<Option<String>>>,
-    /// Last known path kind + RTT ms (updated from PathChanged events)
-    last_path: Arc<Mutex<Option<(String, u64)>>>,
+    /// Last known paths by peer: node_id → (kind, rtt_ms, addr) (updated from PathChanged events)
+    last_paths: Arc<Mutex<PathsByPeerMap>>,
     /// Local node role: "Peer" or "Relay" (updated from LocalRoleChanged events)
     local_role: Arc<Mutex<String>>,
     /// Relay URL passed at start time (stored for status reporting).
@@ -166,7 +173,7 @@ pub unsafe extern "C" fn tom_node_create(config_json: *const c_char) -> *mut Tom
         discovered_peers: Arc::new(Mutex::new(HashMap::new())),
         node_id: Arc::new(Mutex::new(None)),
         last_error: Arc::new(std::sync::Mutex::new(None)),
-        last_path: Arc::new(Mutex::new(None)),
+        last_paths: Arc::new(Mutex::new(HashMap::new())),
         local_role: Arc::new(Mutex::new("Peer".to_string())),
         configured_relay_url: Arc::new(std::sync::Mutex::new(None)),
         presence_stats: Arc::new(Mutex::new((0, String::new(), 0))),
@@ -308,7 +315,7 @@ pub unsafe extern "C" fn tom_node_start(
         let event_queue_clone = event_queue.clone();
         let group_message_queue_clone = group_message_queue.clone();
         let discovered_peers_clone = handle_ref.discovered_peers.clone();
-        let last_path_clone = handle_ref.last_path.clone();
+        let last_paths_clone = handle_ref.last_paths.clone();
         let local_role_clone = handle_ref.local_role.clone();
         let presence_stats_clone = handle_ref.presence_stats.clone();
         let mut messages_rx = channels.messages;
@@ -326,10 +333,23 @@ pub unsafe extern "C" fn tom_node_start(
                         }
                     }
                     Some(event) = events_rx.recv() => {
-                        // Track path upgrades (RELAY ↔ DIRECT)
+                        // Track path upgrades (RELAY ↔ DIRECT) per peer
                         if let ProtocolEvent::PathChanged { ref event } = event {
-                            let mut lp = last_path_clone.lock().await;
-                            *lp = Some((format!("{}", event.kind), event.rtt.as_millis() as u64));
+                            let mut lp = last_paths_clone.lock().await;
+                            let node_id = event.remote.to_string();
+                            // Bounded insert: ignore if at capacity and key is new
+                            if lp.contains_key(&node_id) || lp.len() < MAX_PATH_ENTRIES {
+                                lp.insert(node_id, PathInfoFFI {
+                                    kind: format!("{}", event.kind),
+                                    rtt_ms: event.rtt.as_millis() as u64,
+                                    addr: event.addr.clone(),
+                                });
+                            }
+                        }
+                        // Purge path entries on peer offline/stale
+                        if let ProtocolEvent::PeerOffline { ref node_id } | ProtocolEvent::PeerStale { ref node_id } = event {
+                            let mut lp = last_paths_clone.lock().await;
+                            lp.remove(&node_id.to_string());
                         }
                         // Track local role changes
                         if let ProtocolEvent::LocalRoleChanged { ref new_role } = event {
@@ -1023,9 +1043,43 @@ pub unsafe extern "C" fn tom_node_status(handle: *const TomNodeHandle) -> *mut c
         };
 
         let local_role = handle_ref.local_role.lock().await.clone();
-        let (path_kind, path_rtt_ms) = {
-            let lp = handle_ref.last_path.lock().await;
-            lp.clone().unwrap_or_else(|| ("RELAY".to_string(), 0))
+        let (path_kind, path_rtt_ms, path_addr, paths_by_peer) = {
+            let lp = handle_ref.last_paths.lock().await;
+            let paths_map = if lp.is_empty() {
+                None
+            } else {
+                Some(lp.clone())
+            };
+
+            // Compute worst aggregate for compat: severity order UNKNOWN > RELAY > DIRECT,
+            // and at equal severity use the path with max RTT. Fallback to RELAY.
+            let (kind, rtt, addr) = if lp.is_empty() {
+                ("RELAY".to_string(), 0, String::new())
+            } else {
+                let mut worst = PathInfoFFI {
+                    kind: "DIRECT".to_string(),
+                    rtt_ms: 0,
+                    addr: String::new(),
+                };
+                for info in lp.values() {
+                    let severity = match info.kind.as_str() {
+                        "UNKNOWN" => 2,
+                        "RELAY" => 1,
+                        _ => 0, // DIRECT
+                    };
+                    let worst_severity = match worst.kind.as_str() {
+                        "UNKNOWN" => 2,
+                        "RELAY" => 1,
+                        _ => 0,
+                    };
+                    // Replace if this is worse, or same severity with higher RTT
+                    if severity > worst_severity || (severity == worst_severity && info.rtt_ms > worst.rtt_ms) {
+                        worst = info.clone();
+                    }
+                }
+                (worst.kind, worst.rtt_ms, worst.addr)
+            };
+            (kind, rtt, if addr.is_empty() { None } else { Some(addr) }, paths_map)
         };
 
         // Clock skew (optional, needs access to the runtime handle)
@@ -1054,10 +1108,12 @@ pub unsafe extern "C" fn tom_node_status(handle: *const TomNodeHandle) -> *mut c
             local_role,
             path_kind,
             path_rtt_ms,
+            path_addr,
             relay_url_active,
             clock_skew_ms,
             clock_skew_samples,
             app_build,
+            paths_by_peer,
         };
         serde_json::to_string(&status_payload).unwrap_or_else(|_| "{}".to_string())
     });

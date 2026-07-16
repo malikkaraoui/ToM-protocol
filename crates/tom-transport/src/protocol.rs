@@ -4,6 +4,7 @@ use crate::{NodeId, TomTransportError};
 
 use tom_connect::endpoint::Connection;
 use tom_connect::protocol::AcceptError;
+use tom_base::TransportAddr;
 use n0_future::StreamExt;
 use n0_watcher::Watcher;
 use std::sync::Arc;
@@ -300,7 +301,9 @@ impl tom_connect::protocol::ProtocolHandler for TomProtocolHandler {
 }
 
 /// Spawn a background task that monitors path changes for a connection.
-fn spawn_path_watcher(
+/// Posé sur les connexions entrantes (accept) ET sortantes (pool) — sinon la
+/// vue par pair est asymétrique (un nœud qui ne fait que dialer n'émet rien).
+pub(crate) fn spawn_path_watcher(
     connection: &Connection,
     remote: NodeId,
     tx: broadcast::Sender<PathEvent>,
@@ -308,18 +311,22 @@ fn spawn_path_watcher(
     let paths = connection.paths();
     let mut stream = paths.stream();
     let mut last_kind = PathKind::Unknown;
+    let mut last_addr = String::new();
 
     tokio::spawn(async move {
         while let Some(path_info) = stream.next().await {
-            let (kind, rtt) = classify_path(&path_info);
+            let (kind, rtt, addr) = classify_path(&path_info);
 
-            if kind != last_kind {
+            // Emit event if kind or addr changed
+            if kind != last_kind || addr != last_addr {
                 last_kind = kind;
+                last_addr = addr.clone();
                 let event = PathEvent {
                     kind,
                     rtt,
                     remote,
                     timestamp: Instant::now(),
+                    addr,
                 };
                 // Ignore send errors (no subscribers)
                 let _ = tx.send(event);
@@ -328,20 +335,30 @@ fn spawn_path_watcher(
     });
 }
 
-/// Classify the current path from the PathInfoList.
+/// Classify the current path from the PathInfoList, returning kind, RTT, and address.
 fn classify_path(
     paths: &tom_connect::endpoint::PathInfoList,
-) -> (PathKind, std::time::Duration) {
+) -> (PathKind, std::time::Duration, String) {
     for path in paths.iter() {
         if path.is_selected() {
+            let addr = format_transport_addr(path.remote_addr());
             if path.is_relay() {
-                return (PathKind::Relay, path.rtt());
+                return (PathKind::Relay, path.rtt(), addr);
             } else {
-                return (PathKind::Direct, path.rtt());
+                return (PathKind::Direct, path.rtt(), addr);
             }
         }
     }
-    (PathKind::Unknown, std::time::Duration::ZERO)
+    (PathKind::Unknown, std::time::Duration::ZERO, String::new())
+}
+
+/// Format a TransportAddr for display.
+fn format_transport_addr(addr: &TransportAddr) -> String {
+    match addr {
+        TransportAddr::Relay(url) => format!("relay:{}", url),
+        TransportAddr::Ip(socket_addr) => socket_addr.to_string(),
+        _ => String::new(),
+    }
 }
 
 #[cfg(test)]

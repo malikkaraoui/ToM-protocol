@@ -22,7 +22,9 @@ APPLETV=2C36638F-EC0B-5A75-B74F-5507E15D1E98       # Apple TV "Séjour"
 IPHONE=C3CFC878-6C8D-5B87-8B35-1CB108A4922A        # iPhone 12 Pro (iOS 18.7.2)
 
 PROJ=apps/tom-node-tvos/TomNode.xcodeproj
-IOS_BUNDLE=malik.karaoui.TomNode-iOS
+# Bundle UNIQUE depuis l'unification (le target universel garde l'id tvOS).
+# L'ancien id "…TomNode-iOS" faisait échouer le launch iPad (install OK, launch unknown).
+IOS_BUNDLE=malik.karaoui.TomNode
 TV_BUNDLE=malik.karaoui.TomNode
 IOS_APP=build/ios-app/Build/Products/Debug-iphoneos/TomNode.app
 TV_APP=build/tvos-app/Build/Products/Debug-appletvos/TomNode.app

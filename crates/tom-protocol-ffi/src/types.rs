@@ -4,6 +4,14 @@ use base64::Engine;
 use serde::{Deserialize, Serialize};
 use tom_protocol::types::NodeId;
 
+/// Per-peer path information for status JSON
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PathInfoFFI {
+    pub kind: String,
+    pub rtt_ms: u64,
+    pub addr: String,
+}
+
 /// Serializable version of DeliveredMessage for FFI
 /// Note: payload is base64-encoded for Swift Data compatibility
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -174,11 +182,16 @@ pub struct NodeStatusFFI {
     pub local_role: String,
     pub path_kind: String,
     pub path_rtt_ms: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub path_addr: Option<String>,
     pub relay_url_active: String,
     pub clock_skew_ms: Option<i64>,
     pub clock_skew_samples: u64,
     /// Application build number of this node (non-authoritative hint).
     pub app_build: u32,
+    /// Per-peer path information: node_id → PathInfoFFI
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub paths_by_peer: Option<std::collections::HashMap<String, PathInfoFFI>>,
 }
 
 /// L1-001 presence stats snapshot polled by Swift (key contract with the
@@ -311,6 +324,9 @@ pub struct ProtocolEventFFI {
     pub rtt_ms: Option<u64>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub path_addr: Option<String>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub new_role: Option<String>,
 
     // Presence
@@ -401,8 +417,10 @@ impl ProtocolEventFFI {
                 Self {
                     r#type: "PathChanged".to_string(),
                     ts_ms,
+                    node_id: Some(event.remote.to_string()),
                     path_kind: Some(format!("{}", event.kind)),
                     rtt_ms: Some(event.rtt.as_millis() as u64),
+                    path_addr: Some(event.addr),
                     ..Default::default()
                 }
             }

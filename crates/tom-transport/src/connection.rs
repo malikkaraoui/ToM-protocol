@@ -1,9 +1,10 @@
-use crate::{NodeId, TomTransportError};
+use crate::protocol::spawn_path_watcher;
+use crate::{NodeId, PathEvent, TomTransportError};
 
 use tom_connect::endpoint::Connection;
 use tom_connect::{Endpoint, EndpointAddr};
 use std::collections::HashMap;
-use tokio::sync::Mutex;
+use tokio::sync::{broadcast, Mutex};
 
 /// Caches QUIC connections per peer. First `send()` triggers connect,
 /// subsequent sends reuse the cached connection.
@@ -16,6 +17,8 @@ pub(crate) struct ConnectionPool {
     /// Used when n0 discovery is disabled — the pool will try each relay in
     /// order before failing the connection attempt.
     default_relay_urls: Mutex<Vec<tom_connect::RelayUrl>>,
+    /// Path events for outbound connections (same channel as the accept side).
+    path_event_tx: broadcast::Sender<PathEvent>,
 }
 
 impl ConnectionPool {
@@ -23,6 +26,7 @@ impl ConnectionPool {
         endpoint: Endpoint,
         alpn: Vec<u8>,
         default_relay_urls: Vec<tom_connect::RelayUrl>,
+        path_event_tx: broadcast::Sender<PathEvent>,
     ) -> Self {
         Self {
             endpoint,
@@ -30,6 +34,7 @@ impl ConnectionPool {
             addresses: Mutex::new(HashMap::new()),
             alpn,
             default_relay_urls: Mutex::new(default_relay_urls),
+            path_event_tx,
         }
     }
 
@@ -114,6 +119,10 @@ impl ConnectionPool {
                     .into(),
             });
         };
+
+        // Watcher aussi sur les connexions SORTANTES — sans lui, un nœud qui
+        // ne fait que dialer n'émet aucun PathChanged (vue par pair asymétrique).
+        spawn_path_watcher(&conn, target, self.path_event_tx.clone());
 
         conns.insert(target, conn.clone());
         Ok(conn)

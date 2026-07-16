@@ -71,6 +71,9 @@ final class TomNodeService: ObservableObject {
     @Published var localRole: String = "Peer"
     @Published var pathKind: String = "RELAY"
     @Published var pathRttMs: UInt64 = 0
+    @Published var pathAddr: String?
+    /// Per-peer path info (node_id → kind, rtt_ms, addr)
+    @Published var pathsByPeer: [String: PathInfo] = [:]
     // Écart d'horloge médian vs le réseau (ms) — nil tant que < 5 échantillons.
     // Signal honnête : inclut la latence réseau (pas une synchro NTP).
     @Published var clockSkewMs: Int64?
@@ -1178,6 +1181,8 @@ final class TomNodeService: ObservableObject {
                     if let role = status.localRole { self.localRole = role }
                     if let pk = status.pathKind { self.pathKind = pk }
                     if let rtt = status.pathRttMs { self.pathRttMs = rtt }
+                    self.pathAddr = status.pathAddr
+                    self.pathsByPeer = status.pathsByPeer ?? [:]
                     self.clockSkewMs = status.clockSkewMs
                     self.clockSkewSamples = status.clockSkewSamples ?? 0
                     self.appBuild = status.appBuild
@@ -1508,7 +1513,11 @@ final class TomNodeService: ObservableObject {
             "uptime_secondes": uptimeSec,
             // Build affiché à l'écran — exposé ici pour vérifier à distance
             // quel binaire tourne réellement (anti-staleness / anti-drift).
-            "app_build": TomVersion.build
+            "app_build": TomVersion.build,
+            // Path par pair (vérité terrain #33) : node_id → kind/rtt/addr
+            "paths_by_peer": pathsByPeer.mapValues { info -> [String: Any] in
+                ["kind": info.kind, "rtt_ms": info.rtt_ms, "addr": info.addr]
+            }
         ]
         guard let data = try? JSONSerialization.data(withJSONObject: dict, options: [.sortedKeys]),
               let str = String(data: data, encoding: .utf8) else { return "{}" }

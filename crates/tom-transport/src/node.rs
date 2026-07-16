@@ -308,7 +308,12 @@ impl TomNode {
         } else {
             Vec::new()
         };
-        let pool = Arc::new(ConnectionPool::new(endpoint.clone(), config.alpn.clone(), default_relays));
+        let pool = Arc::new(ConnectionPool::new(
+            endpoint.clone(),
+            config.alpn.clone(),
+            default_relays,
+            path_event_tx.clone(),
+        ));
 
         let handler_state = Arc::new(HandlerState {
             incoming_tx,
