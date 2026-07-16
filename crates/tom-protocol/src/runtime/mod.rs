@@ -407,6 +407,14 @@ pub enum ProtocolEvent {
         recipient_id: NodeId,
     },
     // ── Delivery events ─────────────────────────────
+    /// A tracked outgoing message changed status
+    /// (Pending → Sent → Relayed → Delivered / Failed). Surfaces the
+    /// per-message lifecycle to the UI so it can show « en cours → délivré ».
+    MessageStatusChanged {
+        message_id: String,
+        to: NodeId,
+        status: crate::types::MessageStatus,
+    },
     /// A message delivery was retried after ACK timeout.
     DeliveryRetry {
         message_id: String,

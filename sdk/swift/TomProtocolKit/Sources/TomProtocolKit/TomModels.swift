@@ -43,6 +43,36 @@ public struct TomPeer: Identifiable, Codable {
 }
 
 /// Un message reçu (déchiffré, signature vérifiée côté Rust).
+/// Cycle de vie d'un message SORTANT, reflété depuis le tracker Rust
+/// (Pending→Sent→Relayed→Delivered/Failed) + purge du store à la livraison.
+public enum TomDeliveryStatus: String, Codable {
+    case sending          // en cours (pas encore d'ACK)
+    case relayed          // relais a accusé réception
+    case delivered        // ACK du destinataire (livré)
+    case purged           // backup purgé du store expéditeur après livraison
+    case failed           // abandonné après retries
+
+    public var label: String {
+        switch self {
+        case .sending: return "En cours"
+        case .relayed: return "Relayé"
+        case .delivered: return "Délivré"
+        case .purged: return "Délivré · purgé"
+        case .failed: return "Échec"
+        }
+    }
+
+    public var icon: String {
+        switch self {
+        case .sending: return "clock.arrow.circlepath"
+        case .relayed: return "antenna.radiowaves.left.and.right"
+        case .delivered: return "checkmark.circle.fill"
+        case .purged: return "trash.circle.fill"
+        case .failed: return "exclamationmark.triangle.fill"
+        }
+    }
+}
+
 public struct TomMessage: Identifiable, Codable {
     public let id: String // envelope_id
     public let from: NodeId
@@ -51,6 +81,16 @@ public struct TomMessage: Identifiable, Codable {
     public let signatureValid: Bool
     public let wasEncrypted: Bool
     public var groupId: GroupId?
+    // ── Champs message SORTANT (nil pour un message reçu) ──
+    /// Destinataire (nil ⇒ message entrant, `from` est l'expéditeur distant).
+    public var to: NodeId? = nil
+    /// true ⇒ message automatique (sonde/ping), false ⇒ tapé par l'utilisateur.
+    public var isAuto: Bool = false
+    /// Statut de livraison courant (messages sortants uniquement).
+    public var deliveryStatus: TomDeliveryStatus? = nil
+
+    /// Message sortant ⟺ on a un destinataire.
+    public var isOutgoing: Bool { to != nil }
 
     public var payloadData: Data {
         Data(base64Encoded: payload) ?? Data()
@@ -75,7 +115,10 @@ public struct TomMessage: Identifiable, Codable {
         timestamp: UInt64,
         signatureValid: Bool,
         wasEncrypted: Bool,
-        groupId: GroupId? = nil
+        groupId: GroupId? = nil,
+        to: NodeId? = nil,
+        isAuto: Bool = false,
+        deliveryStatus: TomDeliveryStatus? = nil
     ) {
         self.id = id
         self.from = from
@@ -84,6 +127,9 @@ public struct TomMessage: Identifiable, Codable {
         self.signatureValid = signatureValid
         self.wasEncrypted = wasEncrypted
         self.groupId = groupId
+        self.to = to
+        self.isAuto = isAuto
+        self.deliveryStatus = deliveryStatus
     }
 
     enum CodingKeys: String, CodingKey {
@@ -94,6 +140,9 @@ public struct TomMessage: Identifiable, Codable {
         case signatureValid = "signature_valid"
         case wasEncrypted = "was_encrypted"
         case groupId = "group_id"
+        case to
+        case isAuto
+        case deliveryStatus
     }
 }
 
@@ -367,6 +416,16 @@ public struct TomProtocolEvent: Codable, Hashable, Identifiable {
             return "🚀 Relai embarqué démarré"
         case "EmbeddedRelayFailed":
             return "💥 Relai embarqué : \(description ?? "erreur")"
+        case "MessageStatus":
+            let etat: String
+            switch last_status {
+            case "Pending", "Sent": etat = "📤 en cours"
+            case "Relayed": etat = "📡 relayé"
+            case "Delivered": etat = "✅ délivré"
+            case "Failed": etat = "❌ échec"
+            default: etat = last_status ?? "?"
+            }
+            return "\(etat) → \(shortId(node_id))"
         case "DeliveryRetry":
             return "🔄 Nouvelle tentative \(attempt ?? 0) vers \(shortId(node_id))"
         case "DeliveryTimeout":

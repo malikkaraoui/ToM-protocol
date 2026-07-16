@@ -106,6 +106,7 @@ mod tests {
     fn test_status_change() -> StatusChange {
         StatusChange {
             message_id: "msg-1".to_string(),
+            to: test_node_id(1),
             previous: MessageStatus::Pending,
             current: MessageStatus::Sent,
         }
@@ -192,6 +193,7 @@ mod tests {
     fn status_change_extracts_transition() {
         let change = StatusChange {
             message_id: "abc".to_string(),
+            to: test_node_id(1),
             previous: MessageStatus::Sent,
             current: MessageStatus::Delivered,
         };

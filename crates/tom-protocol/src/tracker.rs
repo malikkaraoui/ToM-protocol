@@ -29,6 +29,9 @@ pub const DEFAULT_MAX_RETRIES: u8 = 2;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StatusChange {
     pub message_id: String,
+    /// Destinataire du message. Permet à l'UI de corréler la transition au
+    /// message envoyé qu'elle affiche (elle connaît le `to`, pas l'id interne).
+    pub to: NodeId,
     pub previous: MessageStatus,
     pub current: MessageStatus,
 }
@@ -85,6 +88,7 @@ impl MessageTracker {
 
         Some(StatusChange {
             message_id,
+            to,
             previous: MessageStatus::Pending,
             current: MessageStatus::Pending,
         })
@@ -152,6 +156,7 @@ impl MessageTracker {
 
         Some(StatusChange {
             message_id: message_id.to_string(),
+            to: entry.to,
             previous,
             current: MessageStatus::Failed,
         })
@@ -233,9 +238,11 @@ impl MessageTracker {
 
         let previous = entry.status;
         entry.status = new_status;
+        let to = entry.to;
 
         Some(StatusChange {
             message_id: message_id.to_string(),
+            to,
             previous,
             current: new_status,
         })

@@ -522,6 +522,23 @@ impl ProtocolEventFFI {
                     ..Default::default()
                 }
             }
+            tom_protocol::ProtocolEvent::MessageStatusChanged {
+                message_id,
+                to,
+                status,
+            } => {
+                Self {
+                    r#type: "MessageStatus".to_string(),
+                    ts_ms,
+                    message_id: Some(message_id),
+                    node_id: Some(to.to_string()),
+                    // Réutilise le champ last_status (déjà décodé côté Swift)
+                    // pour porter le statut courant : "Pending"/"Sent"/
+                    // "Relayed"/"Delivered"/"Failed".
+                    last_status: Some(format!("{:?}", status)),
+                    ..Default::default()
+                }
+            }
             tom_protocol::ProtocolEvent::DeliveryRetry {
                 message_id,
                 to,

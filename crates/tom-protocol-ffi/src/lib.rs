@@ -320,6 +320,8 @@ pub unsafe extern "C" fn tom_node_start(
         let presence_stats_clone = handle_ref.presence_stats.clone();
         let mut messages_rx = channels.messages;
         let mut events_rx = channels.events;
+        let mut status_rx = channels.status_changes;
+        let status_event_queue = event_queue_clone.clone();
 
         tokio::spawn(async move {
             loop {
@@ -328,6 +330,20 @@ pub unsafe extern "C" fn tom_node_start(
                         let mut q = msg_queue_clone.lock().await;
                         q.push_back(msg);
                         // Keep queue bounded — drop oldest if too large
+                        while q.len() > 1000 {
+                            q.pop_front();
+                        }
+                    }
+                    // Statut de livraison par message (Pending→Sent→Relayed→
+                    // Delivered/Failed). Réinjecté dans la même file d'events que
+                    // le reste, en ProtocolEvent, pour l'UI Swift (statut visible).
+                    Some(change) = status_rx.recv() => {
+                        let mut q = status_event_queue.lock().await;
+                        q.push_back(ProtocolEvent::MessageStatusChanged {
+                            message_id: change.message_id,
+                            to: change.to,
+                            status: change.current,
+                        });
                         while q.len() > 1000 {
                             q.pop_front();
                         }

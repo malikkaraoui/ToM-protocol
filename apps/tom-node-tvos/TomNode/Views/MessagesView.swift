@@ -35,7 +35,11 @@ struct MessagesView: View {
                     }
                 } else {
                     List(nodeService.messages.sorted { $0.date > $1.date }) { message in
-                        MessageRow(message: message, senderName: displayName(for: message.from))
+                        MessageRow(
+                            message: message,
+                            senderName: displayName(for: message.from),
+                            recipientName: message.to.map { displayName(for: $0) } ?? ""
+                        )
                     }
                 }
             }
@@ -66,14 +70,39 @@ struct MessagesView: View {
 struct MessageRow: View {
     let message: TomMessage
     var senderName: String = ""
+    var recipientName: String = ""
+
+    /// « moi » pour le nœud local, sinon le nom résolu ou l'ID court.
+    private var senderLabel: String {
+        message.isOutgoing ? "moi" : (senderName.isEmpty ? message.senderShortId : senderName)
+    }
+    private var recipientLabel: String {
+        message.isOutgoing ? (recipientName.isEmpty ? "?" : recipientName) : "moi"
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            HStack {
-                Text(senderName.isEmpty ? message.senderShortId : senderName)
+            HStack(spacing: 6) {
+                // expéditeur ≫ destinataire
+                Text(senderLabel)
                     .font(.system(.caption, design: .monospaced))
                     .foregroundColor(.accentColor)
+                Image(systemName: "arrow.right")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+                Text(recipientLabel)
+                    .font(.system(.caption, design: .monospaced))
+                    .foregroundColor(.primary)
                 Spacer()
+                // Badge AUTO vs MANUEL (messages sortants uniquement)
+                if message.isOutgoing {
+                    Text(message.isAuto ? "AUTO" : "MANUEL")
+                        .font(.caption2.weight(.bold))
+                        .padding(.horizontal, 6).padding(.vertical, 2)
+                        .background((message.isAuto ? Color.orange : Color.blue).opacity(0.18))
+                        .foregroundColor(message.isAuto ? .orange : .blue)
+                        .clipShape(Capsule())
+                }
                 Text(message.date, style: .time)
                     .font(.caption2)
                     .foregroundColor(.secondary)
@@ -83,19 +112,35 @@ struct MessageRow: View {
             Text(String(message.text.prefix(500)))
                 .font(.body)
             HStack(spacing: 8) {
+                // Statut de livraison (messages sortants) : en cours → relayé →
+                // délivré → purgé (ou échec).
+                if let st = message.deliveryStatus {
+                    Label(st.label, systemImage: st.icon)
+                        .font(.caption2)
+                        .foregroundColor(statusColor(st))
+                }
                 if message.wasEncrypted {
-                    Label("Encrypted", systemImage: "lock.fill")
+                    Label("Chiffré", systemImage: "lock.fill")
                         .font(.caption2)
                         .foregroundColor(.green)
                 }
                 if message.signatureValid {
-                    Label("Signed", systemImage: "checkmark.seal.fill")
+                    Label("Signé", systemImage: "checkmark.seal.fill")
                         .font(.caption2)
                         .foregroundColor(.blue)
                 }
             }
         }
         .padding(.vertical, 4)
+    }
+
+    private func statusColor(_ s: TomDeliveryStatus) -> Color {
+        switch s {
+        case .sending: return .secondary
+        case .relayed: return .orange
+        case .delivered, .purged: return .green
+        case .failed: return .red
+        }
     }
 }
 

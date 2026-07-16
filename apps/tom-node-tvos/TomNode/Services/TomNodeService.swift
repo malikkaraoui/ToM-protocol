@@ -763,14 +763,19 @@ final class TomNodeService: ObservableObject {
                 try await node.sendMessage(to: target, payload: data)
                 log.info("Message sent to \(target.prefix(8))...")
 
-                // Add sent message to local list
+                // Message SORTANT tracé : `to` renseigné, statut initial « en
+                // cours ». Les transitions (relayé/délivré/purgé/échec) sont
+                // appliquées par applyDeliveryStatus() sur réception des events.
                 let sent = TomMessage(
                     id: UUID().uuidString,
                     from: nodeId,
                     payload: data.base64EncodedString(),
                     timestamp: UInt64(Date().timeIntervalSince1970 * 1000),
                     signatureValid: true,
-                    wasEncrypted: true
+                    wasEncrypted: true,
+                    to: target,
+                    isAuto: false,
+                    deliveryStatus: .sending
                 )
                 messages.append(sent)
                 totalMessagesCount += 1
@@ -779,6 +784,43 @@ final class TomNodeService: ObservableObject {
                 log.error("Send failed: \(error.localizedDescription)")
                 errorMessage = error.localizedDescription
             }
+        }
+    }
+
+    /// Applique une transition de statut au message sortant le plus récent vers
+    /// `to` qui n'est pas déjà dans un état terminal. Corrélation par
+    /// destinataire (pas par envelope_id, inconnu de l'UI) : on remonte du plus
+    /// récent au plus ancien pour ne toucher qu'un message à la fois, celui en
+    /// cours. Monotone : ne régresse jamais (Delivered ne redevient pas sending).
+    private func applyDeliveryStatus(to: NodeId, rawStatus: String?) {
+        let newStatus: TomDeliveryStatus
+        switch rawStatus {
+        case "Pending", "Sent": newStatus = .sending
+        case "Relayed": newStatus = .relayed
+        case "Delivered": newStatus = .delivered
+        case "Purged": newStatus = .purged
+        case "Failed": newStatus = .failed
+        default: return
+        }
+        // Rang de progression pour garantir la monotonie.
+        func rank(_ s: TomDeliveryStatus?) -> Int {
+            switch s {
+            case .sending: return 0
+            case .relayed: return 1
+            case .delivered: return 2
+            case .purged: return 3
+            case .failed: return 2   // terminal, même niveau que delivered
+            case nil: return -1
+            }
+        }
+        for idx in messages.indices.reversed() where messages[idx].to == to && messages[idx].isOutgoing {
+            let current = messages[idx].deliveryStatus
+            // Cible le premier (le plus récent) message non terminal.
+            if current == .delivered || current == .purged || current == .failed { continue }
+            if rank(newStatus) > rank(current) {
+                messages[idx].deliveryStatus = newStatus
+            }
+            break
         }
     }
 
@@ -1193,6 +1235,16 @@ final class TomNodeService: ObservableObject {
                     // Le Live Log reçoit TOUT (c'est là que vivent les logs bruts).
                     self.appendLog(.info, text)
 
+                    // Statut de livraison des messages SORTANTS : corrélé au
+                    // message affiché par destinataire (l'UI ne connaît pas
+                    // l'envelope_id interne). MessageStatus porte l'état courant ;
+                    // BackupDelivered ⇒ store expéditeur purgé après livraison.
+                    if event.type == "MessageStatus", let to = event.node_id {
+                        self.applyDeliveryStatus(to: to, rawStatus: event.last_status)
+                    } else if event.type == "BackupDelivered", let to = event.node_id {
+                        self.applyDeliveryStatus(to: to, rawStatus: "Purged")
+                    }
+
                     // Bandeau « anomalie sécurité » réservé aux VRAIES violations
                     // (signature forgée, sécurité de groupe). L'antispam
                     // (`SenderThrottled`) est un CONTRÔLE DE FLUX progressif par
@@ -1339,7 +1391,10 @@ final class TomNodeService: ObservableObject {
                     payload: payload.base64EncodedString(),
                     timestamp: UInt64(Date().timeIntervalSince1970 * 1000),
                     signatureValid: true,
-                    wasEncrypted: true
+                    wasEncrypted: true,
+                    to: peer.nodeId,
+                    isAuto: true,
+                    deliveryStatus: .sending
                 )
                 messages.append(sent)
                 totalMessagesCount += 1
