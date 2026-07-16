@@ -6,10 +6,10 @@
 /// there is exactly one place to update.
 public enum TomVersion {
     /// Semantic (marketing) version.
-    public static let semantic = "0.6.0"
+    public static let semantic = "2.1.0"
 
     /// Build number — incremented on every push to GitHub.
-    public static let build = 90
+    public static let build = 91
 
     /// Human-readable version shown in Settings, e.g. "0.6.0 (build 1)".
     public static var display: String { "\(semantic) (build \(build))" }
