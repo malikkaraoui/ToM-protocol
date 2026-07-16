@@ -938,7 +938,12 @@ impl ProtocolRuntime {
         let mut recent_peers: Vec<_> = state
             .topology
             .peers()
-            .filter(|p| now.saturating_sub(p.last_seen) < BOOTSTRAP_RECENT_WINDOW_MS)
+            // `last_seen <= now` : défense en profondeur contre un timestamp
+            // futur (déjà clampé à la source dans handle_role_announce, mais on
+            // ne fait pas confiance à l'invariant ici). Sans ça, un last_seen
+            // futur passait saturating_sub=0 ET remontait en tête du tri desc,
+            // évinçant les vrais pairs (red-team #CRITIQUE, déni de reconnexion).
+            .filter(|p| p.last_seen <= now && now - p.last_seen < BOOTSTRAP_RECENT_WINDOW_MS)
             .collect();
         recent_peers.sort_by_key(|p| std::cmp::Reverse(p.last_seen));
         for peer in recent_peers.into_iter().take(BOOTSTRAP_MAX_PEERS) {

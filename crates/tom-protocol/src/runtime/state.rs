@@ -763,18 +763,27 @@ impl RuntimeState {
             })];
         }
 
-        // Update topology
+        // Update topology.
+        // SÉCURITÉ (red-team #CRITIQUE) : `last_seen` est BORNÉ à `now`. Le
+        // timestamp de l'announce est signé mais AUTO-DÉCLARÉ — un attaquant
+        // avec une identité valide pouvait annoncer un timestamp dans le futur,
+        // ce qui plaçait `last_seen` en avant de l'horloge. Le bootstrap au
+        // redémarrage sélectionne les pairs par `last_seen` décroissant sur une
+        // fenêtre récente : 16 identités « futures » évinçaient les vrais pairs
+        // (déni de reconnexion rapide). On ne peut pas avoir vu un pair dans le
+        // futur → clamp. Protège TOUS les usages de last_seen, pas que le bootstrap.
+        let clamped_last_seen = announce.timestamp.min(now);
         if let Some(peer) = self.topology.get(&announce.node_id) {
             let mut updated_peer = peer.clone();
             updated_peer.role = announce.new_role;
-            updated_peer.last_seen = announce.timestamp;
+            updated_peer.last_seen = clamped_last_seen;
             self.topology.upsert(updated_peer);
         } else {
             self.topology.upsert(PeerInfo {
                 node_id: announce.node_id,
                 role: announce.new_role,
                 status: PeerStatus::Online,
-                last_seen: announce.timestamp,
+                last_seen: clamped_last_seen,
             });
         }
 
@@ -5512,6 +5521,30 @@ mod tests {
         // Topology should be updated
         let peer = state.topology.get(&remote).expect("peer in topology");
         assert_eq!(peer.role, PeerRole::Relay);
+    }
+
+    #[test]
+    fn handle_role_announce_clamps_future_timestamp() {
+        // Red-team #CRITIQUE : un timestamp futur signé ne doit PAS placer
+        // last_seen en avant de l'horloge (sinon éviction des vrais pairs au
+        // bootstrap). On borne last_seen à now.
+        use crate::discovery::RoleChangeAnnounce;
+
+        let mut state = default_state(1);
+        let (remote, remote_seed) = keypair(2);
+        let now = now_ms();
+        let far_future = now + 1_000_000_000; // ~11 jours dans le futur
+
+        let announce =
+            RoleChangeAnnounce::new(remote, PeerRole::Relay, 15.0, far_future, &remote_seed);
+        let _ = state.handle_role_announce(announce);
+
+        let peer = state.topology.get(&remote).expect("peer in topology");
+        assert!(
+            peer.last_seen <= now + 1000,
+            "last_seen doit être clampé à ~now (borne future), pas {}",
+            peer.last_seen
+        );
     }
 
     #[test]

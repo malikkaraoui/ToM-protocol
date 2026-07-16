@@ -45,9 +45,34 @@ impl ConnectionPool {
         }
     }
 
+    /// Plafond du registre des connexions entrantes. Généreux (un hub légitime
+    /// peut fédérer beaucoup de spokes) mais fini : sans lui, un attaquant
+    /// ouvrait N connexions QUIC (N NodeIds) maintenues vivantes par keep-alive,
+    /// gonflant la map sans borne → OOM + `connected_peers()` O(N) à chaque
+    /// refresh UI sur petit appareil (red-team #HAUT). Testé.
+    const MAX_INBOUND: usize = 512;
+
     /// Enregistre une connexion ENTRANTE acceptée (voir champ `inbound`).
+    ///
+    /// Avant insertion : purge des entrées dont la connexion est FERMÉE (elles
+    /// ne sont retirées que par `unregister_inbound` à la fin de l'accept-loop,
+    /// ce qui peut traîner). Si le registre reste plein de connexions VIVANTES
+    /// au-delà du plafond, la nouvelle est refusée — elle reste utilisable pour
+    /// l'échange mais n'occupe pas d'entrée (au pire invisible dans le compteur,
+    /// jamais un OOM).
     pub async fn register_inbound(&self, id: NodeId, conn: Connection) {
-        self.inbound.lock().await.insert(id, conn);
+        let mut inbound = self.inbound.lock().await;
+        if inbound.len() >= Self::MAX_INBOUND {
+            inbound.retain(|_, c| c.close_reason().is_none());
+        }
+        if inbound.len() >= Self::MAX_INBOUND && !inbound.contains_key(&id) {
+            tracing::warn!(
+                "registre inbound plein ({} connexions vivantes) — connexion de {} non enregistrée",
+                Self::MAX_INBOUND, id
+            );
+            return;
+        }
+        inbound.insert(id, conn);
     }
 
     /// Retire une connexion entrante (à la fermeture de l'accept-loop) —
