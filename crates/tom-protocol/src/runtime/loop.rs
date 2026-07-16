@@ -409,18 +409,33 @@ pub(super) async fn runtime_loop(
                     Vec::new()
                 } else if let Some(BootstrapHint::MdnsDiscovered { endpoint_addr }) = event {
                     let node_id = NodeId::from_endpoint_id(endpoint_addr.id);
-                    // Containment #34 : hint répété pour un pair récemment joint →
-                    // silencieux (trace), zéro join, zéro event. La ré-annonce mDNS
-                    // périodique n'est pas une information nouvelle.
+                    // Containment #34 (corrigé) : le cooldown ne s'applique QU'À un
+                    // pair EFFECTIVEMENT connecté (path Direct/Relay connu). Un pair
+                    // non connecté doit être re-joint à chaque hint jusqu'à ce que la
+                    // connexion tienne — sinon un premier join raté (gossip/dial pas
+                    // prêt au démarrage) restait bloqué 60s, ralentissant la
+                    // reconvergence après restart/isolement. `peer_paths` est
+                    // maintenu par les PathChanged (et purgé au PeerOffline).
                     let now = std::time::Instant::now();
-                    if mdns_join_last
-                        .get(&node_id)
-                        .is_some_and(|t| now.duration_since(*t) < MDNS_JOIN_COOLDOWN)
+                    let is_connected = matches!(
+                        state.peer_paths.get(&node_id),
+                        Some(tom_transport::PathKind::Direct) | Some(tom_transport::PathKind::Relay)
+                    );
+                    if is_connected
+                        && mdns_join_last
+                            .get(&node_id)
+                            .is_some_and(|t| now.duration_since(*t) < MDNS_JOIN_COOLDOWN)
                     {
-                        tracing::trace!(peer = %node_id, "mDNS hint ignoré (cooldown)");
+                        tracing::trace!(peer = %node_id, "mDNS hint ignoré (connecté + cooldown)");
                         Vec::new()
                     } else {
-                        mdns_join_last.insert(node_id, now);
+                        // Pose le cooldown seulement une fois le pair connecté ;
+                        // tant qu'il ne l'est pas, on le laisse re-joignable.
+                        if is_connected {
+                            mdns_join_last.insert(node_id, now);
+                        } else {
+                            mdns_join_last.remove(&node_id);
+                        }
                         let elapsed = discovery_start.elapsed().as_millis() as u64;
                         tracing::info!("⏱️ DISCO t+{elapsed}ms : mDNS hint for peer {}", node_id);
                         let _ = event_tx
