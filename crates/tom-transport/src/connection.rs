@@ -11,6 +11,12 @@ use tokio::sync::{broadcast, Mutex};
 pub(crate) struct ConnectionPool {
     endpoint: Endpoint,
     connections: Mutex<HashMap<NodeId, Connection>>,
+    /// Connexions ENTRANTES (acceptées) — un pair qui nous a dialés. Sans ce
+    /// registre, `connected_peers()` ne voyait QUE le pool sortant → un nœud
+    /// relancé, joint par ses pairs, affichait 0 pair connecté alors qu'il
+    /// l'était (connexion établie en ~0.2 s, mais invisible). Registre séparé
+    /// pour ne pas entrer en conflit avec la réutilisation des sorties.
+    inbound: Mutex<HashMap<NodeId, Connection>>,
     addresses: Mutex<HashMap<NodeId, EndpointAddr>>,
     alpn: Vec<u8>,
     /// Default relay URLs to include when no address is stored for a peer.
@@ -31,11 +37,22 @@ impl ConnectionPool {
         Self {
             endpoint,
             connections: Mutex::new(HashMap::new()),
+            inbound: Mutex::new(HashMap::new()),
             addresses: Mutex::new(HashMap::new()),
             alpn,
             default_relay_urls: Mutex::new(default_relay_urls),
             path_event_tx,
         }
+    }
+
+    /// Enregistre une connexion ENTRANTE acceptée (voir champ `inbound`).
+    pub async fn register_inbound(&self, id: NodeId, conn: Connection) {
+        self.inbound.lock().await.insert(id, conn);
+    }
+
+    /// Retire une connexion entrante (à la fermeture de l'accept-loop).
+    pub async fn unregister_inbound(&self, id: &NodeId) {
+        self.inbound.lock().await.remove(id);
     }
 
     /// Replace default relay URL candidates used when no peer address is known.
@@ -133,13 +150,28 @@ impl ConnectionPool {
         self.connections.lock().await.remove(target);
     }
 
-    /// List all cached (connected) peers.
+    /// List all connected peers — connexions SORTANTES (pool) ET ENTRANTES
+    /// (acceptées), dédupliquées. Compter les entrantes est indispensable :
+    /// un nœud relancé est joint par ses pairs bien avant que ses propres
+    /// dials aboutissent ; sans elles, il s'affichait « 0 pair » à tort.
     pub async fn connected_peers(&self) -> Vec<NodeId> {
-        let conns = self.connections.lock().await;
-        conns
-            .iter()
-            .filter(|(_, conn)| conn.close_reason().is_none())
-            .map(|(id, _)| *id)
-            .collect()
+        let mut set: std::collections::HashSet<NodeId> = std::collections::HashSet::new();
+        {
+            let conns = self.connections.lock().await;
+            for (id, conn) in conns.iter() {
+                if conn.close_reason().is_none() {
+                    set.insert(*id);
+                }
+            }
+        }
+        {
+            let inbound = self.inbound.lock().await;
+            for (id, conn) in inbound.iter() {
+                if conn.close_reason().is_none() {
+                    set.insert(*id);
+                }
+            }
+        }
+        set.into_iter().collect()
     }
 }

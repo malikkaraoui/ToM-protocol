@@ -262,6 +262,11 @@ impl tom_connect::protocol::ProtocolHandler for TomProtocolHandler {
         // Spawn path watcher for this connection
         spawn_path_watcher(&connection, remote, state.path_event_tx.clone());
 
+        // Enregistre la connexion ENTRANTE pour qu'elle soit comptée par
+        // connected_peers() (sinon le nœud accepté s'affiche « 0 pair » alors
+        // qu'il est bien connecté). Désenregistrée à la fermeture (fin de loop).
+        state.pool.register_inbound(remote, connection.clone()).await;
+
         // Accept loop: handle multiple bi-directional streams from this connection
         loop {
             let (mut send, mut recv) = match connection.accept_bi().await {
@@ -295,6 +300,9 @@ impl tom_connect::protocol::ProtocolHandler for TomProtocolHandler {
                 }
             });
         }
+
+        // Connexion fermée : retirer du registre entrant.
+        state.pool.unregister_inbound(&remote).await;
 
         Ok(())
     }
