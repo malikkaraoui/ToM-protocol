@@ -257,13 +257,25 @@ pub(super) async fn runtime_loop(
             bind_addr: state.config.embedded_relay_bind_addr,
             advertise_addr: state.config.embedded_relay_advertise_addr,
         };
+        let relay_start = std::time::Instant::now();
         let startup_effects = match embedded_relay.start(relay_config).await {
             Ok(url) => {
+                // Chronométré : ce start pré-boucle est le dernier await réseau
+                // avant le select! — s'il dure, TOUTE la découverte est figée
+                // (hints mDNS non traités). Mesuré pour trancher, pas supposer.
+                tracing::info!(
+                    "⏱️ DISCO t+{}ms : relai embarqué démarré (start en {}ms)",
+                    discovery_start.elapsed().as_millis(),
+                    relay_start.elapsed().as_millis()
+                );
                 // Grab the watcher BEFORE any other await point: a mapping that
                 // resolves during reprobe_relays() must still be observed by this
                 // receiver's initial seen_version, not silently skipped.
                 embedded_relay_mapped_watcher = embedded_relay.watch_mapped_address();
-                node.reprobe_relays().await;
+                // Détaché : un netcheck complet peut durer >1 min quand des
+                // relais/DNS sont injoignables — l'awaiter ici bloquait la
+                // boucle ~115 s sur iOS (flotte figée au restart simultané).
+                node.reprobe_relays_detached();
                 state.handle_command(super::RuntimeCommand::EmbeddedRelayStarted { url })
             }
             Err(error) => state.handle_command(super::RuntimeCommand::EmbeddedRelayFailed { error }),

@@ -616,6 +616,16 @@ impl TomNode {
         self.endpoint.reprobe_relays().await;
     }
 
+    /// Variante détachée de [`Self::reprobe_relays`] : lance le re-probe en
+    /// tâche de fond. Un netcheck complet peut durer très longtemps quand des
+    /// relais/DNS sont injoignables (restart simultané de la flotte) —
+    /// l'awaiter bloquait la boucle runtime au démarrage (~2 min sur iOS,
+    /// aucun hint mDNS traité pendant ce temps, flotte figée).
+    pub fn reprobe_relays_detached(&self) {
+        let endpoint = self.endpoint.clone();
+        tokio::spawn(async move { endpoint.reprobe_relays().await });
+    }
+
     /// Graceful shutdown.
     pub async fn shutdown(mut self) -> Result<(), TomTransportError> {
         if let Some(stop_tx) = self.discovery_refresh_stop_tx.take() {
