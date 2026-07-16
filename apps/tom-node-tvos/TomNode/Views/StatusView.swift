@@ -316,10 +316,16 @@ struct StatusView: View {
                                     Text("✓").font(.caption2).foregroundColor(.green)
                                 }
                             }
-                            // Path badge si connu
+                            // Badge de chemin. Ne JAMAIS laisser vide pour un pair
+                            // connecté : si le type précis n'est pas (encore)
+                            // remonté, on affiche « connecté » plutôt que du blanc
+                            // — l'utilisateur doit toujours savoir l'état réel.
                             if let pathInfo = nodeService.pathsByPeer[peerId] {
-                                let pathLabel = formatPathLabel(pathInfo)
-                                Text(pathLabel)
+                                Text(formatPathLabel(pathInfo))
+                                    .font(.caption2).foregroundColor(.secondary)
+                                    .lineLimit(1)
+                            } else if isConnected {
+                                Text("connecté")
                                     .font(.caption2).foregroundColor(.secondary)
                                     .lineLimit(1)
                             }
@@ -512,15 +518,21 @@ struct StatusView: View {
     // MARK: - Path Formatting Helpers
 
     private func formatPathLabel(_ pathInfo: PathInfo) -> String {
-        var result = pathInfo.kind
-
-        // v4/v6 n'a de sens que pour un path DIRECT ('[' = IPv6)
-        if pathInfo.kind == "DIRECT" {
-            result += pathInfo.addr.contains("[") ? " v6" : " v4"
+        var result: String
+        switch pathInfo.kind {
+        case "DIRECT":
+            // v4/v6 n'a de sens que pour un path DIRECT ('[' = IPv6)
+            result = "DIRECT " + (pathInfo.addr.contains("[") ? "v6" : "v4")
+        case "RELAY":
+            result = "relais"
+        default:
+            // UNKNOWN / vide : chemin pas encore sélectionné. On n'invente PAS
+            // un type (ce serait mentir) — on dit honnêtement l'état transitoire.
+            result = "chemin en cours"
         }
 
         if pathInfo.rtt_ms > 0 {
-            result += " \(pathInfo.rtt_ms)ms"
+            result += " · \(pathInfo.rtt_ms)ms"
         }
 
         return result
