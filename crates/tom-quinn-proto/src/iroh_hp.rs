@@ -590,4 +590,39 @@ mod tests {
             Some("1.1.1.1".parse().unwrap())
         )
     }
+
+    #[test]
+    fn test_ipv6_candidates_included_when_socket_supports_ipv6() {
+        let mut client_state = ClientState::new(2, 2);
+
+        // Add a local address (required for initiating NAT traversal)
+        let local_ip: IpAddr = "127.0.0.1".parse().unwrap();
+        client_state.add_local_address((local_ip, 5000)).unwrap();
+
+        // Add a global IPv6 candidate
+        let ipv6_candidate: IpAddr = "2a01:4f8:1c1c:1c1c::1".parse().unwrap();
+        client_state.add_remote_address(AddAddress {
+            seq_no: 1u32.into(),
+            ip: ipv6_candidate,
+            port: 3000,
+        }).unwrap();
+
+        // When socket supports IPv6, the IPv6 candidate should be included
+        let round = client_state.initiate_nat_traversal_round(true).unwrap();
+        assert!(!round.addresses_to_probe.is_empty(),
+                "IPv6 candidates should not be filtered out when socket supports IPv6");
+
+        // When socket does NOT support IPv6, the IPv6 candidate should be excluded
+        let mut client_state_v4 = ClientState::new(2, 2);
+        client_state_v4.add_local_address((local_ip, 5000)).unwrap();
+        client_state_v4.add_remote_address(AddAddress {
+            seq_no: 1u32.into(),
+            ip: ipv6_candidate,
+            port: 3000,
+        }).unwrap();
+
+        let round_v4 = client_state_v4.initiate_nat_traversal_round(false).unwrap();
+        assert!(round_v4.addresses_to_probe.is_empty(),
+                "Global IPv6 candidates should be filtered out when socket doesn't support IPv6");
+    }
 }

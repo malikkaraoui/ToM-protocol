@@ -154,6 +154,8 @@ use state::StateType;
 /// events or timeouts with different instants must not be interleaved.
 pub struct Connection {
     endpoint_config: Arc<EndpointConfig>,
+    /// Whether the underlying socket supports IPv6, used for NAT traversal candidate selection
+    socket_supports_ipv6: bool,
     config: Arc<TransportConfig>,
     rng: StdRng,
     crypto: Box<dyn crypto::Session>,
@@ -430,8 +432,10 @@ impl Connection {
         let mut path = PathData::new(network_path, allow_mtud, None, 0, now, &config);
         // TODO(@divma): consider if we want to delay this until the path is validated
         path.open = true;
+        let socket_supports_ipv6 = endpoint_config.socket_supports_ipv6;
         let mut this = Self {
             endpoint_config,
+            socket_supports_ipv6,
             crypto,
             handshake_cid: local_cid,
             remote_handshake_cid: remote_cid,
@@ -6447,12 +6451,10 @@ impl Connection {
 
     /// Returns whether this connection has a socket that supports IPv6.
     ///
-    /// TODO(matheus23): This is related to quinn endpoint state's `ipv6` bool. We should move that info
-    /// here instead of trying to hack around not knowing it exactly.
+    /// Returns whether the underlying socket supports IPv6.
+    /// This is used to determine which NAT traversal candidates are feasible.
     fn is_ipv6(&self) -> bool {
-        self.paths
-            .values()
-            .any(|p| p.data.network_path.remote.is_ipv6())
+        self.socket_supports_ipv6
     }
 
     /// Add addresses the local endpoint considers are reachable for nat traversal.

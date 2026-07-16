@@ -54,6 +54,9 @@ pub struct EndpointConfig {
     pub(crate) min_reset_interval: Duration,
     /// Optional seed to be used internally for random number generation
     pub(crate) rng_seed: Option<[u8; 32]>,
+    /// Whether the underlying socket supports IPv6
+    /// Used to determine which NAT traversal candidates are feasible
+    pub(crate) socket_supports_ipv6: bool,
 }
 
 impl EndpointConfig {
@@ -69,6 +72,7 @@ impl EndpointConfig {
             grease_quic_bit: true,
             min_reset_interval: Duration::from_millis(20),
             rng_seed: None,
+            socket_supports_ipv6: false,
         }
     }
 
@@ -137,6 +141,16 @@ impl EndpointConfig {
     /// desired.
     pub fn grease_quic_bit(&mut self, value: bool) -> &mut Self {
         self.grease_quic_bit = value;
+        self
+    }
+
+    /// Set whether the underlying UDP socket supports IPv6
+    ///
+    /// This flag is used to determine which NAT traversal candidates are feasible.
+    /// If the socket supports IPv6, IPv6 addresses and IPv4-mapped-IPv6 addresses can be used.
+    /// If it only supports IPv4, only IPv4 addresses are attempted.
+    pub fn socket_supports_ipv6(&mut self, value: bool) -> &mut Self {
+        self.socket_supports_ipv6 = value;
         self
     }
 

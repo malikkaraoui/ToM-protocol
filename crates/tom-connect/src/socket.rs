@@ -800,6 +800,7 @@ impl Handle {
         // through to quinn. We set the first byte of the packet to zero, which makes quinn ignore
         // the packet if grease_quic_bit is set to false.
         endpoint_config.grease_quic_bit(false);
+        endpoint_config.socket_supports_ipv6(ipv6);
 
         let peer_present_rx = transports.take_peer_present_rx();
         let local_addrs_watch = transports.local_addrs_watch();
