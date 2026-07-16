@@ -101,16 +101,20 @@ pub(super) async fn runtime_loop(
     // Phase R18.1: Backup redelivery queue drain (1s interval for throughput)
     let mut backup_drain_tick = maintenance_interval(std::time::Duration::from_secs(1));
 
-    // ── Containment des rafales mDNS (#34) ────────────────────────────
-    // swarm-discovery ré-annonce en continu ; la dédup transport n'est que de
-    // 5 s → sans garde, le runtime rejoue log + event FFI + add_peer_addr +
-    // join_peers gossip toutes les ~5 s PAR PAIR, indéfiniment, même connecté
-    // (rafale observée sur toute la flotte, collecteur pollué). Cooldown par
-    // pair : premier hint = join immédiat (vitesse de découverte intacte),
-    // suivants ignorés pendant la fenêtre. Vidé sur isolement (voir
-    // reconnect_check) pour ne JAMAIS affamer la redécouverte.
-    const MDNS_JOIN_COOLDOWN: std::time::Duration = std::time::Duration::from_secs(60);
-    let mut mdns_join_last: std::collections::HashMap<NodeId, std::time::Instant> =
+    // ── Containment des rafales de join (#34/#35) ─────────────────────
+    // TOUTES les sources de découverte (mDNS, DHT/rendezvous, PeerPresent)
+    // faisaient rejoindre un pair sans borne. Deux dégâts observés terrain :
+    // (1) un pair connecté re-joint toutes les ~5 s (ré-annonce mDNS) → rafale ;
+    // (2) le rendezvous DHT accumule des node_ids MORTS (taille_reseau ~350
+    // pour 4 pairs réels) et l'iPhone DIAL en boucle vers ces fantômes →
+    // CPU 100 % + chauffe. Parade : un cooldown de join PAR PAIR, partagé
+    // entre toutes les sources, conditionné à l'état de connexion —
+    //   • pair connecté      → 60 s (anti-rafale en régime établi) ;
+    //   • pair NON connecté  → 20 s (retry borné : converge vite pour un pair
+    //     vivant, mais ne martèle jamais un fantôme mort).
+    // `join_cooldown_ok` met à jour la carte quand il autorise. Purgé au
+    // PeerOffline (comme peer_paths).
+    let mut join_cooldown: std::collections::HashMap<NodeId, std::time::Instant> =
         std::collections::HashMap::new();
 
     // Skip the immediate first tick
@@ -337,17 +341,26 @@ pub(super) async fn runtime_loop(
                         state.handle_command(RuntimeCommand::AddPeer { node_id, source })
                     }
                     RuntimeCommand::DhtLookupResult { ref addr } => {
-                        // Build EndpointAddr from DHT record and inject into transport
+                        // Build EndpointAddr from DHT record and inject into transport.
+                        // Cooldown de join (#35) : le rendezvous DHT ramène des
+                        // node_ids MORTS (vieilles sessions) ; sans borne, on dial en
+                        // boucle vers eux → CPU 100 % + chauffe (observé iPhone). Le
+                        // cooldown non-connecté (20 s) borne ces tentatives.
                         if let Some(endpoint_addr) = dht_addr_to_endpoint_addr(addr) {
-                            bootstrap_join_peer(
-                                &node,
-                                gossip_sender.as_ref(),
-                                endpoint_addr,
-                                BootstrapSource::Dht,
-                                &mut bootstrap_phase,
-                                discovery_start,
-                                event_tx.clone(),
-                            ).await;
+                            let node_id = NodeId::from_endpoint_id(endpoint_addr.id);
+                            if join_cooldown_ok(&node_id, &mut join_cooldown, &state.peer_paths, std::time::Instant::now()) {
+                                bootstrap_join_peer(
+                                    &node,
+                                    gossip_sender.as_ref(),
+                                    endpoint_addr,
+                                    BootstrapSource::Dht,
+                                    &mut bootstrap_phase,
+                                    discovery_start,
+                                    event_tx.clone(),
+                                ).await;
+                            } else {
+                                tracing::trace!(peer = %node_id, "DHT join ignoré (cooldown join)");
+                            }
                         }
                         state.handle_command(cmd)
                     }
@@ -409,33 +422,12 @@ pub(super) async fn runtime_loop(
                     Vec::new()
                 } else if let Some(BootstrapHint::MdnsDiscovered { endpoint_addr }) = event {
                     let node_id = NodeId::from_endpoint_id(endpoint_addr.id);
-                    // Containment #34 (corrigé) : le cooldown ne s'applique QU'À un
-                    // pair EFFECTIVEMENT connecté (path Direct/Relay connu). Un pair
-                    // non connecté doit être re-joint à chaque hint jusqu'à ce que la
-                    // connexion tienne — sinon un premier join raté (gossip/dial pas
-                    // prêt au démarrage) restait bloqué 60s, ralentissant la
-                    // reconvergence après restart/isolement. `peer_paths` est
-                    // maintenu par les PathChanged (et purgé au PeerOffline).
-                    let now = std::time::Instant::now();
-                    let is_connected = matches!(
-                        state.peer_paths.get(&node_id),
-                        Some(tom_transport::PathKind::Direct) | Some(tom_transport::PathKind::Relay)
-                    );
-                    if is_connected
-                        && mdns_join_last
-                            .get(&node_id)
-                            .is_some_and(|t| now.duration_since(*t) < MDNS_JOIN_COOLDOWN)
-                    {
-                        tracing::trace!(peer = %node_id, "mDNS hint ignoré (connecté + cooldown)");
+                    // Cooldown de join unifié (#34/#35) : borne le rejoin par pair
+                    // selon l'état de connexion (voir join_cooldown_ok).
+                    if !join_cooldown_ok(&node_id, &mut join_cooldown, &state.peer_paths, std::time::Instant::now()) {
+                        tracing::trace!(peer = %node_id, "mDNS hint ignoré (cooldown join)");
                         Vec::new()
                     } else {
-                        // Pose le cooldown seulement une fois le pair connecté ;
-                        // tant qu'il ne l'est pas, on le laisse re-joignable.
-                        if is_connected {
-                            mdns_join_last.insert(node_id, now);
-                        } else {
-                            mdns_join_last.remove(&node_id);
-                        }
                         let elapsed = discovery_start.elapsed().as_millis() as u64;
                         tracing::info!("⏱️ DISCO t+{elapsed}ms : mDNS hint for peer {}", node_id);
                         let _ = event_tx
@@ -779,9 +771,10 @@ pub(super) async fn runtime_loop(
                         // Reset the liveness clock so a zombie state doesn't re-fire
                         // every tick; give the fresh discovery a chance to reconnect.
                         last_inbound_at = now_ms();
-                        // Containment #34 : en isolement, le cooldown mDNS saute —
-                        // la redécouverte doit pouvoir rejoindre immédiatement.
-                        mdns_join_last.clear();
+                        // NB (#35) : on ne vide PLUS le cooldown de join ici. Le vider
+                        // rejouait un rejoin de TOUS les pairs (fantômes compris) à
+                        // chaque isolement → rafale/chauffe. Le cooldown non-connecté
+                        // (20 s) redécouvre déjà assez vite sans marteler les morts.
                         // Re-announce ourselves and re-resolve known peers via DHT to
                         // pick up fresh addresses (old ones may be dead after a change).
                         let (relay_urls, direct_addrs) = extract_node_addrs(&node);
@@ -1084,6 +1077,41 @@ fn build_self_dht_addr(
 
 /// Verify a rendezvous entry's proof-of-possession signature against its node_id.
 /// Rejects unsigned, malformed, or forged entries (anti-squatting/poisoning).
+/// Borne les tentatives de join par pair (#34/#35). Renvoie `true` (et note
+/// l'instant) si un join est autorisé, `false` s'il est encore en cooldown.
+/// Fenêtre : 60 s pour un pair connecté (anti-rafale), 20 s sinon (retry borné
+/// — évite de marteler un node_id mort découvert via le rendezvous DHT).
+fn join_cooldown_ok(
+    node_id: &NodeId,
+    cooldown: &mut std::collections::HashMap<NodeId, std::time::Instant>,
+    peer_paths: &std::collections::HashMap<NodeId, tom_transport::PathKind>,
+    now: std::time::Instant,
+) -> bool {
+    let connected = matches!(
+        peer_paths.get(node_id),
+        Some(tom_transport::PathKind::Direct) | Some(tom_transport::PathKind::Relay)
+    );
+    let window = if connected {
+        std::time::Duration::from_secs(60)
+    } else {
+        std::time::Duration::from_secs(20)
+    };
+    if cooldown
+        .get(node_id)
+        .is_some_and(|t| now.duration_since(*t) < window)
+    {
+        return false;
+    }
+    // Borne mémoire : sur une longue session le rendezvous DHT expose des
+    // milliers de node_ids distincts. Quand la carte enfle, on évince les
+    // entrées dont la fenêtre max (60 s) est écoulée — elles n'ont plus d'effet.
+    if cooldown.len() > 4096 {
+        cooldown.retain(|_, t| now.duration_since(*t) < std::time::Duration::from_secs(60));
+    }
+    cooldown.insert(*node_id, now);
+    true
+}
+
 fn rendezvous_entry_authentic(addr: &tom_dht::DhtNodeAddr) -> bool {
     use ed25519_dalek::{Signature, Verifier, VerifyingKey};
     let Ok(node_id) = addr.node_id.parse::<NodeId>() else {
@@ -1224,7 +1252,7 @@ async fn bootstrap_join_peer(
 
 #[cfg(test)]
 mod tests {
-    use super::{liveness_is_stale, rendezvous_entry_authentic, LIVENESS_STALE_MS};
+    use super::{liveness_is_stale, rendezvous_entry_authentic, NodeId, LIVENESS_STALE_MS};
     use ed25519_dalek::{Signer, SigningKey};
     use rand::SeedableRng;
 
@@ -1285,6 +1313,44 @@ mod tests {
             "les adresses DHT doivent être bornées, obtenu {}",
             ep.addrs.len()
         );
+    }
+
+    fn test_node_id(seed_u64: u64) -> NodeId {
+        let mut rng = rand::rngs::StdRng::seed_from_u64(seed_u64);
+        let secret = tom_connect::SecretKey::generate(&mut rng);
+        secret.public().to_string().parse().unwrap()
+    }
+
+    #[test]
+    fn join_cooldown_borne_les_fantomes_non_connectes() {
+        use super::join_cooldown_ok;
+        use std::time::{Duration, Instant};
+        let mut cooldown = std::collections::HashMap::new();
+        let peer_paths = std::collections::HashMap::new(); // aucun pair connecté
+        let phantom = test_node_id(7);
+        let t0 = Instant::now();
+        // 1er join autorisé (découverte immédiate).
+        assert!(join_cooldown_ok(&phantom, &mut cooldown, &peer_paths, t0));
+        // Juste après : refusé (cooldown non-connecté 20 s → pas de hammering).
+        assert!(!join_cooldown_ok(&phantom, &mut cooldown, &peer_paths, t0 + Duration::from_secs(5)));
+        // Après 20 s : re-tenté (le pair pourrait être vivant).
+        assert!(join_cooldown_ok(&phantom, &mut cooldown, &peer_paths, t0 + Duration::from_secs(21)));
+    }
+
+    #[test]
+    fn join_cooldown_connecte_fenetre_longue() {
+        use super::join_cooldown_ok;
+        use std::time::{Duration, Instant};
+        let node = test_node_id(9);
+        let mut cooldown = std::collections::HashMap::new();
+        let mut peer_paths = std::collections::HashMap::new();
+        peer_paths.insert(node, tom_transport::PathKind::Direct); // connecté
+        let t0 = Instant::now();
+        assert!(join_cooldown_ok(&node, &mut cooldown, &peer_paths, t0));
+        // Connecté : fenêtre 60 s → encore refusé à 30 s (anti-rafale).
+        assert!(!join_cooldown_ok(&node, &mut cooldown, &peer_paths, t0 + Duration::from_secs(30)));
+        // Après 60 s : autorisé.
+        assert!(join_cooldown_ok(&node, &mut cooldown, &peer_paths, t0 + Duration::from_secs(61)));
     }
 
     #[test]
