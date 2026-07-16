@@ -311,16 +311,22 @@ pub(crate) fn spawn_path_watcher(
     let paths = connection.paths();
     let mut stream = paths.stream();
     let mut last_kind = PathKind::Unknown;
-    let mut last_addr = String::new();
+    let mut last_family = AddrFamily::None;
 
     tokio::spawn(async move {
         while let Some(path_info) = stream.next().await {
             let (kind, rtt, addr) = classify_path(&path_info);
+            let family = AddrFamily::of(&addr);
 
-            // Emit event if kind or addr changed
-            if kind != last_kind || addr != last_addr {
+            // On n'émet que sur un changement SIGNIFICATIF : le kind
+            // (DIRECT/RELAY/UNKNOWN) ou la famille d'adresse (v4/v6/relais).
+            // QUIC multipath re-sélectionne souvent un autre port sur le même
+            // path DIRECT — inutile de spammer le collecteur/FFI/HashMap pour
+            // ça (mesuré : ~1.75 event/min/pair à kind constant). On garde en
+            // revanche le signal v4↔v6, qui est load-bearing pour le diag LAN.
+            if kind != last_kind || family != last_family {
                 last_kind = kind;
-                last_addr = addr.clone();
+                last_family = family;
                 let event = PathEvent {
                     kind,
                     rtt,
@@ -333,6 +339,32 @@ pub(crate) fn spawn_path_watcher(
             }
         }
     });
+}
+
+/// Famille d'adresse d'un path, pour filtrer le bruit de re-sélection de port
+/// à path constant sans perdre le signal v4↔v6↔relais.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum AddrFamily {
+    None,
+    Relay,
+    V4,
+    V6,
+}
+
+impl AddrFamily {
+    /// Dérive la famille depuis la représentation affichable produite par
+    /// `format_transport_addr` ("relay:…", "[2a01:…]:port" IPv6, sinon IPv4).
+    fn of(addr: &str) -> Self {
+        if addr.is_empty() {
+            AddrFamily::None
+        } else if addr.starts_with("relay:") {
+            AddrFamily::Relay
+        } else if addr.starts_with('[') {
+            AddrFamily::V6
+        } else {
+            AddrFamily::V4
+        }
+    }
 }
 
 /// Classify the current path from the PathInfoList, returning kind, RTT, and address.
