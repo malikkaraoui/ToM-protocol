@@ -75,6 +75,8 @@ final class TomNodeService: ObservableObject {
     // Signal honnête : inclut la latence réseau (pas une synchro NTP).
     @Published var clockSkewMs: Int64?
     @Published var clockSkewSamples: UInt64 = 0
+    // Application build number (from status)
+    @Published var appBuild: UInt32 = 0
 
     // Activity log (events from runtime) — cappé à 100 entrées FIFO
     @Published var activityLog: [ActivityEntry] = []
@@ -104,6 +106,14 @@ final class TomNodeService: ObservableObject {
         if n >= 1_000_000 { return String(format: "%.1f Mo", Double(n) / 1_000_000) }
         if n >= 1_000 { return "\(n / 1_000) Ko" }
         return "\(n) o"
+    }
+
+    static func shortDeviceName(_ fullName: String = defaultUsername()) -> String {
+        if fullName.contains("iPad") { return "iPad" }
+        if fullName.contains("iPhone") { return "iPhone" }
+        if fullName.contains("Mac") { return "Mac" }
+        if fullName.contains("Apple") || fullName.contains("TV") { return "Apple TV" }
+        return fullName
     }
 
     // Anti-sleep audio player (iOS/tvOS only)
@@ -571,7 +581,8 @@ final class TomNodeService: ObservableObject {
                     // sonde auto 15s. PHASE 2 : passer le gate à nil
                     // (défaut protocole 2.0).
                     presenceContributionMin: 0.0,
-                    presenceProbeIntervalSecs: 15
+                    presenceProbeIntervalSecs: 15,
+                    appBuild: UInt32(TomVersion.build)
                 )
 
                 if Task.isCancelled {
@@ -1155,6 +1166,7 @@ final class TomNodeService: ObservableObject {
                     if let rtt = status.pathRttMs { self.pathRttMs = rtt }
                     self.clockSkewMs = status.clockSkewMs
                     self.clockSkewSamples = status.clockSkewSamples ?? 0
+                    self.appBuild = status.appBuild
                 }
                 // L1-001 presence : logge chaque attestation acceptée
                 // (sonde auto 15s → Live Log, zéro UI dédiée)

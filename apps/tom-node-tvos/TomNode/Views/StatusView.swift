@@ -184,13 +184,20 @@ struct StatusView: View {
 
     private var simpleHeader: some View {
         HStack(spacing: 12) {
-            // Point coloré + nom device + état
+            // Point coloré + nom device + build + état
             HStack(spacing: 8) {
                 Circle().fill(statusColor).frame(width: 10, height: 10)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(nodeService.localDisplayName)
-                        .font(.headline).fontWeight(.semibold)
-                        .lineLimit(1)
+                    HStack(spacing: 6) {
+                        Text(TomNodeService.shortDeviceName(nodeService.username))
+                            .font(.headline).fontWeight(.semibold)
+                            .lineLimit(1)
+                        if nodeService.appBuild > 0 {
+                            Text("\(nodeService.appBuild)")
+                                .font(.caption2).fontWeight(.semibold)
+                                .foregroundColor(.secondary)
+                        }
+                    }
                     Text(nodeService.state.rawValue.uppercased())
                         .font(.caption2).foregroundColor(.secondary).kerning(0.5)
                         .lineLimit(1)

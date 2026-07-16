@@ -121,6 +121,11 @@ pub struct RuntimeConfigFFI {
     /// Online peers each tick, results land in the Live Log). None or 0 = off.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub presence_probe_interval_secs: Option<u32>,
+
+    /// Application build number (non-authoritative hint, displayed to peers).
+    /// 0 = unknown.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub app_build: Option<u32>,
 }
 
 /// Group creation config
@@ -172,6 +177,8 @@ pub struct NodeStatusFFI {
     pub relay_url_active: String,
     pub clock_skew_ms: Option<i64>,
     pub clock_skew_samples: u64,
+    /// Application build number of this node (non-authoritative hint).
+    pub app_build: u32,
 }
 
 /// L1-001 presence stats snapshot polled by Swift (key contract with the

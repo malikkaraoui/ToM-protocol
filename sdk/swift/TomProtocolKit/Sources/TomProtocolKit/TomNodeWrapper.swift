@@ -63,7 +63,8 @@ public actor TomNodeWrapper {
         dataDir: String?,
         gossipBootstrapPeers: [String] = [],
         presenceContributionMin: Double? = nil,
-        presenceProbeIntervalSecs: UInt32? = nil
+        presenceProbeIntervalSecs: UInt32? = nil,
+        appBuild: UInt32 = 0
     ) throws {
         guard let h = handle else {
             throw TomError.notStarted
@@ -97,6 +98,10 @@ public actor TomNodeWrapper {
         }
         if let probe = presenceProbeIntervalSecs {
             config["presence_probe_interval_secs"] = probe
+        }
+        // Application build number (for version display on peers)
+        if appBuild > 0 {
+            config["app_build"] = appBuild
         }
 
         let jsonData = try JSONSerialization.data(withJSONObject: config)

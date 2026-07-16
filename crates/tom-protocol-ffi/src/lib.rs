@@ -53,6 +53,8 @@ pub struct TomNodeHandle {
     /// L1-001 presence: (accepted_total, last_attester, last_latency_ms) —
     /// updated from PresenceAttestationReceived events, polled by Swift.
     presence_stats: Arc<Mutex<(u64, String, u64)>>,
+    /// Application build number (non-authoritative hint, stored at start time).
+    app_build: Arc<std::sync::Mutex<u32>>,
 }
 
 /// Initialize tracing (logs) for the node
@@ -168,6 +170,7 @@ pub unsafe extern "C" fn tom_node_create(config_json: *const c_char) -> *mut Tom
         local_role: Arc::new(Mutex::new("Peer".to_string())),
         configured_relay_url: Arc::new(std::sync::Mutex::new(None)),
         presence_stats: Arc::new(Mutex::new((0, String::new(), 0))),
+        app_build: Arc::new(std::sync::Mutex::new(0)),
     }))
 }
 
@@ -256,6 +259,7 @@ pub unsafe extern "C" fn tom_node_start(
             .presence_probe_interval_secs
             .filter(|&s| s > 0)
             .map(|s| std::time::Duration::from_secs(s as u64)),
+        app_build: runtime_config.app_build.unwrap_or(0),
         ..Default::default()
     };
 
@@ -265,9 +269,13 @@ pub unsafe extern "C" fn tom_node_start(
     let group_message_queue = handle_ref.group_message_queue.clone();
     let node_id_arc = handle_ref.node_id.clone();
     let last_error_arc = handle_ref.last_error.clone();
+    let app_build_value = runtime_config.app_build.unwrap_or(0);
 
     // Clear previous error
     *lock_recover(&last_error_arc) = None;
+
+    // Store app build for status reporting
+    *lock_recover(&handle_ref.app_build) = app_build_value;
 
     // Block until bind + runtime spawn completes (not fire-and-forget)
     let result = handle_ref.runtime.block_on(async move {
@@ -1037,6 +1045,7 @@ pub unsafe extern "C" fn tom_node_status(handle: *const TomNodeHandle) -> *mut c
         // Serialize through a typed struct (not a hand-rolled `format!`) so the
         // JSON is always valid/escaped and the key contract with the Swift
         // `TomNodeStatus` decoder stays locked by `types::tests`.
+        let app_build = *lock_recover(&handle_ref.app_build);
         let status_payload = NodeStatusFFI {
             node_id: node_id.unwrap_or_else(|| "unknown".to_string()),
             status: status.to_string(),
@@ -1048,6 +1057,7 @@ pub unsafe extern "C" fn tom_node_status(handle: *const TomNodeHandle) -> *mut c
             relay_url_active,
             clock_skew_ms,
             clock_skew_samples,
+            app_build,
         };
         serde_json::to_string(&status_payload).unwrap_or_else(|_| "{}".to_string())
     });

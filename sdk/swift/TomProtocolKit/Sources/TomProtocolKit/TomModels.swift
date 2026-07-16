@@ -13,6 +13,7 @@ public struct TomPeer: Identifiable, Codable {
     public var username: String = ""
     public var source: String = ""
     public var discoveredAt: UInt64 = 0
+    public var appBuild: Int = 0
 
     public var id: NodeId { nodeId }
 
@@ -24,11 +25,12 @@ public struct TomPeer: Identifiable, Codable {
         String(nodeId.prefix(8)) + "..." + String(nodeId.suffix(4))
     }
 
-    public init(nodeId: NodeId, username: String = "", source: String = "", discoveredAt: UInt64 = 0) {
+    public init(nodeId: NodeId, username: String = "", source: String = "", discoveredAt: UInt64 = 0, appBuild: Int = 0) {
         self.nodeId = nodeId
         self.username = username
         self.source = source
         self.discoveredAt = discoveredAt
+        self.appBuild = appBuild
     }
 
     enum CodingKeys: String, CodingKey {
@@ -36,6 +38,7 @@ public struct TomPeer: Identifiable, Codable {
         case username
         case source
         case discoveredAt = "discovered_at"
+        case appBuild = "app_build"
     }
 }
 
@@ -143,6 +146,7 @@ public struct TomNodeStatus: Codable {
     public let pathRttMs: UInt64?
     public let clockSkewMs: Int64?
     public let clockSkewSamples: UInt64?
+    public let appBuild: UInt32
 
     enum CodingKeys: String, CodingKey {
         case nodeId = "node_id"
@@ -154,6 +158,7 @@ public struct TomNodeStatus: Codable {
         case pathRttMs = "path_rtt_ms"
         case clockSkewMs = "clock_skew_ms"
         case clockSkewSamples = "clock_skew_samples"
+        case appBuild = "app_build"
     }
 }
 

@@ -114,11 +114,20 @@ struct SettingsView: View {
                     // toujours unique → rendu stable.
                     if !nodeService.connectedPeers.isEmpty {
                         ForEach(Array(nodeService.connectedPeers.enumerated()), id: \.offset) { _, peerId in
-                            SettingsRow(
-                                label: "Connected",
-                                value: nodeService.displayName(for: peerId),
-                                valueColor: .green
-                            )
+                            if let peer = nodeService.discoveredPeers.first(where: { $0.nodeId == peerId }) {
+                                let displayValue = nodeService.displayName(for: peerId) + (peer.appBuild > 0 ? " \(peer.appBuild)" : "")
+                                SettingsRow(
+                                    label: "Connected",
+                                    value: displayValue,
+                                    valueColor: .green
+                                )
+                            } else {
+                                SettingsRow(
+                                    label: "Connected",
+                                    value: nodeService.displayName(for: peerId),
+                                    valueColor: .green
+                                )
+                            }
                         }
                     }
                     // Découverts NON déjà connectés (évite de lister un pair deux fois).
@@ -127,9 +136,10 @@ struct SettingsView: View {
                     }
                     if !discoveredOnly.isEmpty {
                         ForEach(Array(discoveredOnly.enumerated()), id: \.offset) { _, peer in
+                            let displayValue = nodeService.displayName(for: peer.nodeId) + (peer.appBuild > 0 ? " \(peer.appBuild)" : "")
                             SettingsRow(
                                 label: "Discovered",
-                                value: nodeService.displayName(for: peer.nodeId),
+                                value: displayValue,
                                 valueColor: .blue
                             )
                         }
