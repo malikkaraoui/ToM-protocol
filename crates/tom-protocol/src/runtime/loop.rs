@@ -39,6 +39,16 @@ fn liveness_is_stale(last_inbound: u64, now: u64, threshold_ms: u64) -> bool {
     now.saturating_sub(last_inbound) > threshold_ms
 }
 
+/// Interval for maintenance timers — after a stall (CPU contention, iOS resume,
+/// or weak device strain), we want ONE tick of rattrapage, not a burst of all
+/// missed ticks. Skip realigns the schedule without replaying the backlog.
+/// This prevents orage republish/rejoin storms during recovery.
+fn maintenance_interval(period: std::time::Duration) -> tokio::time::Interval {
+    let mut i = tokio::time::interval(period);
+    i.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    i
+}
+
 /// Main event loop — thin orchestrator.
 ///
 /// All protocol logic lives in `RuntimeState`. This function only:
@@ -60,34 +70,34 @@ pub(super) async fn runtime_loop(
     metrics: ProtocolMetrics,
 ) {
     // ── Timers (read intervals from state.config) ───────────────────
-    let mut cache_cleanup = tokio::time::interval(state.config.cache_cleanup_interval);
-    let mut tracker_cleanup = tokio::time::interval(state.config.tracker_cleanup_interval);
-    let mut heartbeat_check = tokio::time::interval(state.config.heartbeat_interval);
-    let mut group_hub_heartbeat = tokio::time::interval(state.config.group_hub_heartbeat_interval);
-    let mut backup_tick = tokio::time::interval(state.config.backup_tick_interval);
-    let mut gossip_announce = tokio::time::interval(state.config.gossip_announce_interval);
-    let mut shadow_ping = tokio::time::interval(state.config.shadow_ping_interval);
-    let mut subnet_eval = tokio::time::interval(std::time::Duration::from_secs(30));
-    let mut role_eval = tokio::time::interval(std::time::Duration::from_secs(300));
-    let mut state_save = tokio::time::interval(std::time::Duration::from_secs(30));
-    let mut dht_republish = tokio::time::interval(std::time::Duration::from_secs(30 * 60));
-    let mut delivery_deadline = tokio::time::interval(std::time::Duration::from_secs(5));
-    let mut hub_cleanup = tokio::time::interval(std::time::Duration::from_secs(60));
-    let mut reconnect_check = tokio::time::interval(std::time::Duration::from_secs(15));
+    let mut cache_cleanup = maintenance_interval(state.config.cache_cleanup_interval);
+    let mut tracker_cleanup = maintenance_interval(state.config.tracker_cleanup_interval);
+    let mut heartbeat_check = maintenance_interval(state.config.heartbeat_interval);
+    let mut group_hub_heartbeat = maintenance_interval(state.config.group_hub_heartbeat_interval);
+    let mut backup_tick = maintenance_interval(state.config.backup_tick_interval);
+    let mut gossip_announce = maintenance_interval(state.config.gossip_announce_interval);
+    let mut shadow_ping = maintenance_interval(state.config.shadow_ping_interval);
+    let mut subnet_eval = maintenance_interval(std::time::Duration::from_secs(30));
+    let mut role_eval = maintenance_interval(std::time::Duration::from_secs(300));
+    let mut state_save = maintenance_interval(std::time::Duration::from_secs(30));
+    let mut dht_republish = maintenance_interval(std::time::Duration::from_secs(30 * 60));
+    let mut delivery_deadline = maintenance_interval(std::time::Duration::from_secs(5));
+    let mut hub_cleanup = maintenance_interval(std::time::Duration::from_secs(60));
+    let mut reconnect_check = maintenance_interval(std::time::Duration::from_secs(15));
     // Shared DHT rendezvous: periodic re-announce + zero-config peer discovery.
-    let mut rendezvous_tick = tokio::time::interval(std::time::Duration::from_secs(60));
+    let mut rendezvous_tick = maintenance_interval(std::time::Duration::from_secs(60));
     // L1-001 presence: purge 30s-TTL artifacts every 5s (ephemeral, LOCKED #2).
-    let mut presence_purge = tokio::time::interval(std::time::Duration::from_secs(5));
+    let mut presence_purge = maintenance_interval(std::time::Duration::from_secs(5));
     // L1-001 presence auto-probe (fleet observability). When disabled the
     // timer still exists but its tick handler is a no-op (config-checked).
-    let mut presence_probe = tokio::time::interval(
+    let mut presence_probe = maintenance_interval(
         state
             .config
             .presence_probe_interval
             .unwrap_or(std::time::Duration::from_secs(3600)),
     );
     // L1-003: relay-side presence view publication (30s push, D2).
-    let mut presence_publish = tokio::time::interval(std::time::Duration::from_secs(30));
+    let mut presence_publish = maintenance_interval(std::time::Duration::from_secs(30));
 
     // Skip the immediate first tick
     cache_cleanup.tick().await;
@@ -1272,5 +1282,39 @@ mod tests {
         let now = 1_000_000u64;
         assert!(!liveness_is_stale(now + 5_000, now, LIVENESS_STALE_MS));
         assert!(!liveness_is_stale(u64::MAX, now, LIVENESS_STALE_MS));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn maintenance_interval_skip_behavior() {
+        // Verify that maintenance_interval uses MissedTickBehavior::Skip,
+        // not Burst. After a stall (CPU, iOS resume), we want ONE rattrapage
+        // tick, not a replay of all missed ticks.
+        let mut interval = super::maintenance_interval(std::time::Duration::from_secs(1));
+
+        // Consume the initial tick (standard behavior).
+        interval.tick().await;
+
+        // Pause time and advance 10× the period WITHOUT polling.
+        // With Burst, this would accumulate 10 missed ticks.
+        // With Skip, only 1 tick is available (realigned, next tick ~1s from now).
+        tokio::time::advance(std::time::Duration::from_secs(10)).await;
+
+        // Poll once: should succeed immediately (rattrapage tick).
+        let ready = tokio::select! {
+            _ = interval.tick() => true,
+            _ = tokio::time::sleep(std::time::Duration::from_millis(100)) => false,
+        };
+        assert!(ready, "après un stall, un tick doit être disponible immédiatement");
+
+        // Poll again: should timeout or require ~1s more (next tick).
+        // We're now ~1s away from the next scheduled tick, so a poll should block.
+        let ready = tokio::select! {
+            _ = interval.tick() => true,
+            _ = tokio::time::sleep(std::time::Duration::from_millis(100)) => false,
+        };
+        assert!(
+            !ready,
+            "pas de deuxième tick immédiat — Skip réaligne sans replay de backlog"
+        );
     }
 }
