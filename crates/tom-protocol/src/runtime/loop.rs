@@ -174,16 +174,20 @@ pub(super) async fn runtime_loop(
     let dht_handle: Option<tom_dht::AsyncDht> =
         state.dht().map(|d| d.async_dht());
 
-    // Publish to DHT at startup (BEP-0044)
+    // Publish to DHT at startup (BEP-0044) — EN TÂCHE DÉTACHÉE.
+    // Le put_mutable DHT prend des dizaines de secondes ; le faire en bloquant
+    // ici retardait d'autant l'entrée dans la boucle select! → la découverte
+    // LAN mDNS (quasi instantanée) était prise en otage, convergence à ~28 s.
+    // Détaché : on entre dans la boucle immédiatement, le mDNS trouve les pairs
+    // du LAN en 1-2 s, et le publish DHT se termine en fond.
     {
         let (relay_urls, direct_addrs) = extract_node_addrs(&node);
-        state.publish_to_dht(&secret_seed, relay_urls, direct_addrs).await;
-        let elapsed = discovery_start.elapsed().as_millis() as u64;
-        tracing::info!("⏱️ DISCO t+{elapsed}ms : DHT startup publish done");
+        state.publish_to_dht_detached(&secret_seed, relay_urls, direct_addrs);
+        tracing::info!("⏱️ DISCO t+0 : DHT startup publish lancé (détaché)");
         let _ = event_tx
             .send(ProtocolEvent::DiscoveryTiming {
-                elapsed_ms: elapsed,
-                detail: "DHT startup publish done".to_string(),
+                elapsed_ms: 0,
+                detail: "DHT startup publish lancé (détaché)".to_string(),
             })
             .await;
     }

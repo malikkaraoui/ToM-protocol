@@ -346,6 +346,27 @@ impl RuntimeState {
         }
     }
 
+    /// Variante NON-BLOQUANTE de `publish_to_dht` — le put DHT (lent) part en
+    /// tâche détachée. À utiliser au démarrage pour ne pas retarder la boucle
+    /// de découverte (la découverte LAN mDNS doit démarrer immédiatement).
+    pub(crate) fn publish_to_dht_detached(
+        &self,
+        signing_key: &[u8; 32],
+        relay_urls: Vec<String>,
+        direct_addrs: Vec<String>,
+    ) {
+        if let Some(ref dht) = self.dht {
+            let our_addr = DhtNodeAddr {
+                node_id: self.local_id.to_string(),
+                relay_urls,
+                direct_addrs,
+                timestamp: now_ms(),
+                ..Default::default()
+            };
+            dht.publish_detached(*signing_key, our_addr);
+        }
+    }
+
     /// Check if DHT is enabled and return a reference for spawning lookups.
     pub(crate) fn dht(&self) -> Option<&DhtDiscovery> {
         self.dht.as_ref()

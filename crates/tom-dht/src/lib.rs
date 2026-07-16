@@ -206,6 +206,34 @@ impl DhtDiscovery {
         Ok(())
     }
 
+    /// Publie l'adresse du nœud en tâche DÉTACHÉE — ne bloque PAS l'appelant.
+    ///
+    /// `put_mutable` sur le DHT Mainline peut prendre des dizaines de secondes
+    /// (recherche de nœuds proches). Au démarrage, ce délai retardait d'autant
+    /// l'entrée dans la boucle de découverte (la découverte LAN mDNS, quasi
+    /// instantanée, était prise en otage). Le seq est incrémenté de façon
+    /// synchrone (garantit l'ordre BEP-0044) puis le put est spawné.
+    pub fn publish_detached(&self, signing_key_bytes: [u8; 32], addr: DhtNodeAddr) {
+        let dht = self.dht.clone();
+        let seq = self.seq.fetch_add(1, Ordering::Relaxed) + 1;
+        tokio::spawn(async move {
+            let value = match serde_json::to_vec(&addr) {
+                Ok(v) => v,
+                Err(e) => {
+                    tracing::warn!("serialize DhtNodeAddr (detached): {e}");
+                    return;
+                }
+            };
+            let signer = SigningKey::from_bytes(&signing_key_bytes);
+            let item = MutableItem::new(signer, &value, seq, Some(SALT));
+            if let Err(e) = dht.put_mutable(item, None).await {
+                tracing::warn!("DHT put_mutable (detached) failed: {e}");
+            } else {
+                tracing::info!(node_id = %addr.node_id, seq, "published to DHT (detached)");
+            }
+        });
+    }
+
     /// Get a clonable handle to the async DHT client.
     ///
     /// Useful for spawning lookup tasks that run concurrently with the main loop.
