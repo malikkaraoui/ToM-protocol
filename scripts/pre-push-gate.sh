@@ -217,10 +217,16 @@ step 5 "Tests (${STACKS[*]})..."
 for STACK in "${STACKS[@]}"; do
 case "$STACK" in
     rust)
-        if cargo test --workspace 2>&1 | tail -30; then
-            pass "Tests OK (cargo test)"
+        # HERMÉTICITÉ (#5) : la gate LOCALE ne lance QUE les tests unitaires
+        # (--lib, hermétiques). Les tests d'INTÉGRATION (tests/) créent de vrais
+        # nœuds qui bindent le LAN + publient au rendezvous DHT partagé →
+        # ils rejoignaient la flotte de PROD (« anonymous » en DIRECT sur les
+        # appareils de l'utilisateur). La CI GitHub (runner isolé, hors LAN)
+        # exécute la couverture d'intégration complète — voir .github/workflows.
+        if cargo test --workspace --lib 2>&1 | tail -30; then
+            pass "Tests OK (cargo test --lib ; intégration → CI isolée)"
         else
-            fail "Tests echoues (cargo test)"
+            fail "Tests echoues (cargo test --lib)"
         fi
         ;;
     node)
