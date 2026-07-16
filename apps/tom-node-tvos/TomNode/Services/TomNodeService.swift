@@ -1193,9 +1193,14 @@ final class TomNodeService: ObservableObject {
                     // Le Live Log reçoit TOUT (c'est là que vivent les logs bruts).
                     self.appendLog(.info, text)
 
-                    // Détection sécurité sur TOUS les events (jamais filtrée).
-                    let isSecurityEvent = event.type.contains("Throttled")
-                        || event.type.contains("Rejected")
+                    // Bandeau « anomalie sécurité » réservé aux VRAIES violations
+                    // (signature forgée, sécurité de groupe). L'antispam
+                    // (`SenderThrottled`) est un CONTRÔLE DE FLUX progressif par
+                    // décision LOCKED #5 (« the sprinkler gets sprinkled »), PAS
+                    // une attaque : pacer un ami reconnecté n'est pas un incident.
+                    // Le lever en rouge contredisait #5 et l'invisibilité (#6).
+                    // Il reste visible au Live Log (ci-dessus), pas en alarme.
+                    let isSecurityEvent = event.type.contains("Rejected")
                         || event.type.contains("GroupSecurity")
                     if isSecurityEvent {
                         self.securityAlerts += 1
