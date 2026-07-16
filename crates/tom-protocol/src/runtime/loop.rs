@@ -1277,19 +1277,21 @@ async fn bootstrap_join_peer(
     // so MemoryLookup has the address when gossip dials.
     node.add_peer_addr(endpoint_addr).await;
 
-    // Le pool de transport (ALPN transport/0, celui qui alimente
-    // pairs_connectes) ne dial que paresseusement, au premier send()
-    // applicatif — contrairement au gossip, proactif. Sans ce chauffage,
-    // un pair fraîchement découvert reste invisible dans pairs_connectes
-    // jusqu'au prochain heartbeat (jusqu'à HEARTBEAT_INTERVAL_MS plus tard).
-    // Détaché : un pair injoignable ne doit jamais bloquer la boucle de
-    // découverte (même principe que le publish DHT détaché, #36).
-    let transport_sender = node.sender();
-    tokio::spawn(async move {
-        if let Err(error) = transport_sender.ensure_connected(node_id).await {
-            tracing::debug!(peer = %node_id, %error, "warm transport dial failed — will retry lazily on next send");
-        }
-    });
+    // RÉGRESSION #46 (2026-07-17) : le dial PROACTIF de transport/0 ici (ancien
+    // #37 « ensure_connected ») CASSAIT la réception des messages. Quand deux
+    // nœuds se découvrent mutuellement, chacun dialait l'autre en même temps →
+    // DEUX connexions QUIC concurrentes A→B et B→A. Le remote_map (tom-connect)
+    // n'en retient qu'UNE par pair ; l'autre est abandonnée mais restait dans le
+    // pool SORTANT de tom-transport → get_or_connect() envoyait les messages sur
+    // une connexion morte → le pair ne recevait JAMAIS rien (messages_recus=0 sur
+    // toute la flotte, ACK « Délivré » trompeur). Mesuré : le NAS — qui reçoit via
+    // ses connexions ENTRANTES — avait 4038 msgs reçus ; les apps, 0.
+    // Le dial redevient PARESSEUX (au 1er send, comme avant #37) : chaque
+    // expéditeur ouvre SA connexion, que le récepteur accepte ET lit. Le comptage
+    // des connexions entrantes (#build80) garde pairs_connectes réactif malgré ça
+    // (un pair qui nous dial/pinge apparaît connecté sans qu'on l'ait dialé).
+    // TODO vitesse : réintroduire un chauffage transport SANS dial bidirectionnel
+    // simultané (une seule direction, ou dédup au niveau remote_map).
 
     if let Some(sender) = gossip_sender {
         if let Err(error) = sender.join_peers(vec![endpoint_id]).await {
