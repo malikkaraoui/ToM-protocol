@@ -36,6 +36,12 @@ fn main() {
         .nth(1)
         .unwrap_or_else(|| "/tmp/tom-ffi-harness".to_string());
     std::fs::create_dir_all(&dir).unwrap();
+    // Le répertoire contiendra une clé privée Ed25519 (id.key) : accès propriétaire seul.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700));
+    }
     let identity = format!("{dir}/id.key");
     let data = format!("{dir}/data");
 
@@ -84,6 +90,9 @@ fn main() {
     }
 
     eprintln!("FIN total_recus={total}");
+    // tom_node_stop CONSOMME le handle (Box::from_raw + teardown détaché, cf.
+    // contrat d'ownership lib.rs::detached_teardown) — ne PAS appeler
+    // tom_node_free ensuite : ce serait un double-free.
     unsafe { tom_node_stop(h) };
     std::thread::sleep(Duration::from_secs(2));
 }
