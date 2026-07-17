@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 59a84bb82f39271d920ecdd06b0912c11e62529fa0969b216f0044c15f60a450 # shrinks to input = _RandomInteractionWithMultipathSimpleRoutingArgs { seed: [3, 206, 109, 112, 216, 137, 9, 167, 46, 72, 107, 115, 241, 119, 203, 151, 162, 216, 241, 240, 43, 74, 75, 106, 86, 150, 190, 151, 3, 11, 183, 13], interactions: [OpenPath(Client, Available, 1), OpenPath(Client, Available, 1), Drive(Client), ClosePath(Client, 1, 0), PathSetStatus(Server, 0, Backup), PassiveMigration(Server, 0)] }
