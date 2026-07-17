@@ -65,6 +65,7 @@ impl Connecting {
                 runtime.clone(),
             )),
             shared: Shared::default(),
+            ref_count: std::sync::atomic::AtomicUsize::new(0),
         })));
 
         let driver = ConnectionDriver(conn.clone());
@@ -1240,7 +1241,11 @@ pub(crate) struct ConnectionRef(Arc<Arc<ConnectionInner>>);
 impl ConnectionRef {
     #[allow(clippy::redundant_allocation)]
     fn from_arc(inner: Arc<Arc<ConnectionInner>>) -> Self {
-        inner.state.lock("from_arc").ref_count += 1;
+        // Atomique, JAMAIS le verrou d'état : un clone sous verrou tenu
+        // (OpenPath::new, Path::conn, driver…) ne peut plus s'auto-deadlocker.
+        inner
+            .ref_count
+            .fetch_add(1, std::sync::atomic::Ordering::AcqRel);
         Self(inner)
     }
 
@@ -1257,10 +1262,18 @@ impl Clone for ConnectionRef {
 
 impl Drop for ConnectionRef {
     fn drop(&mut self) {
-        let conn = &mut *self.state.lock("drop");
-        if let Some(x) = conn.ref_count.checked_sub(1) {
-            conn.ref_count = x;
-            if x == 0 && !conn.inner.is_closed() {
+        // Décrément atomique HORS verrou (même garde anti-underflow que
+        // l'ancien checked_sub). Le verrou d'état n'est pris que pour la
+        // TOUTE DERNIÈRE ref — jamais tenue sous un autre verrou en pratique
+        // (le driver possède une ref tant qu'il vit).
+        let prev = self.ref_count.fetch_update(
+            std::sync::atomic::Ordering::AcqRel,
+            std::sync::atomic::Ordering::Acquire,
+            |x| x.checked_sub(1),
+        );
+        if prev == Ok(1) {
+            let conn = &mut *self.state.lock("drop");
+            if !conn.inner.is_closed() {
                 // If the driver is alive, it's just it and us, so we'd better shut it down. If it's
                 // not, we can't do any harm. If there were any streams being opened, then either
                 // the connection will be closed for an unrelated reason or a fresh reference will
@@ -1282,6 +1295,12 @@ impl std::ops::Deref for ConnectionRef {
 pub(crate) struct ConnectionInner {
     pub(crate) state: Mutex<State>,
     pub(crate) shared: Shared,
+    /// Compteur de refs HORS du mutex d'état. L'ancien schéma (compteur dans
+    /// `State`) forçait `ConnectionRef::clone`/`drop` à prendre le verrou :
+    /// tout clone/drop d'une ref pendant que `state` était tenu
+    /// s'auto-deadlockait (mutex non réentrant) — gels terrain NAS 13/07 et
+    /// iOS 17/07, signature gdb « futex tenu sans détenteur visible ».
+    pub(crate) ref_count: std::sync::atomic::AtomicUsize,
 }
 
 /// A handle to some connection internals, use with care.
@@ -1340,8 +1359,8 @@ pub(crate) struct State {
     /// Tracks paths being closed
     pub(crate) close_path: FxHashMap<PathId, oneshot::Sender<VarInt>>,
     pub(crate) path_events: tokio::sync::broadcast::Sender<PathEvent>,
-    /// Number of live handles that can be used to initiate or handle I/O; excludes the driver
-    ref_count: usize,
+    // ref_count déplacé dans ConnectionInner (AtomicUsize) — voir le
+    // commentaire là-bas : le tenir sous CE mutex auto-deadlockait clone/drop.
     sender: Pin<Box<dyn UdpSender>>,
     pub(crate) runtime: Arc<dyn Runtime>,
     send_buffer: Vec<u8>,
@@ -1384,7 +1403,6 @@ impl State {
             open_path: FxHashMap::default(),
             close_path: FxHashMap::default(),
             error: None,
-            ref_count: 0,
             sender,
             runtime,
             send_buffer: Vec::new(),

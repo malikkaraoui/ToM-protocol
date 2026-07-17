@@ -30,6 +30,10 @@ pub(crate) use self::ip::Config as IpConfig;
 use self::ip::{IpNetworkChangeSender, IpTransports, IpTransportsSender};
 pub(crate) use self::relay::{RelayActorConfig, RelayTransport};
 
+/// Rounds consécutifs où tous les transports peuvent échouer en recv avant
+/// de remonter l'erreur (fatale pour le driver endpoint). Port iroh#4314.
+const MAX_CONSECUTIVE_RECV_ERRORS: usize = 8;
+
 /// Manages the different underlying data transports that the socket can support.
 #[derive(Debug)]
 pub(crate) struct Transports {
@@ -38,6 +42,12 @@ pub(crate) struct Transports {
     relay: Vec<RelayTransport>,
 
     poll_recv_counter: usize,
+    /// Rounds consécutifs où TOUS les transports ont rendu une erreur recv.
+    /// Port du fix upstream iroh#4314 : avant, UNE erreur isolée (interface
+    /// qui flappe — avion, handoff Wi-Fi↔cellulaire) remontait via `?` et
+    /// tuait l'endpoint entier. L'erreur ne devient fatale qu'après
+    /// [`MAX_CONSECUTIVE_RECV_ERRORS`] rounds entièrement en échec.
+    consecutive_total_recv_failures: usize,
     /// Cache for source addrs, to speed up access
     source_addrs: [Addr; quinn_udp::BATCH_SIZE],
     /// Receiver for PeerPresent events from relay servers.
@@ -212,6 +222,7 @@ impl Transports {
             ip,
             relay,
             poll_recv_counter: Default::default(),
+            consecutive_total_recv_failures: 0,
             source_addrs: Default::default(),
             peer_present_rx: Some(peer_present_rx),
         })
@@ -231,7 +242,11 @@ impl Transports {
         }
 
         match self.inner_poll_recv(cx, bufs, metas)? {
-            Poll::Pending | Poll::Ready(0) => Poll::Pending,
+            Poll::Pending => Poll::Pending,
+            // Ok(0) = « rien reçu mais re-planifier » (rounds d'erreurs
+            // tolérés, iroh#4314) : remonter Pending ici affamerait le poll
+            // (aucun waker enregistré par un transport en erreur).
+            Poll::Ready(0) => Poll::Ready(Ok(0)),
             Poll::Ready(n) => {
                 sock.process_datagrams(&mut bufs[..n], &mut metas[..n], &self.source_addrs[..n]);
                 Poll::Ready(Ok(n))
@@ -248,12 +263,31 @@ impl Transports {
     ) -> Poll<io::Result<usize>> {
         debug_assert_eq!(bufs.len(), metas.len(), "non matching bufs & metas");
 
+        // Port iroh#4314 : une erreur recv d'UN transport ne tue plus tout
+        // l'endpoint. On compte les rounds où TOUS les transports échouent ;
+        // l'erreur ne devient fatale qu'à MAX_CONSECUTIVE_RECV_ERRORS.
+        let mut total_polled = 0usize;
+        let mut total_errors = 0usize;
+        let mut return_ready = false;
+
         macro_rules! poll_transport {
-            ($socket:expr) => {
-                match $socket.poll_recv(cx, bufs, metas, &mut self.source_addrs)? {
-                    Poll::Pending | Poll::Ready(0) => {}
-                    Poll::Ready(n) => {
+            ($label:expr, $socket:expr) => {
+                total_polled += 1;
+                match $socket.poll_recv(cx, bufs, metas, &mut self.source_addrs) {
+                    Poll::Pending => {}
+                    Poll::Ready(Ok(0)) => {
+                        return_ready = true;
+                    }
+                    Poll::Ready(Ok(n)) => {
+                        self.consecutive_total_recv_failures = 0;
                         return Poll::Ready(Ok(n));
+                    }
+                    Poll::Ready(Err(err)) => {
+                        // Pas de `return_ready = true` ici : un transport qui
+                        // échoue en boucle nous mettrait en hot-loop alors que
+                        // les transports sains sont Pending.
+                        total_errors += 1;
+                        warn!(transport = $label, "recv error (toléré): {err:#}");
                     }
                 }
             };
@@ -265,20 +299,39 @@ impl Transports {
 
         if counter.is_multiple_of(2) {
             #[cfg(not(wasm_browser))]
-            poll_transport!(&mut self.ip);
+            poll_transport!("ip", &mut self.ip);
 
             for transport in &mut self.relay {
-                poll_transport!(transport);
+                poll_transport!("relay", transport);
             }
         } else {
             for transport in self.relay.iter_mut().rev() {
-                poll_transport!(transport);
+                poll_transport!("relay", transport);
             }
             #[cfg(not(wasm_browser))]
-            poll_transport!(&mut self.ip);
+            poll_transport!("ip", &mut self.ip);
         }
 
-        Poll::Pending
+        if total_polled > 0 && total_polled == total_errors {
+            // TOUS les transports ont échoué ce round.
+            self.consecutive_total_recv_failures += 1;
+            if self.consecutive_total_recv_failures >= MAX_CONSECUTIVE_RECV_ERRORS {
+                Poll::Ready(Err(io::Error::new(
+                    io::ErrorKind::NetworkDown,
+                    "All transports failed to receive",
+                )))
+            } else {
+                Poll::Ready(Ok(0))
+            }
+        } else {
+            // Au moins un transport est Pending ou a rendu Ok(0).
+            self.consecutive_total_recv_failures = 0;
+            if return_ready {
+                Poll::Ready(Ok(0))
+            } else {
+                Poll::Pending
+            }
+        }
     }
 
     /// Returns a list of all currently known local addresses.

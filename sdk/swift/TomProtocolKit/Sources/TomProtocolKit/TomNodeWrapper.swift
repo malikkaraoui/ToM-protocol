@@ -23,6 +23,7 @@ public actor TomNodeWrapper {
     }
 
     public func create(relayUrl: String?, identityPath: String?, n0Discovery: Bool) throws {
+        TomTrace.log("wrapper.create.actor-entered")
         guard handle == nil else {
             throw TomError.alreadyRunning
         }
@@ -44,9 +45,12 @@ public actor TomNodeWrapper {
 
         log.info("Creating node with config: \(jsonStr)")
 
+        TomTrace.log("wrapper.create.ffi-begin")
         guard let h = jsonStr.withCString({ tom_node_create($0) }) else {
+            TomTrace.log("wrapper.create.ffi-null")
             throw TomError.ffiReturnedNull(function: "tom_node_create")
         }
+        TomTrace.log("wrapper.create.ffi-done")
 
         handle = h
         log.info("Node created successfully")
@@ -111,7 +115,9 @@ public actor TomNodeWrapper {
 
         log.info("Starting node runtime...")
 
+        TomTrace.log("wrapper.start.ffi-begin")
         let result = jsonStr.withCString { tom_node_start(h, $0) }
+        TomTrace.log("wrapper.start.ffi-done rc=\(result)")
         if result != 0 {
             var errorDetail = "tom_node_start returned \(result)"
             if let errPtr = tom_node_last_error(h) {
@@ -134,7 +140,9 @@ public actor TomNodeWrapper {
     public func stop() {
         guard let h = handle else { return }
         log.info("Stopping node...")
+        TomTrace.log("wrapper.stop.ffi-begin")
         tom_node_stop(h)
+        TomTrace.log("wrapper.stop.ffi-done")
         handle = nil
         log.info("Node stopped")
     }
@@ -143,7 +151,9 @@ public actor TomNodeWrapper {
     public func forceReset() {
         guard let h = handle else { return }
         log.warning("Force-resetting node handle (post-sleep cleanup)")
+        TomTrace.log("wrapper.forceReset.ffi-begin")
         tom_node_free(h)
+        TomTrace.log("wrapper.forceReset.ffi-done")
         handle = nil
     }
 

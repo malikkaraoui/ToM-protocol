@@ -39,6 +39,9 @@ final class TomNodeService: ObservableObject {
     private var startRetryDelay: TimeInterval = TomNodeService.startRetryInitialDelay
     private static let startRetryInitialDelay: TimeInterval = 5
     private static let startRetryMaxDelay: TimeInterval = 60
+    /// Une seule recovery de start figé en vol (watchdog + retour foreground
+    /// peuvent tirer pendant le même gel — leurs forceReset se percutaient).
+    private var recoveryInFlight = false
     private var probeTask: Task<Void, Never>?
     private var probeSeq: Int = 0
     private var probeExpirationTimes: [String: Date] = [:]
@@ -686,6 +689,19 @@ final class TomNodeService: ObservableObject {
                 startStatusServer()
                 log.info("Node started — identity: \(self.identityPath ?? "ephemeral"), data: \(self.dataDir ?? "none")")
 
+            } catch TomError.alreadyRunning {
+                // Course de recoveries (deux create concurrents à la sortie
+                // d'un gel) : PAS un état terminal — libérer le handle
+                // orphelin et repartir via le backoff, comme un timeout.
+                log.error("Start collision (already running) — forceReset + retry")
+                cancelStartWatchdog()
+                await node.forceReset()
+                let delay = startRetryDelay
+                startRetryDelay = min(startRetryDelay * 2, Self.startRetryMaxDelay)
+                state = .error
+                errorMessage = "Redémarrage en cours — nouvelle tentative dans \(Int(delay)) s"
+                appendLog(.warning, "START COLLISION — nouvelle tentative dans \(Int(delay)) s")
+                scheduleStartRetry(after: delay)
             } catch TomError.startTimeout(let detail) {
                 // Réseau indisponible/dégradé (contrat -2) : PAS une erreur
                 // terminale. Handle libéré (rien ne survit à un start expiré),
@@ -797,6 +813,15 @@ final class TomNodeService: ObservableObject {
     private func recoverFromStuckStart() {
         // Le start a pu aboutir juste avant l'échéance — ne rien casser.
         guard state == .starting else { return }
+        // IDEMPOTENCE : watchdog ET retour foreground peuvent tirer pendant le
+        // même gel (prouvé os.log iPad 17/07 : deux recoveries empilées sur
+        // l'actor se percutent à la libération → create « already running » →
+        // .error terminal). Une seule recovery en vol à la fois.
+        guard !recoveryInFlight else {
+            log.warning("recoverFromStuckStart ignoré — recovery déjà en vol")
+            return
+        }
+        recoveryInFlight = true
         appendLog(.error, "⏱️ START WATCHDOG — démarrage bloqué > \(Int(Self.startWatchdogTimeout))s, reset + retry")
         log.error("Start watchdog fired — node stuck in .starting, forcing reset + retry")
         startTask?.cancel()
@@ -806,6 +831,10 @@ final class TomNodeService: ObservableObject {
         stopAntiSleep()
         stopNetworkLogExport()
         Task {
+            // defer : le flag ne peut JAMAIS rester coincé à true, quel que
+            // soit le chemin de sortie (annulation, throw futur) — sinon
+            // toutes les recoveries suivantes seraient muettes à vie.
+            defer { recoveryInFlight = false }
             await node.forceReset()
             // Repasse par .stopped pour que start() (guard .stopped/.error) reparte.
             state = .stopped

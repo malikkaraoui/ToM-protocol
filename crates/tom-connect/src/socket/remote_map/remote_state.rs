@@ -223,7 +223,13 @@ impl RemoteStateActor {
         tasks: &mut JoinSet<(EndpointId, Vec<RemoteStateMessage>)>,
         shutdown_token: CancellationToken,
     ) -> mpsc::Sender<RemoteStateMessage> {
-        let (tx, rx) = mpsc::channel(64);
+        // 256 : l'inbox saturée fait DROPER silencieusement des datagrams —
+        // y compris des Initials QUIC (handshakes morts-nés, iroh #4325,
+        // toujours ouvert upstream) — pendant les rafales de connexions
+        // (re-dial de toute la flotte sur un nœud qui redémarre). Déjà
+        // élargie 16→64 ; 256 absorbe une rafale flotte complète, le warn
+        // « buffer exhausted » (transports.rs) reste le témoin.
+        let (tx, rx) = mpsc::channel(256);
         let me = self.local_endpoint_id;
         let endpoint_id = self.endpoint_id;
 

@@ -60,7 +60,7 @@ mod tracking {
             }
 
             MutexGuard {
-                guard,
+                guard: Some(guard),
                 start_time: lock_time,
                 purpose,
             }
@@ -68,29 +68,31 @@ mod tracking {
     }
 
     pub(crate) struct MutexGuard<'a, T> {
-        guard: std::sync::MutexGuard<'a, Inner<T>>,
+        // Option UNIQUEMENT pour pouvoir libérer le verrou AVANT d'émettre le
+        // warn de diagnostic : logger sous verrou (subscriber lent — journald
+        // NAS, pont app) transforme l'outil de mesure en source de contention.
+        guard: Option<std::sync::MutexGuard<'a, Inner<T>>>,
         start_time: Instant,
         purpose: &'static str,
     }
 
     impl<T> Drop for MutexGuard<'_, T> {
         fn drop(&mut self) {
-            if self.guard.last_lock_owner.len() == MAX_LOCK_OWNERS {
-                self.guard.last_lock_owner.pop_back();
-            }
-
             let duration = self.start_time.elapsed();
 
+            if let Some(mut guard) = self.guard.take() {
+                if guard.last_lock_owner.len() == MAX_LOCK_OWNERS {
+                    guard.last_lock_owner.pop_back();
+                }
+                guard.last_lock_owner.push_front((self.purpose, duration));
+            }
+            // Verrou LIBÉRÉ — le log ne peut plus retenir personne.
             if duration > Duration::from_millis(1) {
                 warn!(
                     "Utilizing the connection for {} took {:?}",
                     self.purpose, duration
                 );
             }
-
-            self.guard
-                .last_lock_owner
-                .push_front((self.purpose, duration));
         }
     }
 
@@ -98,13 +100,13 @@ mod tracking {
         type Target = T;
 
         fn deref(&self) -> &Self::Target {
-            &self.guard.value
+            &self.guard.as_ref().expect("guard vivant hors Drop").value
         }
     }
 
     impl<T> DerefMut for MutexGuard<'_, T> {
         fn deref_mut(&mut self) -> &mut Self::Target {
-            &mut self.guard.value
+            &mut self.guard.as_mut().expect("guard vivant hors Drop").value
         }
     }
 

@@ -72,6 +72,92 @@ fn init_tracing() {
         .try_init();
 }
 
+/// Budget des appels FFI courants (polls/statuts/envois). Un runtime gelé
+/// rend None au lieu de gonfler le budget de l'actor Swift.
+const FFI_CALL_BUDGET: std::time::Duration = std::time::Duration::from_secs(2);
+
+/// Exécute `fut` sur le runtime avec un budget tenu par le THREAD APPELANT
+/// (recv_timeout, primitive OS — immune à un timer tokio mort) : un runtime
+/// gelé (deadlock transport) rend None au lieu de geler l'appel C — l'actor
+/// Swift ne peut plus être empoisonné par un poll.
+fn bounded_block_on<T, F>(runtime: &tokio::runtime::Runtime, budget: std::time::Duration, fut: F) -> Option<T>
+where
+    T: Send + 'static,
+    F: std::future::Future<Output = T> + Send + 'static,
+{
+    let (tx, rx) = std::sync::mpsc::channel();
+    runtime.spawn(async move {
+        let _ = tx.send(fut.await);
+    });
+    rx.recv_timeout(budget).ok()
+}
+
+/// Drain TRANSACTIONNEL d'une file sous budget appelant.
+///
+/// Contrairement à [`bounded_block_on`], la file n'est vidée QUE si le
+/// résultat est effectivement récupéré par l'appelant : si le budget expire
+/// (runtime gelé) et que la tâche s'exécute plus tard, elle ne draine pas —
+/// sinon un dégel jetterait silencieusement tout le batch (messages perdus,
+/// exactement la classe de bug qu'on combat).
+fn bounded_drain_json<T, F>(
+    runtime: &tokio::runtime::Runtime,
+    budget: std::time::Duration,
+    queue: Arc<Mutex<VecDeque<T>>>,
+    serialize: F,
+) -> String
+where
+    T: Clone + Send + 'static,
+    F: FnOnce(Vec<T>) -> String + Send + 'static,
+{
+    // Commit en DEUX PHASES : la tâche n'efface la file qu'après un ACK
+    // explicite de l'appelant. Ni perte (le clear n'arrive jamais si le JSON
+    // n'a pas été récupéré) ni doublon (le clear arrive toujours s'il l'a
+    // été) — quelle que soit l'imbrication timeout/send.
+    let (tx, rx) = std::sync::mpsc::channel::<String>();
+    let (ack_tx, ack_rx) = std::sync::mpsc::channel::<()>();
+    let alive = Arc::new(std::sync::atomic::AtomicBool::new(true));
+    let alive_task = alive.clone();
+    runtime.spawn(async move {
+        let mut q = queue.lock().await;
+        if !alive_task.load(std::sync::atomic::Ordering::Acquire) {
+            // L'appelant a expiré avant même qu'on obtienne la file :
+            // ne rien drainer, le prochain poll reprendra tout.
+            return;
+        }
+        let items: Vec<T> = q.iter().cloned().collect();
+        let json = serialize(items);
+        if tx.send(json).is_err() {
+            return;
+        }
+        // Attente bornée de l'ACK (µs sur runtime sain — l'appelant est déjà
+        // dans recv_timeout ; l'appelant disparu → pas de clear, batch gardé).
+        if ack_rx.recv_timeout(std::time::Duration::from_millis(100)).is_ok() {
+            q.clear();
+        }
+    });
+    match rx.recv_timeout(budget) {
+        Ok(json) => {
+            let _ = ack_tx.send(());
+            json
+        }
+        Err(_) => {
+            alive.store(false, std::sync::atomic::Ordering::Release);
+            // La tâche a pu envoyer PILE pendant l'expiration : récupérer et
+            // ACKer pour que le drain soit commis — jamais jeté, jamais doublé.
+            match rx.try_recv() {
+                Ok(json) => {
+                    let _ = ack_tx.send(());
+                    json
+                }
+                Err(_) => {
+                    tracing::warn!("drain FFI expiré (runtime occupé/gelé) — batch conservé");
+                    "[]".to_string()
+                }
+            }
+        }
+    }
+}
+
 fn normalized_non_empty(value: Option<&str>) -> Option<String> {
     value
         .map(str::trim)
@@ -301,8 +387,23 @@ pub unsafe extern "C" fn tom_node_start(
         runtime_config.start_timeout_secs.unwrap_or(20).clamp(1, 300),
     );
 
-    // Block until bind + runtime spawn completes (not fire-and-forget)
-    let result = handle_ref.runtime.block_on(async move {
+    // Clones sortis du futur : le travail part en tâche 'static sur le runtime.
+    let discovered_peers_clone = handle_ref.discovered_peers.clone();
+    let last_paths_clone = handle_ref.last_paths.clone();
+    let local_role_clone = handle_ref.local_role.clone();
+    let presence_stats_clone = handle_ref.presence_stats.clone();
+
+    // Gate anti-zombie : un seul gagnant. COMMITTED = le travail publie le
+    // runtime ; ABANDONED = l'appelant a expiré → un nœud qui aboutirait
+    // APRÈS l'expiration est démantelé au lieu d'être publié (jamais de
+    // runtime orphelin qui ACK sans app derrière).
+    const GATE_PENDING: u8 = 0;
+    const GATE_COMMITTED: u8 = 1;
+    const GATE_ABANDONED: u8 = 2;
+    let gate = Arc::new(std::sync::atomic::AtomicU8::new(GATE_PENDING));
+    let gate_work = gate.clone();
+
+    let work = async move {
         tracing::info!("Binding TomNode (budget {}s)...", start_timeout.as_secs());
         let start_t0 = std::time::Instant::now();
 
@@ -360,6 +461,23 @@ pub unsafe extern "C" fn tom_node_start(
             }
         };
 
+        // Point de non-retour : si l'appelant a déjà abandonné (budget OS
+        // expiré pendant un gel du runtime), ce nœud tardif ne doit PAS être
+        // publié — on le démantèle immédiatement.
+        if gate_work
+            .compare_exchange(
+                GATE_PENDING,
+                GATE_COMMITTED,
+                std::sync::atomic::Ordering::SeqCst,
+                std::sync::atomic::Ordering::SeqCst,
+            )
+            .is_err()
+        {
+            tracing::warn!("start abandonné par l'appelant — démantèlement du nœud tardif");
+            let _ = node.shutdown().await;
+            return -2i32;
+        }
+
         // Spawn protocol runtime — chemin rapide et LOCAL par contrat : plus
         // aucune étape réseau synchrone ici (l'init DHT/DNS est détachée,
         // cf. tom_dht::SharedDht). Le log de durée trahirait une régression.
@@ -377,10 +495,6 @@ pub unsafe extern "C" fn tom_node_start(
         let msg_queue_clone = msg_queue.clone();
         let event_queue_clone = event_queue.clone();
         let group_message_queue_clone = group_message_queue.clone();
-        let discovered_peers_clone = handle_ref.discovered_peers.clone();
-        let last_paths_clone = handle_ref.last_paths.clone();
-        let local_role_clone = handle_ref.local_role.clone();
-        let presence_stats_clone = handle_ref.presence_stats.clone();
         let mut messages_rx = channels.messages;
         let mut events_rx = channels.events;
         let mut status_rx = channels.status_changes;
@@ -539,9 +653,47 @@ pub unsafe extern "C" fn tom_node_start(
         });
 
         0i32
+    };
+
+    // Le résultat repasse par une primitive OS (mpsc std) et le budget est
+    // tenu par le THREAD APPELANT : un runtime tokio entièrement gelé
+    // (deadlock transport — stall 5-15 min mesuré ; os.log iPad 17/07 : le
+    // timeout tokio n'a jamais tiré en 5 min 21 s) ne peut plus geler
+    // l'appel C ni empoisonner l'actor Swift. Marge +5 s au-dessus du budget
+    // fin : le chemin nominal (timeout tokio interne, erreurs précises)
+    // garde la priorité, le filet OS ne claque que sur runtime mort.
+    let (done_tx, done_rx) = std::sync::mpsc::channel::<i32>();
+    handle_ref.runtime.spawn(async move {
+        let _ = done_tx.send(work.await);
     });
 
-    result
+    match done_rx.recv_timeout(start_timeout + std::time::Duration::from_secs(5)) {
+        Ok(rc) => rc,
+        Err(_) => {
+            if gate
+                .compare_exchange(
+                    GATE_PENDING,
+                    GATE_ABANDONED,
+                    std::sync::atomic::Ordering::SeqCst,
+                    std::sync::atomic::Ordering::SeqCst,
+                )
+                .is_ok()
+            {
+                let msg = format!(
+                    "runtime transport gelé — démarrage abandonné après {}s ; libérer ce nœud et en recréer un",
+                    start_timeout.as_secs() + 5
+                );
+                tracing::error!("{}", msg);
+                *lock_recover(&handle_ref.last_error) = Some(msg);
+                -2
+            } else {
+                // Le travail a committé pile à l'expiration : son rc arrive.
+                done_rx
+                    .recv_timeout(std::time::Duration::from_secs(2))
+                    .unwrap_or(-2)
+            }
+        }
+    }
 }
 
 /// Stop the node and free all resources
@@ -662,8 +814,9 @@ pub unsafe extern "C" fn tom_node_send_message(
         unsafe { std::slice::from_raw_parts(payload, payload_len) }.to_vec()
     };
 
-    handle_ref.runtime.block_on(async {
-        if let Some(runtime_handle) = handle_ref.handle.lock().await.as_ref() {
+    let handle_clone = handle_ref.handle.clone();
+    match bounded_block_on(&handle_ref.runtime, FFI_CALL_BUDGET, async move {
+        if let Some(runtime_handle) = handle_clone.lock().await.as_ref() {
             match runtime_handle.send_message(target_node_id, payload_vec).await {
                 Ok(_) => {
                     tracing::debug!("Message sent to {}", target_str);
@@ -678,7 +831,13 @@ pub unsafe extern "C" fn tom_node_send_message(
             tracing::error!("Node not started");
             -1
         }
-    })
+    }) {
+        Some(rc) => rc,
+        None => {
+            *lock_recover(&handle_ref.last_error) = Some("transport occupé — runtime gelé, réessayer".to_string());
+            -1
+        }
+    }
 }
 
 /// Create a new group
@@ -720,8 +879,9 @@ pub unsafe extern "C" fn tom_node_create_group(
         }
     };
 
-    let result = handle_ref.runtime.block_on(async {
-        if let Some(runtime_handle) = handle_ref.handle.lock().await.as_ref() {
+    let handle_clone = handle_ref.handle.clone();
+    match bounded_block_on(&handle_ref.runtime, FFI_CALL_BUDGET, async move {
+        if let Some(runtime_handle) = handle_clone.lock().await.as_ref() {
             if group_config.invite_only {
                 runtime_handle
                     .create_group_invite_only(
@@ -744,15 +904,19 @@ pub unsafe extern "C" fn tom_node_create_group(
                 reason: "Node not started".into(),
             })
         }
-    });
-
-    match result {
-        Ok(_) => {
-            tracing::debug!("Group creation command sent");
-            0
-        }
-        Err(e) => {
-            tracing::error!("Failed to create group: {}", e);
+    }) {
+        Some(result) => match result {
+            Ok(_) => {
+                tracing::debug!("Group creation command sent");
+                0
+            }
+            Err(e) => {
+                tracing::error!("Failed to create group: {}", e);
+                -1
+            }
+        },
+        None => {
+            *lock_recover(&handle_ref.last_error) = Some("transport occupé — runtime gelé, réessayer".to_string());
             -1
         }
     }
@@ -796,8 +960,9 @@ pub unsafe extern "C" fn tom_node_send_group_message(
     // GroupId is a newtype wrapper around String
     let group_id_parsed = tom_protocol::group::GroupId(group_id_str.to_string());
 
-    handle_ref.runtime.block_on(async {
-        if let Some(runtime_handle) = handle_ref.handle.lock().await.as_ref() {
+    let handle_clone = handle_ref.handle.clone();
+    match bounded_block_on(&handle_ref.runtime, FFI_CALL_BUDGET, async move {
+        if let Some(runtime_handle) = handle_clone.lock().await.as_ref() {
             match runtime_handle
                 .send_group_message(group_id_parsed, text_str.to_string())
                 .await
@@ -811,7 +976,13 @@ pub unsafe extern "C" fn tom_node_send_group_message(
         } else {
             -1
         }
-    })
+    }) {
+        Some(rc) => rc,
+        None => {
+            *lock_recover(&handle_ref.last_error) = Some("transport occupé — runtime gelé, réessayer".to_string());
+            -1
+        }
+    }
 }
 
 /// Accept a pending group invitation.
@@ -840,8 +1011,9 @@ pub unsafe extern "C" fn tom_node_accept_group_invite(
     };
     let gid = tom_protocol::group::GroupId(group_id_str.to_string());
 
-    handle_ref.runtime.block_on(async {
-        if let Some(runtime_handle) = handle_ref.handle.lock().await.as_ref() {
+    let handle_clone = handle_ref.handle.clone();
+    match bounded_block_on(&handle_ref.runtime, FFI_CALL_BUDGET, async move {
+        if let Some(runtime_handle) = handle_clone.lock().await.as_ref() {
             match runtime_handle.accept_invite(gid).await {
                 Ok(_) => 0,
                 Err(e) => {
@@ -852,7 +1024,13 @@ pub unsafe extern "C" fn tom_node_accept_group_invite(
         } else {
             -1
         }
-    })
+    }) {
+        Some(rc) => rc,
+        None => {
+            *lock_recover(&handle_ref.last_error) = Some("transport occupé — runtime gelé, réessayer".to_string());
+            -1
+        }
+    }
 }
 
 /// List the groups this node is a member of (or hosts).
@@ -871,8 +1049,9 @@ pub unsafe extern "C" fn tom_node_list_groups(handle: *const TomNodeHandle) -> *
     }
     let handle_ref = unsafe { &*handle };
 
-    let json = handle_ref.runtime.block_on(async {
-        let guard = handle_ref.handle.lock().await;
+    let handle_clone = handle_ref.handle.clone();
+    let json = match bounded_block_on(&handle_ref.runtime, FFI_CALL_BUDGET, async move {
+        let guard = handle_clone.lock().await;
         let groups = if let Some(rh) = guard.as_ref() {
             rh.groups().await
         } else {
@@ -889,7 +1068,13 @@ pub unsafe extern "C" fn tom_node_list_groups(handle: *const TomNodeHandle) -> *
             })
             .collect();
         serde_json::to_string(&items).unwrap_or_else(|_| "[]".to_string())
-    });
+    }) {
+        Some(j) => j,
+        None => {
+            tracing::warn!("tom_node_list_groups: runtime gelé");
+            "[]".to_string()
+        }
+    };
 
     match CString::new(json) {
         Ok(c_str) => c_str.into_raw(),
@@ -915,8 +1100,9 @@ pub unsafe extern "C" fn tom_node_get_pending_invites(
     }
     let handle_ref = unsafe { &*handle };
 
-    let json = handle_ref.runtime.block_on(async {
-        let guard = handle_ref.handle.lock().await;
+    let handle_clone = handle_ref.handle.clone();
+    let json = match bounded_block_on(&handle_ref.runtime, FFI_CALL_BUDGET, async move {
+        let guard = handle_clone.lock().await;
         let invites = if let Some(rh) = guard.as_ref() {
             rh.pending_invites().await
         } else {
@@ -933,7 +1119,13 @@ pub unsafe extern "C" fn tom_node_get_pending_invites(
             })
             .collect();
         serde_json::to_string(&items).unwrap_or_else(|_| "[]".to_string())
-    });
+    }) {
+        Some(j) => j,
+        None => {
+            tracing::warn!("tom_node_get_pending_invites: runtime gelé");
+            "[]".to_string()
+        }
+    };
 
     match CString::new(json) {
         Ok(c_str) => c_str.into_raw(),
@@ -966,30 +1158,33 @@ pub unsafe extern "C" fn tom_node_receive_group_messages(
     }
     let handle_ref = unsafe { &*handle };
 
-    let json = handle_ref.runtime.block_on(async {
-        let mut queue = handle_ref.group_message_queue.lock().await;
-        let events: Vec<ProtocolEvent> = queue.drain(..).collect();
-        drop(queue);
-
-        let items: Vec<serde_json::Value> = events
-            .into_iter()
-            .filter_map(|evt| match evt {
-                ProtocolEvent::GroupMessageReceived { message } => Some(serde_json::json!({
-                    "group_id": message.group_id.as_ref(),
-                    "from": message.sender_id.to_string(),
-                    "seq": message.seq,
-                    "encrypted": message.encrypted,
-                    "text": if message.text.is_empty() {
-                        format!("[chiffré {}o]", message.ciphertext.len())
-                    } else {
-                        message.text.clone()
-                    },
-                })),
-                _ => None,
-            })
-            .collect();
-        serde_json::to_string(&items).unwrap_or_else(|_| "[]".to_string())
-    });
+    // Drain transactionnel : la file n'est vidée que si l'appelant reçoit le
+    // JSON (un timeout ne peut pas jeter le batch au dégel du runtime).
+    let json = bounded_drain_json(
+        &handle_ref.runtime,
+        FFI_CALL_BUDGET,
+        handle_ref.group_message_queue.clone(),
+        |events: Vec<ProtocolEvent>| {
+            let items: Vec<serde_json::Value> = events
+                .into_iter()
+                .filter_map(|evt| match evt {
+                    ProtocolEvent::GroupMessageReceived { message } => Some(serde_json::json!({
+                        "group_id": message.group_id.as_ref(),
+                        "from": message.sender_id.to_string(),
+                        "seq": message.seq,
+                        "encrypted": message.encrypted,
+                        "text": if message.text.is_empty() {
+                            format!("[chiffré {}o]", message.ciphertext.len())
+                        } else {
+                            message.text.clone()
+                        },
+                    })),
+                    _ => None,
+                })
+                .collect();
+            serde_json::to_string(&items).unwrap_or_else(|_| "[]".to_string())
+        },
+    );
 
     match CString::new(json) {
         Ok(c_str) => c_str.into_raw(),
@@ -1016,22 +1211,22 @@ pub unsafe extern "C" fn tom_node_receive_messages(
 
     let handle_ref = unsafe { &*handle };
 
-    let messages_json = handle_ref.runtime.block_on(async {
-        let mut queue = handle_ref.message_queue.lock().await;
-        let batch: Vec<DeliveredMessage> = queue.drain(..).collect();
-
-        // Convert to FFI-serializable type
-        let ffi_batch: Vec<DeliveredMessageFFI> = batch.into_iter().map(Into::into).collect();
-
-        // Serialize to JSON
-        match serde_json::to_string(&ffi_batch) {
-            Ok(json) => json,
-            Err(e) => {
-                tracing::error!("Failed to serialize messages: {}", e);
-                "[]".to_string()
+    // Drain transactionnel (cf. bounded_drain_json) : jamais de batch jeté.
+    let messages_json = bounded_drain_json(
+        &handle_ref.runtime,
+        FFI_CALL_BUDGET,
+        handle_ref.message_queue.clone(),
+        |batch: Vec<DeliveredMessage>| {
+            let ffi_batch: Vec<DeliveredMessageFFI> = batch.into_iter().map(Into::into).collect();
+            match serde_json::to_string(&ffi_batch) {
+                Ok(json) => json,
+                Err(e) => {
+                    tracing::error!("Failed to serialize messages: {}", e);
+                    "[]".to_string()
+                }
             }
-        }
-    });
+        },
+    );
 
     match CString::new(messages_json) {
         Ok(c_str) => c_str.into_raw(),
@@ -1071,25 +1266,25 @@ pub unsafe extern "C" fn tom_node_receive_events(
 
     let handle_ref = unsafe { &*handle };
 
-    let events_json = handle_ref.runtime.block_on(async {
-        let mut queue = handle_ref.event_queue.lock().await;
-        let batch: Vec<ProtocolEvent> = queue.drain(..).collect();
-
-        // Convert to FFI-serializable type
-        let ffi_batch: Vec<ProtocolEventFFI> = batch
-            .into_iter()
-            .map(ProtocolEventFFI::from_protocol_event)
-            .collect();
-
-        // Serialize to JSON
-        match serde_json::to_string(&ffi_batch) {
-            Ok(json) => json,
-            Err(e) => {
-                tracing::error!("Failed to serialize events: {}", e);
-                "[]".to_string()
+    // Drain transactionnel (cf. bounded_drain_json) : jamais de batch jeté.
+    let events_json = bounded_drain_json(
+        &handle_ref.runtime,
+        FFI_CALL_BUDGET,
+        handle_ref.event_queue.clone(),
+        |batch: Vec<ProtocolEvent>| {
+            let ffi_batch: Vec<ProtocolEventFFI> = batch
+                .into_iter()
+                .map(ProtocolEventFFI::from_protocol_event)
+                .collect();
+            match serde_json::to_string(&ffi_batch) {
+                Ok(json) => json,
+                Err(e) => {
+                    tracing::error!("Failed to serialize events: {}", e);
+                    "[]".to_string()
+                }
             }
-        }
-    });
+        },
+    );
 
     match CString::new(events_json) {
         Ok(c_str) => c_str.into_raw(),
@@ -1113,9 +1308,16 @@ pub unsafe extern "C" fn tom_node_status(handle: *const TomNodeHandle) -> *mut c
 
     let handle_ref = unsafe { &*handle };
 
-    let status_json = handle_ref.runtime.block_on(async {
-        let node_id = handle_ref.node_id.lock().await.clone();
-        let guard = handle_ref.handle.lock().await;
+    let node_id_clone = handle_ref.node_id.clone();
+    let handle_clone = handle_ref.handle.clone();
+    let local_role_clone = handle_ref.local_role.clone();
+    let last_paths_clone = handle_ref.last_paths.clone();
+    let configured_relay_url_clone = handle_ref.configured_relay_url.clone();
+    let app_build_clone = handle_ref.app_build.clone();
+
+    let status_json = match bounded_block_on(&handle_ref.runtime, FFI_CALL_BUDGET, async move {
+        let node_id = node_id_clone.lock().await.clone();
+        let guard = handle_clone.lock().await;
 
         let (status, peers_count, groups_count, relay_url_discovered) = if let Some(rh) = guard.as_ref() {
             let m = rh.metrics();
@@ -1130,9 +1332,9 @@ pub unsafe extern "C" fn tom_node_status(handle: *const TomNodeHandle) -> *mut c
             ("Stopped", 0, 0, None)
         };
 
-        let local_role = handle_ref.local_role.lock().await.clone();
+        let local_role = local_role_clone.lock().await.clone();
         let (path_kind, path_rtt_ms, path_addr, paths_by_peer) = {
-            let lp = handle_ref.last_paths.lock().await;
+            let lp = last_paths_clone.lock().await;
             let paths_map = if lp.is_empty() {
                 None
             } else {
@@ -1181,13 +1383,13 @@ pub unsafe extern "C" fn tom_node_status(handle: *const TomNodeHandle) -> *mut c
         };
 
         // relay_url_active = configured relay (explicit) or first discovered relay
-        let configured = lock_recover(&handle_ref.configured_relay_url).clone();
+        let configured = lock_recover(&configured_relay_url_clone).clone();
         let relay_url_active = configured.or(relay_url_discovered).unwrap_or_default();
 
         // Serialize through a typed struct (not a hand-rolled `format!`) so the
         // JSON is always valid/escaped and the key contract with the Swift
         // `TomNodeStatus` decoder stays locked by `types::tests`.
-        let app_build = *lock_recover(&handle_ref.app_build);
+        let app_build = *lock_recover(&app_build_clone);
         let status_payload = NodeStatusFFI {
             node_id: node_id.unwrap_or_else(|| "unknown".to_string()),
             status: status.to_string(),
@@ -1204,7 +1406,13 @@ pub unsafe extern "C" fn tom_node_status(handle: *const TomNodeHandle) -> *mut c
             paths_by_peer,
         };
         serde_json::to_string(&status_payload).unwrap_or_else(|_| "{}".to_string())
-    });
+    }) {
+        Some(j) => j,
+        None => {
+            tracing::warn!("tom_node_status: runtime gelé");
+            "{}".to_string()
+        }
+    };
 
     match CString::new(status_json) {
         Ok(c_str) => c_str.into_raw(),
@@ -1251,15 +1459,22 @@ pub unsafe extern "C" fn tom_node_check_presence(
         }
     };
 
-    handle_ref.runtime.block_on(async {
-        if let Some(runtime_handle) = handle_ref.handle.lock().await.as_ref() {
+    let handle_clone = handle_ref.handle.clone();
+    match bounded_block_on(&handle_ref.runtime, FFI_CALL_BUDGET, async move {
+        if let Some(runtime_handle) = handle_clone.lock().await.as_ref() {
             runtime_handle.check_presence(target_node_id).await;
             0
         } else {
             tracing::error!("tom_node_check_presence: node not started");
             -1
         }
-    })
+    }) {
+        Some(rc) => rc,
+        None => {
+            *lock_recover(&handle_ref.last_error) = Some("transport occupé — runtime gelé, réessayer".to_string());
+            -1
+        }
+    }
 }
 
 /// Get L1-001 presence stats as JSON (see `PresenceStatsFFI` for the schema).
@@ -1277,12 +1492,14 @@ pub unsafe extern "C" fn tom_node_presence_stats(handle: *const TomNodeHandle) -
     }
     let handle_ref = unsafe { &*handle };
 
-    let json = handle_ref.runtime.block_on(async {
+    let presence_stats_clone = handle_ref.presence_stats.clone();
+    let handle_clone = handle_ref.handle.clone();
+    let json = match bounded_block_on(&handle_ref.runtime, FFI_CALL_BUDGET, async move {
         let (accepted_total, last_attester, last_latency_ms) =
-            handle_ref.presence_stats.lock().await.clone();
+            presence_stats_clone.lock().await.clone();
 
         let (window_count, seed_prefix) = {
-            let guard = handle_ref.handle.lock().await;
+            let guard = handle_clone.lock().await;
             if let Some(rh) = guard.as_ref() {
                 match rh.presence_seed().await {
                     Some((seed, count)) => {
@@ -1305,7 +1522,13 @@ pub unsafe extern "C" fn tom_node_presence_stats(handle: *const TomNodeHandle) -
             seed_prefix,
         };
         serde_json::to_string(&stats).unwrap_or_else(|_| "{}".to_string())
-    });
+    }) {
+        Some(j) => j,
+        None => {
+            tracing::warn!("tom_node_presence_stats: runtime gelé");
+            "{}".to_string()
+        }
+    };
 
     match CString::new(json) {
         Ok(c_str) => c_str.into_raw(),
@@ -1356,14 +1579,21 @@ pub unsafe extern "C" fn tom_node_check_presence_many(
     }
 
     let count = targets.len() as i32;
-    handle_ref.runtime.block_on(async {
-        if let Some(rh) = handle_ref.handle.lock().await.as_ref() {
+    let handle_clone = handle_ref.handle.clone();
+    match bounded_block_on(&handle_ref.runtime, FFI_CALL_BUDGET, async move {
+        if let Some(rh) = handle_clone.lock().await.as_ref() {
             rh.check_presence_many(targets).await;
             count
         } else {
             -1
         }
-    })
+    }) {
+        Some(rc) => rc,
+        None => {
+            *lock_recover(&handle_ref.last_error) = Some("transport occupé — runtime gelé, réessayer".to_string());
+            -1
+        }
+    }
 }
 
 /// Get L1-001 full presence counters as JSON (see `PresenceMetricsFFI`).
@@ -1381,13 +1611,14 @@ pub unsafe extern "C" fn tom_node_presence_metrics(handle: *const TomNodeHandle)
     }
     let handle_ref = unsafe { &*handle };
 
-    let json = handle_ref.runtime.block_on(async {
-        let guard = handle_ref.handle.lock().await;
+    let handle_clone = handle_ref.handle.clone();
+    let json = bounded_block_on(&handle_ref.runtime, FFI_CALL_BUDGET, async move {
+        let guard = handle_clone.lock().await;
         let rh = guard.as_ref()?;
         let metrics = rh.presence_metrics().await?;
         let ffi: PresenceMetricsFFI = metrics.into();
         serde_json::to_string(&ffi).ok()
-    });
+    }).flatten();
 
     match json {
         Some(j) => match CString::new(j) {
@@ -1485,16 +1716,24 @@ pub unsafe extern "C" fn tom_node_add_peer_addr(
         }
     }
 
-    handle_ref.runtime.block_on(async {
-        if let Some(runtime_handle) = handle_ref.handle.lock().await.as_ref() {
+    let handle_clone = handle_ref.handle.clone();
+    let node_id_str = addr_ffi.node_id.clone();
+    match bounded_block_on(&handle_ref.runtime, FFI_CALL_BUDGET, async move {
+        if let Some(runtime_handle) = handle_clone.lock().await.as_ref() {
             runtime_handle.add_peer_addr(endpoint_addr).await;
-            tracing::info!("Added peer addr for {}", addr_ffi.node_id);
+            tracing::info!("Added peer addr for {}", node_id_str);
             0
         } else {
             tracing::error!("Node not started");
             -1
         }
-    })
+    }) {
+        Some(rc) => rc,
+        None => {
+            *lock_recover(&handle_ref.last_error) = Some("transport occupé — runtime gelé, réessayer".to_string());
+            -1
+        }
+    }
 }
 
 /// Get connected peers as JSON array of Node IDs
@@ -1515,15 +1754,22 @@ pub unsafe extern "C" fn tom_node_connected_peers(
 
     let handle_ref = unsafe { &*handle };
 
-    let peers_json = handle_ref.runtime.block_on(async {
-        if let Some(runtime_handle) = handle_ref.handle.lock().await.as_ref() {
+    let handle_clone = handle_ref.handle.clone();
+    let peers_json = match bounded_block_on(&handle_ref.runtime, FFI_CALL_BUDGET, async move {
+        if let Some(runtime_handle) = handle_clone.lock().await.as_ref() {
             let peers = runtime_handle.connected_peers().await;
             let peer_strings: Vec<String> = peers.iter().map(|p| p.to_string()).collect();
             serde_json::to_string(&peer_strings).unwrap_or_else(|_| "[]".to_string())
         } else {
             "[]".to_string()
         }
-    });
+    }) {
+        Some(j) => j,
+        None => {
+            tracing::warn!("tom_node_connected_peers: runtime gelé");
+            "[]".to_string()
+        }
+    };
 
     match CString::new(peers_json) {
         Ok(c_str) => c_str.into_raw(),
@@ -1549,11 +1795,12 @@ pub unsafe extern "C" fn tom_node_discovered_peers(
 
     let handle_ref = unsafe { &*handle };
 
-    let peers_json = handle_ref.runtime.block_on(async {
+    let discovered_peers_clone = handle_ref.discovered_peers.clone();
+    let peers_json = match bounded_block_on(&handle_ref.runtime, FFI_CALL_BUDGET, async move {
         // Clone under lock, then sort + serialize outside lock to reduce contention
         // with the background pump task.
         let mut peer_list: Vec<DiscoveredPeerFFI> = {
-            let peers = handle_ref.discovered_peers.lock().await;
+            let peers = discovered_peers_clone.lock().await;
             peers.values().cloned().collect()
         };
 
@@ -1565,7 +1812,13 @@ pub unsafe extern "C" fn tom_node_discovered_peers(
         });
 
         serde_json::to_string(&peer_list).unwrap_or_else(|_| "[]".to_string())
-    });
+    }) {
+        Some(j) => j,
+        None => {
+            tracing::warn!("tom_node_discovered_peers: runtime gelé");
+            "[]".to_string()
+        }
+    };
 
     match CString::new(peers_json) {
         Ok(c_str) => c_str.into_raw(),
@@ -1592,14 +1845,16 @@ pub unsafe extern "C" fn tom_get_discovered_relay(handle: *const TomNodeHandle) 
     }
     let handle_ref = unsafe { &*handle };
 
-    let url = handle_ref.runtime.block_on(async {
+    let configured_relay_url_clone = handle_ref.configured_relay_url.clone();
+    let handle_clone = handle_ref.handle.clone();
+    let url = bounded_block_on(&handle_ref.runtime, FFI_CALL_BUDGET, async move {
         // Priority 1: configured relay URL (explicit, set at start time)
-        let configured = lock_recover(&handle_ref.configured_relay_url).clone();
+        let configured = lock_recover(&configured_relay_url_clone).clone();
         if configured.is_some() {
             return configured;
         }
         // Priority 2: most recently refreshed relay via gossip/DHT
-        let guard = handle_ref.handle.lock().await;
+        let guard = handle_clone.lock().await;
         if let Some(rh) = guard.as_ref() {
             let relays = rh.get_known_relays().await;
             relays.into_iter()
@@ -1608,7 +1863,7 @@ pub unsafe extern "C" fn tom_get_discovered_relay(handle: *const TomNodeHandle) 
         } else {
             None
         }
-    });
+    }).flatten();
 
     match url {
         Some(s) => match CString::new(s) {
@@ -1769,6 +2024,87 @@ mod tests {
         assert!(status.contains("Running"), "status après re-start : {status}");
 
         unsafe { tom_node_stop(h) };
+    }
+
+    /// Un runtime tokio ENTIÈREMENT gelé (tous les workers bloqués — famille
+    /// deadlock transport, prouvé par os.log iPad 2026-07-17 : stall de
+    /// 5 min 21 s pendant lequel le timeout tokio n'a JAMAIS tiré) ne doit
+    /// pas geler l'appelant : le contrat -2 doit être tenu par une primitive
+    /// OS côté thread appelant, pas par le timer du runtime qu'on borne.
+    #[test]
+    fn start_returns_minus2_even_when_runtime_is_wedged() {
+        use std::time::Duration;
+
+        let h = make_unstarted_handle();
+        assert!(!h.is_null());
+
+        // Sature TOUS les workers : chaque tâche park() son thread pour
+        // toujours → plus aucun poll possible, timer tokio mort.
+        {
+            let handle_ref = unsafe { &*h };
+            for _ in 0..64 {
+                handle_ref.runtime.spawn(async {
+                    std::thread::park();
+                });
+            }
+        }
+        std::thread::sleep(Duration::from_millis(300));
+
+        let cfg = CString::new(
+            r#"{"username":"wedge","encryption":false,"enable_dht":false,
+                "n0_discovery":false,"local_discovery":false,
+                "enable_embedded_relay":false,"enable_embedded_relay_publication":false,
+                "enable_transport_relay_discovery":false,
+                "relay_url":"http://127.0.0.1:3343",
+                "start_timeout_secs":1}"#,
+        )
+        .unwrap();
+
+        // Le start part sur un thread jetable : si le contrat est violé (gel),
+        // le test échoue proprement au lieu de bloquer la suite.
+        let (tx, rx) = std::sync::mpsc::channel();
+        let addr = h as usize;
+        std::thread::spawn(move || {
+            let rc = unsafe { tom_node_start(addr as *mut TomNodeHandle, cfg.as_ptr()) };
+            let _ = tx.send(rc);
+        });
+
+        match rx.recv_timeout(Duration::from_secs(10)) {
+            Ok(rc) => assert_eq!(rc, -2, "runtime gelé → le start doit rendre le contrat -2"),
+            Err(_) => panic!(
+                "tom_node_start a GELÉ sur un runtime wedgé — le budget doit être tenu côté appelant (recv_timeout), pas par le timer tokio"
+            ),
+        }
+        // Pas de tom_node_stop : le runtime est volontairement gelé, son
+        // teardown resterait coincé — le process de test s'en charge.
+    }
+
+    /// Le drain transactionnel ne jette JAMAIS un batch : runtime gelé →
+    /// l'appelant reçoit "[]" mais la file garde ses éléments pour le
+    /// prochain poll (avant : la tâche tardive drainait dans le vide).
+    #[test]
+    fn bounded_drain_keeps_batch_when_runtime_wedged() {
+        use std::time::Duration;
+
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        for _ in 0..64 {
+            rt.spawn(async {
+                std::thread::park();
+            });
+        }
+        std::thread::sleep(Duration::from_millis(200));
+
+        let queue = Arc::new(Mutex::new(VecDeque::from(vec![1u8, 2, 3])));
+        let json = bounded_drain_json(&rt, Duration::from_millis(300), queue.clone(), |v: Vec<u8>| {
+            format!("[{}]", v.len())
+        });
+        assert_eq!(json, "[]", "runtime gelé → réponse vide, sans erreur");
+
+        let q = queue.try_lock().expect("la file ne doit pas être tenue");
+        assert_eq!(q.len(), 3, "le batch doit être conservé, pas drainé dans le vide");
+        drop(q);
+        // Runtime volontairement gelé : son Drop attendrait les workers parkés.
+        std::mem::forget(rt);
     }
 
     #[test]
