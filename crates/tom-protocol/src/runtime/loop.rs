@@ -1277,21 +1277,31 @@ async fn bootstrap_join_peer(
     // so MemoryLookup has the address when gossip dials.
     node.add_peer_addr(endpoint_addr).await;
 
-    // RÉGRESSION #46 (2026-07-17) : le dial PROACTIF de transport/0 ici (ancien
-    // #37 « ensure_connected ») CASSAIT la réception des messages. Quand deux
-    // nœuds se découvrent mutuellement, chacun dialait l'autre en même temps →
-    // DEUX connexions QUIC concurrentes A→B et B→A. Le remote_map (tom-connect)
-    // n'en retient qu'UNE par pair ; l'autre est abandonnée mais restait dans le
-    // pool SORTANT de tom-transport → get_or_connect() envoyait les messages sur
-    // une connexion morte → le pair ne recevait JAMAIS rien (messages_recus=0 sur
-    // toute la flotte, ACK « Délivré » trompeur). Mesuré : le NAS — qui reçoit via
-    // ses connexions ENTRANTES — avait 4038 msgs reçus ; les apps, 0.
-    // Le dial redevient PARESSEUX (au 1er send, comme avant #37) : chaque
-    // expéditeur ouvre SA connexion, que le récepteur accepte ET lit. Le comptage
-    // des connexions entrantes (#build80) garde pairs_connectes réactif malgré ça
-    // (un pair qui nous dial/pinge apparaît connecté sans qu'on l'ait dialé).
-    // TODO vitesse : réintroduire un chauffage transport SANS dial bidirectionnel
-    // simultané (une seule direction, ou dédup au niveau remote_map).
+    // Chauffage transport PROACTIF (#37 restauré, #47) : dial de transport/0 dès
+    // la découverte pour que le pair apparaisse connecté en <1 s (vitesse <5 s),
+    // au lieu d'attendre le 1er send applicatif (heartbeat ~5 s).
+    //
+    // Il avait été RETIRÉ (#46, build 93) sur une FAUSSE piste : on croyait que
+    // le dial bidirectionnel (A dial B pendant que B dial A → 2 connexions QUIC,
+    // le remote_map n'en garde qu'une) cassait la réception. Le VRAI bug était
+    // une régression de décodage Codable côté Swift (TomMessage.isAuto exigé,
+    // corrigée #96) — sans aucun rapport avec le transport. Le retrait n'a fait
+    // que régresser la vitesse (reconnexion NAS >20 s au lieu de <1 s).
+    // C'est désormais SÛR : #46b (les connexions sortantes lisent aussi les
+    // streams entrants) + #46c (get_or_connect réutilise la connexion entrante
+    // survivante) garantissent la réception même en cas de collision de dial.
+    //
+    // Garde « pas déjà connecté » : évite de re-dialer un pair déjà en pool
+    // (les hints mDNS+DHT+PeerPresent d'un même pair arrivent groupés). Détaché :
+    // un pair injoignable ne doit jamais bloquer la boucle de découverte.
+    if !node.connected_peers().await.contains(&node_id) {
+        let transport_sender = node.sender();
+        tokio::spawn(async move {
+            if let Err(error) = transport_sender.ensure_connected(node_id).await {
+                tracing::debug!(peer = %node_id, %error, "chauffage transport échoué — retry paresseux au 1er send");
+            }
+        });
+    }
 
     if let Some(sender) = gossip_sender {
         if let Err(error) = sender.join_peers(vec![endpoint_id]).await {
