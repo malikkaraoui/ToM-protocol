@@ -37,6 +37,14 @@
 - 🏆 **2026-06-08 : JALON — nœud iOS en 5G cross-réseau** rejoint le réseau ToM **décentralisé** (Pkarr/n0/DHT/IPv6, zéro relais à IP fixe). iPhone 5G (hors-LAN, CGNAT opérateur) ↔ NAS (derrière Freebox) connectés en ~1min30, 0 échec. NAS ajouté comme **nœud unifié** (`tom-node.service`, role Peer — ADR-006). Lien actuel via **fallback relais** (RTT 1856ms) → reste à obtenir le DIRECT (ouvrir IPv6 entrante Freebox + instrumenter `path_kind`).
 - ✅ **2026-07-05 : Build 18 déployé flotte complète** (iPad, iPhone, Apple TV, macOS, NAS) — 4 fixes DoS + fixes watchdog 0x8BADF00D (Text() lazy-decode) + fixes CPU 100% (tokio::select! busy-spin). Perf validée : LAN ~6 Mo/s jusqu'à 64 Mo (100%), WiFi/relais ~5 Mo/s, FOREGROUND seul (iOS suspension = contrainte OS, chantier R18 APNs).
 
+### 🏆 Journée du 2026-07-17 — réception rétablie + vitesse + cycle de vie background (builds 96→98)
+> Détail complet : `vault/30-discoveries.md` (2026-07-17). Flotte Apple entière en 98 durci, NAS sain.
+- ✅ **Bug réception flotte RÉSOLU (#96)** : `messages_recus=0` depuis build 86 = régression Codable Swift (`isAuto` exigé au décodage du JSON FFI) — PAS le transport/FFI. `init(from:)` explicite + test de contrat + os.log `.public`. Validé réel (Mac 0→103, iPad 133).
+- ✅ **Vitesse restaurée (#97)** : dial proactif réintroduit (retiré sur fausse piste pendant la chasse au bug) — reconnexion NAS 0,6 s, flotte DIRECT.
+- ✅ **Cycle de vie background iOS/tvOS (#48, build 98)** : grâce 18 s (retour court = aucun restart), arrêt PROPRE fin de grâce + hold teardown 8 s, redémarrage <1 s, BGAppRefresh (`fetch`, app visible dans Réglages), MetricKit embarqué. Validé terrain : sortie réelle → 0 échec flotte pendant l'absence (vs 187-425/appareil avant). 4 findings de revue corrigés.
+- ⚠️ Stall NAS récidive #2 (mort-vivant partiel, preuves archivées, restart) — chantier transport upstream toujours dû.
+- 🔴 Nouveau bug terrain caractérisé : start non borné → zombie qui ACK (voir « Sur le feu » PRIORITAIRE).
+
 ### 🏆 Release 2.1.0 — build 92 (2026-07-16)
 > Jalon « réseau rapide + observabilité honnête ». Flotte Mac/iPad/iPhone/AppleTV/NAS homogène, 4 pairs DIRECT chacun, 0 fantôme. Tag `v2.1.0` + bundle git backup. Détail complet : `vault/30-discoveries.md` (2026-07-16).
 - ✅ **Reconnexion <5s ATTEINTE** (nœud <1s, flotte simultanée <18s) — 4 causes racines : dial transport proactif, reprobe détaché, bootstrap borné 16 (fin des 951 fantômes réinjectés), registre inbound fiable (stable_id).
@@ -53,6 +61,14 @@
 - ✅ **Team de signature Xcode corrigée (2026-07-12)** : `DEVELOPMENT_TEAM` pointait vers `K22558HU63` (Personal Team GRATUITE, plafond 3 apps/7 jours) au lieu de `UPES5479T5` (Apple Developer Program payant) — corrigé dans `project.yml`. Cause exacte de l'échec d'install sur iPhone de Malik pendant le déploiement flotte. Nécessite une action manuelle Xcode (Settings→Accounts→vérifier le compte payant→Download Manual Profiles) pour générer le certificat, pas faisable en CLI seule.
 
 ## Sur le feu
+
+### 🔴 PRIORITAIRE — start Rust borné + anti-zombie (2026-07-17, prompt de reprise prêt)
+> Bug terrain reproduit par l'utilisateur (3G + stress avion/wifi) : `tom_node_start` non borné se fige sur réseau faible → l'appel C gelé empoisonne l'actor `TomNodeWrapper` (watchdog impuissant, boucle inerte UI) → l'instance précédente reste vivante en **zombie qui ACK** → messages perdus (pas de backup ADR-009 puisque ACKé) — viole l'esprit décision #1. Chiffré : fenêtre 11:56→12:08, 8 « délivré → iPhone » émis par le zombie pendant que l'UI disait « Nœud inactif ». Détail complet : vault/30-discoveries.md (2026-07-17) + mémoire `ios-background-lifecycle-48`.
+- [ ] ① Borner `tom_node_start` (FFI, timeout ~20 s) — chemin d'erreur SANS fuite d'endpoint (sinon zombie recréé) ; re-start possible après échec
+- [ ] ② Instrumenter/fixer l'await réseau non borné dans `TomNode::bind` (repro locale : reception_harness sans réseau)
+- [ ] ③ Vérifier watchdog→forceReset effectif post-fix (actor libéré)
+- [ ] ④ UI « réseau indisponible — nouvelle tentative » + backoff (fin du spinner infini)
+- Critère terrain : plus jamais « figé > 60 s » ; plus jamais « délivré → iPhone » côté flotte pendant UI inactive.
 
 ### 🚧 Suite stress-test réel flotte + outillage tom-stress (2026-07-13)
 > Demande explicite : validation complète non-unitaire, adversariale, sur device réel — pas de ping-pong isolé. Voir `vault/30-discoveries.md` (2026-07-13) pour le détail complet.
