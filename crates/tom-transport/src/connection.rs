@@ -149,20 +149,28 @@ impl ConnectionPool {
             }
         }
 
-        let mut conns = self.connections.lock().await;
+        {
+            let mut conns = self.connections.lock().await;
 
-        // Check if we have a cached connection that's still alive
-        if let Some(conn) = conns.get(&target) {
-            // connection.close_reason() returns Some if closed
-            if conn.close_reason().is_none() {
-                tracing::debug!("Reusing existing connection for {}", target);
-                return Ok(conn.clone());
+            // Check if we have a cached connection that's still alive
+            if let Some(conn) = conns.get(&target) {
+                // connection.close_reason() returns Some if closed
+                if conn.close_reason().is_none() {
+                    tracing::debug!("Reusing existing connection for {}", target);
+                    return Ok(conn.clone());
+                }
+                // Connection is dead, remove it
+                tracing::debug!("Connection for {} is dead, removing", target);
+                conns.remove(&target);
+            } else {
+                tracing::debug!("No cached connection for {}, will create new", target);
             }
-            // Connection is dead, remove it
-            tracing::debug!("Connection for {} is dead, removing", target);
-            conns.remove(&target);
-        } else {
-            tracing::debug!("No cached connection for {}, will create new", target);
+            // VERROU RELÂCHÉ AVANT LE DIAL — fautif exact de la cascade du
+            // 17/07 : `endpoint.connect()` (timeout QUIC 10-20 s vers un pair
+            // mort) s'exécutait en TENANT ce verrou → tout le pool bloqué
+            // (envois vers pairs VIVANTS, connected_peers, ACK retardés de
+            // 10-20 s, vagues Stale synchronisées). Un dial ne verrouille
+            // plus jamais la map.
         }
 
         // Create new connection candidates — use stored address first, or
@@ -210,6 +218,18 @@ impl ConnectionPool {
                     .into(),
             });
         };
+
+        // Re-lock BREF pour publier. Double-check : un dial concurrent a pu
+        // aboutir pendant le nôtre (le verrou n'est plus tenu pendant les
+        // dials) — on réutilise alors la sienne et la nôtre sera fermée par
+        // drop (le remote_map QUIC fusionne de toute façon, cf. #46c).
+        let mut conns = self.connections.lock().await;
+        if let Some(existing) = conns.get(&target) {
+            if existing.close_reason().is_none() {
+                tracing::debug!("dial concurrent gagnant pour {}, réutilisation", target);
+                return Ok(existing.clone());
+            }
+        }
 
         // Watcher aussi sur les connexions SORTANTES — sans lui, un nœud qui
         // ne fait que dialer n'émet aucun PathChanged (vue par pair asymétrique).
