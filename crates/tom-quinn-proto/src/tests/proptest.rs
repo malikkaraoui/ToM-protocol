@@ -582,6 +582,104 @@ fn regression_frame_encoding_error() {
     )));
 }
 
+/// Shrunk case found by `random_interaction_with_multipath_simple_routing`.
+///
+/// The client abandons path 1, but the server-side passive migration breaks the
+/// route carrying the PATH_ABANDON: every (re)transmission of it is lost, so the
+/// server never receives the frame and legitimately keeps probing path 1 (which
+/// from its point of view is still being opened). The client used to interpret
+/// one of those probes arriving after its 3 * PTO deadline as the peer *ignoring*
+/// the PATH_ABANDON and killed the whole connection with PROTOCOL_VIOLATION
+/// "peer failed to respond with PATH_ABANDON in time".
+///
+/// Punishing silence is undecidable: a non-compliant peer and a network that lost
+/// our own signal look exactly the same. Fixed (like upstream n0-computer/quinn#436)
+/// by not generating protocol violation errors for unreciprocated path abandons;
+/// see also `regression_peer_ignored_path_abandon`.
+#[test]
+fn regression_backup_passive_migration() {
+    let prefix = "regression_backup_passive_migration";
+    let seed: [u8; 32] = [
+        3, 206, 109, 112, 216, 137, 9, 167, 46, 72, 107, 115, 241, 119, 203, 151, 162, 216, 241,
+        240, 43, 74, 75, 106, 86, 150, 190, 151, 3, 11, 183, 13,
+    ];
+    let interactions = vec![
+        TestOp::OpenPath(Side::Client, PathStatus::Available, 1),
+        TestOp::OpenPath(Side::Client, PathStatus::Available, 1),
+        TestOp::Drive(Side::Client),
+        TestOp::ClosePath(Side::Client, 1, 0),
+        TestOp::PathSetStatus(Side::Server, 0, PathStatus::Backup),
+        TestOp::PassiveMigration(Side::Server, 0),
+    ];
+
+    let _guard = subscribe();
+    let routes = RoutingTable::simple_symmetric(CLIENT_ADDRS, SERVER_ADDRS);
+    let mut pair = setup_deterministic_with_multipath(seed, routes, prefix);
+    let (client_ch, server_ch) =
+        run_random_interaction(&mut pair, interactions, multipath_transport_config(prefix));
+
+    assert!(!pair.drive_bounded(1000), "connection never became idle");
+    assert!(allowed_error(poll_to_close(
+        pair.client_conn_mut(client_ch)
+    )));
+    assert!(allowed_error(poll_to_close(
+        pair.server_conn_mut(server_ch)
+    )));
+}
+
+/// Yet another regression with PATH_ABANDON "not being answered" by our peer.
+/// Ported from upstream n0-computer/quinn#436 (adapted to our tuple-variant TestOp).
+///
+/// This test ended up severing the connection in an interesting way: It generates
+/// a passive migration just before closing the path. The passive migration breaks
+/// path 0.
+/// That path used the network path (1.1.1.0, 2.2.2.0), but was changed to
+/// (1.1.1.1, 2.2.2.0) by a middlebox without the server noticing, since the client
+/// never ended up sending anything on that path.
+/// This means that path 0 is effectively broken on the server side, but the server
+/// still has path 0 verified.
+/// When the server then wants to abandon path 1, it chooses path 0 as the path to
+/// send the path abandon on, even though that path is "doomed forever".
+/// No retransmits make it through, and the client keeps using path 1, thus eventually
+/// the server thinks the client ignored the PATH_ABANDON frame, although the client
+/// just never *received* that frame.
+///
+/// We fixed this issue by not generating protocol violation errors anymore.
+/// It's generally hard/impossible(?) to decide whether a PATH_ABANDON frame not
+/// arriving means the client is not protocol compliant or just under bad network.
+///
+/// To prevent memory accumulation due to malicious client behavior, we now delay
+/// sending MAX_PATH_ID until the client reciprocated the PATH_ABANDON instead.
+#[test]
+fn regression_peer_ignored_path_abandon() {
+    let prefix = "regression_peer_ignored_path_abandon";
+
+    let seed = [0u8; 32];
+    let interactions = vec![
+        TestOp::OpenPath(Side::Client, PathStatus::Available, 0),
+        TestOp::Drive(Side::Client),
+        TestOp::PathSetStatus(Side::Client, 0, PathStatus::Backup),
+        TestOp::AdvanceTime,
+        TestOp::Drive(Side::Server),
+        TestOp::PassiveMigration(Side::Client, 0),
+        TestOp::ClosePath(Side::Server, 1, 0),
+    ];
+
+    let _guard = subscribe();
+    let routes = RoutingTable::simple_symmetric(CLIENT_ADDRS, SERVER_ADDRS);
+    let mut pair = setup_deterministic_with_multipath(seed, routes, prefix);
+    let (client_ch, server_ch) =
+        run_random_interaction(&mut pair, interactions, multipath_transport_config(prefix));
+
+    assert!(!pair.drive_bounded(1000), "connection never became idle");
+    assert!(allowed_error(poll_to_close(
+        pair.client_conn_mut(client_ch)
+    )));
+    assert!(allowed_error(poll_to_close(
+        pair.server_conn_mut(server_ch)
+    )));
+}
+
 #[test]
 fn regression_there_should_be_at_least_one_path() {
     let prefix = "regression_there_should_be_at_least_one_path";
