@@ -130,6 +130,25 @@ impl ConnectionPool {
         &self,
         target: NodeId,
     ) -> Result<Connection, TomTransportError> {
+        // #46c — RÉUTILISER une connexion ENTRANTE vivante EN PRIORITÉ. Quand
+        // deux nœuds se dialent mutuellement, le remote_map (tom-connect) fusionne
+        // les deux connexions QUIC et n'en garde qu'UNE ; NOTRE sortante peut être
+        // celle abandonnée (mais `close_reason()` reste None, donc on ne peut pas
+        // la détecter morte ici — on envoyait dans le vide → le pair ne recevait
+        // jamais). La connexion ENTRANTE est celle que le PAIR a établie ET qu'il
+        // LIT (via son accept-loop) → lui envoyer dessus garantit qu'il reçoit.
+        // Nos propres réponses arrivent car on lit aussi les entrants sur nos
+        // connexions (accept + spawn_inbound_stream_reader #46b). UNE connexion
+        // par paire suffit alors dans les deux sens.
+        {
+            let inbound = self.inbound.lock().await;
+            if let Some(conn) = inbound.get(&target) {
+                if conn.close_reason().is_none() {
+                    return Ok(conn.clone());
+                }
+            }
+        }
+
         let mut conns = self.connections.lock().await;
 
         // Check if we have a cached connection that's still alive
