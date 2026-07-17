@@ -460,14 +460,33 @@ impl IpTransports {
         })
     }
 
-    /// Itère TOUS les sockets (v4 puis v6) pour que l'appelant les polle
-    /// individuellement. 2ᵉ moitié du port iroh#4314 : l'ancien `poll_recv`
-    /// agrégé propageait la PREMIÈRE erreur via `?` — un socket v4 en erreur
-    /// (interface flappée, mode avion) court-circuitait le poll des sockets
-    /// v6 SAINS → plus aucun waker enregistré → surdité UDP totale et
-    /// silencieuse (seul le relais survivait). Régression terrain build 100.
-    pub(super) fn iter_mut(&mut self) -> impl Iterator<Item = &mut IpTransport> {
-        self.v4.iter_mut().chain(self.v6.iter_mut())
+    pub(super) fn poll_recv(
+        &mut self,
+        cx: &mut Context,
+        bufs: &mut [io::IoSliceMut<'_>],
+        metas: &mut [quinn_udp::RecvMeta],
+        source_addrs: &mut [Addr],
+    ) -> Poll<io::Result<usize>> {
+        macro_rules! poll_transport {
+            ($socket:expr) => {
+                match $socket.poll_recv(cx, bufs, metas, source_addrs)? {
+                    Poll::Pending | Poll::Ready(0) => {}
+                    Poll::Ready(n) => {
+                        return Poll::Ready(Ok(n));
+                    }
+                }
+            };
+        }
+
+        for transport in &mut self.v4 {
+            poll_transport!(transport);
+        }
+
+        for transport in &mut self.v6 {
+            poll_transport!(transport);
+        }
+
+        Poll::Pending
     }
 }
 
