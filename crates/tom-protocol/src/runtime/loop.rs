@@ -708,7 +708,10 @@ pub(super) async fn runtime_loop(
             // ── 14. Timer: DHT re-publish (30 min) ───────────
             _ = dht_republish.tick() => {
                 let (relay_urls, direct_addrs) = extract_node_addrs(&node);
-                timed("tick:dht_republish(publish_to_dht INLINE)", state.publish_to_dht(&secret_seed, relay_urls, direct_addrs)).await;
+                // DÉTACHÉ : la variante inline a tenu la boucle 2366 ms
+                // (attrapée par le profileur, NAS 17/07 19:57) — même classe
+                // que le verrou-otage. Un put DHT ne bloque jamais la boucle.
+                state.publish_to_dht_detached(&secret_seed, relay_urls, direct_addrs);
                 Vec::new()
             }
 
