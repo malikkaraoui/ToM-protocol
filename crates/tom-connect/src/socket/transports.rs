@@ -299,7 +299,9 @@ impl Transports {
 
         if counter.is_multiple_of(2) {
             #[cfg(not(wasm_browser))]
-            poll_transport!("ip", &mut self.ip);
+            for transport in self.ip.iter_mut() {
+                poll_transport!("ip", transport);
+            }
 
             for transport in &mut self.relay {
                 poll_transport!("relay", transport);
@@ -309,7 +311,9 @@ impl Transports {
                 poll_transport!("relay", transport);
             }
             #[cfg(not(wasm_browser))]
-            poll_transport!("ip", &mut self.ip);
+            for transport in self.ip.iter_mut() {
+                poll_transport!("ip", transport);
+            }
         }
 
         if total_polled > 0 && total_polled == total_errors {
