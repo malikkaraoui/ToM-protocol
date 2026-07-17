@@ -118,21 +118,37 @@ where
     let alive = Arc::new(std::sync::atomic::AtomicBool::new(true));
     let alive_task = alive.clone();
     runtime.spawn(async move {
-        let mut q = queue.lock().await;
-        if !alive_task.load(std::sync::atomic::Ordering::Acquire) {
-            // L'appelant a expiré avant même qu'on obtienne la file :
-            // ne rien drainer, le prochain poll reprendra tout.
-            return;
-        }
-        let items: Vec<T> = q.iter().cloned().collect();
+        // Verrou tenu UNIQUEMENT pour copier — jamais pendant l'attente d'ACK.
+        // (1er jet : l'ack attendait sous verrou → la pompe d'événements
+        // ralentissait → canal runtime plein → la BOUCLE PROTOCOLE bloquait
+        // sur event_tx.send → vagues de gel synchronisées mesurées sur la
+        // flotte, ticks 60 s dérivés à 84-213 s.)
+        let snapshot_len;
+        let items: Vec<T> = {
+            let q = queue.lock().await;
+            if !alive_task.load(std::sync::atomic::Ordering::Acquire) {
+                // L'appelant a expiré avant même qu'on obtienne la file :
+                // ne rien drainer, le prochain poll reprendra tout.
+                return;
+            }
+            snapshot_len = q.len();
+            q.iter().cloned().collect()
+        };
         let json = serialize(items);
         if tx.send(json).is_err() {
             return;
         }
-        // Attente bornée de l'ACK (µs sur runtime sain — l'appelant est déjà
-        // dans recv_timeout ; l'appelant disparu → pas de clear, batch gardé).
-        if ack_rx.recv_timeout(std::time::Duration::from_millis(100)).is_ok() {
-            q.clear();
+        // Attente bornée de l'ACK, HORS verrou (µs sur runtime sain ;
+        // appelant disparu → pas de clear, batch gardé).
+        if ack_rx
+            .recv_timeout(std::time::Duration::from_millis(100))
+            .is_ok()
+        {
+            let mut q = queue.lock().await;
+            // Ne retirer QUE ce qui a été livré — ce qui est arrivé pendant
+            // l'attente reste pour le prochain poll.
+            let n = snapshot_len.min(q.len());
+            q.drain(..n);
         }
     });
     match rx.recv_timeout(budget) {

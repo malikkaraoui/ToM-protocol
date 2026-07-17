@@ -162,11 +162,10 @@ pub(super) async fn runtime_loop(
     let discovery_start = std::time::Instant::now();
     tracing::info!("⏱️ DISCO t+0 : runtime_loop started");
     let _ = event_tx
-        .send(ProtocolEvent::DiscoveryTiming {
+        .try_send(ProtocolEvent::DiscoveryTiming {
             elapsed_ms: 0,
             detail: "🚀 runtime_loop started".to_string(),
-        })
-        .await;
+        });
 
     // ── DHT setup ──────────────────────────────────────────────────
     let secret_seed = node.secret_key_seed();
@@ -188,11 +187,10 @@ pub(super) async fn runtime_loop(
         state.publish_to_dht_detached(&secret_seed, relay_urls, direct_addrs);
         tracing::info!("⏱️ DISCO t+0 : DHT startup publish lancé (détaché)");
         let _ = event_tx
-            .send(ProtocolEvent::DiscoveryTiming {
+            .try_send(ProtocolEvent::DiscoveryTiming {
                 elapsed_ms: 0,
                 detail: "DHT startup publish lancé (détaché)".to_string(),
-            })
-            .await;
+            });
     }
 
     // Monotonic floor for rendezvous publication timestamps (see build_self_dht_addr).
@@ -576,11 +574,10 @@ pub(super) async fn runtime_loop(
                                     "⏱️ DISCO t+{elapsed}ms : bootstrap CONVERGED via GossipNeighborUp"
                                 );
                                 let _ = event_tx
-                                    .send(ProtocolEvent::DiscoveryTiming {
+                                    .try_send(ProtocolEvent::DiscoveryTiming {
                                         elapsed_ms: elapsed,
                                         detail: format!("Voisin gossip {} → réseau convergé", node_id),
-                                    })
-                                    .await;
+                                    });
                             }
                             // Re-broadcast announce on NeighborUp
                             // (key learning from PoC-3: initial broadcast has no neighbors)
@@ -710,11 +707,10 @@ pub(super) async fn runtime_loop(
                 let elapsed = discovery_start.elapsed().as_millis() as u64;
                 tracing::info!("⏱️ DISCO t+{elapsed}ms : 60s rendezvous tick");
                 let _ = event_tx
-                    .send(ProtocolEvent::DiscoveryTiming {
+                    .try_send(ProtocolEvent::DiscoveryTiming {
                         elapsed_ms: elapsed,
                         detail: "60s rendezvous tick (periodic)".to_string(),
-                    })
-                    .await;
+                    });
                 spawn_rendezvous_round(
                     &node,
                     &state.local_id,
@@ -811,11 +807,10 @@ pub(super) async fn runtime_loop(
                         let elapsed = discovery_start.elapsed().as_millis() as u64;
                         tracing::info!("⏱️ DISCO t+{elapsed}ms : isolation recovery — rendezvous NOW");
                         let _ = event_tx
-                            .send(ProtocolEvent::DiscoveryTiming {
+                            .try_send(ProtocolEvent::DiscoveryTiming {
                                 elapsed_ms: elapsed,
                                 detail: "Isolation recovery: rendezvous NOW".to_string(),
-                            })
-                            .await;
+                            });
                         spawn_rendezvous_round(
                             &node,
                             &state.local_id,
@@ -1242,7 +1237,7 @@ fn spawn_rendezvous_round(
                 peers.len()
             );
             let _ = event_tx
-                .send(ProtocolEvent::DiscoveryTiming {
+                .try_send(ProtocolEvent::DiscoveryTiming {
                     elapsed_ms: elapsed,
                     detail: format!(
                         "Rendez-vous ({}) : {} pairs gardés, {} rejetés (signature)",
@@ -1250,8 +1245,7 @@ fn spawn_rendezvous_round(
                         peers.len(),
                         rejected
                     ),
-                })
-                .await;
+                });
         }
         for addr in peers {
             let _ = tx.send(RuntimeCommand::DhtLookupResult { addr }).await;
@@ -1286,11 +1280,10 @@ async fn bootstrap_join_peer(
         source_name
     );
     let _ = event_tx
-        .send(ProtocolEvent::DiscoveryTiming {
+        .try_send(ProtocolEvent::DiscoveryTiming {
             elapsed_ms: elapsed,
             detail: format!("Connexion au pair {} (source {})", node_id, source_name),
-        })
-        .await;
+        });
 
     // INVARIANT: add_peer_addr() BEFORE join_peers()
     // so MemoryLookup has the address when gossip dials.
