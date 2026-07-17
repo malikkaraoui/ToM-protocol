@@ -329,8 +329,17 @@ pub(super) async fn runtime_loop(
             Some(cmd) = cmd_rx.recv() => {
                 match cmd {
                     RuntimeCommand::GetConnectedPeers { reply } => {
-                        let peers = timed("cmd:connected_peers", node.connected_peers()).await;
-                        let _ = reply.send(peers);
+                        // HORS BOUCLE : cette requête transport a tenu la
+                        // boucle 5-9 s sous churn (fautif prouvé « BOUCLE
+                        // TENUE 8724ms par: cmd:connected_peers », NAS
+                        // 17/07 19:09). Le poll de statut ne doit JAMAIS
+                        // prendre la boucle en otage — réponse spawnée.
+                        let sender = node_sender.clone();
+                        tokio::spawn(async move {
+                            let peers =
+                                timed("spawned:connected_peers", sender.connected_peers()).await;
+                            let _ = reply.send(peers);
+                        });
                         Vec::new()
                     }
                     RuntimeCommand::AddPeerAddr { addr } => {
