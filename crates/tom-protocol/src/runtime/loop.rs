@@ -49,6 +49,19 @@ fn maintenance_interval(period: std::time::Duration) -> tokio::time::Interval {
     i
 }
 
+// Chronomètre un await exécuté INLINE par la boucle runtime : tout ce qui
+// dépasse 300 ms a tenu la boucle en otage (ticks dérivés, découverte gelée)
+// et doit être nommé dans les logs — l'instrument du « fautif exact ».
+async fn timed<F: std::future::Future>(name: &str, fut: F) -> F::Output {
+    let t0 = std::time::Instant::now();
+    let out = fut.await;
+    let ms = t0.elapsed().as_millis();
+    if ms > 300 {
+        tracing::warn!("⏱️ BOUCLE TENUE {}ms par: {}", ms, name);
+    }
+    out
+}
+
 /// Main event loop — thin orchestrator.
 ///
 /// All protocol logic lives in `RuntimeState`. This function only:
@@ -316,7 +329,7 @@ pub(super) async fn runtime_loop(
             Some(cmd) = cmd_rx.recv() => {
                 match cmd {
                     RuntimeCommand::GetConnectedPeers { reply } => {
-                        let peers = node.connected_peers().await;
+                        let peers = timed("cmd:connected_peers", node.connected_peers()).await;
                         let _ = reply.send(peers);
                         Vec::new()
                     }
@@ -686,7 +699,7 @@ pub(super) async fn runtime_loop(
             // ── 14. Timer: DHT re-publish (30 min) ───────────
             _ = dht_republish.tick() => {
                 let (relay_urls, direct_addrs) = extract_node_addrs(&node);
-                state.publish_to_dht(&secret_seed, relay_urls, direct_addrs).await;
+                timed("tick:dht_republish(publish_to_dht INLINE)", state.publish_to_dht(&secret_seed, relay_urls, direct_addrs)).await;
                 Vec::new()
             }
 
@@ -842,15 +855,15 @@ pub(super) async fn runtime_loop(
                     }
 
                     if !known_eids.is_empty() {
-                        let _ = tokio::time::timeout(
+                        let _ = timed("recovery:join_peers", tokio::time::timeout(
                             RECOVERY_OP_TIMEOUT,
                             sender.join_peers(known_eids),
-                        )
+                        ))
                         .await;
                     }
                     // Always reprobe relays: triggers PeerPresent even when topology has
                     // known-but-offline peers (e.g. after relay cut or network change).
-                    let _ = tokio::time::timeout(RECOVERY_OP_TIMEOUT, node.reprobe_relays()).await;
+                    let _ = timed("recovery:reprobe_relays", tokio::time::timeout(RECOVERY_OP_TIMEOUT, node.reprobe_relays())).await;
                 }
                 Vec::new()
             }
