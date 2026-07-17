@@ -62,6 +62,9 @@
 
 ## Sur le feu
 
+### 🟠 Auto-guérison du nœud malade (Swift, petit chantier)
+> Constat ATV 17/07 17h : grâce à l'armure FFI, un nœud au runtime cassé ne gèle plus l'app (logs vivants, envois en -1 propre)… mais il reste malade indéfiniment jusqu'à un restart manuel. Détecteur à ajouter côté service : « 0 pair connecté + envois en échec + découverte active depuis X min » → forceReset + start automatique (avec backoff). Signaux déjà disponibles dans TomNodeService. Au passage : harnais de test Rust → `enable_dht:false` (pollution du rendez-vous par identités fantômes « timing »/« 101e444c »).
+
 ### ✅ Cure wedge transport — LIVRÉ build 100 (2026-07-17 soir)
 > L'enquête des gels iPad/ATV (après-midi) a remonté à la cause STRUCTURELLE : `ConnectionRef::clone` prenait le mutex d'état (from_arc) → auto-deadlock sous verrou → runtime tokio gelé 5-15 min (famille NAS). Cure : ref_count AtomicUsize + port iroh#4314 (erreurs recv tolérées) + inbox 256 + budgets FFI tenus par le thread appelant (immunes au wedge) + drains transactionnels 2 phases + recovery Swift idempotente + boîte noire TomTrace. Validé : 25 cycles stop→create→start sans gel, orage de redémarrage flotte simultané → 5/5 nœuds convergés en 31 s, 0 échec. Dettes de test actées (unitaires #4314, ref_count concurrent, recovery Swift). Détail : vault/30-discoveries.md (2026-07-17) + mémoire `tom-ios-stall-transport-wedge-2026-07-17`.
 
