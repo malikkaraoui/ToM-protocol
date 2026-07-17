@@ -31,6 +31,14 @@ final class TomNodeService: ObservableObject {
     /// détecter un démarrage figé et de le récupérer sans attendre le watchdog.
     private var startingSince: Date?
     private static let stuckStartForegroundThreshold: TimeInterval = 8
+    // Backoff de relance sur start EXPIRÉ (rc -2 FFI = réseau indisponible ou
+    // dégradé, budget 20 s) : marteler start en 3G pourrie gaspille radio et
+    // batterie sans converger. Progressif 5→60 s, remis à zéro au premier
+    // succès. Annulé par stop() et par tout start() (manuel ou réseau).
+    private var startRetryTask: Task<Void, Never>?
+    private var startRetryDelay: TimeInterval = TomNodeService.startRetryInitialDelay
+    private static let startRetryInitialDelay: TimeInterval = 5
+    private static let startRetryMaxDelay: TimeInterval = 60
     private var probeTask: Task<Void, Never>?
     private var probeSeq: Int = 0
     private var probeExpirationTimes: [String: Date] = [:]
@@ -562,6 +570,8 @@ final class TomNodeService: ObservableObject {
 
     func start() {
         guard state == .stopped || state == .error else { return }
+        startRetryTask?.cancel()
+        startRetryTask = nil
         state = .starting
         startingSince = Date()
         armStartWatchdog()
@@ -645,6 +655,7 @@ final class TomNodeService: ObservableObject {
 
                 state = .running
                 cancelStartWatchdog()
+                startRetryDelay = Self.startRetryInitialDelay
                 nodeStartTime = Date()
                 appendLog(.success, "Runtime started")
                 appendLog(.network, "Local discovery: \(localDiscovery ? "enabled" : "disabled")")
@@ -675,6 +686,19 @@ final class TomNodeService: ObservableObject {
                 startStatusServer()
                 log.info("Node started — identity: \(self.identityPath ?? "ephemeral"), data: \(self.dataDir ?? "none")")
 
+            } catch TomError.startTimeout(let detail) {
+                // Réseau indisponible/dégradé (contrat -2) : PAS une erreur
+                // terminale. Handle libéré (rien ne survit à un start expiré),
+                // état honnête à l'écran, relance automatique avec backoff.
+                log.error("Start timed out (réseau): \(detail)")
+                cancelStartWatchdog()
+                await node.forceReset()
+                let delay = startRetryDelay
+                startRetryDelay = min(startRetryDelay * 2, Self.startRetryMaxDelay)
+                state = .error
+                errorMessage = "Réseau indisponible — nouvelle tentative dans \(Int(delay)) s"
+                appendLog(.warning, "START EXPIRÉ (réseau faible) — nouvelle tentative dans \(Int(delay)) s")
+                scheduleStartRetry(after: delay)
             } catch {
                 log.error("Failed to start node: \(error.localizedDescription)")
                 appendLog(.error, "START FAILED: \(error.localizedDescription)")
@@ -686,6 +710,20 @@ final class TomNodeService: ObservableObject {
         }
     }
 
+    /// Relance start() après `delay` si l'état est resté .error (le retour
+    /// réseau via NWPathMonitor ou une action utilisateur peut redémarrer
+    /// avant — la tâche est alors annulée par start()/stop()).
+    private func scheduleStartRetry(after delay: TimeInterval) {
+        startRetryTask?.cancel()
+        startRetryTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+            guard !Task.isCancelled, let self else { return }
+            guard self.state == .error else { return }
+            self.appendLog(.info, "Nouvelle tentative de démarrage (réseau)")
+            self.start()
+        }
+    }
+
     func stop() {
         // .starting inclus : un Stop pendant un démarrage lent doit TOUJOURS
         // être obéi. Avant, le guard n'acceptait que .running — un tap sur
@@ -694,6 +732,8 @@ final class TomNodeService: ObservableObject {
         let wasStarting = (state == .starting)
         startTask?.cancel()
         startTask = nil
+        startRetryTask?.cancel()
+        startRetryTask = nil
         cancelStartWatchdog()
         probeTask?.cancel()
         probeTask = nil

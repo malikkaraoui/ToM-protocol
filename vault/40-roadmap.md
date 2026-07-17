@@ -43,7 +43,7 @@
 - ✅ **Vitesse restaurée (#97)** : dial proactif réintroduit (retiré sur fausse piste pendant la chasse au bug) — reconnexion NAS 0,6 s, flotte DIRECT.
 - ✅ **Cycle de vie background iOS/tvOS (#48, build 98)** : grâce 18 s (retour court = aucun restart), arrêt PROPRE fin de grâce + hold teardown 8 s, redémarrage <1 s, BGAppRefresh (`fetch`, app visible dans Réglages), MetricKit embarqué. Validé terrain : sortie réelle → 0 échec flotte pendant l'absence (vs 187-425/appareil avant). 4 findings de revue corrigés.
 - ⚠️ Stall NAS récidive #2 (mort-vivant partiel, preuves archivées, restart) — chantier transport upstream toujours dû.
-- 🔴 Nouveau bug terrain caractérisé : start non borné → zombie qui ACK (voir « Sur le feu » PRIORITAIRE).
+- 🔴 Nouveau bug terrain caractérisé : start non borné → zombie qui ACK — **fixé le jour même (build 99, voir « Sur le feu »)**.
 
 ### 🏆 Release 2.1.0 — build 92 (2026-07-16)
 > Jalon « réseau rapide + observabilité honnête ». Flotte Mac/iPad/iPhone/AppleTV/NAS homogène, 4 pairs DIRECT chacun, 0 fantôme. Tag `v2.1.0` + bundle git backup. Détail complet : `vault/30-discoveries.md` (2026-07-16).
@@ -62,13 +62,13 @@
 
 ## Sur le feu
 
-### 🔴 PRIORITAIRE — start Rust borné + anti-zombie (2026-07-17, prompt de reprise prêt)
-> Bug terrain reproduit par l'utilisateur (3G + stress avion/wifi) : `tom_node_start` non borné se fige sur réseau faible → l'appel C gelé empoisonne l'actor `TomNodeWrapper` (watchdog impuissant, boucle inerte UI) → l'instance précédente reste vivante en **zombie qui ACK** → messages perdus (pas de backup ADR-009 puisque ACKé) — viole l'esprit décision #1. Chiffré : fenêtre 11:56→12:08, 8 « délivré → iPhone » émis par le zombie pendant que l'UI disait « Nœud inactif ». Détail complet : vault/30-discoveries.md (2026-07-17) + mémoire `ios-background-lifecycle-48`.
-- [ ] ① Borner `tom_node_start` (FFI, timeout ~20 s) — chemin d'erreur SANS fuite d'endpoint (sinon zombie recréé) ; re-start possible après échec
-- [ ] ② Instrumenter/fixer l'await réseau non borné dans `TomNode::bind` (repro locale : reception_harness sans réseau)
-- [ ] ③ Vérifier watchdog→forceReset effectif post-fix (actor libéré)
-- [ ] ④ UI « réseau indisponible — nouvelle tentative » + backoff (fin du spinner infini)
-- Critère terrain : plus jamais « figé > 60 s » ; plus jamais « délivré → iPhone » côté flotte pendant UI inactive.
+### ✅ start Rust borné + anti-zombie — LIVRÉ build 99 (2026-07-17), validation terrain 3G en attente
+> Bug terrain reproduit par l'utilisateur (3G + stress avion/wifi) : `tom_node_start` non borné se figeait → actor Swift empoisonné → zombie qui ACK → messages perdus. Fix livré :
+- [x] ① `tom_node_start` borné (bind sur tâche tokio + timeout `start_timeout_secs` 20 s → rc **-2** + last_error ; abort + reaper `shutdown()` sur la course — rien ne survit, re-start OK, test `start_expires_on_stalled_network_then_recovers`)
+- [x] ② Cause racine TROUVÉE (pas le bind !) : `mainline::Dht::client()` bloque sur getaddrinfo synchrone des 4 bootstrap → `SharedDht` tom-dht, init sur thread détaché, `get()`/`wait_ready()` — start total mesuré **96 ms** (vs gel indéfini)
+- [x] ③ Watchdog Swift libéré par construction (l'appel C rend la main ≤20 s) — filet 30 s conservé
+- [x] ④ UI honnête : `TomError.startTimeout` → forceReset + backoff 5→60 s + « Réseau indisponible — nouvelle tentative dans Xs »
+- [ ] **Critère terrain (SEUL restant)** : stress 3G/avion réel — plus jamais « figé > 60 s » ; plus jamais « délivré → iPhone » côté flotte pendant UI inactive (croiser /tmp/tom_collector.log).
 
 ### 🚧 Suite stress-test réel flotte + outillage tom-stress (2026-07-13)
 > Demande explicite : validation complète non-unitaire, adversariale, sur device réel — pas de ping-pong isolé. Voir `vault/30-discoveries.md` (2026-07-13) pour le détail complet.

@@ -189,7 +189,9 @@ pub unsafe extern "C" fn tom_node_create(config_json: *const c_char) -> *mut Tom
 ///
 /// # Returns
 /// * 0 on success
-/// * -1 on failure
+/// * -1 on failure (details via `tom_node_last_error`)
+/// * -2 when the start budget expired (`start_timeout_secs`, default 20s):
+///   network unavailable/degraded — the handle stays reusable, retry later
 ///
 /// # Safety
 /// * `handle` must be a valid pointer returned by `tom_node_create()`
@@ -245,6 +247,10 @@ pub unsafe extern "C" fn tom_node_start(
         transport_config = transport_config.local_discovery(local_discovery);
     }
 
+    if let Some(discovery_url) = normalized_non_empty(runtime_config.relay_discovery_url.as_deref()) {
+        transport_config = transport_config.relay_discovery_url(discovery_url);
+    }
+
     // Parse gossip bootstrap peers
     let gossip_peers = parse_gossip_bootstrap_peers(&runtime_config.gossip_bootstrap_peers);
 
@@ -284,30 +290,87 @@ pub unsafe extern "C" fn tom_node_start(
     // Store app build for status reporting
     *lock_recover(&handle_ref.app_build) = app_build_value;
 
+    // Budget de démarrage : un appel C gelé n'est pas annulable côté Swift et
+    // empoisonne l'actor appelant (stop/forceReset s'empilent derrière pour
+    // toujours) pendant qu'un éventuel nœud précédent survit en zombie et ACK
+    // des messages que l'UI ne verra jamais. Le start DOIT donc rendre la main
+    // dans un délai borné, quoi qu'il arrive au réseau.
+    // clamp haut 300 s : garde-fou contre une valeur aberrante (confusion
+    // ms/s côté appelant) qui recréerait de fait un start non borné.
+    let start_timeout = std::time::Duration::from_secs(
+        runtime_config.start_timeout_secs.unwrap_or(20).clamp(1, 300),
+    );
+
     // Block until bind + runtime spawn completes (not fire-and-forget)
     let result = handle_ref.runtime.block_on(async move {
-        tracing::info!("Binding TomNode...");
+        tracing::info!("Binding TomNode (budget {}s)...", start_timeout.as_secs());
+        let start_t0 = std::time::Instant::now();
 
-        // Bind transport
-        let node = match tom_transport::TomNode::bind(transport_config).await {
-            Ok(n) => {
+        // Bind transport — sur une tâche séparée : même si une étape interne
+        // bloque un worker en synchrone, le timeout ci-dessous expire quand même.
+        let mut bind_task = tokio::spawn(tom_transport::TomNode::bind(transport_config));
+
+        let node = match tokio::time::timeout(start_timeout, &mut bind_task).await {
+            Ok(Ok(Ok(n))) => {
                 let id = n.id().to_string();
-                tracing::info!("TomNode bound successfully: {}", id);
+                tracing::info!(
+                    "TomNode bound successfully in {}ms: {}",
+                    start_t0.elapsed().as_millis(),
+                    id
+                );
                 *node_id_arc.lock().await = Some(id);
                 n
             }
-            Err(e) => {
+            Ok(Ok(Err(e))) => {
                 let err_msg = format!("Failed to bind TomNode: {}", e);
                 tracing::error!("{}", err_msg);
                 *lock_recover(&last_error_arc) = Some(err_msg);
                 return -1i32;
             }
+            Ok(Err(join_err)) => {
+                let err_msg = format!("TomNode bind task failed: {}", join_err);
+                tracing::error!("{}", err_msg);
+                *lock_recover(&last_error_arc) = Some(err_msg);
+                return -1i32;
+            }
+            Err(_elapsed) => {
+                // Start expiré. RIEN ne doit survivre à ce chemin d'erreur :
+                // on annule le bind, et si la course abort/complétion laisse
+                // malgré tout un nœud entièrement bindé, il est démantelé
+                // immédiatement — sinon on recrée exactement le zombie qu'on
+                // combat (endpoint vivant qui ACK sans app derrière).
+                bind_task.abort();
+                tokio::spawn(async move {
+                    if let Ok(Ok(node)) = bind_task.await {
+                        tracing::warn!(
+                            "bind terminé après l'expiration du start — démantèlement immédiat"
+                        );
+                        let _ = node.shutdown().await;
+                    }
+                });
+                let err_msg = format!(
+                    "démarrage expiré après {}s — réseau indisponible ou dégradé, réessayer",
+                    start_timeout.as_secs()
+                );
+                tracing::error!("{}", err_msg);
+                *lock_recover(&last_error_arc) = Some(err_msg);
+                // -2 = contrat « expiré » : l'appelant peut réessayer sur le
+                // même handle avec backoff, sans matcher le texte d'erreur.
+                return -2i32;
+            }
         };
 
-        // Spawn protocol runtime
+        // Spawn protocol runtime — chemin rapide et LOCAL par contrat : plus
+        // aucune étape réseau synchrone ici (l'init DHT/DNS est détachée,
+        // cf. tom_dht::SharedDht). Le log de durée trahirait une régression.
+        let spawn_t0 = std::time::Instant::now();
         let channels: RuntimeChannels = ProtocolRuntime::spawn(node, protocol_config);
 
-        tracing::info!("ProtocolRuntime spawned successfully");
+        tracing::info!(
+            "ProtocolRuntime spawned successfully in {}ms (start total {}ms)",
+            spawn_t0.elapsed().as_millis(),
+            start_t0.elapsed().as_millis()
+        );
         *handle_clone.lock().await = Some(channels.handle.clone());
 
         // Background task: drain messages + events into queues
@@ -1599,6 +1662,9 @@ mod tests {
             enable_transport_relay_discovery: Some(false),
             presence_contribution_min: None,
             presence_probe_interval_secs: None,
+            app_build: None,
+            relay_discovery_url: None,
+            start_timeout_secs: None,
         };
         let runtime_config_json = serde_json::to_string(&runtime_config).unwrap();
         let runtime_config_cstr = CString::new(runtime_config_json).unwrap();
@@ -1624,6 +1690,85 @@ mod tests {
             tom_node_free_string(status_ptr);
             tom_node_stop(handle);
         }
+    }
+
+    /// Contrat anti-zombie du start : sur réseau dégradé (ici un serveur
+    /// discovery qui accepte la connexion puis ne répond jamais), tom_node_start
+    /// doit rendre la main dans le budget start_timeout_secs avec -1 +
+    /// last_error — jamais bloquer l'appelant (l'actor Swift) indéfiniment.
+    /// Le même handle doit ensuite pouvoir re-démarrer proprement quand le
+    /// réseau va mieux (pas d'état résiduel du start expiré).
+    #[test]
+    fn start_expires_on_stalled_network_then_recovers() {
+        use std::io::Read as _;
+        use std::net::TcpListener;
+        use std::time::{Duration, Instant};
+
+        // Serveur « réseau dégradé » : accepte, lit la requête, ne répond jamais.
+        // reqwest (timeout client 3 s) garde le bind suspendu ~3 s > budget 1 s.
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        std::thread::spawn(move || {
+            if let Ok((mut conn, _)) = listener.accept() {
+                let mut buf = [0u8; 1024];
+                let _ = conn.set_read_timeout(Some(Duration::from_secs(10)));
+                let _ = conn.read(&mut buf);
+                std::thread::sleep(Duration::from_secs(5));
+            }
+        });
+
+        let h = make_unstarted_handle();
+        assert!(!h.is_null());
+
+        let stalled_cfg = CString::new(format!(
+            r#"{{"username":"stalltest","encryption":false,"enable_dht":false,
+                "n0_discovery":false,"local_discovery":false,
+                "enable_embedded_relay":false,"enable_embedded_relay_publication":false,
+                "enable_transport_relay_discovery":false,
+                "relay_url":"http://127.0.0.1:3343",
+                "relay_discovery_url":"http://127.0.0.1:{port}",
+                "start_timeout_secs":1}}"#
+        ))
+        .unwrap();
+
+        let t0 = Instant::now();
+        let rc = unsafe { tom_node_start(h, stalled_cfg.as_ptr()) };
+        let elapsed = t0.elapsed();
+
+        assert_eq!(rc, -2, "un start suspendu par le réseau doit expirer (-2), pas réussir");
+        assert!(
+            elapsed < Duration::from_secs(3),
+            "le start doit rendre la main au budget (1s), pas attendre le stall complet (~3s) — mesuré {elapsed:?}"
+        );
+
+        let err_ptr = unsafe { tom_node_last_error(h) };
+        assert!(!err_ptr.is_null(), "un start expiré doit poser last_error");
+        let err = unsafe { CStr::from_ptr(err_ptr) }.to_string_lossy().into_owned();
+        unsafe { tom_node_free_string(err_ptr) };
+        assert!(
+            err.contains("expiré"),
+            "last_error doit expliquer l'expiration réseau, reçu : {err}"
+        );
+
+        // Re-start sur le MÊME handle, réseau « revenu » (pas de discovery URL).
+        let ok_cfg = CString::new(
+            r#"{"username":"stalltest","encryption":false,"enable_dht":false,
+                "n0_discovery":false,"local_discovery":false,
+                "enable_embedded_relay":false,"enable_embedded_relay_publication":false,
+                "enable_transport_relay_discovery":false,
+                "relay_url":"http://127.0.0.1:3343"}"#,
+        )
+        .unwrap();
+        let rc2 = unsafe { tom_node_start(h, ok_cfg.as_ptr()) };
+        assert_eq!(rc2, 0, "le handle doit rester réutilisable après un start expiré");
+
+        let status_ptr = unsafe { tom_node_status(h) };
+        assert!(!status_ptr.is_null());
+        let status = unsafe { CStr::from_ptr(status_ptr) }.to_string_lossy().into_owned();
+        unsafe { tom_node_free_string(status_ptr) };
+        assert!(status.contains("Running"), "status après re-start : {status}");
+
+        unsafe { tom_node_stop(h) };
     }
 
     #[test]

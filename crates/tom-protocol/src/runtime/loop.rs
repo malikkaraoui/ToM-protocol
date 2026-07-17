@@ -170,9 +170,12 @@ pub(super) async fn runtime_loop(
 
     // ── DHT setup ──────────────────────────────────────────────────
     let secret_seed = node.secret_key_seed();
-    // Clone the async DHT handle for spawned lookup tasks (cheap Arc clone)
-    let dht_handle: Option<tom_dht::AsyncDht> =
-        state.dht().map(|d| d.async_dht());
+    // Clone the lazy DHT handle for spawned lookup tasks (cheap Arc clone).
+    // Le client mainline s'initialise en arrière-plan (DNS bootstrap détaché,
+    // cf. tom_dht::SharedDht) : les tâches spawnées attendent sa disponibilité
+    // avec wait_ready(), la boucle elle-même ne bloque jamais dessus.
+    let dht_handle: Option<tom_dht::SharedDht> =
+        state.dht().map(|d| d.shared_dht());
 
     // Publish to DHT at startup (BEP-0044) — EN TÂCHE DÉTACHÉE.
     // Le put_mutable DHT prend des dizaines de secondes ; le faire en bloquant
@@ -336,10 +339,14 @@ pub(super) async fn runtime_loop(
                         // Spawn a DHT lookup for unknown peers (non-blocking)
                         if let Some(dht_client) = dht_handle.as_ref() {
                             if state.topology.get(&node_id).is_none() {
-                                let dht_clone = dht_client.clone();
+                                let shared = dht_client.clone();
                                 let pk = node_id.as_bytes();
                                 let tx = cmd_tx.clone();
                                 tokio::spawn(async move {
+                                    let Some(dht_clone) = shared.wait_ready().await else {
+                                        tracing::debug!("DHT lookup sauté : client pas prêt");
+                                        return;
+                                    };
                                     match tom_dht::dht_lookup(&dht_clone, &pk).await {
                                         Ok(Some(addr)) => {
                                             let _ = tx.send(
@@ -824,10 +831,13 @@ pub(super) async fn runtime_loop(
                         );
                         if let Some(dht_client) = dht_handle.as_ref() {
                             for node_id in &known_node_ids {
-                                let dht_clone = dht_client.clone();
+                                let shared = dht_client.clone();
                                 let pk = node_id.as_bytes();
                                 let tx = cmd_tx.clone();
                                 tokio::spawn(async move {
+                                    let Some(dht_clone) = shared.wait_ready().await else {
+                                        return;
+                                    };
                                     if let Ok(Some(addr)) = tom_dht::dht_lookup(&dht_clone, &pk).await {
                                         let _ = tx.send(RuntimeCommand::DhtLookupResult { addr }).await;
                                     }
@@ -1178,7 +1188,7 @@ fn rendezvous_entry_fresh(addr: &tom_dht::DhtNodeAddr, now_ms: u64) -> bool {
 fn spawn_rendezvous_round(
     node: &TomNode,
     local_id: &NodeId,
-    dht_handle: Option<&tom_dht::AsyncDht>,
+    dht_handle: Option<&tom_dht::SharedDht>,
     cmd_tx: &mpsc::Sender<RuntimeCommand>,
     ts_floor: &mut u64,
     secret_seed: &[u8; 32],
@@ -1188,13 +1198,22 @@ fn spawn_rendezvous_round(
     event_tx: mpsc::Sender<ProtocolEvent>,
     is_startup: bool,
 ) {
-    let Some(dht) = dht_handle.cloned() else {
+    let Some(shared) = dht_handle.cloned() else {
         return;
     };
     let self_addr = build_self_dht_addr(node, local_id, ts_floor, secret_seed, username, app_build);
     let own_id = self_addr.node_id.clone();
     let tx = cmd_tx.clone();
     tokio::spawn(async move {
+        // La ronde de démarrage part ~100 ms après l'init du client DHT :
+        // on attend sa disponibilité ICI (tâche détachée) pour ne pas perdre
+        // la première ronde — la boucle runtime, elle, n'attend jamais.
+        let Some(dht) = shared.wait_ready().await else {
+            // info (pas debug) : une ronde perdue retarde la découverte WAN
+            // d'un cycle — ça doit se voir dans les logs de prod.
+            tracing::info!("rendezvous round sauté : client DHT pas prêt (init DNS lente)");
+            return;
+        };
         if let Err(e) = tom_dht::rendezvous_publish(&dht, &self_addr).await {
             tracing::debug!("rendezvous publish failed: {e}");
         }

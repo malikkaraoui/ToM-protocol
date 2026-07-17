@@ -8,6 +8,10 @@ public enum TomError: LocalizedError {
     case jsonParseFailed(String)
     case sendFailed(String)
     case groupCreateFailed(String)
+    /// `tom_node_start` a rendu -2 : budget de démarrage expiré (réseau
+    /// indisponible/dégradé). Le handle reste réutilisable — réessayer avec
+    /// backoff au lieu d'afficher une erreur terminale.
+    case startTimeout(String)
     case unknown(String)
 
     public var errorDescription: String? {
@@ -24,6 +28,8 @@ public enum TomError: LocalizedError {
             return "Send failed: \(detail)"
         case .groupCreateFailed(let detail):
             return "Group create failed: \(detail)"
+        case .startTimeout(let detail):
+            return "Start timed out: \(detail)"
         case .unknown(let detail):
             return "Unknown error: \(detail)"
         }

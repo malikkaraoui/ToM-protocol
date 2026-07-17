@@ -119,6 +119,12 @@ public actor TomNodeWrapper {
                 tom_node_free_string(errPtr)
             }
             log.error("Start failed: \(errorDetail)")
+            // -2 = budget de démarrage expiré (contrat FFI) : réseau
+            // indisponible/dégradé, le handle reste réutilisable → l'appelant
+            // doit réessayer avec backoff, pas afficher une erreur terminale.
+            if result == -2 {
+                throw TomError.startTimeout(errorDetail)
+            }
             throw TomError.unknown(errorDetail)
         }
 

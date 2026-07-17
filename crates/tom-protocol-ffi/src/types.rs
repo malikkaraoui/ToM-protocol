@@ -134,6 +134,18 @@ pub struct RuntimeConfigFFI {
     /// 0 = unknown.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub app_build: Option<u32>,
+
+    /// URL du service de découverte de relais (`GET <url>/relays` au bind).
+    /// None = pas de fetch de découverte.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub relay_discovery_url: Option<String>,
+
+    /// Budget maximal du démarrage (bind transport + spawn runtime), en
+    /// secondes. Au-delà, tom_node_start rend -2 + last_error au lieu de
+    /// bloquer l'appelant (contrat anti-zombie : un appel C gelé empoisonne
+    /// l'actor Swift). None = 20 s. Clampé à [1, 300] s.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub start_timeout_secs: Option<u64>,
 }
 
 /// Group creation config
@@ -729,14 +741,17 @@ mod tests {
             local_role: "Peer".into(),
             path_kind: "DIRECT".into(),
             path_rtt_ms: 12,
+            path_addr: None,
             relay_url_active: "http://relay.example:3340".into(),
             clock_skew_ms: Some(100),
             clock_skew_samples: 5,
+            app_build: 98,
+            paths_by_peer: None,
         };
         let json = serde_json::to_string(&status).unwrap();
         assert_eq!(
             json,
-            r#"{"node_id":"n","status":"Running","peers_count":3,"groups_count":1,"local_role":"Peer","path_kind":"DIRECT","path_rtt_ms":12,"relay_url_active":"http://relay.example:3340","clock_skew_ms":100,"clock_skew_samples":5}"#
+            r#"{"node_id":"n","status":"Running","peers_count":3,"groups_count":1,"local_role":"Peer","path_kind":"DIRECT","path_rtt_ms":12,"relay_url_active":"http://relay.example:3340","clock_skew_ms":100,"clock_skew_samples":5,"app_build":98}"#
         );
     }
 
@@ -753,9 +768,12 @@ mod tests {
             local_role: "we\"ird".into(),
             path_kind: "DIRECT".into(),
             path_rtt_ms: 0,
+            path_addr: None,
             relay_url_active: "".into(),
             clock_skew_ms: None,
             clock_skew_samples: 0,
+            app_build: 0,
+            paths_by_peer: None,
         };
         let json = serde_json::to_string(&status).unwrap();
         let round_trip: NodeStatusFFI = serde_json::from_str(&json).unwrap();
@@ -767,13 +785,14 @@ mod tests {
         let peer = DiscoveredPeerFFI {
             node_id: "abc".into(),
             username: "alice".into(),
+            app_build: 7,
             source: "Announce".into(),
             discovered_at: 42,
         };
         let json = serde_json::to_string(&peer).unwrap();
         assert_eq!(
             json,
-            r#"{"node_id":"abc","username":"alice","source":"Announce","discovered_at":42}"#
+            r#"{"node_id":"abc","username":"alice","app_build":7,"source":"Announce","discovered_at":42}"#
         );
     }
 

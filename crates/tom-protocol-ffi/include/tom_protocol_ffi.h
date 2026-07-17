@@ -37,7 +37,9 @@ struct TomNodeHandle *tom_node_create(const char *config_json);
 //
 // # Returns
 // * 0 on success
-// * -1 on failure
+// * -1 on failure (details via `tom_node_last_error`)
+// * -2 when the start budget expired (`start_timeout_secs`, default 20s):
+//   network unavailable/degraded — the handle stays reusable, retry later
 //
 // # Safety
 // * `handle` must be a valid pointer returned by `tom_node_create()`

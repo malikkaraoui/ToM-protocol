@@ -8,6 +8,8 @@
 //! its public key — no central server required.
 
 use std::sync::atomic::{AtomicI64, Ordering};
+use std::sync::{Arc, OnceLock};
+use std::time::Duration;
 
 use anyhow::{Context, Result};
 pub use mainline::async_dht::AsyncDht;
@@ -142,12 +144,90 @@ impl DhtNodeAddr {
     }
 }
 
+/// Budget d'attente de la disponibilité du client DHT dans les tâches
+/// DÉTACHÉES (rounds rendezvous, lookups spawnés). Jamais utilisé dans la
+/// boucle runtime elle-même (qui reste non-bloquante via [`SharedDht::get`]).
+pub const DHT_READY_BUDGET: Duration = Duration::from_secs(10);
+
+/// Handle paresseux et clonable vers le client DHT mainline.
+///
+/// `mainline::Dht::client()` BLOQUE son appelant le temps de résoudre en DNS
+/// synchrone (getaddrinfo) les 4 hostnames bootstrap — plusieurs dizaines de
+/// secondes sur un réseau dégradé (cause racine du « démarrage figé » iOS du
+/// 2026-07-17 : ce blocage remontait jusqu'au `block_on` du FFI via
+/// `RuntimeState::new`). L'init part donc sur un thread détaché ; les
+/// consommateurs récupèrent le client via [`SharedDht::get`] (non-bloquant)
+/// ou [`SharedDht::wait_ready`] (borné, réservé aux tâches détachées).
+#[derive(Clone, Default)]
+pub struct SharedDht {
+    cell: Arc<OnceLock<AsyncDht>>,
+}
+
+impl SharedDht {
+    /// Lance la construction du client en arrière-plan et rend la main
+    /// IMMÉDIATEMENT. La résolution DNS des bootstrap se fait sur le thread
+    /// détaché, à son rythme — même 2 minutes de DNS ne gèlent plus personne.
+    pub fn spawn_init() -> Self {
+        let this = Self::default();
+        let cell = this.cell.clone();
+        if let Err(e) = std::thread::Builder::new()
+            .name("tom-dht-init".to_string())
+            .spawn(move || match Dht::client() {
+                Ok(dht) => {
+                    let _ = cell.set(dht.as_async());
+                    tracing::info!("DHT discovery client created (BEP-0044, init détachée)");
+                }
+                Err(e) => {
+                    tracing::warn!("mainline DHT client init failed: {e}");
+                }
+            })
+        {
+            // OS refuse le thread : le nœud continue simplement sans DHT.
+            tracing::warn!("tom-dht init thread spawn failed: {e}");
+        }
+        this
+    }
+
+    /// Client déjà construit (tests, bootstrap custom) : prêt immédiatement.
+    pub fn from_ready(dht: AsyncDht) -> Self {
+        let this = Self::default();
+        let _ = this.cell.set(dht);
+        this
+    }
+
+    /// Le client s'il est prêt — non-bloquant, sûr depuis la boucle runtime.
+    pub fn get(&self) -> Option<&AsyncDht> {
+        self.cell.get()
+    }
+
+    /// Attend (poll 100 ms) que le client soit prêt, au plus `budget`.
+    /// À réserver aux tâches détachées : pas prêt à l'échéance = None, et
+    /// c'est à la prochaine ronde périodique de retenter.
+    pub async fn wait(&self, budget: Duration) -> Option<AsyncDht> {
+        let deadline = tokio::time::Instant::now() + budget;
+        loop {
+            if let Some(dht) = self.cell.get() {
+                return Some(dht.clone());
+            }
+            if tokio::time::Instant::now() >= deadline {
+                return None;
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+    }
+
+    /// [`SharedDht::wait`] avec le budget standard [`DHT_READY_BUDGET`].
+    pub async fn wait_ready(&self) -> Option<AsyncDht> {
+        self.wait(DHT_READY_BUDGET).await
+    }
+}
+
 /// DHT discovery service — publish and lookup node addresses via BEP-0044.
 ///
 /// Uses ed25519-signed mutable items so only the key owner can update their record.
 /// The DHT client runs in a background thread (mainline actor); all public methods are async.
 pub struct DhtDiscovery {
-    dht: AsyncDht,
+    dht: SharedDht,
     /// Monotonically increasing sequence number for BEP-0044 versioning.
     seq: AtomicI64,
 }
@@ -157,13 +237,14 @@ impl DhtDiscovery {
     ///
     /// Bootstraps from well-known mainline DHT nodes. The client runs in
     /// the background — no listening port required.
+    ///
+    /// NON-BLOQUANT : l'init (dont la résolution DNS des bootstrap) part sur
+    /// un thread détaché. Les opérations lancées avant qu'elle aboutisse
+    /// échouent proprement (« DHT pas encore prêt ») et sont retentées par
+    /// les rondes périodiques du runtime.
     pub fn new() -> Result<Self> {
-        let dht = Dht::client()
-            .context("failed to create mainline DHT client")?
-            .as_async();
-        tracing::info!("DHT discovery client created (BEP-0044)");
         Ok(Self {
-            dht,
+            dht: SharedDht::spawn_init(),
             seq: AtomicI64::new(0),
         })
     }
@@ -173,9 +254,16 @@ impl DhtDiscovery {
     /// Useful for tests (local testnet) or custom bootstrap nodes.
     pub fn from_dht(dht: Dht) -> Self {
         Self {
-            dht: dht.as_async(),
+            dht: SharedDht::from_ready(dht.as_async()),
             seq: AtomicI64::new(0),
         }
+    }
+
+    /// Le client DHT s'il est prêt, sinon une erreur propre.
+    fn ready_dht(&self) -> Result<&AsyncDht> {
+        self.dht
+            .get()
+            .ok_or_else(|| anyhow::anyhow!("DHT pas encore prêt (init/DNS bootstrap en cours)"))
     }
 
     /// Publish this node's address to the DHT.
@@ -185,14 +273,16 @@ impl DhtDiscovery {
     ///
     /// `signing_key_bytes` is the 32-byte ed25519 secret key seed.
     pub async fn publish(&self, signing_key_bytes: &[u8; 32], addr: &DhtNodeAddr) -> Result<()> {
+        // get() non-bloquant : ce chemin est awaité inline par la boucle
+        // runtime (ticks republish) — ne jamais y attendre l'init DHT.
+        let dht = self.ready_dht()?;
         let value = serde_json::to_vec(addr).context("failed to serialize DhtNodeAddr")?;
         let seq = self.seq.fetch_add(1, Ordering::Relaxed) + 1;
         let signer = SigningKey::from_bytes(signing_key_bytes);
 
         let item = MutableItem::new(signer, &value, seq, Some(SALT));
 
-        self.dht
-            .put_mutable(item, None)
+        dht.put_mutable(item, None)
             .await
             .map_err(|e| anyhow::anyhow!("DHT put_mutable failed: {e}"))?;
 
@@ -214,9 +304,15 @@ impl DhtDiscovery {
     /// instantanée, était prise en otage). Le seq est incrémenté de façon
     /// synchrone (garantit l'ordre BEP-0044) puis le put est spawné.
     pub fn publish_detached(&self, signing_key_bytes: [u8; 32], addr: DhtNodeAddr) {
-        let dht = self.dht.clone();
+        let shared = self.dht.clone();
         let seq = self.seq.fetch_add(1, Ordering::Relaxed) + 1;
         tokio::spawn(async move {
+            // Tâche détachée : on peut se permettre d'attendre l'init DHT
+            // (couvre le publish de démarrage lancé ~100 ms après new()).
+            let Some(dht) = shared.wait_ready().await else {
+                tracing::debug!("DHT publish (detached) sauté : client pas prêt");
+                return;
+            };
             let value = match serde_json::to_vec(&addr) {
                 Ok(v) => v,
                 Err(e) => {
@@ -234,10 +330,13 @@ impl DhtDiscovery {
         });
     }
 
-    /// Get a clonable handle to the async DHT client.
+    /// Get a clonable lazy handle to the DHT client.
     ///
-    /// Useful for spawning lookup tasks that run concurrently with the main loop.
-    pub fn async_dht(&self) -> AsyncDht {
+    /// Useful for spawning lookup tasks that run concurrently with the main
+    /// loop. The handle may not be ready yet — resolve it with
+    /// [`SharedDht::get`] (non-blocking) or [`SharedDht::wait_ready`]
+    /// (detached tasks only).
+    pub fn shared_dht(&self) -> SharedDht {
         self.dht.clone()
     }
 
@@ -246,7 +345,7 @@ impl DhtDiscovery {
     /// Writes `addr` to the slot derived from its `node_id`, using the
     /// publication timestamp as BEP-0044 seq (most recent writer wins).
     pub async fn publish_rendezvous(&self, addr: &DhtNodeAddr) -> Result<()> {
-        rendezvous_publish(&self.dht, addr).await
+        rendezvous_publish(self.ready_dht()?, addr).await
     }
 
     /// Discover live peers from the shared rendezvous (reads every slot).
@@ -254,7 +353,10 @@ impl DhtDiscovery {
     /// Returns fresh records (< 2h) excluding `own_node_id`. Never errors on a
     /// single bad/missing slot — best-effort enumeration.
     pub async fn discover_rendezvous(&self, own_node_id: &str) -> Vec<DhtNodeAddr> {
-        rendezvous_discover(&self.dht, own_node_id).await
+        match self.ready_dht() {
+            Ok(dht) => rendezvous_discover(dht, own_node_id).await,
+            Err(_) => Vec::new(),
+        }
     }
 
     /// Look up a node's address by its ed25519 public key.
@@ -265,7 +367,7 @@ impl DhtDiscovery {
         tracing::debug!("DHT lookup for key {}", hex_encode(public_key));
 
         let result = self
-            .dht
+            .ready_dht()?
             .get_mutable_most_recent(public_key, Some(SALT))
             .await;
 
@@ -456,6 +558,76 @@ mod tests {
             .build()
             .unwrap();
         DhtDiscovery::from_dht(dht)
+    }
+
+    // ── SharedDht : contrat non-bloquant (régression « démarrage figé » iOS) ──
+
+    /// Un SharedDht jamais initialisé doit échouer PROPREMENT et VITE : les
+    /// consommateurs détachés abandonnent à l'échéance du budget, la boucle
+    /// runtime (get) n'attend jamais.
+    #[test]
+    fn shared_dht_never_ready_fails_fast_and_clean() {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            let shared = SharedDht::default();
+            assert!(shared.get().is_none(), "get() doit être non-bloquant et None");
+
+            let t0 = std::time::Instant::now();
+            assert!(shared.wait(Duration::from_millis(300)).await.is_none());
+            let elapsed = t0.elapsed();
+            assert!(
+                elapsed >= Duration::from_millis(250) && elapsed < Duration::from_secs(2),
+                "wait doit respecter son budget (~300ms), mesuré {elapsed:?}"
+            );
+        });
+    }
+
+    /// from_ready → disponible immédiatement, wait sans délai (chemin tests /
+    /// bootstrap custom, et sémantique post-init du thread détaché).
+    #[test]
+    fn shared_dht_ready_resolves_immediately() {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            let testnet = Testnet::builder(3).build().unwrap();
+            let dht = Dht::builder()
+                .bootstrap(&testnet.bootstrap)
+                .bind_address(Ipv4Addr::LOCALHOST)
+                .build()
+                .unwrap();
+            let shared = SharedDht::from_ready(dht.as_async());
+            assert!(shared.get().is_some());
+            let t0 = std::time::Instant::now();
+            assert!(shared.wait(Duration::from_secs(5)).await.is_some());
+            assert!(t0.elapsed() < Duration::from_millis(200), "prêt = résolution immédiate");
+        });
+    }
+
+    /// Les opérations DhtDiscovery lancées avant la fin de l'init échouent
+    /// proprement (Err/vide) au lieu de bloquer — c'était le gel du start FFI.
+    #[test]
+    fn discovery_ops_fail_clean_while_dht_not_ready() {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            // Discovery avec un SharedDht qui ne sera jamais prêt.
+            let d = DhtDiscovery {
+                dht: SharedDht::default(),
+                seq: AtomicI64::new(0),
+            };
+            let addr = DhtNodeAddr {
+                node_id: "n".into(),
+                timestamp: now_ms(),
+                ..Default::default()
+            };
+            let t0 = std::time::Instant::now();
+            assert!(d.publish(&[7u8; 32], &addr).await.is_err());
+            assert!(d.publish_rendezvous(&addr).await.is_err());
+            assert!(d.discover_rendezvous("n").await.is_empty());
+            assert!(d.lookup(&[7u8; 32]).await.is_err());
+            assert!(
+                t0.elapsed() < Duration::from_secs(1),
+                "pas prêt = échec immédiat, jamais une attente"
+            );
+        });
     }
 
     #[test]

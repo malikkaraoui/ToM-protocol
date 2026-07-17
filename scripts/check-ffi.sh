@@ -10,19 +10,25 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
-echo "[1/5] Build tom-relay-ffi (membre workspace)"
+echo "[1/6] Build tom-relay-ffi (membre workspace)"
 cargo build -p tom-relay-ffi
 
-echo "[2/5] Clippy tom-relay-ffi -D warnings"
+echo "[2/6] Clippy tom-relay-ffi -D warnings"
 cargo clippy -p tom-relay-ffi -- -D warnings
 
-echo "[3/5] Build tom-protocol-ffi --locked (crate exclu)"
+echo "[3/6] Build tom-protocol-ffi --locked (crate exclu)"
 ( cd crates/tom-protocol-ffi && cargo build --locked )
 
-echo "[4/5] Clippy tom-protocol-ffi --locked -D warnings"
+echo "[4/6] Clippy tom-protocol-ffi --locked -D warnings"
 ( cd crates/tom-protocol-ffi && cargo clippy --locked -- -D warnings )
 
-echo "[5/5] Dérive du header C (cbindgen)"
+echo "[5/6] Tests tom-protocol-ffi --locked"
+# Sans cette étape les tests du crate pourrissent en silence : le 2026-07-17,
+# 4 inits de test ne compilaient plus à HEAD (champs ajoutés aux structs FFI
+# sans mise à jour des tests) parce que seul build+clippy était rejoué.
+( cd crates/tom-protocol-ffi && cargo test --locked )
+
+echo "[6/6] Dérive du header C (cbindgen)"
 if command -v cbindgen >/dev/null 2>&1; then
     ./scripts/generate-ffi-header.sh --check
 else
