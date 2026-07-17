@@ -34,5 +34,9 @@ let package = Package(
                 .linkedFramework("SystemConfiguration"),
             ]
         ),
+        .testTarget(
+            name: "TomProtocolKitTests",
+            dependencies: ["TomProtocolKit"]
+        ),
     ]
 )

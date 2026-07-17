@@ -236,7 +236,7 @@ public actor TomNodeWrapper {
         do {
             return try JSONDecoder().decode([TomGroupMessage].self, from: data)
         } catch {
-            log.error("Failed to decode group messages: \(error.localizedDescription)")
+            log.error("Failed to decode group messages: \(String(describing: error), privacy: .public)")
             return []
         }
     }
@@ -273,7 +273,7 @@ public actor TomNodeWrapper {
         do {
             return try JSONDecoder().decode([NodeId].self, from: data)
         } catch {
-            log.error("Failed to decode peers: \(error.localizedDescription)")
+            log.error("Failed to decode peers: \(String(describing: error), privacy: .public)")
             return []
         }
     }
@@ -293,7 +293,7 @@ public actor TomNodeWrapper {
         do {
             return try JSONDecoder().decode([TomPeer].self, from: data)
         } catch {
-            log.error("Failed to decode discovered peers: \(error.localizedDescription)")
+            log.error("Failed to decode discovered peers: \(String(describing: error), privacy: .public)")
             return []
         }
     }
@@ -313,7 +313,7 @@ public actor TomNodeWrapper {
         do {
             return try JSONDecoder().decode([TomMessage].self, from: data)
         } catch {
-            log.error("Failed to decode messages: \(error.localizedDescription)")
+            log.error("Failed to decode messages: \(String(describing: error), privacy: .public)")
             return []
         }
     }
@@ -363,7 +363,7 @@ public actor TomNodeWrapper {
         do {
             return try JSONDecoder().decode(TomPresenceMetrics.self, from: data)
         } catch {
-            log.error("Failed to decode presence metrics: \(error.localizedDescription)")
+            log.error("Failed to decode presence metrics: \(String(describing: error), privacy: .public)")
             return nil
         }
     }
@@ -379,7 +379,7 @@ public actor TomNodeWrapper {
         do {
             return try JSONDecoder().decode(TomPresenceStats.self, from: data)
         } catch {
-            log.error("Failed to decode presence stats: \(error.localizedDescription)")
+            log.error("Failed to decode presence stats: \(String(describing: error), privacy: .public)")
             return nil
         }
     }
@@ -396,7 +396,7 @@ public actor TomNodeWrapper {
         do {
             return try JSONDecoder().decode(TomNodeStatus.self, from: data)
         } catch {
-            log.error("Failed to decode status: \(error.localizedDescription)")
+            log.error("Failed to decode status: \(String(describing: error), privacy: .public)")
             return nil
         }
     }
@@ -415,7 +415,7 @@ public actor TomNodeWrapper {
         do {
             return try JSONDecoder().decode([TomProtocolEvent].self, from: data)
         } catch {
-            log.error("Failed to decode events: \(error.localizedDescription)")
+            log.error("Failed to decode events: \(String(describing: error), privacy: .public)")
             return []
         }
     }

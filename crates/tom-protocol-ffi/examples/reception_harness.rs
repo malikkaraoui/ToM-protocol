@@ -1,0 +1,89 @@
+//! Harnais de repro du bug de réception FFI (messages_recus=0 sur les apps).
+//!
+//! Appelle l'API C exactement comme TomNodeService.swift : create → start
+//! (même config que l'app : DHT + n0 + mDNS + data_dir) → poll
+//! tom_node_receive_messages toutes les secondes. Permet de discriminer
+//! « bug reproductible dans le crate FFI » vs « bug environnement app »
+//! sans toucher à Xcode.
+//!
+//! Lancer : cargo run --locked --example reception_harness -- <dir_travail>
+//! Puis depuis le NAS : POST /send?to=<node_id affiché> et surveiller RECUS.
+
+use std::ffi::{CStr, CString};
+use std::time::{Duration, Instant};
+
+use tom_protocol_ffi::{
+    tom_node_create, tom_node_free_string, tom_node_receive_messages, tom_node_start,
+    tom_node_status, tom_node_stop,
+};
+
+fn c(s: &str) -> CString {
+    CString::new(s).unwrap()
+}
+
+/// Récupère une chaîne C renvoyée par le FFI et la libère.
+unsafe fn take_string(ptr: *mut std::os::raw::c_char) -> Option<String> {
+    if ptr.is_null() {
+        return None;
+    }
+    let s = unsafe { CStr::from_ptr(ptr) }.to_string_lossy().into_owned();
+    unsafe { tom_node_free_string(ptr) };
+    Some(s)
+}
+
+fn main() {
+    let dir = std::env::args()
+        .nth(1)
+        .unwrap_or_else(|| "/tmp/tom-ffi-harness".to_string());
+    std::fs::create_dir_all(&dir).unwrap();
+    let identity = format!("{dir}/id.key");
+    let data = format!("{dir}/data");
+
+    // Même config que l'app (TomNodeWrapper.start) : DHT, n0, mDNS, data_dir.
+    let create_cfg = r#"{"n0_discovery": true}"#.to_string();
+    let start_cfg = format!(
+        concat!(
+            r#"{{"username":"ffiharness","encryption":true,"enable_dht":true,"#,
+            r#""n0_discovery":true,"local_discovery":true,"#,
+            r#""identity_path":{id:?},"data_dir":{data:?},"app_build":9999}}"#
+        ),
+        id = identity,
+        data = data,
+    );
+
+    let h = unsafe { tom_node_create(c(&create_cfg).as_ptr()) };
+    assert!(!h.is_null(), "tom_node_create a renvoyé NULL");
+    let rc = unsafe { tom_node_start(h, c(&start_cfg).as_ptr()) };
+    assert_eq!(rc, 0, "tom_node_start a échoué (rc={rc})");
+
+    if let Some(status) = unsafe { take_string(tom_node_status(h)) } {
+        eprintln!("STATUS_INITIAL: {status}");
+    }
+
+    let t0 = Instant::now();
+    let mut total = 0usize;
+    let mut last_status = Instant::now();
+    while t0.elapsed() < Duration::from_secs(600) {
+        std::thread::sleep(Duration::from_secs(1));
+
+        if let Some(json) = unsafe { take_string(tom_node_receive_messages(h)) } {
+            if let Ok(serde_json::Value::Array(arr)) = serde_json::from_str(&json) {
+                if !arr.is_empty() {
+                    total += arr.len();
+                    eprintln!("[t+{}s] RECUS +{} → total={}", t0.elapsed().as_secs(), arr.len(), total);
+                }
+            }
+        }
+
+        if last_status.elapsed() >= Duration::from_secs(15) {
+            last_status = Instant::now();
+            if let Some(status) = unsafe { take_string(tom_node_status(h)) } {
+                eprintln!("[t+{}s] total_recus={} STATUS: {status}", t0.elapsed().as_secs(), total, );
+            }
+        }
+    }
+
+    eprintln!("FIN total_recus={total}");
+    unsafe { tom_node_stop(h) };
+    std::thread::sleep(Duration::from_secs(2));
+}

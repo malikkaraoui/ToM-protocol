@@ -144,6 +144,26 @@ public struct TomMessage: Identifiable, Codable {
         case isAuto
         case deliveryStatus
     }
+
+    /// Décodage EXPLICITE — ne pas supprimer au profit du synthétisé.
+    /// Le JSON du FFI (`DeliveredMessageFFI`) ne contient pas les champs
+    /// sortants (`to`, `isAuto`, `deliveryStatus`) : le `init(from:)`
+    /// synthétisé exige toute clé non-Optional (`isAuto`) → keyNotFound →
+    /// batch entier jeté (régression builds 86-95, messages_recus=0 flotte).
+    /// Ici : champs FFI requis, champs sortants tolérés absents.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.id = try c.decode(String.self, forKey: .id)
+        self.from = try c.decode(NodeId.self, forKey: .from)
+        self.payload = try c.decode(String.self, forKey: .payload)
+        self.timestamp = try c.decode(UInt64.self, forKey: .timestamp)
+        self.signatureValid = try c.decode(Bool.self, forKey: .signatureValid)
+        self.wasEncrypted = try c.decode(Bool.self, forKey: .wasEncrypted)
+        self.groupId = try c.decodeIfPresent(GroupId.self, forKey: .groupId)
+        self.to = try c.decodeIfPresent(NodeId.self, forKey: .to)
+        self.isAuto = try c.decodeIfPresent(Bool.self, forKey: .isAuto) ?? false
+        self.deliveryStatus = try c.decodeIfPresent(TomDeliveryStatus.self, forKey: .deliveryStatus)
+    }
 }
 
 /// Un groupe et son fil de messages local.
