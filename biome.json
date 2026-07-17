@@ -37,6 +37,7 @@
       "_bmad",
       "target",
       "build",
+      ".build",
       "experiments/**/target",
       "apps/**/Assets.xcassets/**",
       "apps/**/.build/**",

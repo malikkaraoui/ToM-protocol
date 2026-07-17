@@ -233,6 +233,23 @@ final class TomNodeService: ObservableObject {
 
     /// Track if the node was running before the app went to background
     private var wasRunningBeforeSleep = false
+
+    // ── Cycle de vie background : grâce ~30 s puis arrêt PROPRE ──
+    // Un app-switch court revient dans la fenêtre de grâce → zéro churn.
+    // Au-delà : arrêt propre (les pairs voient une déconnexion nette — fin du
+    // zombie/flapping) ; le retour foreground refait un start() simple.
+    private static let backgroundGraceSeconds: TimeInterval = 18
+    /// Après stop(), le teardown Rust est DÉTACHÉ (~6 s bornés côté FFI) : on
+    /// garde l'assertion iOS pendant ce délai pour qu'il ne soit pas gelé en
+    /// plein vol par la suspension (sinon le start() suivant se cogne dedans —
+    /// observé au premier test : watchdog 30 s obligé de récupérer).
+    private static let teardownHoldSeconds: TimeInterval = 8
+    private var backgroundEnteredAt: Date?
+    private var quiesceTask: Task<Void, Never>?
+    private var stoppedByBackgroundQuiesce = false
+    #if !os(macOS)
+    private var bgGraceTask: UIBackgroundTaskIdentifier = .invalid
+    #endif
     private static let cachedPeerKey = "tom_bg_peers"
 
     /// Le FIL D'ACTIVITÉ ne montre QUE des événements pertinents pour un humain.
@@ -865,12 +882,71 @@ final class TomNodeService: ObservableObject {
     // MARK: - Lifecycle
 
     /// Called when the app enters background — persist state for fast reconnect.
+    /// Demande une fenêtre de grâce (~30 s max) à iOS : si l'utilisateur
+    /// revient avant l'échéance, le nœud n'a jamais bougé. Sinon, arrêt PROPRE
+    /// du nœud (au lieu du gel en plein vol qui laissait une présence zombie —
+    /// cause des « échec » concentrés vers l'iPhone chez les émetteurs).
     func handleEnterBackground() {
         appendLog(.warning, "📱 BACKGROUND — app en arrière-plan")
         wasRunningBeforeSleep = (state == .running)
+        backgroundEnteredAt = Date()
+        stoppedByBackgroundQuiesce = false
         let ids = discoveredPeers.map { $0.nodeId }
         UserDefaults.standard.set(ids, forKey: Self.cachedPeerKey)
         appendLog(.info, "BG: \(ids.count) peer(s) mis en cache, wasRunning=\(wasRunningBeforeSleep)")
+
+        // Réveils opportunistes pendant le background (relève backup ADR-009).
+        BackgroundCoordinator.shared.scheduleRefresh()
+
+        guard state == .running else { return }
+
+        #if !os(macOS)
+        endGraceTaskIfNeeded()
+        bgGraceTask = UIApplication.shared.beginBackgroundTask(withName: "tom-quiesce") { [weak self] in
+            // iOS révoque la grâce (budget épuisé) — arrêt immédiat, pas le
+            // temps de tenir l'assertion pour le teardown.
+            Task { @MainActor in self?.quiesceNow(reason: "budget iOS épuisé", holdForTeardown: false) }
+        }
+        quiesceTask?.cancel()
+        quiesceTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(Self.backgroundGraceSeconds * 1_000_000_000))
+            guard !Task.isCancelled else { return }
+            self?.quiesceNow(reason: "fin de grâce (\(Int(Self.backgroundGraceSeconds)) s)", holdForTeardown: true)
+        }
+        #endif
+    }
+
+    /// Arrêt propre du nœud en background (fin de grâce ou budget révoqué).
+    /// `holdForTeardown` : garder l'assertion iOS ~8 s après stop() pour que
+    /// le teardown Rust détaché se termine AVANT la suspension du process.
+    private func quiesceNow(reason: String, holdForTeardown: Bool) {
+        quiesceTask?.cancel()
+        quiesceTask = nil
+        guard state == .running || state == .starting else {
+            endGraceTaskIfNeeded()
+            return
+        }
+        appendLog(.warning, "BG: arrêt propre du nœud — \(reason)")
+        stoppedByBackgroundQuiesce = true
+        stop()
+        if holdForTeardown {
+            Task { [weak self] in
+                try? await Task.sleep(nanoseconds: UInt64(Self.teardownHoldSeconds * 1_000_000_000))
+                self?.appendLog(.info, "BG: teardown couvert — libération de la grâce")
+                self?.endGraceTaskIfNeeded()
+            }
+        } else {
+            endGraceTaskIfNeeded()
+        }
+    }
+
+    private func endGraceTaskIfNeeded() {
+        #if !os(macOS)
+        if bgGraceTask != .invalid {
+            UIApplication.shared.endBackgroundTask(bgGraceTask)
+            bgGraceTask = .invalid
+        }
+        #endif
     }
 
     /// Called when the app returns to foreground.
@@ -881,7 +957,13 @@ final class TomNodeService: ObservableObject {
     /// restarting then would needlessly free + rebuild the whole node in a loop.
     /// Therefore restart ONLY after a real background. Keep history + seeded peers.
     func handleReturnToForeground() {
-        appendLog(.warning, "📱 FOREGROUND — app au premier plan (wasRunning=\(wasRunningBeforeSleep))")
+        let bgElapsed = backgroundEnteredAt.map { Date().timeIntervalSince($0) }
+        backgroundEnteredAt = nil
+        quiesceTask?.cancel()
+        quiesceTask = nil
+        endGraceTaskIfNeeded()
+        let bgLabel = bgElapsed.map { "\(Int($0)) s" } ?? "?"
+        appendLog(.warning, "📱 FOREGROUND — retour (background \(bgLabel), wasRunning=\(wasRunningBeforeSleep))")
 
         // Démarrage figé (ex. handoff réseau ayant bloqué node.start() pendant
         // la suspension) : au retour à l'écran, récupérer immédiatement plutôt
@@ -907,7 +989,27 @@ final class TomNodeService: ObservableObject {
             return
         }
 
-        appendLog(.warning, "FOREGROUND RETURN — restarting node (connexions QUIC perdues)")
+        // Cas 1 — la grâce a arrêté le nœud PROPREMENT : simple start(),
+        // aucun forceReset (le handle a déjà été libéré par stop()).
+        if stoppedByBackgroundQuiesce, state == .stopped {
+            stoppedByBackgroundQuiesce = false
+            appendLog(.warning, "FOREGROUND: redémarrage après arrêt propre en background")
+            start()
+            return
+        }
+
+        // Cas 2 — retour DANS la fenêtre de grâce, nœud jamais arrêté : les
+        // connexions sont vivantes (l'assertion iOS a maintenu le process).
+        // Fin du restart systématique à chaque app-switch court.
+        if state == .running, let elapsed = bgElapsed, elapsed < Self.backgroundGraceSeconds {
+            appendLog(.success, "FOREGROUND: retour dans la grâce (\(Int(elapsed)) s) — aucun restart")
+            return
+        }
+
+        // Cas 3 (filet) — le process a été suspendu alors que le nœud était
+        // encore .running (grâce interrompue sans que l'expiration ne coure) :
+        // connexions d'état inconnu → restart complet, comme avant.
+        appendLog(.warning, "FOREGROUND RETURN — restart complet (suspension pendant la grâce)")
         log.info("Returning to foreground — restarting node (connections lost during sleep)")
         pollTask?.cancel()
         pollTask = nil
@@ -1075,6 +1177,12 @@ final class TomNodeService: ObservableObject {
         startNetworkMonitor()
         guard !hasScheduledInitialAutoStart else { return }
         hasScheduledInitialAutoStart = true
+
+        // Diagnostics système (crash/hang/watchdog) livrés à l'app — la voie
+        // fiable quand « Données et analyses » (Réglages) est vide.
+        #if os(iOS)
+        MetricKitReporter.shared.start(dataDir: dataDir)
+        #endif
 
         appendLog(.info, "Auto-start scheduled in 5 seconds")
 

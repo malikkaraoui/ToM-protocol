@@ -35,6 +35,16 @@ targets:
     type: application
     platform: tvOS
     deploymentTarget: "16.3"
+    # Arrière-plan (iOS/tvOS) : réveils opportunistes BGAppRefreshTask (~30 s)
+    # pour relever les messages backupés — PAS de daemon permanent (décision
+    # produit 2026-07-15). `fetch` rend aussi l'app visible dans Réglages >
+    # Général > Actualisation en arrière-plan.
+    info:
+      path: TomNode-Info.plist
+      properties:
+        UIBackgroundModes: [fetch]
+        BGTaskSchedulerPermittedIdentifiers:
+          - malik.karaoui.TomNode.refresh
     sources:
       - path: TomNode
         createIntermediateGroups: true
