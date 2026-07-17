@@ -114,15 +114,16 @@ where
     // n'a pas été récupéré) ni doublon (le clear arrive toujours s'il l'a
     // été) — quelle que soit l'imbrication timeout/send.
     let (tx, rx) = std::sync::mpsc::channel::<String>();
-    let (ack_tx, ack_rx) = std::sync::mpsc::channel::<()>();
+    // ACK 100 % ASYNC côté tâche : un oneshot tokio attendu sous
+    // tokio::time::timeout — AUCUN thread worker bloqué. (2ᵉ jet :
+    // recv_timeout std dans la tâche parquait un worker 100 ms par poll ;
+    // ×3 files ×2 Hz sur 4 workers = famine cyclique de la boucle runtime,
+    // ticks dérivés jusqu'à 218 s mesurés build 102.)
+    let (ack_tx, ack_rx) = tokio::sync::oneshot::channel::<()>();
     let alive = Arc::new(std::sync::atomic::AtomicBool::new(true));
     let alive_task = alive.clone();
     runtime.spawn(async move {
         // Verrou tenu UNIQUEMENT pour copier — jamais pendant l'attente d'ACK.
-        // (1er jet : l'ack attendait sous verrou → la pompe d'événements
-        // ralentissait → canal runtime plein → la BOUCLE PROTOCOLE bloquait
-        // sur event_tx.send → vagues de gel synchronisées mesurées sur la
-        // flotte, ticks 60 s dérivés à 84-213 s.)
         let snapshot_len;
         let items: Vec<T> = {
             let q = queue.lock().await;
@@ -138,11 +139,11 @@ where
         if tx.send(json).is_err() {
             return;
         }
-        // Attente bornée de l'ACK, HORS verrou (µs sur runtime sain ;
-        // appelant disparu → pas de clear, batch gardé).
-        if ack_rx
-            .recv_timeout(std::time::Duration::from_millis(100))
-            .is_ok()
+        // Attente bornée de l'ACK, HORS verrou et SANS bloquer de thread.
+        if tokio::time::timeout(std::time::Duration::from_millis(200), ack_rx)
+            .await
+            .map(|r| r.is_ok())
+            .unwrap_or(false)
         {
             let mut q = queue.lock().await;
             // Ne retirer QUE ce qui a été livré — ce qui est arrivé pendant
