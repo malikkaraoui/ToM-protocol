@@ -8,6 +8,11 @@
 //!
 //! Lancer : cargo run --locked --example reception_harness -- <dir_travail>
 //! Puis depuis le NAS : POST /send?to=<node_id affiché> et surveiller RECUS.
+//!
+//! ⚠️ Découverte publique OFF par défaut (DHT + n0 + mDNS) : chaque lancement
+//! semait une identité jetable dans le VRAI rendezvous DHT partagé — fantômes
+//! durables pour toute la flotte (pollution topologie du 17/07). Pour une repro
+//! fidèle à l'app (réseau réel), opt-in explicite : TOM_HARNESS_APP_PARITY=1.
 
 use std::ffi::{CStr, CString};
 use std::time::{Duration, Instant};
@@ -45,14 +50,22 @@ fn main() {
     let identity = format!("{dir}/id.key");
     let data = format!("{dir}/data");
 
-    // Même config que l'app (TomNodeWrapper.start) : DHT, n0, mDNS, data_dir.
-    let create_cfg = r#"{"n0_discovery": true}"#.to_string();
+    // Découverte publique OFF par défaut (anti-fantômes) ; TOM_HARNESS_APP_PARITY=1
+    // restaure la config exacte de l'app (TomNodeWrapper.start) : DHT, n0, mDNS.
+    let app_parity = std::env::var("TOM_HARNESS_APP_PARITY").is_ok_and(|v| v == "1");
+    if app_parity {
+        eprintln!("APP_PARITY: découverte publique ACTIVE (DHT + n0 + mDNS)");
+    }
+    let create_cfg = format!(r#"{{"n0_discovery": {app_parity}}}"#);
     let start_cfg = format!(
         concat!(
-            r#"{{"username":"ffiharness","encryption":true,"enable_dht":true,"#,
-            r#""n0_discovery":true,"local_discovery":true,"#,
+            r#"{{"username":"ffiharness","encryption":true,"enable_dht":{dht},"#,
+            r#""n0_discovery":{n0},"local_discovery":{mdns},"#,
             r#""identity_path":{id:?},"data_dir":{data:?},"app_build":9999}}"#
         ),
+        dht = app_parity,
+        n0 = app_parity,
+        mdns = app_parity,
         id = identity,
         data = data,
     );

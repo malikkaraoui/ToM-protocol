@@ -7,6 +7,11 @@
 //! Lancer : cargo run --locked --example cycle_harness -- <dir> [cycles]
 //! Chaque phase imprime sa durée ; un gel se voit par l'absence de sortie
 //! (superviser de l'extérieur et `sample <pid>` pour la stack).
+//!
+//! ⚠️ Découverte publique OFF par défaut (DHT + n0 + mDNS) : les cycles
+//! publiaient l'identité dans le VRAI rendezvous DHT partagé (fantômes flotte).
+//! Le gel historique visé impliquait le DHT (getaddrinfo synchrone, SharedDht) :
+//! pour rejouer CE scénario fidèlement, opt-in TOM_HARNESS_APP_PARITY=1.
 
 use std::ffi::CString;
 use std::time::{Duration, Instant};
@@ -29,14 +34,22 @@ fn main() {
     let identity = format!("{dir}/id.key");
     let data = format!("{dir}/data");
 
-    // Même config que l'app (DHT + n0 + mDNS + data_dir persistant).
-    let create_cfg = c(r#"{"n0_discovery": true}"#);
+    // Découverte publique OFF par défaut (anti-fantômes) ; TOM_HARNESS_APP_PARITY=1
+    // restaure la config exacte de l'app (DHT + n0 + mDNS + data_dir persistant).
+    let app_parity = std::env::var("TOM_HARNESS_APP_PARITY").is_ok_and(|v| v == "1");
+    if app_parity {
+        eprintln!("APP_PARITY: découverte publique ACTIVE (DHT + n0 + mDNS)");
+    }
+    let create_cfg = c(&format!(r#"{{"n0_discovery": {app_parity}}}"#));
     let start_cfg = c(&format!(
         concat!(
-            r#"{{"username":"cycleharness","encryption":true,"enable_dht":true,"#,
-            r#""n0_discovery":true,"local_discovery":true,"#,
+            r#"{{"username":"cycleharness","encryption":true,"enable_dht":{dht},"#,
+            r#""n0_discovery":{n0},"local_discovery":{mdns},"#,
             r#""identity_path":{id:?},"data_dir":{data:?},"app_build":9999}}"#
         ),
+        dht = app_parity,
+        n0 = app_parity,
+        mdns = app_parity,
         id = identity,
         data = data,
     ));
