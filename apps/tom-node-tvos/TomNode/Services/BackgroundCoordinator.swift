@@ -28,6 +28,11 @@ final class BackgroundCoordinator {
 
     #if os(iOS) || os(tvOS)
     private var registered = false
+    /// Réveil en cours : stockés pour pouvoir l'INTERROMPRE au retour
+    /// utilisateur (sinon son stop() différé éteindrait le nœud vivant) et
+    /// garantir UN SEUL setTaskCompleted par réveil.
+    private var refreshWork: Task<Void, Never>?
+    private var activeRefreshTask: BGAppRefreshTask?
 
     /// À appeler dans `App.init()` — enregistre le handler de réveil.
     func registerTasks() {
@@ -81,27 +86,46 @@ final class BackgroundCoordinator {
             return
         }
 
-        let work = Task { @MainActor in
+        activeRefreshTask = task
+        refreshWork = Task { @MainActor in
             service.start()
             try? await Task.sleep(nanoseconds: Self.refreshWorkSeconds * 1_000_000_000)
             guard !Task.isCancelled else { return }
             service.appendLog(.info, "BG: fin du réveil — arrêt propre")
             service.stop()
-            task.setTaskCompleted(success: true)
+            self.completeRefresh(success: true)
         }
 
         task.expirationHandler = {
             Task { @MainActor in
-                work.cancel()
+                BackgroundCoordinator.shared.refreshWork?.cancel()
                 TomNodeService.shared.appendLog(.warning, "BG: budget épuisé — arrêt immédiat")
                 TomNodeService.shared.stop()
-                task.setTaskCompleted(success: false)
+                BackgroundCoordinator.shared.completeRefresh(success: false)
             }
         }
+    }
+
+    /// Clôt le réveil en cours — appelé UNE fois quel que soit le chemin
+    /// (travail terminé, budget épuisé, retour utilisateur).
+    private func completeRefresh(success: Bool) {
+        refreshWork = nil
+        activeRefreshTask?.setTaskCompleted(success: success)
+        activeRefreshTask = nil
+    }
+
+    /// Retour utilisateur pendant un réveil : on interrompt le cycle SANS
+    /// arrêter le nœud (il vient d'être rendu à l'écran — il reste vivant).
+    func cancelRefreshWorkForForeground() {
+        guard refreshWork != nil else { return }
+        refreshWork?.cancel()
+        TomNodeService.shared.appendLog(.info, "BG: réveil interrompu — retour utilisateur, le nœud reste actif")
+        completeRefresh(success: true)
     }
     #else
     // macOS : pas de BGTaskScheduler (l'app reste active à l'écran).
     func registerTasks() {}
     func scheduleRefresh(minutes: Double = 15) {}
+    func cancelRefreshWorkForForeground() {}
     #endif
 }

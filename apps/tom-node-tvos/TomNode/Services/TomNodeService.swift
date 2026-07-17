@@ -246,6 +246,10 @@ final class TomNodeService: ObservableObject {
     private static let teardownHoldSeconds: TimeInterval = 8
     private var backgroundEnteredAt: Date?
     private var quiesceTask: Task<Void, Never>?
+    /// Tient l'assertion iOS pendant le teardown Rust détaché. Stocké pour
+    /// être ANNULÉ à chaque nouveau cycle : sinon le hold du cycle N libère
+    /// l'assertion du cycle N+1 (revue oracle #48, finding #4).
+    private var teardownHoldTask: Task<Void, Never>?
     private var stoppedByBackgroundQuiesce = false
     #if !os(macOS)
     private var bgGraceTask: UIBackgroundTaskIdentifier = .invalid
@@ -888,9 +892,18 @@ final class TomNodeService: ObservableObject {
     /// cause des « échec » concentrés vers l'iPhone chez les émetteurs).
     func handleEnterBackground() {
         appendLog(.warning, "📱 BACKGROUND — app en arrière-plan")
-        wasRunningBeforeSleep = (state == .running)
+        // Ne réinitialiser les flags QUE si un nouveau cycle démarre nœud
+        // vivant. Un passage .inactive → .background (app switcher parcouru
+        // sans jamais revenir .active) rejoue ce handler APRÈS une quiesce :
+        // écraser les flags ferait « oublier » que le nœud tournait → plus
+        // d'auto-restart au vrai retour (revue oracle #48, finding #1).
+        if state == .running {
+            wasRunningBeforeSleep = true
+            stoppedByBackgroundQuiesce = false
+        }
         backgroundEnteredAt = Date()
-        stoppedByBackgroundQuiesce = false
+        teardownHoldTask?.cancel()
+        teardownHoldTask = nil
         let ids = discoveredPeers.map { $0.nodeId }
         UserDefaults.standard.set(ids, forKey: Self.cachedPeerKey)
         appendLog(.info, "BG: \(ids.count) peer(s) mis en cache, wasRunning=\(wasRunningBeforeSleep)")
@@ -930,10 +943,13 @@ final class TomNodeService: ObservableObject {
         stoppedByBackgroundQuiesce = true
         stop()
         if holdForTeardown {
-            Task { [weak self] in
+            teardownHoldTask?.cancel()
+            teardownHoldTask = Task { [weak self] in
                 try? await Task.sleep(nanoseconds: UInt64(Self.teardownHoldSeconds * 1_000_000_000))
+                guard !Task.isCancelled else { return }
                 self?.appendLog(.info, "BG: teardown couvert — libération de la grâce")
                 self?.endGraceTaskIfNeeded()
+                self?.teardownHoldTask = nil
             }
         } else {
             endGraceTaskIfNeeded()
@@ -961,7 +977,13 @@ final class TomNodeService: ObservableObject {
         backgroundEnteredAt = nil
         quiesceTask?.cancel()
         quiesceTask = nil
+        teardownHoldTask?.cancel()
+        teardownHoldTask = nil
         endGraceTaskIfNeeded()
+        // Un réveil BGAppRefresh en cours ne doit JAMAIS survivre au retour
+        // utilisateur : son stop() différé éteindrait le nœud qu'on vient de
+        // rendre à l'écran (revue oracle #48, finding #2).
+        BackgroundCoordinator.shared.cancelRefreshWorkForForeground()
         let bgLabel = bgElapsed.map { "\(Int($0)) s" } ?? "?"
         appendLog(.warning, "📱 FOREGROUND — retour (background \(bgLabel), wasRunning=\(wasRunningBeforeSleep))")
 

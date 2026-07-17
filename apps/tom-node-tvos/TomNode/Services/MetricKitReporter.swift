@@ -57,9 +57,12 @@ final class MetricKitReporter: NSObject, MXMetricManagerSubscriber {
 
     private func archive(_ json: Data, prefix: String) {
         guard let dir = archiveDir else { return }
+        // Suffixe unique : deux payloads dans la même seconde ne doivent pas
+        // s'écraser (revue oracle #48, finding #3).
         let stamp = ISO8601DateFormatter().string(from: Date())
             .replacingOccurrences(of: ":", with: "-")
-        let file = dir.appendingPathComponent("\(prefix)-\(stamp).json")
+        let unique = UUID().uuidString.prefix(8)
+        let file = dir.appendingPathComponent("\(prefix)-\(stamp)-\(unique).json")
         try? json.write(to: file)
     }
 }
