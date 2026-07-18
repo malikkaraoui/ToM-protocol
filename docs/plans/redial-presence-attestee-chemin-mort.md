@@ -160,7 +160,10 @@ joignable mais chemin mort » ne doit plus jamais atteindre le watchdog.
    Garde-fou review : si le labo (étape 4) montre des redials vers des pairs réellement
    morts via `mark_failed` + évidence limite, resserrer F à ~10 s pour ce seul
    déclencheur — mesure d'abord, pas de constante préventive.
-3. **Ouvert (pour Malik)** : cible de recette < 15 s acceptable, ou viser < 10 s
-   (aligné sur la reconvergence post-SIGKILL de 8 s mesurée en campagne) ?
-4. **Ouvert (pour Malik, P0-1)** : le binding announce ⟷ émetteur (§3bis) se corrige-t-il
-   DANS le chantier M1 (même livraison) ou en chantier sécurité séparé AVANT M1 ?
+3. **Tranché (Malik, 18/07)** : cible de recette **< 15 s ferme** (plancher naturel =
+   tick 15 s existant). Ambition < 10 s notée : si le canari tient < 10 s de façon
+   stable, resserrer la recette — jamais l'inverse.
+4. **Tranché (Malik, 18/07, P0-1)** : binding announce ⟷ émetteur en **chantier
+   sécurité SÉPARÉ, livré AVANT M1** (pattern RoleAnnounce ; testable et révertable
+   indépendamment — un revert du re-dial n'emporte jamais le fix sécurité).
+   Ordre des chantiers : P0-1 → M1.

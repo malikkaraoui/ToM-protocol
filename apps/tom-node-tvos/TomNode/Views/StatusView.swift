@@ -439,6 +439,12 @@ struct StatusView: View {
 
     // MARK: - Contrôles
 
+    // Les lignes « 👆 BOUTON … pressé » sont des TRAQUEURS FORENSIQUES, pas du
+    // debug : elles distinguent une action humaine d'un événement spontané dans
+    // les logs flotte (elles ont invalidé un faux bug « veille Mac » le 18/07).
+    // Ne jamais les retirer. Piège connu : la ligne Démarrer n'atteint JAMAIS le
+    // collecteur UDP (l'export est coupé tant que le nœud est arrêté) — elle
+    // n'existe que dans le log local ; seule la ligne Arrêter est broadcastée.
     private var controlsSection: some View {
         HStack(spacing: 12) {
             if nodeService.state == .stopped || nodeService.state == .error {
