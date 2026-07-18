@@ -187,6 +187,9 @@ final class TomNodeService: ObservableObject {
     private var nodeStartTime: Date?
     /// Count of messages sent by this node (used in structured logs).
     private var totalMessagesSentCount: Int = 0
+    /// Envois en échec (AUTO-PING, sends manuels) — alimentait un littéral 0
+    /// dans le status JSON jusqu'au build 118 (compteur menteur, banc 18/07).
+    private var totalMessagesFailedCount: Int = 0
     /// Cumulative count of messages RECEIVED — monotone, independent of the
     /// message store (the probe TTL purge shrinks the store, and deriving
     /// recv from total-sent went negative once probes outnumbered receipts).
@@ -880,6 +883,7 @@ final class TomNodeService: ObservableObject {
                 totalMessagesCount += 1
                 totalMessagesSentCount += 1
             } catch {
+                totalMessagesFailedCount += 1
                 log.error("Send failed: \(error.localizedDescription)")
                 errorMessage = error.localizedDescription
             }
@@ -1337,6 +1341,7 @@ final class TomNodeService: ObservableObject {
                         let displayName = self.displayName(for: peer)
                         self.appendLog(.network, "PROBE↑ seq=\(self.probeSeq) → \(displayName)")
                     } catch {
+                        self.totalMessagesFailedCount += 1
                         let displayName = self.displayName(for: peer)
                         self.appendLog(.error, "PROBE✗ seq=\(self.probeSeq) → \(displayName): \(error.localizedDescription)")
                     }
@@ -1430,6 +1435,7 @@ final class TomNodeService: ObservableObject {
                             try await self.node.sendMessage(to: msg.from, payload: replyData)
                             self.echoCount += 1
                         } catch {
+                            self.totalMessagesFailedCount += 1
                             self.appendLog(.error, "Echo failed → \(senderShort): \(error.localizedDescription)")
                         }
                     }
@@ -1579,6 +1585,9 @@ final class TomNodeService: ObservableObject {
 
         for peer in peers {
             guard peer.nodeId != nodeId else { continue }
+            // Transparence : jamais d'AUTO-PING vers un nœud de test éphémère
+            // (TEST-*) — un fantôme de harnais ne doit pas devenir cible auto.
+            guard !peer.isTestNode else { continue }
             guard !autoMessagedPeerIds.contains(peer.nodeId) else { continue }
 
             let lastAttempt = autoMessageAttemptedAt[peer.nodeId] ?? .distantPast
@@ -1614,6 +1623,9 @@ final class TomNodeService: ObservableObject {
                 totalMessagesCount += 1
                 totalMessagesSentCount += 1
             } catch {
+                // Observabilité honnête : un AUTO-PING en échec EST un envoi
+                // échoué (le compteur mentait — vu au banc terrain 18/07).
+                totalMessagesFailedCount += 1
                 appendLog(.warning, "AUTO-PING failed → \(targetLabel): \(error.localizedDescription)")
             }
         }
@@ -1857,7 +1869,7 @@ final class TomNodeService: ObservableObject {
             "groupes": [[String: Any]](),
             "messages_envoyes": sentCount,
             "messages_recus": recvCount,
-            "messages_echoues": 0,
+            "messages_echoues": totalMessagesFailedCount,
             "uptime_secondes": uptimeSec,
             // Build affiché à l'écran — exposé ici pour vérifier à distance
             // quel binaire tourne réellement (anti-staleness / anti-drift).
