@@ -106,10 +106,12 @@ describe('Encryption Module', () => {
       const payload = { message: 'original' };
       const encrypted = encryptPayload(payload, recipient.publicKey);
 
-      // Tamper with ciphertext
+      // Tamper with ciphertext. Flip to a byte GUARANTEED different from the
+      // original: forcing "ff" is a no-op 1/256 of the time (last byte already
+      // 0xff) → the untampered ciphertext decrypts and the test flakes.
       const tampered = {
         ...encrypted,
-        ciphertext: `${encrypted.ciphertext.slice(0, -2)}ff`,
+        ciphertext: `${encrypted.ciphertext.slice(0, -2)}${encrypted.ciphertext.slice(-2) === 'ff' ? '00' : 'ff'}`,
       };
 
       const decrypted = decryptPayload(tampered, recipient.secretKey);

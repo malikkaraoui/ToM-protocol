@@ -55,8 +55,12 @@ describe('Encryption Validation', () => {
       const keypair = generateEncryptionKeypair();
       const encrypted = encryptPayload({ secret: 'message' }, keypair.publicKey);
 
-      // Tamper with ciphertext
-      const tamperedCiphertext = `${encrypted.ciphertext.slice(0, -2)}ff`;
+      // Tamper with ciphertext. Flip to a byte GUARANTEED different from the
+      // original: forcing "ff" is a no-op 1/256 of the time (last byte already
+      // 0xff) → the untampered ciphertext decrypts and the test flakes.
+      const tamperedCiphertext = `${encrypted.ciphertext.slice(0, -2)}${
+        encrypted.ciphertext.slice(-2) === 'ff' ? '00' : 'ff'
+      }`;
       const tampered = { ...encrypted, ciphertext: tamperedCiphertext };
 
       const result = decryptPayload(tampered, keypair.secretKey);
@@ -67,8 +71,10 @@ describe('Encryption Validation', () => {
       const keypair = generateEncryptionKeypair();
       const encrypted = encryptPayload({ secret: 'message' }, keypair.publicKey);
 
-      // Tamper with nonce
-      const tamperedNonce = `${encrypted.nonce.slice(0, -2)}ff`;
+      // Tamper with nonce. Flip to a byte GUARANTEED different from the
+      // original: forcing "ff" is a no-op 1/256 of the time (last byte already
+      // 0xff) → the untampered nonce decrypts and the test flakes.
+      const tamperedNonce = `${encrypted.nonce.slice(0, -2)}${encrypted.nonce.slice(-2) === 'ff' ? '00' : 'ff'}`;
       const tampered = { ...encrypted, nonce: tamperedNonce };
 
       const result = decryptPayload(tampered, keypair.secretKey);
