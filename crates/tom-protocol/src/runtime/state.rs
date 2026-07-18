@@ -1540,14 +1540,26 @@ impl RuntimeState {
     ///
     /// Records heartbeat with Direct source so PeerDiscovered is emitted
     /// from the next tick_heartbeat call.
+    ///
+    /// P0-1 (redial doc §3bis, 2026-07-18) — binding évidence ⟷ identité :
+    /// `PeerAnnounce` ne porte pas de signature propre (contrairement à
+    /// `RoleAnnounce`/`RelayReadyAnnounce`). On accorde donc le crédit Online +
+    /// heartbeat UNIQUEMENT si (a) l'enveloppe est signée+vérifiée et (b) le
+    /// `node_id` annoncé == l'identité QUIC authentifiée (`envelope.from`).
+    /// Sans ce binding, n'importe qui pouvait marquer une victime Online et
+    /// forger username/app_build sur simple validité de timestamp. La voie
+    /// GOSSIP est déjà fermée par ADR-011 (`mark_known`, zéro crédit) — cette
+    /// voie QUIC directe ne l'était pas.
     pub fn handle_peer_announce(
         &mut self,
         envelope: &Envelope,
+        signature_valid: bool,
     ) -> Vec<RuntimeEffect> {
         if let Ok(announce) =
             rmp_serde::from_slice::<PeerAnnounce>(&envelope.payload)
         {
-            if announce.is_timestamp_valid(now_ms()) {
+            let bound_to_sender = signature_valid && announce.node_id == envelope.from;
+            if bound_to_sender && announce.is_timestamp_valid(now_ms()) {
                 self.heartbeat.record_heartbeat_with_source(
                     announce.node_id,
                     DiscoverySource::Direct,
@@ -1799,7 +1811,7 @@ impl RuntimeState {
                 self.handle_incoming_backup(&envelope)
             }
 
-            MessageType::PeerAnnounce => self.handle_peer_announce(&envelope),
+            MessageType::PeerAnnounce => self.handle_peer_announce(&envelope, signature_valid),
 
             MessageType::PresenceChallenge | MessageType::PresenceAttestation => {
                 self.handle_incoming_presence(envelope, signature_valid)
@@ -4923,6 +4935,72 @@ mod tests {
         assert!(
             !has_discovered,
             "gossip announce alone must not emit PeerDiscovered (no liveness proof), got: {tick_effects:?}"
+        );
+    }
+
+    /// P0-1 : un PeerAnnounce direct SIGNÉ dont `node_id == envelope.from`
+    /// accorde bien le crédit Online (chemin nominal préservé).
+    #[test]
+    fn direct_announce_credits_online_when_bound_and_signed() {
+        let mut state = default_state(1);
+        let (peer, peer_secret) = keypair(2);
+
+        let announce = PeerAnnounce::new(peer, "bob".to_string(), 7, vec![PeerRole::Peer]);
+        let payload = rmp_serde::to_vec(&announce).expect("serialize announce");
+        // Enveloppe signée PAR le pair annoncé, from == node_id annoncé.
+        let envelope = EnvelopeBuilder::new(peer, node_id(1), MessageType::PeerAnnounce, payload)
+            .sign(&peer_secret);
+        assert!(envelope.verify_signature().is_ok(), "test envelope must verify");
+
+        let effects = state.handle_peer_announce(&envelope, /* signature_valid */ true);
+        assert!(effects.is_empty());
+
+        let topo = state.topology.get(&peer);
+        assert!(topo.is_some(), "bound signed announce must register the peer");
+        assert_eq!(
+            topo.unwrap().status,
+            PeerStatus::Online,
+            "a bound+signed direct announce is a liveness proof → Online"
+        );
+    }
+
+    /// P0-1 (kill-shot) : un PeerAnnounce direct qui USURPE le node_id d'une
+    /// victime (announce.node_id != envelope.from, ou signature invalide) ne
+    /// doit accorder AUCUN crédit — sinon on marque n'importe qui Online.
+    #[test]
+    fn direct_announce_rejects_spoofed_node_id() {
+        let mut state = default_state(1);
+        let attacker = node_id(2);
+        let victim = node_id(3);
+        let (_, attacker_secret) = keypair(2);
+
+        // L'attaquant annonce l'identité de la VICTIME mais signe avec SA clé
+        // (donc envelope.from == attacker ≠ announce.node_id == victim).
+        let announce = PeerAnnounce::new(victim, "victim".to_string(), 0, vec![PeerRole::Peer]);
+        let payload = rmp_serde::to_vec(&announce).expect("serialize announce");
+        let envelope =
+            EnvelopeBuilder::new(attacker, node_id(1), MessageType::PeerAnnounce, payload)
+                .sign(&attacker_secret);
+
+        // signature_valid=true (l'enveloppe EST signée par l'attaquant), mais
+        // le binding node_id==from échoue → aucun crédit pour la victime.
+        let effects = state.handle_peer_announce(&envelope, true);
+        assert!(effects.is_empty());
+        assert!(
+            state.topology.get(&victim).is_none(),
+            "spoofed announce must NOT mark the victim Online"
+        );
+
+        // Variante : binding OK mais enveloppe NON vérifiée → aucun crédit.
+        let honest = PeerAnnounce::new(attacker, "att".to_string(), 0, vec![PeerRole::Peer]);
+        let p2 = rmp_serde::to_vec(&honest).expect("serialize");
+        let env2 = EnvelopeBuilder::new(attacker, node_id(1), MessageType::PeerAnnounce, p2)
+            .sign(&attacker_secret);
+        let effects2 = state.handle_peer_announce(&env2, /* signature_valid */ false);
+        assert!(effects2.is_empty());
+        assert!(
+            state.topology.get(&attacker).is_none(),
+            "unverified announce must NOT grant Online credit even when bound"
         );
     }
 

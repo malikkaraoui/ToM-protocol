@@ -167,3 +167,17 @@ joignable mais chemin mort » ne doit plus jamais atteindre le watchdog.
    sécurité SÉPARÉ, livré AVANT M1** (pattern RoleAnnounce ; testable et révertable
    indépendamment — un revert du re-dial n'emporte jamais le fix sécurité).
    Ordre des chantiers : P0-1 → M1.
+
+## 3ter. P0-1 — LIVRÉ (build 119, 2026-07-18 nuit)
+
+`handle_peer_announce` (`state.rs`) n'accorde désormais le crédit heartbeat +
+topologie `Online` que si **(a)** l'enveloppe est signée et vérifiée
+(`signature_valid`) **et (b)** `announce.node_id == envelope.from` (l'identité
+QUIC authentifiée porte l'annonce). Sans ce binding, un pair pouvait marquer
+n'importe quelle victime `Online` et forger username/app_build sur simple
+validité de timestamp. La voie GOSSIP restait déjà `Known`-only (ADR-011,
+`handle_gossip_event` → `mark_known`) ; seule la voie QUIC directe était ouverte.
+Tests : `direct_announce_credits_online_when_bound_and_signed` (nominal préservé)
++ `direct_announce_rejects_spoofed_node_id` (kill-shot : node_id usurpé ET
+enveloppe non vérifiée → zéro crédit). **M1 (re-dial) peut désormais consommer
+l'évidence « vivant » sans qu'elle soit forgeable.** Reste ouvert : M1 lui-même.
