@@ -20,6 +20,7 @@ cd "$(dirname "$0")/.."
 IPAD=1DC13ED3-A246-525E-8B71-7F62AA950A4A          # iPad Air M4 (iOS 26.5)
 APPLETV=2C36638F-EC0B-5A75-B74F-5507E15D1E98       # Apple TV "Séjour"
 IPHONE=C3CFC878-6C8D-5B87-8B35-1CB108A4922A        # iPhone 12 Pro (iOS 18.7.2)
+IPHONE_LAURA=5F7DA86D-D802-5C1B-9180-2950A7DC1306  # iPhone 12 Pro "Laura" (ajouté 18/07)
 
 PROJ=apps/tom-node-tvos/TomNode.xcodeproj
 # Bundle UNIQUE depuis l'unification (le target universel garde l'id tvOS).
@@ -31,6 +32,19 @@ TV_APP=build/tvos-app/Build/Products/Debug-appletvos/TomNode.app
 
 ts() { date "+%H:%M:%S"; }
 log() { echo "[$(ts)] $*"; }
+
+# Validation de ONLY AVANT tout travail coûteux (le sync XCFramework prend du
+# temps) : un ONLY mal orthographié ne doit pas "réussir" en ne déployant rien.
+# Mesuré avant ce garde-fou : ONLY=iphone-lora sortait en EXIT=0 sans toucher un
+# seul appareil — le faux positif silencieux qui fait croire à un déploiement.
+DEVICES="ipad appletv iphone iphone-laura"
+ONLY="${ONLY:-}"
+if [ -n "$ONLY" ]; then
+  case " $DEVICES " in
+    *" $ONLY "*) ;;
+    *) log "❌ ONLY='$ONLY' inconnu — valeurs possibles : $DEVICES"; exit 2 ;;
+  esac
+fi
 
 # Un appareil est-il joignable ? (connected|available dans devicectl)
 reachable() {
@@ -72,8 +86,26 @@ deploy_tvos() {
 log "🔄 sync XCFramework → package"
 bash scripts/sync-xcframework-to-package.sh || { log "❌ sync échoué — as-tu buildé le FFI ?"; exit 1; }
 
-log "═══ DÉPLOIEMENT (iPad, Apple TV, iPhone si joignable) ═══"
-deploy_ios "$IPAD" ipad
-deploy_tvos "$APPLETV"
-deploy_ios "$IPHONE" iphone
-log "═══ FIN déploiement ═══"
+# ONLY=<nom> déploie un seul appareil (ex : ONLY=iphone-laura bash scripts/deploy-apps.sh).
+# Utile pour intégrer un nouvel appareil sans redéployer — ni réveiller — toute la flotte.
+#
+# Un ONLY mal orthographié ne doit PAS "réussir" en ne déployant rien : c'est le
+# faux positif silencieux qui fait croire à un déploiement (mesuré : ONLY=iphone-lora
+# sortait en EXIT=0 sans toucher un seul appareil). D'où la validation ci-dessous.
+want() { [ -z "$ONLY" ] || [ "$ONLY" = "$1" ]; }
+
+# Un échec de déploiement doit remonter dans le code de sortie, sinon un
+# xcodebuild rouge passe pour un succès (cf. build-swift-masqué-par-deriveddata).
+failed=""
+try() { local name="$1"; shift; want "$name" || return 0; "$@" || failed="$failed $name"; }
+
+log "═══ DÉPLOIEMENT${ONLY:+ (ONLY=$ONLY)} ═══"
+try ipad         deploy_ios  "$IPAD" ipad
+try appletv      deploy_tvos "$APPLETV"
+try iphone       deploy_ios  "$IPHONE" iphone
+try iphone-laura deploy_ios  "$IPHONE_LAURA" iphone-laura
+if [ -n "$failed" ]; then
+  log "═══ FIN déploiement — ÉCHECS :$failed ═══"
+  exit 1
+fi
+log "═══ FIN déploiement (OK) ═══"

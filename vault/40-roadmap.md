@@ -206,14 +206,29 @@ Les 5 criticals de l'audit 6-agents sont corrigés (file:line revérifiés) :
     isolément avant/après pour écarter un faux hang lié à un incident réseau
     nocturne, pas au code). Build 40.
   - [ ] Étape 3 (test d'acceptation réel : iPhone data ↔ maison sans le NAS).
-- [ ] **R14 — IPv6 first-class** : (1) règle pare-feu Freebox 43925 (déjà
-  identifiée) + mesurer le DIRECT v6 ; (2) publier les GUA v6 au rendez-vous,
-  préférence v6 au dial, hole-punch v6 (quasi 100% vs NAT v4) ; (3) pinhole
-  automatique via PCP quand la box le permet (zéro friction v6).
-- [ ] **R15 — Annuaire local (mémoire des pairs)** : persister `node_id → relais
-  habituel + dernières addrs (LAN/publique/v6) + path_kind` ; dial parallèle
-  cache + lookup frais ; expiration douce (décision #4). Gain : reconnexion
-  quasi instantanée famille/amis, moins de pression DHT. Zéro config (décision #6).
+- [ ] **R14 — ~~IPv6 first-class~~ → CONVERGENCE DE CHEMIN** (redéfini 2026-07-18
+  par la mesure, doc `docs/plans/r14-ipv6-first-class.md` §1bis/§2.4).
+  Le problème n'est PAS le manque d'IPv6 (il y en a partout, RTT v6 ≤ v4) mais que
+  **le choix de chemin ne converge pas vers le meilleur lien** : chaque sens fait
+  son propre tirage, l'ordre des candidats est aléatoire (`FxHashMap`), et
+  l'hystérésis (5 ms) fige le résultat. Mesuré : `iPad→iPhone` v4 9 ms → v6 51 ms.
+  - [ ] Lot A — observabilité des bascules (`AddrFamily` existe déjà côté transport ;
+        outil `scripts/path-matrix.py` livré) : historiser bascules + motif.
+  - [ ] Lot B — élucider une bascule dégradante EN DIRECT (chemin mort remplacé, ou
+        sélection défaillante ?). **Aucun code de sélection avant cette réponse.**
+  - [ ] Lot C — déterminisme du probe, conditionné au Lot B (⚠️ `iroh_hp.rs:196` :
+        un autre mécanisme s'appuie sur l'aléatoire).
+  - ~~préférence v6 forcée, happy-eyeballs, filtrage temp-addrs, pare-feu Freebox~~
+    ABANDONNÉS — non justifiés par les mesures / box non touchée (décision Malik).
+- [ ] **R15 — ~~Annuaire local~~ → R15-lite : relais habituel seul** (réduit
+  2026-07-18, doc `docs/plans/r15-annuaire-local.md` §7). Persister les **adresses
+  directes** est ÉCARTÉ : gain marginal (mDNS 1-2 s sur LAN, adresses volatiles
+  hors-LAN) contre un risque élevé (ré-ouvre l'empoisonnement de topologie du
+  17-18/07, avec des adresses survivant au restart). Retenu : `preferred_relay_url`
+  seul (déjà auto-appris en RAM), expirant avec le pair via M2. Zéro config (#6).
+- [ ] **Fix autonome (trouvé 18/07)** : `storage/mod.rs:463-475` — un pair persisté
+  `Online` échappe au filtre d'élagage 24 h au load (gardé par `status != Online`).
+  Borné à ~30 s en régime normal, non borné en crash-loop. Prérequis de R15-lite.
 - [ ] **R16 — Nœud léger multi-plateformes (distribution du vivier)** :
   binaire statique musl (chaîne de cross-compil déjà en place). Canaux vérifiés 2026-07-03 :
   (a) **Raspberry Pi — 2 canaux officiels-adjacents** :

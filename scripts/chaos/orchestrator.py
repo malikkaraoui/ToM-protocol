@@ -32,6 +32,11 @@ NODES = {
     "mac": {"status": "http://127.0.0.1:9091/", "kind": "app"},
     "iphone": {"status": "http://192.168.0.28:9091/", "kind": "app"},
     "ipad": {"status": "http://192.168.0.23:9091/", "kind": "app"},
+    # iPhone de Laura, ajouté à la flotte le 18/07 soir (build 125).
+    # ⚠️ Son champ "node" vaut aussi "iPhone" — dans le collecteur les deux
+    # iPhone sont indiscernables par le nom ; distinguer par node_id
+    # (Malik 80eb9196…, Laura b76a43d2…) ou par IP.
+    "iphone-laura": {"status": "http://192.168.0.49:9091/", "kind": "app"},
     # ATV retirée le 18/07 soir (Malik regarde la télé) — réintégrer si dispo.
 }
 
