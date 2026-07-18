@@ -28,6 +28,32 @@ pub const GOSSIP_INTERVAL_MS: u64 = 10_000;
 /// Max peers returned in a single gossip response.
 pub const MAX_PEERS_PER_GOSSIP: usize = 20;
 
+/// Longueur maximale d'un username reçu du réseau (octets UTF-8).
+/// Aligné sur `tom_dht::DhtNodeAddr` (32 octets) : les deux canaux de
+/// découverte imposent la même borne.
+pub const MAX_USERNAME_BYTES: usize = 32;
+
+/// Assainit un username reçu du réseau AVANT tout usage (affichage, log JSON
+/// collecteur, stockage heartbeat). Retire les caractères de contrôle (`\n`,
+/// `\r`, …) et tronque à `MAX_USERNAME_BYTES` sur une frontière de caractère.
+///
+/// Brèche fermée (review sécurité 18/07) : la voie DHT sanitisait déjà
+/// (`tom_dht::sanitize_username`), mais les voies GOSSIP et QUIC directe
+/// acceptaient un username brut — un pair malveillant pouvait envoyer un
+/// username géant (bloat mémoire) ou avec des sauts de ligne (casse le JSON
+/// du collecteur `:9999`, injection dans l'UptimeLog Swift). Miroir de la
+/// logique DHT pour un comportement identique sur les deux canaux.
+pub fn sanitize_username(raw: &str) -> String {
+    let mut result = String::new();
+    for ch in raw.chars().filter(|c| !c.is_control()) {
+        if result.len() + ch.len_utf8() > MAX_USERNAME_BYTES {
+            break;
+        }
+        result.push(ch);
+    }
+    result
+}
+
 // ── PeerAnnounce ─────────────────────────────────────────────────────────
 
 /// Payload for PeerAnnounce messages — what a node broadcasts about itself.
@@ -145,6 +171,24 @@ mod tests {
         let mut rng = rand::rngs::StdRng::seed_from_u64(seed as u64);
         let secret = tom_connect::SecretKey::generate(&mut rng);
         secret.public().to_string().parse().unwrap()
+    }
+
+    #[test]
+    fn sanitize_username_strips_control_and_truncates() {
+        // Nominal : inchangé.
+        assert_eq!(sanitize_username("alice"), "alice");
+        // Sauts de ligne / retour chariot / tab → retirés (anti-injection JSON/log).
+        assert_eq!(sanitize_username("ali\nce\r\t"), "alice");
+        // Troncature à 32 octets sur frontière de caractère.
+        let long = "a".repeat(100);
+        assert_eq!(sanitize_username(&long).len(), 32);
+        // UTF-8 multi-octets : jamais coupé au milieu d'un caractère.
+        let emoji = "🦀".repeat(20); // 4 octets chacun → 8 tiennent (32 octets)
+        let s = sanitize_username(&emoji);
+        assert!(s.len() <= 32 && s.is_char_boundary(s.len()));
+        assert_eq!(s.chars().count(), 8);
+        // Username entièrement de contrôle → vide.
+        assert_eq!(sanitize_username("\n\r\t"), "");
     }
 
     #[test]

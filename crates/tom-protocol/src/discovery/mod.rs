@@ -20,7 +20,7 @@ pub use subnet::{
     CommunicationEdge, DissolveReason, EphemeralSubnetManager, SubnetEvent, SubnetInfo,
 };
 pub use types::{
-    DiscoveryEvent, DiscoverySource, LivenessState, PeerAnnounce, GOSSIP_INTERVAL_MS,
-    HEARTBEAT_INTERVAL_MS, MAX_FUTURE_DRIFT_MS, MAX_PEERS_PER_GOSSIP, OFFLINE_THRESHOLD_MS,
-    STALE_THRESHOLD_MS,
+    sanitize_username, DiscoveryEvent, DiscoverySource, LivenessState, PeerAnnounce,
+    GOSSIP_INTERVAL_MS, HEARTBEAT_INTERVAL_MS, MAX_FUTURE_DRIFT_MS, MAX_PEERS_PER_GOSSIP,
+    MAX_USERNAME_BYTES, OFFLINE_THRESHOLD_MS, STALE_THRESHOLD_MS,
 };

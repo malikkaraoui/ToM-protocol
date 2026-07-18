@@ -1612,7 +1612,7 @@ impl RuntimeState {
                 self.heartbeat.record_heartbeat_with_source(
                     announce.node_id,
                     DiscoverySource::Direct,
-                    announce.username,
+                    crate::discovery::sanitize_username(&announce.username),
                     announce.app_build,
                 );
                 self.topology.upsert(PeerInfo {
@@ -3033,7 +3033,7 @@ impl RuntimeState {
                         return self
                             .surface_discovery(
                                 peer_id,
-                                announce.username.clone(),
+                                crate::discovery::sanitize_username(&announce.username),
                                 announce.app_build,
                                 DiscoverySource::Announce,
                             )
