@@ -1,7 +1,8 @@
 # Anti-ravivage des fantômes de topologie — doc de conception
 
-> Design-first (2026-07-17, chantier #2 post-marathon transport). AUCUN code tant que cette
-> conception n'est pas validée. Périmètre : l'oubli des identités mortes du store de pairs.
+> Design-first (2026-07-17, chantier #2 post-marathon transport). **VALIDÉ le 18/07 par
+> Malik (TTL 24 h strict, pas de plancher K) — prêt à coder M1→M3, canari d'abord.**
+> Périmètre : l'oubli des identités mortes du store de pairs.
 > Complémentaire du chantier « harnais en `enable_dht:false` » (tarir la fabrique à fantômes).
 
 ## Contexte et symptôme mesuré (17/07)
@@ -79,9 +80,10 @@ M1 = appliquer au tick 15 s le MÊME filtre que ses deux frères (mêmes constan
 ### M2 — TTL d'oubli en base (l'hygiène)
 
 `storage/mod.rs` : au save ET au load, écarter les pairs `now - last_seen > TOPOLOGY_TTL_MS`.
-Proposition : **7 jours** (c'est un carnet d'adresses, pas un message : 24 h évincerait le
-laptop éteint un long week-end ; 7 j reste un fade naturel). Alternative 24 h si l'on préfère
-la cohérence stricte « rien ne survit 24 h » — **à trancher à la review de ce doc**.
+**Tranché (Malik, 18/07) : 24 heures** — cohérence stricte « rien ne survit 24 h »,
+messages comme métadonnées. Conséquence assumée : un appareil absent > 24 h est évincé et
+revient par re-découverte (rendezvous ADR-010 ~60 s, mDNS en LAN) au lieu d'un re-dial
+instantané. (La proposition 7 j « carnet d'adresses » a été argumentée et écartée à la review.)
 
 - Le scénario « 1286 pairs » devient impossible en régime permanent ; migration gratuite
   (le premier load post-patch nettoie les bases existantes).
@@ -122,9 +124,10 @@ annonce relayée ne doit ni rajeunir (déjà le cas) ni VIEILLIR un pair (bug ac
 2. **M2 + M3** (même constante, test de migration sur base polluée réelle).
 3. Chantier `enable_dht:false` des harnais (indépendant, complémentaire — P3).
 
-## Questions ouvertes pour la review du doc
+## Questions — TRANCHÉES à la review du 18/07 (Malik)
 
-- TTL base/mémoire : **7 j** (proposé) ou 24 h (cohérence stricte) ?
-- M1 : faut-il un plancher « garder quand même les K plus récents même hors fenêtre » pour un
-  nœud longtemps isolé, ou le rendezvous suffit-il (position actuelle : il suffit, ADR-010 —
-  et c'est déjà le statu quo du bootstrap/NeighborDown sans incident depuis leur pose) ?
+- TTL base/mémoire : **24 h** (cohérence stricte retenue contre la proposition 7 j).
+  `TOPOLOGY_TTL_MS` = 24 h, même constante pour M2 et M3.
+- Plancher K : **NON** — le rendezvous ADR-010 suffit (statu quo bootstrap/NeighborDown,
+  sans incident depuis leur pose). À re-questionner UNIQUEMENT si le canari casse la
+  reconvergence < 5 s.
