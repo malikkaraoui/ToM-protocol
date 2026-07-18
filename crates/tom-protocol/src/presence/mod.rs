@@ -21,6 +21,7 @@
 pub mod aggregator;
 pub mod attestation;
 pub mod quorum;
+pub mod redial;
 pub mod relay_view;
 pub mod subscription;
 pub mod witness;

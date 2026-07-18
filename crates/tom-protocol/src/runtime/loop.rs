@@ -976,6 +976,33 @@ pub(super) async fn runtime_loop(
                         });
                     }
                 }
+                RuntimeEffect::RedialStalePath { peer } => {
+                    // M1 — le pair est attesté vivant mais notre chemin est mort.
+                    // Rafraîchir l'adressage AVANT de re-dialer : (1) lookup DHT
+                    // détaché → DhtLookupResult seede la route fraîche + dial ;
+                    // (2) reprobe relays détaché → chemin relais de secours.
+                    // Détaché (jamais d'await réseau sous la boucle — leçon 17/07
+                    // du verrou-otage) et non bloquant.
+                    tracing::info!(%peer, "M1: redial stale path (attested-alive, dead local path)");
+                    if let Some(dht_client) = dht_handle.as_ref() {
+                        let shared = dht_client.clone();
+                        let pk = peer.as_bytes();
+                        let tx = cmd_tx.clone();
+                        tokio::spawn(async move {
+                            let Some(dht_clone) = shared.wait_ready().await else {
+                                return;
+                            };
+                            if let Ok(Some(addr)) = tom_dht::dht_lookup(&dht_clone, &pk).await {
+                                let _ = tx.send(RuntimeCommand::DhtLookupResult { addr }).await;
+                            }
+                        });
+                    }
+                    node.reprobe_relays_detached();
+                    // Observabilité : trace uniquement (décision #6 — pas d'event
+                    // protocole vers le FFI/UI). La métrique de recette (doc §6.3)
+                    // vit dans les logs/collecteur, pas dans un ProtocolEvent
+                    // qui fuirait en debug-string via le catch-all FFI.
+                }
                 other => {
                     regular_effects.push(other);
                 }

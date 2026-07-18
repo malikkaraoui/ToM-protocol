@@ -64,6 +64,15 @@ pub enum RuntimeEffect {
     RemoveTransportRelay {
         relay_url: RelayUrl,
     },
+
+    /// M1 — re-dial ciblé : le pair est attesté vivant (quorum de témoins) mais
+    /// notre chemin local est mort (PeerStale ou mark_failed). Rafraîchir
+    /// l'adressage (lookup DHT + reprobe relays) AVANT de re-dialer les mêmes
+    /// adresses mortes. Exécuté par la boucle (accès réseau requis).
+    /// Conception : `docs/plans/redial-presence-attestee-chemin-mort.md`.
+    RedialStalePath {
+        peer: NodeId,
+    },
 }
 
 #[cfg(test)]

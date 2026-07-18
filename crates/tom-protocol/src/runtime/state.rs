@@ -137,6 +137,10 @@ pub struct RuntimeState {
     pub(crate) quorum: crate::presence::QuorumAggregator,
     pub(crate) presence_view_activity: usize,
 
+    // M1 — re-dial ciblé « présence attestée + chemin mort ». Décideur pur du
+    // throttle/cap ; ne dial rien (la boucle exécute RedialStalePath).
+    pub(crate) redial: crate::presence::redial::RedialGovernor,
+
     // Phase R16: Embedded relay logical state (tracked by pure state, no I/O)
     pub(crate) embedded_relay_state: super::LocalEmbeddedRelayState,
     pub(crate) embedded_relay_publication: super::EmbeddedRelayPublicationState,
@@ -257,6 +261,7 @@ impl RuntimeState {
             subscriptions: crate::presence::SubscriptionTable::new(),
             quorum: crate::presence::QuorumAggregator::new(),
             presence_view_activity: 0,
+            redial: crate::presence::redial::RedialGovernor::new(),
             local_id,
             secret_seed,
             embedded_relay_state: super::LocalEmbeddedRelayState::Stopped,
@@ -446,9 +451,44 @@ impl RuntimeState {
                     to,
                     last_status,
                 }));
+                // M1 : livraison échouée vers `to` — si un témoin frais l'atteste
+                // encore vivant, notre chemin est mort mais le pair est joignable
+                // par un adressage frais. Re-dial ciblé (throttlé, idempotent).
+                effects.extend(self.maybe_redial_stale_path(to, now_ms()));
             }
         }
         effects
+    }
+
+    /// M1 — décide s'il faut re-dialer `peer` sur le signal composite
+    /// « présence attestée fraîche ∧ chemin local mort ».
+    ///
+    /// Émet `RedialStalePath` UNIQUEMENT si (a) au moins un témoin frais atteste
+    /// le pair vivant (`quorum.fresh_witnesses ≥ 1` — évidence L1-003, distincte
+    /// de notre chemin heartbeat) ET (b) le gouverneur autorise (throttle 60 s
+    /// par pair + cap global 3, FIFO). Sinon `Vec::new()` — le tick 15 s reste
+    /// le filet de convergence de masse (jamais l'unique chemin, doc §4).
+    ///
+    /// Appelé sur `PeerStale{peer}` et sur `mark_failed` vers `peer` ; le
+    /// gouverneur garantit un seul redial en vol par pair même aux deux au
+    /// même tick (idempotence).
+    fn maybe_redial_stale_path(&mut self, peer: NodeId, now: u64) -> Vec<RuntimeEffect> {
+        // (a) évidence « vivant » fraîche indépendante de notre chemin mort.
+        // Seuil ≥ 1 témoin frais VOLONTAIRE : M1 est un ACCÉLÉRATEUR ciblé (un
+        // seul témoin suffit à justifier un re-dial d'adressage frais), PAS une
+        // porte de promotion — celle-ci exige toujours le quorum `at_quorum`
+        // (≥ required_witnesses, ≥ 2). Le tick 15 s reste la garantie de
+        // convergence de masse ; un re-dial infondé coûte au pire un dial
+        // gaspillé (P0-2 : un dial n'accorde aucune confiance protocolaire).
+        if self.quorum.fresh_witnesses(&peer, now) == 0 {
+            return Vec::new();
+        }
+        // (b) throttle + cap.
+        if self.redial.try_trigger(peer, now) {
+            vec![RuntimeEffect::RedialStalePath { peer }]
+        } else {
+            Vec::new()
+        }
     }
 
     // ── Tick: heartbeat liveness check ───────────────────────────────────
@@ -477,6 +517,9 @@ impl RuntimeState {
                     effects.push(RuntimeEffect::Emit(ProtocolEvent::PeerStale {
                         node_id,
                     }));
+                    // M1 : chemin local vieilli — si un témoin frais atteste
+                    // encore ce pair vivant, re-dialer avec un adressage frais.
+                    effects.extend(self.maybe_redial_stale_path(node_id, now_ms()));
                 }
                 DiscoveryEvent::PeerOffline { node_id } => {
                     let subnet_events = self.subnets.remove_node(&node_id);
@@ -1744,6 +1787,14 @@ impl RuntimeState {
             // Without this, peers that went Stale (>20s) or Offline (>45s) between state_save
             // ticks would show online_count=0 even though messages keep flowing.
             self.heartbeat.record_heartbeat(envelope.from);
+            // M1 : trafic entrant DIRECT signé (via vide) = preuve que NOTRE
+            // chemin vers ce pair est ré-établi → reset du throttle (doc §4).
+            // Un message RELAYÉ (via non vide) prouve seulement que le pair est
+            // vivant côté relais, PAS que notre chemin direct l'est → ne reset
+            // pas (sinon on affaiblit le throttle sur un chemin encore mort).
+            if envelope.via.is_empty() {
+                self.redial.on_success(&envelope.from);
+            }
             let existing_role = self
                 .topology
                 .get(&envelope.from)
@@ -2106,6 +2157,8 @@ impl RuntimeState {
         // per-window view-activity counter that feeds the dynamic quorum.
         self.quorum.purge_expired(now);
         self.presence_view_activity = 0;
+        // M1 : borne le gouverneur de re-dial (entrées expirées libérées).
+        self.redial.purge_expired(now);
 
         // Faille 1 (red-team hardening): degrade Online → Stale when a peer
         // has gone silent (no activity) for PEER_ONLINE_STALE_MS. This prevents
@@ -5001,6 +5054,98 @@ mod tests {
         assert!(
             state.topology.get(&attacker).is_none(),
             "unverified announce must NOT grant Online credit even when bound"
+        );
+    }
+
+    // ── M1 : re-dial « présence attestée + chemin mort » ─────────────────
+
+    /// Helper : rend `peer` attesté vivant par `n` témoins frais (évidence L1-003).
+    fn attest_alive(state: &mut RuntimeState, peer: NodeId, n: u8, now: u64) {
+        for w in 0..n {
+            state.quorum.record(node_id(200 + w), peer, now);
+        }
+    }
+
+    /// Sans évidence « vivant » fraîche → aucun re-dial (le tick 15 s reste seul).
+    #[test]
+    fn redial_not_triggered_without_fresh_witness() {
+        let mut state = default_state(1);
+        let peer = node_id(2);
+        // Aucune attestation enregistrée pour ce pair.
+        let effects = state.maybe_redial_stale_path(peer, now_ms());
+        assert!(effects.is_empty(), "pas de témoin frais → pas de redial");
+    }
+
+    /// Évidence fraîche + chemin mort → exactement UN RedialStalePath.
+    #[test]
+    fn redial_triggered_with_fresh_witness() {
+        let mut state = default_state(1);
+        let peer = node_id(2);
+        let now = now_ms();
+        attest_alive(&mut state, peer, 1, now);
+
+        let effects = state.maybe_redial_stale_path(peer, now);
+        assert_eq!(effects.len(), 1, "attesté vivant + chemin mort → 1 redial");
+        assert!(
+            matches!(&effects[0], RuntimeEffect::RedialStalePath { peer: p } if *p == peer),
+            "effet attendu RedialStalePath, got: {effects:?}"
+        );
+
+        // 2e appel immédiat (ex : PeerStale + mark_failed même tick) → throttlé.
+        let again = state.maybe_redial_stale_path(peer, now);
+        assert!(again.is_empty(), "throttle : un seul redial en vol par pair");
+    }
+
+    /// Trafic entrant direct signé après un redial → reset du throttle : un
+    /// nouveau désaccord peut re-dialer immédiatement (chemin re-cassé).
+    #[test]
+    fn redial_throttle_resets_on_inbound_success() {
+        let mut state = default_state(1);
+        let (peer, peer_secret) = keypair(2);
+        let now = now_ms();
+        attest_alive(&mut state, peer, 1, now);
+
+        assert_eq!(state.maybe_redial_stale_path(peer, now).len(), 1);
+        assert!(state.maybe_redial_stale_path(peer, now).is_empty(), "throttlé");
+
+        // Un message signé entrant de `peer` prouve le chemin ré-établi.
+        let env = EnvelopeBuilder::new(peer, state.local_id, MessageType::Chat, b"hi".to_vec())
+            .sign(&peer_secret);
+        let _ = state.handle_incoming(&env.to_bytes().unwrap());
+
+        // Le chemin re-meurt : un nouveau redial est de nouveau autorisé.
+        attest_alive(&mut state, peer, 1, now);
+        assert_eq!(
+            state.maybe_redial_stale_path(peer, now).len(),
+            1,
+            "après trafic entrant prouvé, un nouveau redial est autorisé"
+        );
+    }
+
+    /// Finding review-oracle #1 : un message RELAYÉ (via non vide) ne prouve
+    /// PAS que notre chemin DIRECT est ré-établi → ne doit PAS reset le throttle.
+    #[test]
+    fn redial_throttle_not_reset_by_relayed_message() {
+        let mut state = default_state(1);
+        let (peer, peer_secret) = keypair(2);
+        let relay = node_id(9);
+        let now = now_ms();
+        attest_alive(&mut state, peer, 1, now);
+
+        assert_eq!(state.maybe_redial_stale_path(peer, now).len(), 1);
+        assert!(state.maybe_redial_stale_path(peer, now).is_empty(), "throttlé");
+
+        // Message signé de `peer` mais RELAYÉ (via = [relay]) → pas une preuve
+        // de chemin direct → le throttle NE doit PAS être réinitialisé.
+        let env = EnvelopeBuilder::new(peer, state.local_id, MessageType::Chat, b"relayed".to_vec())
+            .via(vec![relay])
+            .sign(&peer_secret);
+        let _ = state.handle_incoming(&env.to_bytes().unwrap());
+
+        attest_alive(&mut state, peer, 1, now);
+        assert!(
+            state.maybe_redial_stale_path(peer, now).is_empty(),
+            "un message relayé ne doit pas rouvrir le re-dial (chemin direct encore mort)"
         );
     }
 

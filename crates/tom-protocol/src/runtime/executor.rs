@@ -99,7 +99,8 @@ pub(super) fn execute_effects<T: Transport + Clone + Sync + 'static>(
             | RuntimeEffect::StopEmbeddedRelay
             | RuntimeEffect::BroadcastRelayReady(_)
             | RuntimeEffect::InsertTransportRelay { .. }
-            | RuntimeEffect::RemoveTransportRelay { .. } => {
+            | RuntimeEffect::RemoveTransportRelay { .. }
+            | RuntimeEffect::RedialStalePath { .. } => {
                 // Handled in the runtime loop (needs node / gossip / embedded relay access).
                 tracing::debug!("loop-intercepted effect reached executor (should be intercepted by loop)");
             }
