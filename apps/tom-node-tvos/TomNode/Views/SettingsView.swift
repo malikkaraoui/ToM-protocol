@@ -26,6 +26,14 @@ struct SettingsRow: View {
 
 struct SettingsView: View {
     @EnvironmentObject var nodeService: TomNodeService
+    @State private var confirmNetworkReset = false
+    @State private var confirmFactoryReset = false
+
+    /// Reset autorisé uniquement nœud arrêté (invariant sûreté #4 : les .db
+    /// SQLite sont ouvertes tant que le runtime tourne).
+    private var canReset: Bool {
+        nodeService.state == .stopped || nodeService.state == .error
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -158,6 +166,32 @@ struct SettingsView: View {
                     SettingsRow(label: "Echo Count", value: "\(nodeService.echoCount)")
                 }
 
+                // Reset de cache (« sortir du labo », doc reset-cache-app §5).
+                // Boutons ACTIFS uniquement nœud arrêté/en erreur (sinon .db
+                // ouvertes → corruption). Chacun derrière une confirmation ;
+                // l'usine change le node_id (destructif).
+                Section("Reset (sortie labo)") {
+                    Button(role: .destructive) {
+                        confirmNetworkReset = true
+                    } label: {
+                        Label("Oublier le réseau", systemImage: "arrow.counterclockwise")
+                    }
+                    .disabled(!canReset)
+
+                    Button(role: .destructive) {
+                        confirmFactoryReset = true
+                    } label: {
+                        Label("Réinitialisation usine (nouveau node_id)", systemImage: "trash")
+                    }
+                    .disabled(!canReset)
+
+                    if !canReset {
+                        Text("Arrêter le nœud pour activer le reset.")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                    }
+                }
+
                 Section("Profile") {
                     SettingsRow(label: "Username", value: nodeService.username)
                 }
@@ -170,6 +204,22 @@ struct SettingsView: View {
                     SettingsRow(label: "Messages", value: "\(nodeService.totalMessagesCount)")
                 }
             }
+        }
+        .confirmationDialog("Oublier le réseau ?", isPresented: $confirmNetworkReset, titleVisibility: .visible) {
+            Button("Oublier le réseau", role: .destructive) {
+                Task { await nodeService.resetNode(level: .network, source: .button) }
+            }
+            Button("Annuler", role: .cancel) {}
+        } message: {
+            Text("Efface topologie, groupes, backup, noms connus. GARDE l'identité et les compteurs. Le nœud reste le même, amnésique.")
+        }
+        .confirmationDialog("Réinitialisation usine ?", isPresented: $confirmFactoryReset, titleVisibility: .visible) {
+            Button("Tout effacer (nouveau node_id)", role: .destructive) {
+                Task { await nodeService.resetNode(level: .factory, source: .button) }
+            }
+            Button("Annuler", role: .cancel) {}
+        } message: {
+            Text("Efface AUSSI l'identité et les compteurs. Au prochain démarrage, le nœud aura un node_id NEUF (nouveau contact jamais vu).")
         }
     }
 

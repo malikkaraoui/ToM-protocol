@@ -299,7 +299,15 @@ fn spawn_status_server(
 ///   POST /group/create?name=<n>&members=<id,id>  → crée un groupe (hub = soi)
 ///   POST /group/send?group=<gid>&size=<n>        → message de n octets au groupe
 ///   POST /stop                           → arrêt propre du nœud (process exit)
-fn spawn_control_server(port: u16, handle: RuntimeHandle, inbox: Inbox) {
+fn spawn_control_server(
+    port: u16,
+    handle: RuntimeHandle,
+    inbox: Inbox,
+    // Reset de cache (doc reset-cache-app §5) : le control server doit connaître
+    // les chemins à effacer. `None` = éphémère (rien à effacer pour ce niveau).
+    data_dir: Option<std::path::PathBuf>,
+    key_path: Option<std::path::PathBuf>,
+) {
     tokio::spawn(async move {
         let listener = match tokio::net::TcpListener::bind(format!("0.0.0.0:{port}")).await {
             Ok(l) => l,
@@ -314,6 +322,8 @@ fn spawn_control_server(port: u16, handle: RuntimeHandle, inbox: Inbox) {
             let Ok((mut stream, _)) = listener.accept().await else { continue };
             let handle = handle.clone();
             let inbox = inbox.clone();
+            let data_dir = data_dir.clone();
+            let key_path = key_path.clone();
             tokio::spawn(async move {
                 use tokio::io::{AsyncReadExt, AsyncWriteExt};
                 let mut buf = vec![0u8; 8192];
@@ -497,6 +507,43 @@ fn spawn_control_server(port: u16, handle: RuntimeHandle, inbox: Inbox) {
                         handle.save_now().await;
                         handle.shutdown().await;
                         let resp = "HTTP/1.1 200 OK\r\nContent-Length: 20\r\n\r\n{\"ok\":true,\"stop\":1}";
+                        let _ = stream.write_all(resp.as_bytes()).await;
+                        std::process::exit(0);
+                    }
+                    "/reset" => {
+                        // Reset de cache (doc reset-cache-app §5, NAS = process
+                        // unique + systemd Restart=always). Séquence sûre : flush
+                        // → shutdown → effacer le data_dir (+ clé si factory) →
+                        // répondre → exit(0) → systemd relance VIERGE. Défaut sûr :
+                        // level absent ⇒ network. `factory` change le node_id
+                        // (nouvelle identité au redémarrage).
+                        let level = q("level").unwrap_or_else(|| "network".to_string());
+                        let factory = level == "factory";
+                        eprintln!(
+                            "{{\"event\":\"reset_api\",\"detail\":\"level={level} source=api\"}}"
+                        );
+                        handle.save_now().await;
+                        handle.shutdown().await;
+                        // Efface le CONTENU du data_dir (les .db) en gardant le dossier.
+                        if let Some(ref dir) = data_dir {
+                            if let Ok(entries) = std::fs::read_dir(dir) {
+                                for entry in entries.flatten() {
+                                    let _ = std::fs::remove_file(entry.path());
+                                }
+                            }
+                        }
+                        // Usine : efface aussi la clé d'identité → node_id neuf.
+                        if factory {
+                            if let Some(ref key) = key_path {
+                                let _ = std::fs::remove_file(key);
+                            }
+                        }
+                        let body = format!("{{\"ok\":true,\"level\":\"{level}\",\"reset\":1}}");
+                        let resp = format!(
+                            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n{}",
+                            body.len(),
+                            body
+                        );
                         let _ = stream.write_all(resp.as_bytes()).await;
                         std::process::exit(0);
                     }
@@ -890,7 +937,13 @@ async fn main() -> anyhow::Result<()> {
     let inbox: Inbox = Arc::new(Mutex::new(VecDeque::new()));
 
     if let Some(port) = cli.control_port {
-        spawn_control_server(port, handle.clone(), inbox.clone());
+        spawn_control_server(
+            port,
+            handle.clone(),
+            inbox.clone(),
+            cli.data_dir.clone(),
+            cli.key_path.clone(),
+        );
     }
 
     if cli.bot {

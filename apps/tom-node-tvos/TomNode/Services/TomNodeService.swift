@@ -800,6 +800,102 @@ final class TomNodeService: ObservableObject {
         }
     }
 
+    // MARK: - Reset de cache (« sortir du labo »)
+
+    /// Niveau de reset (doc reset-cache-app-sortie-labo §2).
+    enum ResetLevel: String {
+        /// Oublier le réseau : efface topologie/groupes/backup/BG-cache/noms,
+        /// GARDE identité + compteurs (même nœud, amnésique).
+        case network
+        /// Réinitialisation usine : efface AUSSI l'identité + les compteurs →
+        /// node_id neuf au prochain démarrage (vrai « nouveau contact »).
+        case factory
+    }
+
+    /// Origine du reset — n'affecte QUE le traqueur, jamais l'effet (doc §5).
+    enum ResetSource: String { case button, api }
+
+    /// Efface l'état de l'app selon `level`. Invariant de sûreté (doc §4,
+    /// finding sécurité #4) : les .db SQLite sont ouvertes tant que le runtime
+    /// tourne, et le teardown FFI est DÉTACHÉ (`stop()` flippe l'UI mais
+    /// backgrounde `node.stop()`). Effacer juste après `stop()` = course avec la
+    /// fermeture SQLite → corruption. On rend donc la fonction async et on
+    /// **attend le teardown réel** (`await node.stop()`, idempotent) AVANT
+    /// d'effacer.
+    ///
+    /// Le traqueur est émis AVANT l'effacement (l'export UDP meurt avec le nœud —
+    /// leçon 17/07 ; :9091/os.log restent juges).
+    @discardableResult
+    func resetNode(level: ResetLevel, source: ResetSource) async -> String {
+        switch (level, source) {
+        case (.network, .button):
+            appendLog(.warning, "👆 BOUTON Oublier-réseau pressé (utilisateur)")
+        case (.factory, .button):
+            appendLog(.warning, "👆 BOUTON Reset-usine pressé (utilisateur)")
+        case (_, .api):
+            appendLog(.warning, "🤖 API reset (\(level.rawValue)) — source=api")
+        }
+
+        // Sûreté #4 : n'effacer que nœud VRAIMENT arrêté. `stop()` flippe l'UI ;
+        // `await node.stop()` garantit que le teardown (fermeture des .db) est
+        // terminé avant l'effacement — pas seulement l'intention d'arrêt.
+        if state == .running || state == .starting {
+            stop()
+        }
+        await node.stop()
+
+        eraseNetworkState()
+        if level == .factory {
+            eraseIdentityAndCounters()
+        }
+
+        appendLog(.info, "Reset \(level.rawValue) terminé (source=\(source.rawValue))")
+        return "reset \(level.rawValue) ok"
+    }
+
+    /// Efface l'état RÉSEAU (les deux niveaux) : contenu de `data_dir` (les .db
+    /// SQLite : state/hub_history/member_seq/backup) + les caches UserDefaults
+    /// de re-seed et de noms + le tracker de messages en cours (doc §8 Q2 :
+    /// un statut « en cours » vers un pair oublié n'a plus de sens).
+    private func eraseNetworkState() {
+        // Contenu du data_dir Rust (garde le dossier, efface les .db).
+        if let dir = dataDir {
+            let fm = FileManager.default
+            if let entries = try? fm.contentsOfDirectory(atPath: dir) {
+                for entry in entries {
+                    try? fm.removeItem(atPath: (dir as NSString).appendingPathComponent(entry))
+                }
+            }
+        }
+        // Caches UserDefaults réseau.
+        let d = UserDefaults.standard
+        d.removeObject(forKey: Self.cachedPeerKey)
+        d.removeObject(forKey: Self.knownNamesKey)
+        // État en mémoire (le nœud est arrêté, ces champs sont sûrs à vider).
+        knownNames.removeAll()
+        messages.removeAll()
+        discoveredPeers.removeAll()
+        connectedPeers.removeAll()
+        groupInbox.removeAll()
+    }
+
+    /// Efface l'identité + les compteurs cumulés (usine seulement) → node_id neuf
+    /// au prochain `start()`. ⚠️ La clé vit sous `Caches/` (chantier migration
+    /// séparé) : c'est justement l'effet voulu ici (« nouveau nœud »).
+    private func eraseIdentityAndCounters() {
+        if let key = identityPath {
+            try? FileManager.default.removeItem(atPath: key)
+        }
+        let d = UserDefaults.standard
+        d.removeObject(forKey: "tom_total_messages_count")
+        d.removeObject(forKey: "tom_total_messages_sent_count")
+        d.removeObject(forKey: "tom_total_messages_received_count")
+        totalMessagesCount = 0
+        totalMessagesSentCount = 0
+        totalMessagesReceivedCount = 0
+        totalMessagesFailedCount = 0
+    }
+
     // MARK: - Start watchdog (anti état-piège `.starting`)
 
     /// Arme (ou réarme) le watchdog. À échéance, si le nœud est TOUJOURS
@@ -1762,10 +1858,12 @@ final class TomNodeService: ObservableObject {
             return await node.listGroupsJSON()
         case "/invites":
             return await node.pendingInvitesJSON()
-        case "/group/create", "/group/send", "/group/accept":
+        case "/group/create", "/group/send", "/group/accept", "/reset":
             // Écritures = pilotage du nœud : réservé aux builds DEBUG (outil de
             // test R13). Les builds release n'exposent AUCUN contrôle write sur
             // le LAN (durcissement — cf review sécurité, StatusServer sur 0.0.0.0).
+            // `/reset` est destructif (usine change le node_id) → MÊME gate que
+            // ses voisines, DEBUG-only par construction (doc reset-cache §5).
             #if DEBUG
             return await handleControlWrite(path: path, query: query)
             #else
@@ -1811,6 +1909,19 @@ final class TomNodeService: ObservableObject {
             } catch {
                 return "{\"ok\":false,\"erreur\":\"\(jsonEscape("\(error)"))\"}"
             }
+        case "/reset":
+            // Défaut sûr : level absent ⇒ network (doc §5). Le reset est DÉFÉRÉ
+            // (Task) pour que la réponse HTTP parte AVANT le teardown — `stop()`
+            // arrête le StatusServer, sinon la connexion serait coupée en vol.
+            // L'appelant relance ensuite le nœud (devicectl) et lit le nouveau
+            // node_id sur :9091 (usine).
+            let levelStr = query["level"] ?? "network"
+            let level: ResetLevel = (levelStr == "factory") ? .factory : .network
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 300_000_000) // 0,3 s : flush réponse
+                await self.resetNode(level: level, source: .api)
+            }
+            return "{\"ok\":true,\"level\":\"\(level.rawValue)\",\"deferred\":true}"
         default:
             return "{\"erreur\":\"route inconnue\"}"
         }
