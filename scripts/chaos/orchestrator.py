@@ -31,7 +31,8 @@ NODES = {
     "nas": {"status": "http://192.168.0.83:8085/status", "kind": "nas"},
     "mac": {"status": "http://127.0.0.1:9091/", "kind": "app"},
     "iphone": {"status": "http://192.168.0.28:9091/", "kind": "app"},
-    "atv": {"status": "http://192.168.0.76:9091/", "kind": "app"},
+    "ipad": {"status": "http://192.168.0.23:9091/", "kind": "app"},
+    # ATV retirée le 18/07 soir (Malik regarde la télé) — réintégrer si dispo.
 }
 
 
