@@ -28,6 +28,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 rmp-serde = "1"
 tom-connect = { path = "../tom-connect" }
+tempfile = "3"
 
 [lints]
 workspace = true

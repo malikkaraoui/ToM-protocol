@@ -45,6 +45,9 @@ async fn spawn_node(index: usize) -> anyhow::Result<Slot> {
     let node = TomNode::bind(
         TomNodeConfig::new()
             .n0_discovery(false)
+            // local_discovery (mDNS) est `true` par défaut → sans ce false, un
+            // run local pollue la vraie flotte sur le LAN (fuite mDNS, 18/07).
+            .local_discovery(false)
             .relay_urls(vec![]),
     )
     .await?;

@@ -21,6 +21,7 @@ mod scenario_partition;
 mod scenario_presence;
 mod scenario_presence_attack;
 mod scenario_chaos_monkey;
+mod scenario_invariants;
 mod scenario_presence_storm;
 mod scenario_roles;
 mod scenario_runner;
@@ -191,6 +192,13 @@ enum Command {
         seed: u64,
     },
 
+    /// Invariants scenario: Chaos + chat delivery verification (I1/I2/I3/I5/I8).
+    Invariants {
+        /// RNG seed (reproducible chaos).
+        #[arg(long, default_value = "42")]
+        seed: u64,
+    },
+
     /// Run all 8 protocol scenarios in sequence (e2e, group, backup, failover, roles, chaos, partition, churn).
     Scenarios,
 
@@ -251,6 +259,7 @@ async fn main() -> anyhow::Result<()> {
         Command::PresenceStorm => "presence-storm",
         Command::PresenceAttack => "presence-attack",
         Command::ChaosMonkey { .. } => "chaos-monkey",
+        Command::Invariants { .. } => "invariants",
         Command::Endurance => "endurance",
         Command::Partition => "partition",
         Command::Churn => "churn",
@@ -304,7 +313,7 @@ async fn main() -> anyhow::Result<()> {
 
     // ── Protocol scenarios (spawn their own nodes) ───────────────
     match &cli.command {
-        Command::E2e | Command::Group | Command::Backup | Command::Failover | Command::Roles | Command::Chaos | Command::Endurance | Command::Partition | Command::Churn | Command::Presence | Command::PresenceStorm | Command::PresenceAttack | Command::ChaosMonkey { .. } => {
+        Command::E2e | Command::Group | Command::Backup | Command::Failover | Command::Roles | Command::Chaos | Command::Endurance | Command::Partition | Command::Churn | Command::Presence | Command::PresenceStorm | Command::PresenceAttack | Command::ChaosMonkey { .. } | Command::Invariants { .. } => {
             let result = match cli.command {
                 Command::E2e => scenario_e2e::run().await?,
                 Command::Group => scenario_group::run().await?,
@@ -319,6 +328,7 @@ async fn main() -> anyhow::Result<()> {
                 Command::PresenceStorm => scenario_presence_storm::run().await?,
                 Command::PresenceAttack => scenario_presence_attack::run().await?,
                 Command::ChaosMonkey { seed } => scenario_chaos_monkey::run_with_seed(seed).await?,
+                Command::Invariants { seed } => scenario_invariants::run_with_seed(seed).await?,
                 _ => unreachable!(),
             };
             result.print_summary();
@@ -441,6 +451,7 @@ async fn main() -> anyhow::Result<()> {
         Command::PresenceStorm => unreachable!("handled in the scenario block above"),
         Command::PresenceAttack => unreachable!("handled in the scenario block above"),
         Command::ChaosMonkey { .. } => unreachable!("handled in the scenario block above"),
+        Command::Invariants { .. } => unreachable!("handled in the scenario block above"),
         Command::FleetProbe { .. } => unreachable!("handled in the dispatch block above"),
 
         Command::Ping {
