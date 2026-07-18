@@ -775,8 +775,26 @@ pub(super) async fn runtime_loop(
                     rejoin_pending = false;
                 }
                 if let Some(ref sender) = gossip_sender {
-                    let known_node_ids: Vec<_> =
-                        state.topology.peers().map(|p| p.node_id).collect();
+                    // Anti-ravivage M1 (doc anti-ravivage-fantomes-topologie §M1) :
+                    // appliquer au tick 15 s le MÊME filtre que ses deux frères
+                    // (rejoin NeighborDown loop.rs:632, bootstrap mod.rs:935) —
+                    // ce tick embarquait `topology.peers()` EN ENTIER, redialant
+                    // des centaines de fantômes DHT-rendezvous toutes les 15 s
+                    // (tempête mesurée : 280-1286 pairs). On garde : les pairs vus
+                    // récemment (< REJOIN_RECENT_WINDOW_MS) OU vivants (Online/Stale,
+                    // pour ne JAMAIS lâcher un pair actif — clause anti-famine
+                    // ADR-011), triés par fraîcheur, cappés à REJOIN_MAX_PEERS.
+                    let now = now_ms();
+                    let mut recent: Vec<_> = state.topology.peers()
+                        .filter(|p| now.saturating_sub(p.last_seen) < REJOIN_RECENT_WINDOW_MS
+                            || matches!(p.status, crate::relay::PeerStatus::Online | crate::relay::PeerStatus::Stale))
+                        .map(|p| (p.last_seen, p.node_id))
+                        .collect();
+                    recent.sort_by_key(|(seen, _)| std::cmp::Reverse(*seen));
+                    let known_node_ids: Vec<_> = recent.into_iter()
+                        .take(REJOIN_MAX_PEERS)
+                        .map(|(_, id)| id)
+                        .collect();
                     let known_eids: Vec<_> =
                         known_node_ids.iter().map(|n| *n.as_endpoint_id()).collect::<Vec<_>>();
 

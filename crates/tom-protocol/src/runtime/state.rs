@@ -819,7 +819,13 @@ impl RuntimeState {
         if let Some(peer) = self.topology.get(&announce.node_id) {
             let mut updated_peer = peer.clone();
             updated_peer.role = announce.new_role;
-            updated_peer.last_seen = clamped_last_seen;
+            // Anti-ravivage (wart doc §Wart) : une annonce de rôle ne doit ni
+            // rajeunir (déjà borné par le clamp anti-futur ci-dessus) ni VIEILLIR
+            // un pair. Une vieille annonce relayée porte un timestamp signé plus
+            // ancien que le dernier contact direct → `max` protège la fraîcheur
+            // réelle (sinon le pair paraît plus vieux qu'il ne l'est → filtre M1
+            // pourrait le lâcher à tort).
+            updated_peer.last_seen = peer.last_seen.max(clamped_last_seen);
             self.topology.upsert(updated_peer);
         } else {
             self.topology.upsert(PeerInfo {
@@ -5768,6 +5774,40 @@ mod tests {
             "last_seen doit être clampé à ~now (borne future), pas {}",
             peer.last_seen
         );
+    }
+
+    /// Anti-ravivage (wart) : une vieille annonce de rôle relayée ne doit JAMAIS
+    /// VIEILLIR un pair déjà vu plus récemment (sinon le filtre M1 pourrait le
+    /// lâcher à tort). `last_seen = max(existant, clamp)`.
+    #[test]
+    fn handle_role_announce_never_ages_a_fresher_peer() {
+        use crate::discovery::RoleChangeAnnounce;
+
+        let mut state = default_state(1);
+        let (remote, remote_seed) = keypair(2);
+        let now = now_ms();
+
+        // Le pair est vu FRAIS (last_seen = now).
+        state.topology.upsert(PeerInfo {
+            node_id: remote,
+            role: PeerRole::Peer,
+            status: PeerStatus::Online,
+            last_seen: now,
+        });
+
+        // Une annonce de rôle avec un timestamp ANCIEN (vieille annonce relayée).
+        let old_ts = now.saturating_sub(10 * 60 * 1000); // 10 min plus vieux
+        let announce = RoleChangeAnnounce::new(remote, PeerRole::Relay, 9.0, old_ts, &remote_seed);
+        let _ = state.handle_role_announce(announce);
+
+        let peer = state.topology.get(&remote).expect("peer in topology");
+        assert!(
+            peer.last_seen >= now,
+            "une vieille annonce ne doit pas rajeunir NI vieillir : last_seen {} < now {}",
+            peer.last_seen,
+            now
+        );
+        assert_eq!(peer.role, PeerRole::Relay, "le rôle, lui, est bien mis à jour");
     }
 
     #[test]

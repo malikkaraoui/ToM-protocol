@@ -120,8 +120,15 @@ annonce relayée ne doit ni rajeunir (déjà le cas) ni VIEILLIR un pair (bug ac
 
 ## Plan de livraison (chaque étape shippable, canari d'abord)
 
-1. **M1 + wart** (petit diff `loop.rs` + `state.rs`, tests unitaires du filtre).
-2. **M2 + M3** (même constante, test de migration sur base polluée réelle).
+1. **M1 + wart — LIVRÉ (build 121, 2026-07-18 nuit).** Filtre d'âge au tick
+   reconnect 15 s (`loop.rs` : `now - last_seen < REJOIN_RECENT_WINDOW_MS` OU
+   `status ∈ {Online, Stale}`, tri fraîcheur, cap `REJOIN_MAX_PEERS=16`) — le
+   tick embarquait `topology.peers()` en entier. Wart : `last_seen =
+   max(existant, clamp)` dans `handle_role_announce` (une vieille annonce ne
+   vieillit plus un pair frais). Test `handle_role_announce_never_ages_a_fresher_peer`.
+   Le filtre du tick = intégration réseau (validé au canari, pas en unit).
+2. **M2 + M3** (même constante `TOPOLOGY_TTL_MS=24h`, purge base save/load +
+   éviction mémoire tick 60 s ; test de migration sur base polluée réelle).
 3. Chantier `enable_dht:false` des harnais (indépendant, complémentaire — P3).
 
 ## Questions — TRANCHÉES à la review du 18/07 (Malik)
