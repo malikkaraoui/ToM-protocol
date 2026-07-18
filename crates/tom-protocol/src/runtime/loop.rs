@@ -684,6 +684,13 @@ pub(super) async fn runtime_loop(
 
             // ── 13. Timer: state persistence + metrics update ──
             _ = state_save.tick() => {
+                // Anti-ravivage M3 : éviction proactive douce des identités
+                // non-Online jamais revues depuis TOPOLOGY_TTL_MS (24 h) AVANT
+                // la sauvegarde → la mémoire ET la base restent propres.
+                let evicted = state.topology.evict_stale(now_ms());
+                if evicted > 0 {
+                    tracing::info!(evicted, "anti-ravivage: évincé {evicted} pairs fantômes (>24h)");
+                }
                 state.save_state();
                 metrics.set_groups_count(state.group_manager.group_count() as u64);
                 metrics.set_peers_known(state.topology.len() as u64);

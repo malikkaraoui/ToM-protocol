@@ -167,7 +167,17 @@ impl StateStore {
         let mut stmt = tx.prepare(
             "INSERT INTO peers (node_id, role, status, last_seen) VALUES (?1, ?2, ?3, ?4)",
         )?;
+        // Anti-ravivage M2 : ne PERSISTE pas les fantômes non-Online plus vieux
+        // que TOPOLOGY_TTL_MS (24 h). La base ne peut plus accumuler des milliers
+        // d'identités mortes (scénario « 1286 pairs »). Un Online est toujours
+        // persisté (vivant). now capturé une fois pour la cohérence de la passe.
+        let now = crate::types::now_ms();
         for (nid, info) in peers {
+            if info.status != crate::relay::PeerStatus::Online
+                && now.saturating_sub(info.last_seen) > crate::relay::TOPOLOGY_TTL_MS
+            {
+                continue;
+            }
             let role = match info.role {
                 PeerRole::Peer => "Peer",
                 PeerRole::Relay => "Relay",
@@ -438,6 +448,9 @@ impl StateStore {
             let last_seen: i64 = row.get(3)?;
             Ok((nid, role, status, last_seen))
         })?;
+        // Anti-ravivage M2 (côté load) : now capturé une fois pour écarter les
+        // bases déjà polluées (migration gratuite au premier boot post-patch).
+        let now = crate::types::now_ms();
         for row in rows {
             let (nid, role, status, last_seen) = row?;
             let Ok(node_id) = nid.parse::<NodeId>() else {
@@ -453,6 +466,14 @@ impl StateStore {
                 "Known" => PeerStatus::Known,
                 _ => PeerStatus::Offline, // All peers start offline after restart
             };
+            // Un pair rechargé n'est jamais Online (forcé Offline au restart) :
+            // s'il dépasse le TTL, on l'oublie au chargement (nettoie les bases
+            // existantes sans migration explicite).
+            if status != PeerStatus::Online
+                && now.saturating_sub(last_seen as u64) > crate::relay::TOPOLOGY_TTL_MS
+            {
+                continue;
+            }
             peers.insert(
                 node_id,
                 PeerInfo {
@@ -657,18 +678,23 @@ mod tests {
         let alice = node_id(1);
         let bob = node_id(2);
 
+        // Timestamps RÉCENTS (anti-ravivage M2 : des valeurs epoch seraient
+        // élaguées comme fantômes > 24 h — ce test vérifie la fidélité du
+        // round-trip, pas la rétention d'anciens pairs).
+        let now = crate::types::now_ms();
+        let bob_seen = now - 10_000;
         let mut peers = HashMap::new();
         peers.insert(alice, PeerInfo {
             node_id: alice,
             role: PeerRole::Relay,
             status: PeerStatus::Online,
-            last_seen: 99000,
+            last_seen: now - 5_000,
         });
         peers.insert(bob, PeerInfo {
             node_id: bob,
             role: PeerRole::Peer,
             status: PeerStatus::Stale,
-            last_seen: 88000,
+            last_seen: bob_seen,
         });
 
         let snapshot = StateSnapshot { peers, ..Default::default() };
@@ -677,8 +703,43 @@ mod tests {
 
         assert_eq!(loaded.peers.len(), 2);
         assert_eq!(loaded.peers[&alice].role, PeerRole::Relay);
-        // After restart, Online peers become Offline
-        assert_eq!(loaded.peers[&bob].last_seen, 88000);
+        assert_eq!(loaded.peers[&bob].last_seen, bob_seen);
+    }
+
+    /// Anti-ravivage M2 : une base polluée (fantômes non-Online > 24 h) est
+    /// nettoyée à la SAUVEGARDE et au CHARGEMENT — les fantômes ne survivent pas
+    /// au round-trip, les pairs frais et les Online sont conservés.
+    #[test]
+    fn m2_stale_ghosts_pruned_on_save_and_load() {
+        let store = StateStore::open_memory().unwrap();
+        let now = crate::types::now_ms();
+        let fresh = node_id(1);
+        let ghost = node_id(2);
+        let online_old = node_id(3);
+
+        let mut peers = HashMap::new();
+        // Pair frais (vu il y a 1 h, non-Online) → conservé.
+        peers.insert(fresh, PeerInfo {
+            node_id: fresh, role: PeerRole::Peer, status: PeerStatus::Stale,
+            last_seen: now - 60 * 60 * 1000,
+        });
+        // Fantôme (Offline, vu il y a 25 h) → élagué.
+        peers.insert(ghost, PeerInfo {
+            node_id: ghost, role: PeerRole::Peer, status: PeerStatus::Offline,
+            last_seen: now - 25 * 60 * 60 * 1000,
+        });
+        // Online très vieux → conservé (vivant au moment du save).
+        peers.insert(online_old, PeerInfo {
+            node_id: online_old, role: PeerRole::Relay, status: PeerStatus::Online,
+            last_seen: now - 48 * 60 * 60 * 1000,
+        });
+
+        store.save(&StateSnapshot { peers, ..Default::default() }).unwrap();
+        let loaded = store.load().unwrap();
+
+        assert!(loaded.peers.contains_key(&fresh), "pair frais conservé");
+        assert!(!loaded.peers.contains_key(&ghost), "fantôme > 24 h élagué");
+        assert!(loaded.peers.contains_key(&online_old), "Online conservé au save");
     }
 
     #[test]

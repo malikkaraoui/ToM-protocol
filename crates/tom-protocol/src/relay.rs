@@ -12,6 +12,14 @@ pub const MAX_RELAY_DEPTH: usize = 4;
 /// Maximum tracked peers in topology (memory exhaustion protection, R11.2).
 pub const MAX_PEERS: usize = 10_000;
 
+/// TTL d'oubli d'une identité de topologie (anti-ravivage M2/M3, doc validée
+/// Malik 18/07 : **24 h strict** — « rien ne survit 24 h », cohérent avec la
+/// décision #2, messages traités comme métadonnées). Un pair non-`Online` dont
+/// `now - last_seen > TOPOLOGY_TTL_MS` est écarté à la sauvegarde ET au chargement
+/// de la base (M2), et évincé de la mémoire au tick 60 s (M3). Un appareil absent
+/// > 24 h revient par re-découverte (rendez-vous ADR-010 ~60 s, mDNS en LAN).
+pub const TOPOLOGY_TTL_MS: u64 = 24 * 60 * 60 * 1_000;
+
 /// Staleness threshold for Online peers (presence/L1-003 hardening, Faille 1).
 ///
 /// A peer promoted to `Online` via quorum L1-003 (or any other means) remains
@@ -110,6 +118,20 @@ impl Topology {
     /// Remove a peer.
     pub fn remove(&mut self, node_id: &NodeId) {
         self.peers.remove(node_id);
+    }
+
+    /// Anti-ravivage M3 — éviction proactive douce : retire les pairs NON-`Online`
+    /// dont `now - last_seen > TOPOLOGY_TTL_MS` (identités jamais revues depuis
+    /// 24 h). On ne touche JAMAIS un pair `Online` (vivant, prouvé) — décision #4
+    /// (fade, pas de ban) : ce n'est pas une exclusion, juste de l'oubli d'adresses
+    /// mortes ; un pair re-vu est re-découvert par les canaux normaux. Retourne le
+    /// nombre de pairs évincés (observabilité). `MAX_PEERS` reste le garde-fou dur.
+    pub fn evict_stale(&mut self, now: u64) -> usize {
+        let before = self.peers.len();
+        self.peers.retain(|_, p| {
+            p.status == PeerStatus::Online || now.saturating_sub(p.last_seen) <= TOPOLOGY_TTL_MS
+        });
+        before - self.peers.len()
     }
 
     /// Get info for a specific peer.
@@ -352,6 +374,57 @@ mod tests {
         topo.upsert(info);
         topo.remove(&id);
         assert!(topo.is_empty());
+    }
+
+    /// Anti-ravivage M3 : `evict_stale` retire les fantômes non-Online > 24 h,
+    /// garde les Online (même très vieux) et les non-Online récents.
+    #[test]
+    fn topology_evict_stale_removes_only_old_non_online() {
+        let mut topo = Topology::new();
+        let now = 1_000_000_000_000u64;
+
+        // Fantôme : Offline, vu il y a 25 h → évincé.
+        topo.upsert(PeerInfo {
+            node_id: node_id(1),
+            role: PeerRole::Peer,
+            status: PeerStatus::Offline,
+            last_seen: now - 25 * 60 * 60 * 1000,
+        });
+        // Online très vieux → GARDÉ (vivant, jamais évincé, décision #4).
+        topo.upsert(PeerInfo {
+            node_id: node_id(2),
+            role: PeerRole::Relay,
+            status: PeerStatus::Online,
+            last_seen: now - 48 * 60 * 60 * 1000,
+        });
+        // Offline récent (1 h) → GARDÉ (sous le TTL).
+        topo.upsert(PeerInfo {
+            node_id: node_id(3),
+            role: PeerRole::Peer,
+            status: PeerStatus::Offline,
+            last_seen: now - 60 * 60 * 1000,
+        });
+
+        let evicted = topo.evict_stale(now);
+        assert_eq!(evicted, 1, "seul le fantôme > 24 h non-Online est évincé");
+        assert!(topo.get(&node_id(1)).is_none(), "fantôme évincé");
+        assert!(topo.get(&node_id(2)).is_some(), "Online gardé même très vieux");
+        assert!(topo.get(&node_id(3)).is_some(), "Offline récent gardé");
+    }
+
+    /// Anti-ravivage : horloge qui recule → saturating_sub, aucun évincement à tort.
+    #[test]
+    fn topology_evict_stale_clock_rewind_safe() {
+        let mut topo = Topology::new();
+        topo.upsert(PeerInfo {
+            node_id: node_id(1),
+            role: PeerRole::Peer,
+            status: PeerStatus::Offline,
+            last_seen: 5_000_000,
+        });
+        // now < last_seen : saturating_sub = 0 → jamais > TTL → gardé.
+        assert_eq!(topo.evict_stale(1_000_000), 0);
+        assert!(topo.get(&node_id(1)).is_some());
     }
 
     // Distinct NodeId from a u64 seed (u8 helper only spans 256 ids; the

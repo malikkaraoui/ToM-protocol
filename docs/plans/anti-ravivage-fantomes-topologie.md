@@ -127,8 +127,14 @@ annonce relayée ne doit ni rajeunir (déjà le cas) ni VIEILLIR un pair (bug ac
    max(existant, clamp)` dans `handle_role_announce` (une vieille annonce ne
    vieillit plus un pair frais). Test `handle_role_announce_never_ages_a_fresher_peer`.
    Le filtre du tick = intégration réseau (validé au canari, pas en unit).
-2. **M2 + M3** (même constante `TOPOLOGY_TTL_MS=24h`, purge base save/load +
-   éviction mémoire tick 60 s ; test de migration sur base polluée réelle).
+2. **M2 + M3 — LIVRÉ (build 122, 2026-07-18 nuit).** Constante partagée
+   `relay::TOPOLOGY_TTL_MS = 24 h`. **M2** (`storage/mod.rs`) : élague les pairs
+   non-Online `> TTL` à la SAUVEGARDE et au CHARGEMENT (migration gratuite des
+   bases polluées au 1er boot) — test `m2_stale_ghosts_pruned_on_save_and_load`.
+   **M3** (`Topology::evict_stale`, appelé au tick 60 s state_save `loop.rs`) :
+   éviction mémoire douce des non-Online `> TTL`, JAMAIS un Online (décision #4) —
+   tests `topology_evict_stale_*` (dont clock-rewind). `MAX_PEERS=10_000` reste le
+   garde-fou dur. Le scénario « 1286 pairs » est désormais impossible en régime.
 3. Chantier `enable_dht:false` des harnais (indépendant, complémentaire — P3).
 
 ## Questions — TRANCHÉES à la review du 18/07 (Malik)
