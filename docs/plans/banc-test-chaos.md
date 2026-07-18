@@ -1,5 +1,8 @@
 # Banc de test chaos ToM — « le test qui doit passer »
 
+> 🏃 **Pour LANCER les tests (routine reproductible, tout LLM) → `docs/plans/RUNBOOK-TESTS.md`.**
+> Ce document-ci décrit le POURQUOI (invariants, scénarios, conception) ; le runbook décrit le COMMENT.
+
 > Statut : **PROPOSITION de conception — à valider avant de coder l'orchestrateur.** Design-first.
 > Origine : constat Malik (18/07) — « nos campagnes valident l'envoi/réception + quelques
 > chronos, c'est trop peu ». Objectif : un banc qui **injecte des fautes réelles** et **vérifie
