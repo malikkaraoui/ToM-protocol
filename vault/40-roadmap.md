@@ -62,6 +62,21 @@
 
 ## Sur le feu
 
+### ✅ Boucle nuit 2026-07-18 — 9 chantiers LIVRÉS (builds 117→125)
+> Détail complet : `vault/30-discoveries.md` (2026-07-18 nuit) + mémoire `tom-night-loop-2026-07-18`.
+> Tous poussés, gate+FFI+CI verts, hot-path (P0-1, M1) reviewés indépendamment.
+- ✅ **Transparence TEST-*** (117) : marquer les nœuds de test au lieu de les isoler (badges,
+  jamais cible, event collecteur `pair_test_trouve`).
+- ✅ **Orchestrateur étage F** (`scripts/chaos/orchestrator.py`) + **compteur `echoues` honnête** (118).
+- ✅ **P0-1 binding PeerAnnounce** (119) : Online seulement si signé ET `node_id==from`.
+- ✅ **M1 re-dial présence-attestée+chemin-mort** (120) : ferme le finding T1 (ATV aveugle 90 s).
+- ✅ **Anti-ravivage complet** M1+wart (121) + M2+M3 (122) : filtre rejoin 15 s + TTL base 24 h +
+  éviction mémoire. Le scénario « 1286 pairs » devient impossible (validé terrain : topologie STABLE).
+- ✅ **sanitize username** ingest gossip/direct (123) ; **P3** `--isolated` coupe le rendez-vous DHT (124).
+- ✅ **Reset de cache** (125) : bouton Settings + API `/reset` partout (2 niveaux, DEBUG-gated).
+- **Reste** : M2/M3+P0-1+M1 sur le parc au prochain rebuild XCFramework (défensifs) ; recette
+  terrain reset §6.2 ; migration identité Caches→AppSupport ; **roadmap R14 (IPv6) / R15 (annuaire)**.
+
 ### 🟠 Auto-guérison du nœud malade (Swift, petit chantier)
 > Constat ATV 17/07 17h : grâce à l'armure FFI, un nœud au runtime cassé ne gèle plus l'app (logs vivants, envois en -1 propre)… mais il reste malade indéfiniment jusqu'à un restart manuel. Détecteur à ajouter côté service : « 0 pair connecté + envois en échec + découverte active depuis X min » → forceReset + start automatique (avec backoff). Signaux déjà disponibles dans TomNodeService. Au passage : harnais de test Rust → `enable_dht:false` (pollution du rendez-vous par identités fantômes « timing »/« 101e444c »).
 

@@ -1,9 +1,18 @@
 # Reset de cache in-app — « sortir du laboratoire »
 
-> Statut : **PROPOSITION — en attente de validation avant code.** Chantier app + outillage
-> (pas de protocole LOCKED touché). Priorité arbitrée (Malik 18/07) : **après P0-1**, avant
-> le re-dial M1. Migration d'identité Caches → Application Support = **chantier séparé, juste
-> après** (ne PAS mélanger ici).
+> Statut : **✅ LIVRÉ (build 125, 2026-07-18 nuit, commit `5a4c16a`), déployé sur la flotte
+> (Mac/iPhone/iPad/NAS).** Chantier app + outillage (pas de protocole LOCKED touché).
+> Migration d'identité Caches → Application Support = **chantier séparé, encore à faire**.
+>
+> **Ce qui a été livré** (conforme §5) : `TomNodeService.resetNode(level:source:) async` +
+> helpers `eraseNetworkState`/`eraseIdentityAndCounters` ; 2 boutons `SettingsView` (section
+> « Reset (sortie labo) », actifs seulement `state ∈ {stopped,error}`, `confirmationDialog`) ;
+> route `/reset?level=network|factory` :9091 **gated `#if DEBUG`** (case commun à `/group/*` →
+> `handleControlWrite`) ; route NAS `/reset` :9300 (flush→shutdown→efface→exit, systemd relance).
+> **Bug de sûreté #4 attrapé en self-review et corrigé** : `stop()` détache le teardown FFI →
+> effacer juste après = course SQLite ; `resetNode` async attend `await node.stop()` avant
+> d'effacer. **Reste à faire** : recette terrain §6.2 (première prise de contact réelle : deux
+> nœuds reset usine, A saisit le node_id de B et écrit sans état partagé) — à mener au canari.
 
 ## 1. Intention (mot de Malik)
 
