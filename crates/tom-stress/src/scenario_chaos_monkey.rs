@@ -54,7 +54,7 @@ async fn spawn_node(index: usize) -> anyhow::Result<Slot> {
     let id = node.id();
     let addr = node.addr();
     let cfg = RuntimeConfig {
-        username: format!("chaos-{index}"),
+        username: format!("{}chaos-{index}", tom_protocol::TEST_NODE_PREFIX),
         encryption: false,
         enable_dht: false, // red-team: never pollute the shared DHT rendezvous
         presence_contribution_min: 0.0,

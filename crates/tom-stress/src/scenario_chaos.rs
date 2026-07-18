@@ -36,17 +36,17 @@ pub async fn run() -> anyhow::Result<ScenarioResult> {
     eprintln!("Node C: {id_c}");
 
     let config_a = RuntimeConfig {
-        username: "chaos-alice".into(),
+        username: format!("{}chaos-alice", tom_protocol::TEST_NODE_PREFIX),
         encryption: true,
         ..Default::default()
     };
     let config_b = RuntimeConfig {
-        username: "chaos-bob".into(),
+        username: format!("{}chaos-bob", tom_protocol::TEST_NODE_PREFIX),
         encryption: true,
         ..Default::default()
     };
     let config_c = RuntimeConfig {
-        username: "chaos-charlie".into(),
+        username: format!("{}chaos-charlie", tom_protocol::TEST_NODE_PREFIX),
         encryption: true,
         ..Default::default()
     };

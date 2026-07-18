@@ -1141,6 +1141,17 @@ fn handle_incoming(app: &mut App, msg: &DeliveredMessage) {
 fn handle_protocol_event(app: &mut App, event: &ProtocolEvent) {
     match event {
         ProtocolEvent::PeerDiscovered { node_id, username, source, .. } => {
+            // Transparence : les nœuds de test (préfixe TEST-) sont affichés
+            // comme éphémères et ne deviennent JAMAIS le pair auto-connecté.
+            if tom_protocol::is_test_node_username(username) {
+                app.add_system_message(format!(
+                    "Nœud de test éphémère: {} \"{}\" (via {:?}) — ignoré comme cible",
+                    short_node_id(node_id),
+                    username,
+                    source
+                ));
+                return;
+            }
             app.add_system_message(format!(
                 "Peer discovered: {} \"{}\" (via {:?})",
                 short_node_id(node_id),
@@ -1504,8 +1515,15 @@ async fn run_size_ramp(ctx: Arc<BotContext>, handle: RuntimeHandle, target: Node
 fn handle_bot_event(ctx: &BotContext, event: &ProtocolEvent) {
     match event {
         ProtocolEvent::PeerDiscovered { node_id, username, source, .. } => {
+            // Transparence : événement distinct pour les nœuds de test (TEST-*),
+            // visible tel quel dans le collecteur :9999.
+            let event_name = if tom_protocol::is_test_node_username(username) {
+                "pair_test_trouve"
+            } else {
+                "pair_trouve"
+            };
             ctx.log_event_sourced(
-                "pair_trouve",
+                event_name,
                 &format!("{} \"{}\"", short_node_id(node_id), username),
                 Some(discovery_source_str(source)),
             );
@@ -1578,6 +1596,8 @@ fn handle_bot_event(ctx: &BotContext, event: &ProtocolEvent) {
 /// Returns `Some(node_id)` if:
 /// - no target is set yet (`current_target` is `None`)
 /// - the discovered peer has a non-empty username (real ToM peer, not anonymous n0/Pkarr)
+/// - the username is NOT a test node (`TEST-*` prefix, transparence 2026-07-18):
+///   a real node must never lock its ping target onto an ephemeral test node.
 ///
 /// This is the regression-critical logic: anonymous peers MUST be skipped.
 fn select_ping_target(
@@ -1588,7 +1608,7 @@ fn select_ping_target(
         return None; // already locked
     }
     if let ProtocolEvent::PeerDiscovered { node_id, username, .. } = event {
-        if !username.is_empty() {
+        if !username.is_empty() && !tom_protocol::is_test_node_username(username) {
             return Some(*node_id);
         }
     }
@@ -1790,6 +1810,24 @@ mod tests {
         let event = make_peer_discovered(named_id, "nas-publisher");
         let result = select_ping_target(None, &event);
         assert_eq!(result, Some(named_id), "named peer must be selected");
+    }
+
+    /// Transparence : un nœud de test (TEST-*) ne doit JAMAIS devenir la cible
+    /// ping d'un vrai nœud, même s'il est nommé et découvert en premier.
+    #[test]
+    fn bot_ping_skips_test_node() {
+        let test_id = random_node_id();
+        let real_id = random_node_id();
+
+        let test_event = make_peer_discovered(test_id, "TEST-invariants-0");
+        assert!(
+            select_ping_target(None, &test_event).is_none(),
+            "TEST-* node must never be selected as ping target"
+        );
+
+        // Un vrai pair arrivant ensuite doit être sélectionné normalement.
+        let real_event = make_peer_discovered(real_id, "nas-publisher");
+        assert_eq!(select_ping_target(None, &real_event), Some(real_id));
     }
 
     /// Once a target is locked, subsequent peers (even named) must be ignored.

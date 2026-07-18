@@ -160,8 +160,13 @@ struct SendMessageSheet: View {
                             Button(action: { targetPeerId = peer.nodeId }) {
                                 HStack {
                                     VStack(alignment: .leading) {
-                                        Text(peer.displayName)
+                                        Text(peer.isTestNode ? "🧪 \(peer.displayName)" : peer.displayName)
                                             .font(.body)
+                                        if peer.isTestNode {
+                                            Text("nœud de test éphémère")
+                                                .font(.caption2)
+                                                .foregroundColor(.orange)
+                                        }
                                         Text(peer.shortId)
                                             .font(.system(.caption2, design: .monospaced))
                                             .foregroundColor(.secondary)

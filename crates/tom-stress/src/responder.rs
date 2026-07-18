@@ -41,7 +41,7 @@ pub async fn run(config: ResponderConfig) -> anyhow::Result<()> {
     eprintln!("Waiting for connections...\n");
 
     let runtime_config = RuntimeConfig {
-        username: config.name.clone(),
+        username: format!("{}{}", tom_protocol::TEST_NODE_PREFIX, config.name),
         encryption: true,
         data_dir: config.data_dir.map(std::path::PathBuf::from),
         ..Default::default()

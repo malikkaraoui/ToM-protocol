@@ -212,7 +212,7 @@ pub async fn run(config: CampaignConfig) -> anyhow::Result<()> {
     eprintln!();
 
     let runtime_config = RuntimeConfig {
-        username: config.name.clone(),
+        username: format!("{}{}", tom_protocol::TEST_NODE_PREFIX, config.name),
         encryption: true,
         data_dir: config.data_dir.as_ref().map(std::path::PathBuf::from),
         ..Default::default()

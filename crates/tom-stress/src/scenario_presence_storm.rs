@@ -47,7 +47,7 @@ pub async fn run() -> anyhow::Result<ScenarioResult> {
         ids.push(node.id());
         addrs.push(node.addr());
         let cfg = RuntimeConfig {
-            username: format!("storm-{i}"),
+            username: format!("{}storm-{i}", tom_protocol::TEST_NODE_PREFIX),
             encryption: false,
             enable_dht: false, // red-team: never pollute the shared DHT rendezvous
             presence_contribution_min: 0.0,

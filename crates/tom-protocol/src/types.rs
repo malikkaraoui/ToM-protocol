@@ -79,9 +79,32 @@ pub const MAX_TTL: u32 = 4;
 /// Default TTL for new envelopes.
 pub const DEFAULT_TTL: u32 = 4;
 
+/// Préfixe de username des nœuds de test (transparence, décision 2026-07-18).
+///
+/// Tout nœud spawné par un harnais (tom-stress : invariants, chaos, storm…)
+/// DOIT porter ce préfixe. Les vrais nœuds les affichent comme « nœud de test
+/// éphémère » et ne les choisissent JAMAIS comme cible automatique (ping,
+/// auto-connect). On ne cherche plus l'herméticité parfaite : on marque, on
+/// liste, on avertit. Registre : docs/plans/banc-test-chaos.md.
+pub const TEST_NODE_PREFIX: &str = "TEST-";
+
+/// Vrai si ce username désigne un nœud de test éphémère (préfixe `TEST-`).
+pub fn is_test_node_username(username: &str) -> bool {
+    username.starts_with(TEST_NODE_PREFIX)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_test_node_username_detection() {
+        assert!(is_test_node_username("TEST-invariants-0"));
+        assert!(is_test_node_username("TEST-chaos-alice"));
+        assert!(!is_test_node_username("iPhone"));
+        assert!(!is_test_node_username("test-minuscule")); // préfixe strict, casse comprise
+        assert!(!is_test_node_username(""));
+    }
 
     #[test]
     fn test_message_type_roundtrip_msgpack() {

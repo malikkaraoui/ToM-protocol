@@ -33,15 +33,15 @@ pub async fn run() -> anyhow::Result<ScenarioResult> {
     eprintln!("Hub   : {id_hub}");
 
     let config_a = RuntimeConfig {
-        username: "alice".into(),
+        username: format!("{}alice", tom_protocol::TEST_NODE_PREFIX),
         ..Default::default()
     };
     let config_b = RuntimeConfig {
-        username: "bob".into(),
+        username: format!("{}bob", tom_protocol::TEST_NODE_PREFIX),
         ..Default::default()
     };
     let config_hub = RuntimeConfig {
-        username: "hub-relay".into(),
+        username: format!("{}hub-relay", tom_protocol::TEST_NODE_PREFIX),
         ..Default::default()
     };
 

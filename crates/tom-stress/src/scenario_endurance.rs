@@ -96,7 +96,7 @@ async fn spawn_node(label: &str, username: &str) -> anyhow::Result<(ManagedNode,
     let id = node.id();
     let addr = node.addr();
     let config = RuntimeConfig {
-        username: username.into(),
+        username: format!("{}{}", tom_protocol::TEST_NODE_PREFIX, username),
         encryption: true,
         ..Default::default()
     };
@@ -313,7 +313,7 @@ pub async fn run() -> anyhow::Result<ScenarioResult> {
                 let new_node = TomNode::bind(TomNodeConfig::new().n0_discovery(false)).await
                     .map_err(|e| format!("spawn failed: {e}"))?;
                 let new_config = RuntimeConfig {
-                    username: format!("{}-restarted", churn_label),
+                    username: format!("{}{}-restarted", tom_protocol::TEST_NODE_PREFIX, churn_label),
                     encryption: true,
                     ..Default::default()
                 };

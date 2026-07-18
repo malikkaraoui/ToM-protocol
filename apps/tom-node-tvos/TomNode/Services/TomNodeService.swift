@@ -367,12 +367,21 @@ final class TomNodeService: ObservableObject {
         return nil
     }
 
+    /// Préfixe de username des nœuds de test éphémères (transparence 2026-07-18).
+    /// Miroir Swift de `tom_protocol::TEST_NODE_PREFIX` (Rust) — les deux
+    /// doivent rester identiques. Registre : docs/plans/banc-test-chaos.md.
+    static let testNodePrefix = "TEST-"
+
     func displayName(for nodeId: String) -> String {
         // Résout le nom courant (peut arriver APRÈS un premier affichage sans
         // nom — on ne fige donc pas un fallback dans le cache).
         if let raw = rawUsername(for: nodeId) {
             let pretty = Self.prettifyNames[raw] ?? raw
-            let display = formatName(pretty, nodeId)
+            var display = formatName(pretty, nodeId)
+            // Badge transparence : nœud spawné par un harnais de test (tom-stress).
+            if raw.hasPrefix(Self.testNodePrefix) {
+                display = "🧪 \(display) (test éphémère)"
+            }
             if knownNames[nodeId] != display {
                 knownNames[nodeId] = display
                 savePersistentNames()
@@ -1907,4 +1916,12 @@ struct ActivityEntry: Identifiable, Equatable {
     static func == (lhs: ActivityEntry, rhs: ActivityEntry) -> Bool {
         lhs.id == rhs.id
     }
+}
+
+// MARK: - Transparence nœuds de test
+
+extension TomPeer {
+    /// Nœud de test éphémère spawné par un harnais (tom-stress).
+    /// Détection par préfixe de username — voir `TomNodeService.testNodePrefix`.
+    var isTestNode: Bool { username.hasPrefix(TomNodeService.testNodePrefix) }
 }

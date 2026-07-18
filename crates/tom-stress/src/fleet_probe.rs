@@ -75,7 +75,7 @@ pub async fn run(cfg: FleetProbeConfig) -> anyhow::Result<()> {
     // Gate 0.0 so we accept attestations from any real device; encryption on
     // to match the fleet; auto-probe off (we drive it explicitly).
     let runtime_config = RuntimeConfig {
-        username: "fleet-probe".into(),
+        username: format!("{}fleet-probe", tom_protocol::TEST_NODE_PREFIX),
         encryption: true,
         enable_dht: false, // red-team: never pollute the shared DHT rendezvous
         presence_contribution_min: 0.0,

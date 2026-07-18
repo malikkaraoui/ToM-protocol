@@ -51,4 +51,4 @@ pub use runtime::{
     RuntimeConfig, RuntimeEffect, RuntimeHandle, RuntimeState,
 };
 pub use storage::{StateStore, StateSnapshot};
-pub use types::{now_ms, MessageStatus, MessageType, NodeId};
+pub use types::{is_test_node_username, now_ms, MessageStatus, MessageType, NodeId, TEST_NODE_PREFIX};

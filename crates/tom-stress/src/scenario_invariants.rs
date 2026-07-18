@@ -181,7 +181,7 @@ async fn spawn_node(index: usize, tmpdir: &std::path::Path, tracker: MessageTrac
     let addr = node.addr();
 
     let cfg = RuntimeConfig {
-        username: format!("invariants-{index}"),
+        username: format!("{}invariants-{index}", tom_protocol::TEST_NODE_PREFIX),
         encryption: false,
         enable_dht: false,
         presence_contribution_min: 0.0,

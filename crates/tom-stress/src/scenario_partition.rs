@@ -44,19 +44,19 @@ pub async fn run() -> anyhow::Result<ScenarioResult> {
 
     let channels_a = ProtocolRuntime::spawn(
         node_a,
-        RuntimeConfig { username: "alice".into(), encryption: true, ..Default::default() },
+        RuntimeConfig { username: format!("{}alice", tom_protocol::TEST_NODE_PREFIX), encryption: true, ..Default::default() },
     );
     let mut channels_b = ProtocolRuntime::spawn(
         node_b,
-        RuntimeConfig { username: "bob".into(), encryption: true, ..Default::default() },
+        RuntimeConfig { username: format!("{}bob", tom_protocol::TEST_NODE_PREFIX), encryption: true, ..Default::default() },
     );
     let mut channels_c = ProtocolRuntime::spawn(
         node_c,
-        RuntimeConfig { username: "carol".into(), encryption: true, ..Default::default() },
+        RuntimeConfig { username: format!("{}carol", tom_protocol::TEST_NODE_PREFIX), encryption: true, ..Default::default() },
     );
     let mut channels_d = ProtocolRuntime::spawn(
         node_d,
-        RuntimeConfig { username: "dave".into(), encryption: true, ..Default::default() },
+        RuntimeConfig { username: format!("{}dave", tom_protocol::TEST_NODE_PREFIX), encryption: true, ..Default::default() },
     );
 
     // ── Phase 1: Register intra-group peers only ─────────────────────

@@ -207,3 +207,42 @@ rejouable à l'identique (impératif — cf. le flake 1/256, un chaos non reprod
 Coder l'**étage L** : transformer `scenario_chaos_monkey.rs` (ou un nouveau `scenario_invariants.rs`)
 pour vérifier les 8 invariants durs au lieu du seul « le nœud répond », avec sortie PASS/FAIL par
 invariant et seed reproductible. En CI. TDD (un invariant = un test). Puis on monte vers l'étage F.
+
+## 11. Transparence des nœuds de test — REGISTRE (décision Malik 18/07)
+
+**On n'isole plus, on marque.** L'herméticité parfaite des harnais n'est pas atteignable à coût
+raisonnable (canal résiduel non identifié, cf. incident fantômes `invariants-N` du 18/07) et n'est
+pas nécessaire en phase test : les nœuds de test sont NÔTRES, donc on les **marque**, on les
+**liste**, et les vrais nœuds **avertissent** de leur présence.
+
+### Convention de marquage
+- **Préfixe de username : `TEST-`** — constante partagée `tom_protocol::TEST_NODE_PREFIX`
+  (`crates/tom-protocol/src/types.rs`) + helper `is_test_node_username()`. Miroir Swift :
+  `TomNodeService.testNodePrefix` (les deux DOIVENT rester identiques).
+- **Obligation** : tout harnais qui spawn un `ProtocolRuntime` DOIT préfixer son username via la
+  constante. Aucune exception — même un scénario « local » (l'incident du 18/07 a prouvé que
+  l'isolation annoncée peut fuir).
+
+### Comportement des vrais nœuds face à un `TEST-*`
+| Surface | Comportement |
+|---|---|
+| tom-tui (interactif) | affiché « Nœud de test éphémère … — ignoré comme cible », jamais auto-connecté |
+| tom-tui (bot NAS) | événement collecteur distinct `pair_test_trouve` (au lieu de `pair_trouve`), jamais cible ping (`select_ping_target`) |
+| Apps Swift (iOS/tvOS/macOS) | badge `🧪 Nom (test éphémère)` via `displayName(for:)` + picker Messages (`TomPeer.isTestNode`) |
+
+Le protocole lui-même ne discrimine PAS les nœuds de test (pas de refus de routage — décision #6,
+couche invisible ; c'est de l'affichage et de la sélection de cible, pas du protocole).
+
+### Registre des harnais émetteurs (tom-stress, tous préfixés)
+| Harnais | Usernames émis |
+|---|---|
+| `scenario_invariants.rs` (banc étage L) | `TEST-invariants-{n}` |
+| `scenario_chaos.rs` / `scenario_chaos_monkey.rs` | `TEST-chaos-*` |
+| `scenario_presence_storm.rs` | `TEST-storm-{n}` |
+| `campaign.rs` / `responder.rs` (Mac ↔ NAS) | `TEST-{nom de config}` |
+| `fleet_probe.rs` | `TEST-fleet-probe` |
+| autres scénarios (backup, churn, e2e, failover, group, partition, presence, presence_attack, roles, endurance) | `TEST-alice`, `TEST-bob`, … |
+
+⚠️ Règle d'exécution : le banc `invariants` reste exécutable près de la vraie flotte UNIQUEMENT
+depuis le build où la flotte affiche les badges (build ≥ 117) — avant ça, les nœuds de test
+apparaissent comme des pairs anonymes/fantômes.

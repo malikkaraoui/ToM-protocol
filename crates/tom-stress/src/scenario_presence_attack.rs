@@ -78,7 +78,7 @@ pub async fn run() -> anyhow::Result<ScenarioResult> {
     let channels = ProtocolRuntime::spawn(
         target_node,
         RuntimeConfig {
-            username: "victim".into(),
+            username: format!("{}victim", tom_protocol::TEST_NODE_PREFIX),
             encryption: false,
             enable_dht: false, // red-team: never pollute the shared DHT rendezvous
             presence_contribution_min: 0.0,

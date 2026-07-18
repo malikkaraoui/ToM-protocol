@@ -52,7 +52,7 @@ pub async fn run() -> anyhow::Result<ScenarioResult> {
     eprintln!("Node C (no-evidence):{id_c}");
 
     let cfg = |name: &str| RuntimeConfig {
-        username: name.into(),
+        username: format!("{}{}", tom_protocol::TEST_NODE_PREFIX, name),
         encryption: false,
         enable_dht: false, // red-team: never pollute the shared DHT rendezvous
         ..Default::default()
