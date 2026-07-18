@@ -622,9 +622,10 @@ struct Cli {
     #[arg(long, value_name = "DIR")]
     data_dir: Option<std::path::PathBuf>,
 
-    /// Mode isolé : coupe la découverte n0 (Pkarr/DNS) ET mDNS LAN. Le nœud ne
-    /// parle qu'aux pairs joignables via relais/bootstrap explicites. Pour des
-    /// triangles de test reproductibles sans polluer le vrai parc.
+    /// Mode isolé : coupe la découverte n0 (Pkarr/DNS), mDNS LAN ET la
+    /// publication dans le rendez-vous DHT partagé. Le nœud ne parle qu'aux
+    /// pairs joignables via relais/bootstrap explicites. Pour des triangles de
+    /// test reproductibles sans polluer le vrai parc (rendez-vous compris).
     #[arg(long)]
     isolated: bool,
 
@@ -800,6 +801,12 @@ async fn main() -> anyhow::Result<()> {
         enable_embedded_relay: use_embedded_relay,
         enable_embedded_relay_publication: use_embedded_relay_publish,
         data_dir: cli.data_dir.clone(),
+        // Anti-pollution rendez-vous (P3) : un nœud `--isolated` ne doit PAS
+        // publier dans le rendez-vous DHT PARTAGÉ (`tom-protocol-rendezvous-v1`),
+        // sinon la vraie flotte le découvre comme fantôme (incident 18/07 :
+        // nœuds de test vus par l'iPhone). `--isolated` coupait déjà n0+mDNS au
+        // transport ; le DHT rendez-vous restait ouvert. On le coupe aussi.
+        enable_dht: !cli.isolated,
         ..Default::default()
     };
 
