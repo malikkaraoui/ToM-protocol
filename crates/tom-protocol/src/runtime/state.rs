@@ -111,8 +111,11 @@ pub struct RuntimeState {
     // Phase R8.2: State persistence
     pub(crate) store: Option<crate::storage::StateStore>,
 
-    // Phase R9.2: Envelope cache for ACK-timeout retry
-    pub(crate) pending_envelopes: std::collections::HashMap<String, crate::envelope::Envelope>,
+    // Phase R9.2: Envelope cache for ACK-timeout retry.
+    // Borné en octets depuis le 2026-07-19 : il retenait les payloads entiers
+    // sans limite, ce qui a fait monter le relais NAS à 780 Mo (OOM) sous
+    // 240 Mo envoyés vers un pair hors ligne. Voir runtime/pending.rs.
+    pub(crate) pending_envelopes: super::pending::PendingEnvelopes,
 
     // Phase R11.1: Progressive anti-spam
     pub(crate) antispam: crate::roles::AntiSpam,
@@ -272,7 +275,7 @@ impl RuntimeState {
             clock_skew: ClockSkewMetrics::default(),
             config,
             store,
-            pending_envelopes: std::collections::HashMap::new(),
+            pending_envelopes: super::pending::PendingEnvelopes::new(),
             backup_redelivery_queue: std::collections::HashMap::new(),
             peer_paths: std::collections::HashMap::new(),
             backup_last_redelivery_at: std::collections::HashMap::new(),
@@ -412,8 +415,26 @@ impl RuntimeState {
     pub fn tick_tracker_cleanup(&mut self) -> Vec<RuntimeEffect> {
         self.tracker.evict_expired();
         // Clean orphaned envelope cache entries (R9.2)
+        let tracker = &self.tracker;
         self.pending_envelopes
-            .retain(|id, _| self.tracker.status(id).is_some());
+            .retain(|id| tracker.status(id).is_some());
+
+        // Rendre l'empreinte visible : ce cache a fait tomber le relais NAS
+        // sans qu'aucun indicateur ne le signale (780 Mo, OOM). Alerte à 80 %
+        // du budget, avant que l'éviction ne commence à mordre.
+        let bytes = self.pending_envelopes.bytes();
+        let budget = super::pending::PendingEnvelopes::budget();
+        if bytes * 100 >= budget * 80 {
+            tracing::warn!(
+                bytes,
+                budget,
+                entries = self.pending_envelopes.len(),
+                "cache de réémission au-dessus de 80 % de son budget"
+            );
+        } else {
+            tracing::debug!(bytes, budget, entries = self.pending_envelopes.len(), "cache de réémission");
+        }
+
         Vec::new()
     }
 

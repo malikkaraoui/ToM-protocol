@@ -85,6 +85,33 @@ Verdict brut de l'agent : « BLOQUANT ». Après contre-vérification sur pièce
 Bilan : la review a produit **3 tests supplémentaires** (dont un qui réfute son propre finding),
 zéro changement de logique. Un verdict « BLOQUANT » ne vaut que ce que valent ses preuves.
 
+## §4ter ⚠️ VALIDATION TERRAIN : le correctif est NÉCESSAIRE mais NE SUFFIT PAS
+
+Déployé sur le NAS (build 126, md5 `cbbcd429` vérifié process vs binaire). Nœud sain au
+démarrage : **20 Mo, 4 pairs, 0 échec**.
+
+Test de charge : 2 vagues de 120 messages × 1 Mo (240 Mo au total) vers un pair **hors ligne**
+(`75baa468`, nœud mort), c'est-à-dire le chemin qui remplit le backup.
+
+| Mesure | Résultat |
+|---|---|
+| Après vague 1 | 229 Mo |
+| Après vague 2 | 32 Mo… **mais `uptime = 22 s`** |
+
+**Le « 32 Mo » était un faux positif : le nœud avait redémarré.** `dmesg` :
+`Killed process 23685 (tom-chat) anon-rss:780256kB` — **l'OOM-killer a de nouveau frappé,
+avec le binaire corrigé**, et `NRestarts=1`.
+
+**Conclusion honnête : le budget backup tient (le bug §1 est réel et corrigé), mais il n'était
+pas — ou pas seulement — la cause de l'OOM.** Une seconde source de consommation, non
+identifiée, porte la RSS à 780 Mo sous 240 Mo de trafic sortant vers un pair injoignable
+(facteur ×3 environ). Pistes non encore vérifiées : buffers d'envoi/chunking retenus tant que
+rien n'est acquitté, files de retry, structures par-message du tracker, ou fragmentation de
+l'allocateur musl. **À investiguer avant de considérer le sujet clos.**
+
+Leçon de méthode (encore) : `uptime` doit être lu à CHAQUE mesure post-charge. Une mémoire qui
+« redescend » toute seule est d'abord suspecte d'un redémarrage, pas d'une éviction réussie.
+
 ## §5 Reste ouvert
 
 - Le budget est une **constante**, pas une fraction de la RAM de l'hôte. Suffisant pour le parc

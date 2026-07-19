@@ -10,6 +10,7 @@ mod effect;
 mod executor;
 mod r#loop;
 pub mod metrics;
+mod pending;
 mod state;
 mod transport;
 
