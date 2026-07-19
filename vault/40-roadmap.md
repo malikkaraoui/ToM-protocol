@@ -212,20 +212,30 @@ Les 5 criticals de l'audit 6-agents sont corrigés (file:line revérifiés) :
   **le choix de chemin ne converge pas vers le meilleur lien** : chaque sens fait
   son propre tirage, l'ordre des candidats est aléatoire (`FxHashMap`), et
   l'hystérésis (5 ms) fige le résultat. Mesuré : `iPad→iPhone` v4 9 ms → v6 51 ms.
-  - [ ] Lot A — observabilité des bascules (`AddrFamily` existe déjà côté transport ;
-        outil `scripts/path-matrix.py` livré) : historiser bascules + motif.
+  - [x] ✅ **Lot A — LIVRÉ (build 128, 19/07)** : `PathEvent` porte famille +
+        prev_family/prev_rtt (vérité par-connexion du watcher) ; `paths_by_peer`
+        expose `family/switches/last_switch` côté FFI (contrat verrouillé par test)
+        ET côté NAS ; ligne collecteur enrichie (« bascule v4 9ms → v6 51ms ») ;
+        `path-matrix.py` exploite les compteurs vue-nœud. Scénario A1 : PASS.
   - [ ] Lot B — élucider une bascule dégradante EN DIRECT (chemin mort remplacé, ou
         sélection défaillante ?). **Aucun code de sélection avant cette réponse.**
+        Veille armée 19/07 (compteurs flotte 129 + collecteur) — en attente d'une
+        bascule dégradante franche.
   - [ ] Lot C — déterminisme du probe, conditionné au Lot B (⚠️ `iroh_hp.rs:196` :
         un autre mécanisme s'appuie sur l'aléatoire).
   - ~~préférence v6 forcée, happy-eyeballs, filtrage temp-addrs, pare-feu Freebox~~
     ABANDONNÉS — non justifiés par les mesures / box non touchée (décision Malik).
-- [ ] **R15 — ~~Annuaire local~~ → R15-lite : relais habituel seul** (réduit
-  2026-07-18, doc `docs/plans/r15-annuaire-local.md` §7). Persister les **adresses
-  directes** est ÉCARTÉ : gain marginal (mDNS 1-2 s sur LAN, adresses volatiles
-  hors-LAN) contre un risque élevé (ré-ouvre l'empoisonnement de topologie du
-  17-18/07, avec des adresses survivant au restart). Retenu : `preferred_relay_url`
-  seul (déjà auto-appris en RAM), expirant avec le pair via M2. Zéro config (#6).
+- [x] ✅ **R15 — ~~Annuaire local~~ → R15-lite : relais habituel seul — LIVRÉ (build 129, 19/07)**
+  (doc `docs/plans/r15-annuaire-local.md` §8). Adresses directes ÉCARTÉES (risque
+  empoisonnement). Livré : schéma V5 `preferred_relay_url`, apprentissage PathEvent
+  RELAY authentifié (cap URL 512 o), expiration avec le pair via M2 (load filtré =
+  non-résurrection par construction), semis du pool au démarrage (candidats de dial,
+  zéro présence, zéro dial). Test déterministe end-to-end (relais embarqué réel +
+  relais leurre anti faux-vert) — CI verte après 3 rounds (leçon : RelayMode::Disabled
+  n'installe PAS le transport relais ; la route persistée suppose un nœud relay-enabled).
+  Terrain : NAS persiste (`--data-dir /root/tom-data`, drop-in systemd), cycle complet
+  observé (« Restored 1 preferred relay routes » → « R15: 1 relais habituels semés »).
+  Reste : mesure I10 (gain reconnexion ≥ 2×) sur flotte réelle.
 - [x] ✅ **CRITIQUE (19/07) — RÉSOLU, builds 126+127.** Le backup store ET `pending_envelopes`
   sont désormais bornés en octets (64 Mio / 32 Mio). Terrain : 688 Mo + OOM + 0 pair + 8 366
   échecs → pic 491 Mo puis **123 Mo stable**, 4-5 pairs, `NRestarts=0`. La vraie cause était
@@ -234,9 +244,9 @@ Les 5 criticals de l'audit 6-agents sont corrigés (file:line revérifiés) :
   poussés d'un coup → RssAnon 491 Mo (puis retour à 123 Mo stable). Pas une rétention, mais le
   coût du trafic en vol non régulé, élevé pour une VM de 920 Mo. Piste : réguler le débit
   d'émission ou borner `send_window` QUIC (jamais tuné dans ToM).
-- [ ] **Fix autonome (trouvé 18/07)** : `storage/mod.rs:463-475` — un pair persisté
-  `Online` échappe au filtre d'élagage 24 h au load (gardé par `status != Online`).
-  Borné à ~30 s en régime normal, non borné en crash-loop. Prérequis de R15-lite.
+- [x] ✅ **Fix autonome — LIVRÉ (19/07, commit `73f9438`)** : l'élagage 24 h au load
+  s'applique quel que soit le statut persisté (le garde `status != Online` exemptait
+  exactement les fantômes crash-loop). Test durci `m2_stale_ghosts_pruned_on_save_and_load`.
 - [ ] **R16 — Nœud léger multi-plateformes (distribution du vivier)** :
   binaire statique musl (chaîne de cross-compil déjà en place). Canaux vérifiés 2026-07-03 :
   (a) **Raspberry Pi — 2 canaux officiels-adjacents** :

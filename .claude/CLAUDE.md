@@ -8,7 +8,7 @@
 | --- | --- |
 | Projet | ToM Protocol — messagerie P2P décentralisée (chaque device = client + relais) |
 | Stack | rust (workspace crates/) · ios-xcode (apps Swift iOS/tvOS/macOS) · javascript (TS legacy) · freebox (NAS relay) |
-| Phase | **build 127** (2026-07-19). OOM du relais RÉSOLU (backup store + `pending_envelopes` bornés en octets — 4ᵉ occurrence de cette classe, voir mémoire `tom-memory-retention-class-of-bug`). Chantiers actifs : **R14 « convergence de chemin »** (renommé — le problème n'est pas le manque d'IPv6 mais que le choix de chemin ne converge pas vers le meilleur lien) puis **R15-lite** (relais habituel seul). Différé : pic mémoire transitoire en charge (491 Mo/300 Mo poussés). |
+| Phase | **build 129** (2026-07-19 ap-midi). LIVRÉS : R14 **Lot A** observabilité des bascules (128 — family/switches/last_switch dans paths_by_peer FFI+NAS, collecteur enrichi) ; **R15-lite** (129 — preferred_relay_url V5, apprentissage PathEvent RELAY, non-résurrection testée, terrain NAS validé avec `--data-dir`) ; fix élagage Online au load. Chantier actif : **R14 Lot B** — élucider une bascule dégradante EN DIRECT (veille armée ; observé Mac→iPad 5 bascules/23 min SANS gain). Aucun code de sélection avant le verdict Lot B. Différé : pic mémoire transitoire en charge. |
 | MCP | qmd (vault 1RR : 114 docs · chantier 77 — PAS le repo) · GitHub via gh CLI (authentifié) |
 
 ## §1 Horodatage + Modèle — EXIGENCE non négociable
