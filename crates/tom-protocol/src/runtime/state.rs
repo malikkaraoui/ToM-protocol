@@ -617,6 +617,23 @@ impl RuntimeState {
     /// Run periodic backup maintenance (expire, viability, replication cleanup).
     pub fn tick_backup(&mut self) -> Vec<RuntimeEffect> {
         let actions = self.backup.tick(now_ms());
+
+        // Surface the store's memory footprint. The 2026-07-19 NAS failure went
+        // unnoticed precisely because nothing reported it: the relay held
+        // 688 MiB on a 920 MiB host and still looked healthy by message count.
+        let bytes = self.backup.store().total_bytes();
+        let budget = crate::backup::BackupStore::max_total_bytes();
+        if bytes * 100 >= budget * 80 {
+            tracing::warn!(
+                bytes,
+                budget,
+                messages = self.backup.store().message_count(),
+                "backup store above 80% of its byte budget — evicting soon"
+            );
+        } else {
+            tracing::debug!(bytes, budget, "backup store footprint");
+        }
+
         self.backup_actions_to_effects(&actions)
     }
 

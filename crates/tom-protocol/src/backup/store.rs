@@ -13,6 +13,21 @@ use crate::types::NodeId;
 /// Maximum total messages across all recipients (memory protection).
 const MAX_TOTAL_MESSAGES: usize = 10_000;
 
+/// Maximum total PAYLOAD BYTES held across all backups (memory protection).
+///
+/// `MAX_TOTAL_MESSAGES` alone bounds the message COUNT, never the VOLUME — and
+/// payloads live in RAM (`BackupEntry.payload: Vec<u8>`), so ~100 messages of
+/// 8 MiB reach 800 MiB long before the 10_000-entry cap is approached. Measured
+/// on 2026-07-19: the NAS relay held 688 MiB on a 920 MiB VM, the OOM killer had
+/// already reaped a node (771 MiB RSS), and under that pressure the node lost
+/// every peer (8_366 send failures) while still reporting itself connected.
+/// A legitimate load campaign was enough to trigger it.
+///
+/// 64 MiB keeps a relay useful (a healthy node's whole RSS is ~24 MiB) while
+/// leaving headroom on the smallest host we run on. Same bug class as the
+/// large-message and reassembly DoS fixes: a per-unit cap needs a global budget.
+const MAX_TOTAL_BYTES: usize = 64 * 1024 * 1024;
+
 /// Stores backup messages for offline recipients.
 pub struct BackupStore {
     /// Messages by ID.
@@ -21,6 +36,9 @@ pub struct BackupStore {
     by_recipient: HashMap<NodeId, HashSet<String>>,
     /// Host factors for viability computation.
     host_factors: HostFactors,
+    /// Sum of `payload.len()` over `messages`. Maintained incrementally through
+    /// the single insert/remove pair below — never recomputed by scanning.
+    total_bytes: usize,
 }
 
 impl BackupStore {
@@ -30,6 +48,7 @@ impl BackupStore {
             messages: HashMap::new(),
             by_recipient: HashMap::new(),
             host_factors: HostFactors::default(),
+            total_bytes: 0,
         }
     }
 
@@ -50,24 +69,38 @@ impl BackupStore {
             return events;
         }
 
-        // Memory protection
+        // Memory protection — count AND volume. A locally-originated backup is
+        // by definition from a known depositor (ourselves), so it may displace
+        // older entries; it still cannot exceed the byte budget.
         if self.messages.len() >= MAX_TOTAL_MESSAGES {
             self.evict_oldest(now);
+        }
+        if !self.make_room_for(payload.len(), true, now) {
+            // NEVER refuse silently. The byte budget introduces a refusal path
+            // that did not exist before (`store` always evicted its way to
+            // success), and a mute refusal is exactly the class of blindness
+            // that let the 688 MiB failure run for a whole night. The backup
+            // net simply did not catch this message — the sender still learns
+            // the truth from the absence of an ACK (LOCKED #1), but an operator
+            // must be able to see it.
+            tracing::warn!(
+                message_id = %message_id,
+                payload_bytes = payload.len(),
+                total_bytes = self.total_bytes,
+                budget = MAX_TOTAL_BYTES,
+                "backup refused: byte budget exhausted"
+            );
+            return events;
         }
 
         let entry = BackupEntry::new(message_id.clone(), payload, recipient_id, sender_id, now, ttl_ms);
 
-        self.by_recipient
-            .entry(recipient_id)
-            .or_default()
-            .insert(message_id.clone());
-
         events.push(BackupEvent::MessageStored {
-            message_id: message_id.clone(),
+            message_id,
             recipient_id,
         });
 
-        self.messages.insert(message_id, entry);
+        self.insert_entry(entry);
         events
     }
 
@@ -123,6 +156,20 @@ impl BackupStore {
                 return vec![];
             }
         }
+        // Same guard on VOLUME: without it the network path could hold a few
+        // dozen multi-MiB replicas and exhaust host memory well under the
+        // 10_000-entry cap (the failure actually observed on the NAS relay).
+        if !self.make_room_for(payload.payload.len(), depositor_known, now) {
+            tracing::warn!(
+                message_id = %payload.message_id,
+                payload_bytes = payload.payload.len(),
+                total_bytes = self.total_bytes,
+                budget = MAX_TOTAL_BYTES,
+                depositor_known,
+                "backup replica refused: byte budget exhausted"
+            );
+            return vec![];
+        }
 
         // Calculate remaining TTL from absolute expiry
         let remaining_ttl = payload.expires_at.saturating_sub(now);
@@ -145,17 +192,12 @@ impl BackupStore {
             entry.replicated_to.insert(*node);
         }
 
-        self.by_recipient
-            .entry(payload.recipient_id)
-            .or_default()
-            .insert(payload.message_id.clone());
-
         let events = vec![BackupEvent::MessageStored {
             message_id: payload.message_id.clone(),
             recipient_id: payload.recipient_id,
         }];
 
-        self.messages.insert(payload.message_id.clone(), entry);
+        self.insert_entry(entry);
         events
     }
 
@@ -181,16 +223,9 @@ impl BackupStore {
 
     /// Mark message as delivered — remove from store.
     pub fn mark_delivered(&mut self, message_id: &str) -> Vec<BackupEvent> {
-        let Some(entry) = self.messages.remove(message_id) else {
+        let Some(entry) = self.remove_entry(message_id) else {
             return vec![];
         };
-
-        if let Some(ids) = self.by_recipient.get_mut(&entry.recipient_id) {
-            ids.remove(message_id);
-            if ids.is_empty() {
-                self.by_recipient.remove(&entry.recipient_id);
-            }
-        }
 
         vec![BackupEvent::MessageDelivered {
             message_id: message_id.to_string(),
@@ -242,13 +277,7 @@ impl BackupStore {
             .collect();
 
         for id in expired {
-            if let Some(entry) = self.messages.remove(&id) {
-                if let Some(ids) = self.by_recipient.get_mut(&entry.recipient_id) {
-                    ids.remove(&id);
-                    if ids.is_empty() {
-                        self.by_recipient.remove(&entry.recipient_id);
-                    }
-                }
+            if let Some(entry) = self.remove_entry(&id) {
                 events.push(BackupEvent::MessageExpired {
                     message_id: id,
                     recipient_id: entry.recipient_id,
@@ -292,17 +321,7 @@ impl BackupStore {
 
     /// Delete a message (self-deletion when viability is too low).
     pub fn delete(&mut self, message_id: &str) -> bool {
-        if let Some(entry) = self.messages.remove(message_id) {
-            if let Some(ids) = self.by_recipient.get_mut(&entry.recipient_id) {
-                ids.remove(message_id);
-                if ids.is_empty() {
-                    self.by_recipient.remove(&entry.recipient_id);
-                }
-            }
-            true
-        } else {
-            false
-        }
+        self.remove_entry(message_id).is_some()
     }
 
     /// Create a replication payload for sending to another node.
@@ -322,6 +341,19 @@ impl BackupStore {
     /// Total stored messages.
     pub fn message_count(&self) -> usize {
         self.messages.len()
+    }
+
+    /// Payload bytes currently held (memory footprint of the store).
+    ///
+    /// Exposed because the count alone hid the failure: the NAS relay looked
+    /// healthy by `message_count()` while holding 688 MiB.
+    pub fn total_bytes(&self) -> usize {
+        self.total_bytes
+    }
+
+    /// Byte budget ceiling — for reporting saturation before it bites.
+    pub fn max_total_bytes() -> usize {
+        MAX_TOTAL_BYTES
     }
 
     /// Number of unique recipients with pending messages.
@@ -345,6 +377,65 @@ impl BackupStore {
             + f.contribution as f64 * 0.20
             + 25.0; // Base 25% (always have some viability)
         (score as u8).min(100)
+    }
+
+    /// Insert an entry — the ONLY place `messages` grows. Keeps `total_bytes`
+    /// and the recipient index in sync with the map.
+    fn insert_entry(&mut self, entry: BackupEntry) {
+        self.total_bytes = self.total_bytes.saturating_add(entry.payload.len());
+        self.by_recipient
+            .entry(entry.recipient_id)
+            .or_default()
+            .insert(entry.message_id.clone());
+        self.messages.insert(entry.message_id.clone(), entry);
+    }
+
+    /// Remove an entry — the ONLY place `messages` shrinks. Centralising this
+    /// is what makes `total_bytes` impossible to desynchronise: previously the
+    /// `remove` + index-cleanup pair was duplicated in four places, and any new
+    /// call site that forgot to decrement would leak the budget silently.
+    fn remove_entry(&mut self, message_id: &str) -> Option<BackupEntry> {
+        let entry = self.messages.remove(message_id)?;
+        self.total_bytes = self.total_bytes.saturating_sub(entry.payload.len());
+        if let Some(ids) = self.by_recipient.get_mut(&entry.recipient_id) {
+            ids.remove(message_id);
+            if ids.is_empty() {
+                self.by_recipient.remove(&entry.recipient_id);
+            }
+        }
+        Some(entry)
+    }
+
+    /// Evict until `incoming` bytes fit within `MAX_TOTAL_BYTES`.
+    ///
+    /// Preserves the fairness rule of FINDING #9: strangers are evicted first,
+    /// and a stranger deposit may never displace legitimate backups. Returns
+    /// false when the payload cannot be accommodated — the caller must refuse
+    /// rather than exceed the budget.
+    fn make_room_for(&mut self, incoming: usize, depositor_known: bool, now: u64) -> bool {
+        // A single payload larger than the whole budget is never storable;
+        // refusing here also guarantees the loop below terminates.
+        if incoming > MAX_TOTAL_BYTES {
+            return false;
+        }
+        while self.total_bytes.saturating_add(incoming) > MAX_TOTAL_BYTES {
+            if self.evict_oldest_stranger() {
+                continue;
+            }
+            if !depositor_known {
+                // Budget is full of legitimate backups and the depositor is a
+                // stranger: refuse instead of displacing real backups.
+                return false;
+            }
+            let before = self.messages.len();
+            self.evict_oldest(now);
+            if self.messages.len() == before {
+                // Nothing left to evict (store already empty) — give up rather
+                // than spin forever.
+                return false;
+            }
+        }
+        true
     }
 
     /// Evict the oldest message to make room.
@@ -524,6 +615,247 @@ mod tests {
             "store_replica must stay bounded, got {}",
             store.message_count()
         );
+    }
+
+    /// 1 MiB payload — big enough that a handful blows past a byte budget long
+    /// before the 10_000-entry count cap is anywhere near.
+    fn heavy_payload() -> Vec<u8> {
+        vec![0u8; 1024 * 1024]
+    }
+
+    #[test]
+    fn store_is_bounded_by_bytes_not_just_count() {
+        // The NAS failure of 2026-07-19: MAX_TOTAL_MESSAGES bounds the COUNT,
+        // never the VOLUME. 200 × 1 MiB stays far under 10_000 entries yet held
+        // 688 MiB on a 920 MiB VM until the OOM killer reaped the node.
+        let mut store = BackupStore::new();
+        let recipient = node_id(1);
+        let sender = node_id(2);
+        for i in 0..200 {
+            store.store(
+                format!("heavy-{i}"),
+                heavy_payload(),
+                recipient,
+                sender,
+                1_000,
+                None,
+            );
+        }
+        assert!(
+            store.message_count() < MAX_TOTAL_MESSAGES,
+            "precondition: the count cap must NOT be what saves us here"
+        );
+        assert!(
+            store.total_bytes() <= MAX_TOTAL_BYTES,
+            "byte budget exceeded: {} > {}",
+            store.total_bytes(),
+            MAX_TOTAL_BYTES
+        );
+    }
+
+    #[test]
+    fn replica_flood_is_bounded_by_bytes() {
+        // Same guard on the NETWORK path — a hostile peer sending large
+        // replicas must not be able to exhaust host memory either.
+        let mut store = BackupStore::new();
+        let recipient = node_id(1);
+        let sender = node_id(2);
+        for i in 0..200 {
+            let payload = ReplicationPayload {
+                message_id: format!("heavy-replica-{i}"),
+                payload: heavy_payload(),
+                recipient_id: recipient,
+                sender_id: sender,
+                expires_at: 1_000_000,
+                viability_score: 0,
+                replicated_to: vec![],
+            };
+            store.store_replica(&payload, false, 1_000);
+        }
+        assert!(
+            store.total_bytes() <= MAX_TOTAL_BYTES,
+            "byte budget exceeded on replication path: {}",
+            store.total_bytes()
+        );
+    }
+
+    #[test]
+    fn total_bytes_returns_to_zero_after_removals() {
+        // The counter is maintained incrementally, so a missed decrement would
+        // leak the budget until the store refuses everything. Exercise all
+        // three removal paths: delivered, expired, self-deleted.
+        let mut store = BackupStore::new();
+        let recipient = node_id(1);
+        let sender = node_id(2);
+        store.store("a".into(), vec![0u8; 4096], recipient, sender, 1_000, Some(5_000));
+        store.store("b".into(), vec![0u8; 4096], recipient, sender, 1_000, Some(5_000));
+        store.store("c".into(), vec![0u8; 4096], recipient, sender, 1_000, Some(5_000));
+        assert_eq!(store.total_bytes(), 3 * 4096);
+
+        store.mark_delivered("a");
+        store.delete("b");
+        store.cleanup_expired(1_000_000); // expires "c"
+
+        assert_eq!(store.message_count(), 0);
+        assert_eq!(store.total_bytes(), 0, "byte counter leaked on removal");
+    }
+
+    #[test]
+    fn payload_larger_than_budget_is_refused_not_looped() {
+        // A single payload over the whole budget can never fit; the store must
+        // refuse it outright rather than spin evicting everything forever.
+        let mut store = BackupStore::new();
+        let recipient = node_id(1);
+        let sender = node_id(2);
+        store.store("small".into(), vec![0u8; 1024], recipient, sender, 1_000, None);
+
+        let events = store.store(
+            "oversized".into(),
+            vec![0u8; MAX_TOTAL_BYTES + 1],
+            recipient,
+            sender,
+            1_000,
+            None,
+        );
+
+        assert!(events.is_empty(), "oversized payload must be refused");
+        assert!(!store.has("oversized"));
+        assert!(store.has("small"), "refusal must not evict existing backups");
+    }
+
+    #[test]
+    fn eviction_of_the_only_entry_makes_room_instead_of_refusing() {
+        // Cas limite soulevé en review : le store contient UNE entrée occupant
+        // tout le budget, et un dépôt légitime minuscule se présente. La garde
+        // de progression de `make_room_for` compare `messages.len()` avant et
+        // après éviction — il fallait vérifier qu'elle n'interprète pas
+        // « j'ai évincé la dernière entrée » comme « rien à évincer, je refuse ».
+        let mut store = BackupStore::new();
+        let recipient = node_id(1);
+        let sender = node_id(2);
+        store.store(
+            "hog".into(),
+            vec![0u8; MAX_TOTAL_BYTES],
+            recipient,
+            sender,
+            1_000,
+            None,
+        );
+        assert_eq!(store.total_bytes(), MAX_TOTAL_BYTES);
+
+        let events = store.store("tiny".into(), vec![0u8; 1], recipient, sender, 2_000, None);
+
+        assert!(!events.is_empty(), "le petit dépôt doit être accepté");
+        assert!(store.has("tiny"));
+        assert!(!store.has("hog"), "l'occupant du budget doit avoir été évincé");
+        assert_eq!(store.total_bytes(), 1);
+    }
+
+    #[test]
+    fn refusal_by_saturation_stores_nothing_and_keeps_existing() {
+        // Refus par SATURATION (et non par taille unitaire) : le budget est
+        // plein de backups légitimes non expirés, et l'espace libéré par
+        // éviction ne suffit pas. Vérifie qu'aucun état partiel ne subsiste.
+        let mut store = BackupStore::new();
+        let recipient = node_id(1);
+        let sender = node_id(2);
+        let stranger_free = MAX_TOTAL_BYTES / (1024 * 1024);
+        for i in 0..stranger_free {
+            let payload = ReplicationPayload {
+                message_id: format!("legit-{i}"),
+                payload: heavy_payload(),
+                recipient_id: recipient,
+                sender_id: sender,
+                expires_at: 1_000_000,
+                viability_score: 0,
+                replicated_to: vec![],
+            };
+            store.store_replica(&payload, true, 1_000); // known depositor
+        }
+        let bytes_before = store.total_bytes();
+        let count_before = store.message_count();
+
+        // Un inconnu tente de déposer : refus attendu (il ne peut pas déplacer
+        // des backups légitimes), et le store doit rester strictement intact.
+        let intruder = ReplicationPayload {
+            message_id: "intruder".into(),
+            payload: heavy_payload(),
+            recipient_id: recipient,
+            sender_id: sender,
+            expires_at: 1_000_000,
+            viability_score: 0,
+            replicated_to: vec![],
+        };
+        let events = store.store_replica(&intruder, false, 1_000);
+
+        assert!(events.is_empty(), "dépôt inconnu refusé → aucun événement");
+        assert!(!store.has("intruder"));
+        assert_eq!(store.total_bytes(), bytes_before, "octets modifiés malgré le refus");
+        assert_eq!(store.message_count(), count_before, "entrées modifiées malgré le refus");
+    }
+
+    #[test]
+    fn record_replication_does_not_move_the_byte_counter() {
+        // `record_replication` mute les métadonnées d'une entrée sans passer par
+        // insert/remove_entry. C'est volontaire — le compteur ne suit que
+        // `payload.len()` — mais l'invariant mérite d'être verrouillé par un
+        // test : si quelqu'un touche un jour au payload ici, le budget fuirait.
+        let mut store = BackupStore::new();
+        let recipient = node_id(1);
+        let sender = node_id(2);
+        store.store("m".into(), vec![0u8; 2048], recipient, sender, 1_000, None);
+        let before = store.total_bytes();
+
+        store.record_replication("m", node_id(3));
+        store.record_replication("m", node_id(4));
+
+        assert_eq!(store.total_bytes(), before);
+    }
+
+    #[test]
+    fn stranger_cannot_evict_legit_backups_via_byte_pressure() {
+        // FINDING #9 fairness must hold for the BYTE budget too, otherwise a
+        // flood of large stranger replicas evicts real backups — the same
+        // attack, just denominated in bytes instead of entries.
+        let mut store = BackupStore::new();
+        let recipient = node_id(1);
+        let sender = node_id(2);
+
+        // Fill the budget with legitimate, locally-stored backups.
+        let legit = MAX_TOTAL_BYTES / (1024 * 1024);
+        for i in 0..legit {
+            store.store(
+                format!("legit-{i}"),
+                heavy_payload(),
+                recipient,
+                sender,
+                1_000,
+                None,
+            );
+        }
+        let legit_before = store.message_count();
+
+        for i in 0..50 {
+            let payload = ReplicationPayload {
+                message_id: format!("stranger-{i}"),
+                payload: heavy_payload(),
+                recipient_id: recipient,
+                sender_id: sender,
+                expires_at: 1_000_000,
+                viability_score: 0,
+                replicated_to: vec![],
+            };
+            store.store_replica(&payload, false, 1_000);
+        }
+
+        assert!(store.total_bytes() <= MAX_TOTAL_BYTES);
+        for i in 0..legit {
+            assert!(
+                store.has(&format!("legit-{i}")),
+                "stranger flood evicted legitimate backup legit-{i}"
+            );
+        }
+        assert_eq!(store.message_count(), legit_before);
     }
 
     #[test]
