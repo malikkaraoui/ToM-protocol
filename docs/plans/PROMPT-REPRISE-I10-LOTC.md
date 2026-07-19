@@ -26,7 +26,9 @@ CONTEXTE — reprise ToM Protocol. Deux chantiers, dans cet ordre :
   `versioning-bump-per-push`, `git-author-email-must-be-gmail`, `verify-subagent-security-shortcuts`.
 
 ## ÉTAT DU CODE (tout poussé sur origin/main, CI verte)
-- Dernier commit : `e3c5f47`. **Build 130.** Flotte Apple + NAS TOUS en 130.
+- Dernier commit : `e3c5f47`. **Build 130.** Flotte alignée en 130 (le durcissement 130
+  a d'abord été déployé NAS-only puis propagé aux apps Apple — leçon : un fix Rust-only
+  n'atteint les apps qu'après `make ffi-xcframework` + `deploy-apps.sh` + `macbuild`).
 - NAS : service **`tom-node`** (PAS tom-chat), binaire `/usr/local/bin/tom-chat`, IP DHCP
   **192.168.0.83**, status `:8085`, control `:9300`. **Persistance ACTIVE** :
   drop-in systemd `/etc/systemd/system/tom-node.service.d/datadir.conf` ajoute
