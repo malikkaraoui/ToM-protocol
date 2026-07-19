@@ -112,6 +112,66 @@ l'allocateur musl. **À investiguer avant de considérer le sujet clos.**
 Leçon de méthode (encore) : `uptime` doit être lu à CHAQUE mesure post-charge. Une mémoire qui
 « redescend » toute seule est d'abord suspecte d'un redémarrage, pas d'une éviction réussie.
 
+## §4quater LA VRAIE CAUSE — `pending_envelopes` (build 127) et validation terrain
+
+Le §4ter concluait que le budget backup ne suffisait pas. L'enquête (4 angles, chacun réfuté
+par un second agent) a désigné le coupable, **vérifié sur pièces** :
+
+`runtime/state.rs:115` — `pending_envelopes: HashMap<String, Envelope>`, le cache de réémission
+sur timeout d'ACK (R9.2). Il stocke `envelope.clone()` à **chaque** envoi (`state.rs:2540`),
+donc l'enveloppe **complète, payload inclus**, et n'était borné **ni en nombre ni en octets**.
+Vers un pair injoignable rien n'est acquitté, donc rien ne sort du cache avant expiration du
+tracker : 240 messages de 1 Mo = 240 Mo retenus, plus les copies en vol.
+
+**4ᵉ occurrence de la même classe de bug** (large-message, reassembly, backup, celui-ci).
+
+Correctif (build 127, `runtime/pending.rs`) : structure dédiée `PendingEnvelopes` bornée à
+**32 Mio** — délibérément sous les 64 Mio du backup, car la réémission est un confort alors que
+le backup est le vrai filet anti-perte (ADR-009) ; sous pression on perd la capacité de
+retenter, jamais la copie de secours. Encapsuler plutôt qu'ajouter un compteur à côté d'une
+`HashMap` manipulée depuis 7 endroits : c'est la leçon du fix précédent, un compteur ne peut
+pas dériver s'il n'y a qu'un seul chemin d'insertion/suppression. Éviction du plus ancien,
+refus loggé, empreinte tracée au tick avec alerte à 80 %.
+
+### Validation terrain (NAS, build 127, md5 `cbc4f369` vérifié)
+
+⚠️ **Deux tests invalides écartés avant d'obtenir une mesure exploitable** — la méthode a
+compté autant que le résultat :
+1. `MemoryCurrent` de la cgroup **inclut le page cache** : mes « 688 / 780 / 579 Mo » mélangeaient
+   RSS et cache. La seule mesure qui gouverne l'OOM est **`RssAnon`** (`/proc/PID/status`).
+2. Un envoi vers un pair absent de la topologie **n'est ni tenté ni compté** : le compteur
+   `envoyes` restait plat (74 → 74). Le « test de charge » n'envoyait rien. Toujours vérifier
+   qu'un compteur d'activité **bouge** avant d'interpréter une mesure.
+
+Test valide — 300 Mo vers un pair connecté, `envoyes` 81 → 274, aucun redémarrage :
+
+| Moment | RssAnon |
+|---|---|
+| T0 | 148 Mo |
+| après 100 Mo | 275 Mo |
+| après 200 Mo | 362 Mo |
+| après 300 Mo | **491 Mo (pic)** |
+| +40 s | 128 Mo |
+| +120 s | **123 Mo, stable** |
+
+**La mémoire redescend et se stabilise** — c'est la différence décisive avec l'état d'avant, où
+elle montait sans jamais redescendre jusqu'à l'OOM. `NRestarts=0`, 4 pairs, aucun nouvel OOM
+(le compteur `dmesg` reste à 3, les trois d'avant les correctifs).
+
+| | Avant (build 125) | Après (build 127) |
+|---|---|---|
+| Mémoire | 688 Mo **stable**, puis OOM à 780 | pic 491 Mo → **123 Mo stable** |
+| Pairs | 0 | 4 |
+| Échecs | 8 366 | pas de nouvelle accumulation |
+| OOM | oui, à répétition | aucun |
+
+**Reste à surveiller (honnête)** : le pic transitoire de 491 Mo pour 300 Mo poussés d'un coup
+reste élevé sur une VM de 920 Mo. Ce n'est plus une rétention (ça se libère), mais le coût du
+trafic en vol non régulé — une charge plus brutale pourrait encore approcher la limite. Piste
+si le sujet revient : réguler le débit d'émission ou borner les buffers d'envoi QUIC
+(`send_window` par connexion, jamais tuné dans ToM). Non fait : ce serait changer une seconde
+variable avant d'avoir observé la première en conditions normales.
+
 ## §5 Reste ouvert
 
 - Le budget est une **constante**, pas une fraction de la RAM de l'hôte. Suffisant pour le parc
