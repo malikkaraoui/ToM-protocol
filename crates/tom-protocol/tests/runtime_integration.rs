@@ -343,13 +343,16 @@ fn persistence_roundtrip_with_groups() {
     assert_eq!(groups.len(), 1);
     let group_id = groups[0].0.clone();
 
-    // Add a peer to topology
+    // Add a peer to topology. Timestamp récent : un last_seen ancien serait
+    // élagué par le TTL M2 au load (ce test vérifie le round-trip, pas la
+    // rétention d'anciens pairs).
+    let bob_seen = tom_protocol::types::now_ms() - 42_000;
     alice.handle_command(RuntimeCommand::UpsertPeer {
         info: tom_protocol::PeerInfo {
             node_id: bob_id,
             role: tom_protocol::PeerRole::Peer,
             status: tom_protocol::PeerStatus::Online,
-            last_seen: 42000,
+            last_seen: bob_seen,
         },
     });
 
@@ -379,7 +382,7 @@ fn persistence_roundtrip_with_groups() {
 
     // Verify peers restored
     assert!(loaded.peers.contains_key(&bob_id));
-    assert_eq!(loaded.peers[&bob_id].last_seen, 42000);
+    assert_eq!(loaded.peers[&bob_id].last_seen, bob_seen);
 }
 
 // ── Test 4: Admin controls via RuntimeState ──────────────────────────────

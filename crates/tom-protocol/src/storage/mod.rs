@@ -466,12 +466,13 @@ impl StateStore {
                 "Known" => PeerStatus::Known,
                 _ => PeerStatus::Offline, // All peers start offline after restart
             };
-            // Un pair rechargé n'est jamais Online (forcé Offline au restart) :
-            // s'il dépasse le TTL, on l'oublie au chargement (nettoie les bases
-            // existantes sans migration explicite).
-            if status != PeerStatus::Online
-                && now.saturating_sub(last_seen as u64) > crate::relay::TOPOLOGY_TTL_MS
-            {
+            // Le TTL s'applique quel que soit le statut PERSISTÉ : un « Online »
+            // en base n'est qu'un instantané d'avant l'arrêt (le runtime force
+            // Offline après le load, runtime/state.rs). Sans ça, un fantôme
+            // sauvegardé Online serait rechargé indéfiniment en crash-loop —
+            // l'exemption Online n'a de sens qu'au save (pair vivant à cet
+            // instant), pas au load.
+            if now.saturating_sub(last_seen as u64) > crate::relay::TOPOLOGY_TTL_MS {
                 continue;
             }
             peers.insert(
@@ -708,7 +709,12 @@ mod tests {
 
     /// Anti-ravivage M2 : une base polluée (fantômes non-Online > 24 h) est
     /// nettoyée à la SAUVEGARDE et au CHARGEMENT — les fantômes ne survivent pas
-    /// au round-trip, les pairs frais et les Online sont conservés.
+    /// au round-trip, les pairs frais sont conservés.
+    ///
+    /// L'exemption Online ne vaut QU'AU save (pair vivant à cet instant) : au
+    /// load, le TTL s'applique quel que soit le statut persisté — un « Online »
+    /// > 24 h en base est un fantôme (crash-loop, base jamais resauvée) et ne
+    /// doit PAS être rechargé.
     #[test]
     fn m2_stale_ghosts_pruned_on_save_and_load() {
         let store = StateStore::open_memory().unwrap();
@@ -728,18 +734,35 @@ mod tests {
             node_id: ghost, role: PeerRole::Peer, status: PeerStatus::Offline,
             last_seen: now - 25 * 60 * 60 * 1000,
         });
-        // Online très vieux → conservé (vivant au moment du save).
+        // Online très vieux → persisté au save (vivant à cet instant)…
         peers.insert(online_old, PeerInfo {
             node_id: online_old, role: PeerRole::Relay, status: PeerStatus::Online,
             last_seen: now - 48 * 60 * 60 * 1000,
         });
 
         store.save(&StateSnapshot { peers, ..Default::default() }).unwrap();
+
+        // Le save a bien gardé l'Online vieux (exemption save-side voulue).
+        let persisted: i64 = {
+            let conn = store.conn.lock().unwrap();
+            conn.query_row(
+                "SELECT COUNT(*) FROM peers WHERE node_id = ?1",
+                [online_old.to_string()],
+                |row| row.get(0),
+            ).unwrap()
+        };
+        assert_eq!(persisted, 1, "Online vivant persisté au save malgré last_seen vieux");
+
         let loaded = store.load().unwrap();
 
         assert!(loaded.peers.contains_key(&fresh), "pair frais conservé");
         assert!(!loaded.peers.contains_key(&ghost), "fantôme > 24 h élagué");
-        assert!(loaded.peers.contains_key(&online_old), "Online conservé au save");
+        // …mais au LOAD (restart), le TTL prime sur le statut persisté : le
+        // fantôme Online > 24 h n'est pas ressuscité (scénario crash-loop).
+        assert!(
+            !loaded.peers.contains_key(&online_old),
+            "Online > 24 h en base élagué au load"
+        );
     }
 
     #[test]
@@ -903,6 +926,9 @@ mod tests {
         let db_path = dir.path().join("state.db");
 
         let alice = node_id(1);
+        // Timestamp récent : un last_seen ancien serait élagué par le TTL M2
+        // au load (ce test vérifie la persistance fichier, pas la rétention).
+        let seen = crate::types::now_ms() - 42_000;
 
         // Write
         {
@@ -912,7 +938,7 @@ mod tests {
                 node_id: alice,
                 role: PeerRole::Relay,
                 status: PeerStatus::Online,
-                last_seen: 42000,
+                last_seen: seen,
             });
             store.save(&StateSnapshot { peers, ..Default::default() }).unwrap();
         }
@@ -922,7 +948,7 @@ mod tests {
             let store = StateStore::open(&db_path).unwrap();
             let loaded = store.load().unwrap();
             assert_eq!(loaded.peers.len(), 1);
-            assert_eq!(loaded.peers[&alice].last_seen, 42000);
+            assert_eq!(loaded.peers[&alice].last_seen, seen);
         }
     }
 
