@@ -26,6 +26,14 @@ struct PathInfo {
     kind: String,
     rtt_ms: u64,
     addr: String,
+    /// Famille du chemin courant : "v4" | "v6" | "relay" (R14 Lot A).
+    family: String,
+    /// Bascules de famille observées pour ce pair depuis le start.
+    switches: u64,
+    /// Dernière bascule, lisible : "v4 9ms → v6 51ms".
+    last_switch: Option<String>,
+    /// Horodatage epoch ms de la dernière bascule.
+    last_switch_at_ms: Option<u64>,
 }
 
 /// Type alias for per-peer path info: node_id → PathInfo
@@ -42,12 +50,39 @@ fn track_path_event(paths_by_peer: &Arc<Mutex<PathsByPeerMap>>, evt: &ProtocolEv
             let node_id = event.remote.to_string();
             // Bounded insert: ignore if at capacity and key is new
             if pbp.contains_key(&node_id) || pbp.len() < MAX_PATH_ENTRIES {
+                // R14 Lot A : historiser les bascules — la vérité vient du
+                // watcher transport (prev_* par-connexion), même logique que
+                // le FFI (tom-protocol-ffi/src/lib.rs).
+                let prev = pbp.get(&node_id);
+                let mut switches = prev.map(|p| p.switches).unwrap_or(0);
+                let mut last_switch = prev.and_then(|p| p.last_switch.clone());
+                let mut last_switch_at_ms = prev.and_then(|p| p.last_switch_at_ms);
+                if let (Some(pf), Some(prtt)) = (event.prev_family, event.prev_rtt) {
+                    switches += 1;
+                    last_switch = Some(format!(
+                        "{} {}ms → {} {}ms",
+                        pf,
+                        prtt.as_millis(),
+                        event.family,
+                        event.rtt.as_millis()
+                    ));
+                    last_switch_at_ms = Some(
+                        std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_millis() as u64,
+                    );
+                }
                 pbp.insert(
                     node_id,
                     PathInfo {
                         kind: format!("{}", event.kind),
                         rtt_ms: event.rtt.as_millis() as u64,
                         addr: event.addr.clone(),
+                        family: event.family.to_string(),
+                        switches,
+                        last_switch,
+                        last_switch_at_ms,
                     },
                 );
             }
@@ -228,12 +263,23 @@ fn spawn_status_server(
                 let paths_json = {
                     let pbp = paths_by_peer.lock().unwrap();
                     let paths_list: Vec<serde_json::Value> = pbp.iter().map(|(node_id, info)| {
-                        serde_json::json!({
+                        let mut entry = serde_json::json!({
                             "node_id": node_id,
                             "kind": &info.kind,
                             "rtt_ms": info.rtt_ms,
-                            "addr": &info.addr
-                        })
+                            "addr": &info.addr,
+                            "family": &info.family,
+                            "switches": info.switches
+                        });
+                        // Champs absents (pas null) sans bascule — même contrat
+                        // que PathInfoFFI côté apps.
+                        if let Some(ls) = &info.last_switch {
+                            entry["last_switch"] = serde_json::json!(ls);
+                        }
+                        if let Some(at) = info.last_switch_at_ms {
+                            entry["last_switch_at_ms"] = serde_json::json!(at);
+                        }
+                        entry
                     }).collect();
                     serde_json::Value::Array(paths_list).to_string()
                 };

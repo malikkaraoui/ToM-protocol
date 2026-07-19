@@ -205,10 +205,21 @@ public struct TomGroupMessage: Codable, Identifiable {
 }
 
 /// Per-peer path information
+/// R14 Lot A : les 4 champs bascule sont Optionals — un FFI d'ancien build ne
+/// les émet pas, et un champ non-Optional manquant jetterait TOUT le décodage
+/// en silence (contrat Codable FFI→Swift, leçon build 96).
 public struct PathInfo: Codable {
     public let kind: String
     public let rtt_ms: UInt64
     public let addr: String
+    /// Famille du chemin courant : "v4" | "v6" | "relay".
+    public let family: String?
+    /// Bascules de famille observées pour ce pair depuis le start.
+    public let switches: UInt64?
+    /// Dernière bascule, lisible : "v4 9ms → v6 51ms".
+    public let last_switch: String?
+    /// Horodatage epoch ms de la dernière bascule.
+    public let last_switch_at_ms: UInt64?
 }
 
 /// Instantané d'état du nœud (depuis `tom_node_status`).
@@ -345,6 +356,12 @@ public struct TomProtocolEvent: Codable, Hashable, Identifiable {
     public let path_kind: String? // "RELAY" | "DIRECT"
     public let rtt_ms: UInt64?
     public let path_addr: String?
+    /// Famille du chemin courant ("v4"/"v6"/"relay") — R14 Lot A.
+    public let path_family: String?
+    /// Présent ⟺ bascule : famille du chemin quitté.
+    public let prev_family: String?
+    /// RTT (ms) du chemin quitté au moment de la bascule.
+    public let prev_rtt_ms: UInt64?
     public let new_role: String? // "Client" | "Relay" | "Backup"
 
     // ── Presence ──
@@ -412,8 +429,19 @@ public struct TomProtocolEvent: Codable, Hashable, Identifiable {
             return "🚨 Pair ralenti \(shortId(node_id)) (antispam)"
         case "PathChanged":
             var detail = path_kind ?? "?"
+            // R14 Lot A : famille explicite dans la ligne collecteur (mesure
+            // avant/après sans parser l'adresse).
+            if let fam = path_family, !fam.isEmpty {
+                detail += " \(fam)"
+            }
             if let addr = path_addr, !addr.isEmpty {
                 detail += " \(addr)"
+            }
+            // Bascule observée : trace « depuis quoi » (motif Lot B).
+            if let pf = prev_family {
+                let prevRtt = prev_rtt_ms.map { " \($0)ms" } ?? ""
+                let newRtt = rtt_ms.map { " \($0)ms" } ?? ""
+                detail += " (bascule \(pf)\(prevRtt) → \(path_family ?? "?")\(newRtt))"
             }
             return "🔀 Chemin \(shortId(node_id)) → \(detail)"
         case "MessageRejected":
@@ -478,6 +506,9 @@ public struct TomProtocolEvent: Codable, Hashable, Identifiable {
         case path_kind
         case rtt_ms
         case path_addr
+        case path_family
+        case prev_family
+        case prev_rtt_ms
         case new_role
         case latency_ms
         case attempt

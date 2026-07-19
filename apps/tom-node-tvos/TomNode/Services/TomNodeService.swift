@@ -1986,8 +1986,19 @@ final class TomNodeService: ObservableObject {
             // quel binaire tourne réellement (anti-staleness / anti-drift).
             "app_build": TomVersion.build,
             // Path par pair (vérité terrain #33) : node_id → kind/rtt/addr
+            // + famille/bascules (R14 Lot A). Champs bascule ABSENTS (pas
+            // null) quand aucune bascule — même contrat que le FFI.
             "paths_by_peer": pathsByPeer.mapValues { info -> [String: Any] in
-                ["kind": info.kind, "rtt_ms": info.rtt_ms, "addr": info.addr]
+                var entry: [String: Any] = [
+                    "kind": info.kind,
+                    "rtt_ms": info.rtt_ms,
+                    "addr": info.addr,
+                    "family": info.family ?? "",
+                    "switches": info.switches ?? 0,
+                ]
+                if let ls = info.last_switch { entry["last_switch"] = ls }
+                if let at = info.last_switch_at_ms { entry["last_switch_at_ms"] = at }
+                return entry
             }
         ]
         guard let data = try? JSONSerialization.data(withJSONObject: dict, options: [.sortedKeys]),

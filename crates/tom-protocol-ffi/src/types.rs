@@ -10,6 +10,19 @@ pub struct PathInfoFFI {
     pub kind: String,
     pub rtt_ms: u64,
     pub addr: String,
+    /// Famille du chemin courant : "v4" | "v6" | "relay" (R14 Lot A).
+    #[serde(default)]
+    pub family: String,
+    /// Nombre de bascules de famille observées pour ce pair depuis le start
+    /// (comptées par le watcher transport, par-connexion — pas un diff de map).
+    #[serde(default)]
+    pub switches: u64,
+    /// Dernière bascule, lisible : "v4 9ms → v6 51ms". None si aucune.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_switch: Option<String>,
+    /// Horodatage epoch ms de la dernière bascule.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_switch_at_ms: Option<u64>,
 }
 
 /// Serializable version of DeliveredMessage for FFI
@@ -338,6 +351,18 @@ pub struct ProtocolEventFFI {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub path_addr: Option<String>,
 
+    /// Famille du chemin courant ("v4"/"v6"/"relay") — R14 Lot A.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub path_family: Option<String>,
+
+    /// Présent ⟺ l'événement est une bascule : famille du chemin quitté.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prev_family: Option<String>,
+
+    /// RTT (ms) du chemin quitté au moment de la bascule.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prev_rtt_ms: Option<u64>,
+
     #[serde(skip_serializing_if = "Option::is_none")]
     pub new_role: Option<String>,
 
@@ -433,6 +458,9 @@ impl ProtocolEventFFI {
                     path_kind: Some(format!("{}", event.kind)),
                     rtt_ms: Some(event.rtt.as_millis() as u64),
                     path_addr: Some(event.addr),
+                    path_family: Some(event.family.to_string()),
+                    prev_family: event.prev_family.map(|f| f.to_string()),
+                    prev_rtt_ms: event.prev_rtt.map(|d| d.as_millis() as u64),
                     ..Default::default()
                 }
             }
@@ -753,6 +781,52 @@ mod tests {
             json,
             r#"{"node_id":"n","status":"Running","peers_count":3,"groups_count":1,"local_role":"Peer","path_kind":"DIRECT","path_rtt_ms":12,"relay_url_active":"http://relay.example:3340","clock_skew_ms":100,"clock_skew_samples":5,"app_build":98}"#
         );
+    }
+
+    /// R14 Lot A : verrouille les clés d'une entrée `paths_by_peer` (décodée
+    /// par `PathInfo` dans TomModels.swift — Codable synthétisé, tolérant aux
+    /// clés supplémentaires, mais un RENAME côté Rust casserait le décodage).
+    #[test]
+    fn path_info_json_keys_match_swift_decoder() {
+        let with_switch = PathInfoFFI {
+            kind: "DIRECT".into(),
+            rtt_ms: 51,
+            addr: "[2a01:e0a::1]:60085".into(),
+            family: "v6".into(),
+            switches: 2,
+            last_switch: Some("v4 9ms → v6 51ms".into()),
+            last_switch_at_ms: Some(1_752_900_000_000),
+        };
+        let json = serde_json::to_string(&with_switch).unwrap();
+        assert_eq!(
+            json,
+            r#"{"kind":"DIRECT","rtt_ms":51,"addr":"[2a01:e0a::1]:60085","family":"v6","switches":2,"last_switch":"v4 9ms → v6 51ms","last_switch_at_ms":1752900000000}"#
+        );
+
+        // Sans bascule : les champs Option sont ABSENTS (pas null) — le
+        // décodeur Swift les déclare optionnels.
+        let no_switch = PathInfoFFI {
+            kind: "DIRECT".into(),
+            rtt_ms: 9,
+            addr: "192.168.0.23:59455".into(),
+            family: "v4".into(),
+            switches: 0,
+            last_switch: None,
+            last_switch_at_ms: None,
+        };
+        let json = serde_json::to_string(&no_switch).unwrap();
+        assert_eq!(
+            json,
+            r#"{"kind":"DIRECT","rtt_ms":9,"addr":"192.168.0.23:59455","family":"v4","switches":0}"#
+        );
+
+        // Rétro-compat : un JSON d'ancien build (sans les nouveaux champs)
+        // se décode encore (serde default).
+        let old: PathInfoFFI =
+            serde_json::from_str(r#"{"kind":"RELAY","rtt_ms":40,"addr":"relay:http://r"}"#).unwrap();
+        assert_eq!(old.family, "");
+        assert_eq!(old.switches, 0);
+        assert_eq!(old.last_switch, None);
     }
 
     #[test]

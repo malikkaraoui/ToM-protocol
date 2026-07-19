@@ -247,6 +247,30 @@ et un `PathEvent` est justement émis sur changement de famille v4↔v6 (L401-41
    (chemin mort ? meilleur RTT ? nouvelle adresse ?). Sans ça on ne peut ni mesurer la stabilité
    ni valider un fix — c'est exactement le trou qui m'a fait sur-interpréter §1.
 
+**→ LIVRÉ (build 128, 2026-07-19).** Réalisation :
+- `AddrFamily` promu public dans `tom-transport/src/path.rs` ; `PathEvent` porte
+  `family`, `prev_family: Option<_>`, `prev_rtt: Option<_>` — renseignés PAR LE WATCHER,
+  par-connexion (`protocol.rs::spawn_path_watcher`). `prev_family = Some` ⟺ l'événement
+  est une bascule. C'est la vérité transport, pas un diff de map par-pair (qui mélangerait
+  les connexions multiples d'un même pair). Le `last_rtt` est rafraîchi à CHAQUE observation
+  du stream (pas seulement aux bascules) pour que `prev_rtt` reflète la dernière mesure du
+  chemin quitté.
+- `paths_by_peer` expose `family`, `switches` (compteur cumulatif), `last_switch`
+  (« v4 9ms → v6 51ms »), `last_switch_at_ms` — côté FFI (`PathInfoFFI`, contrat verrouillé
+  par `types::tests::path_info_json_keys_match_swift_decoder`) ET côté NAS
+  (`tom-tui/src/main.rs::track_path_event`).
+- Ligne collecteur enrichie : `🔀 Chemin xxx → DIRECT v6 [addr] (bascule v4 9ms → v6 51ms)`
+  (`TomModels.swift` displayLine ; nouveaux champs `path_family`/`prev_family`/`prev_rtt_ms`
+  dans `ProtocolEventFFI` et `TomProtocolEvent`, tous Optional côté Swift — contrat Codable).
+- `scripts/path-matrix.py` : Mac en `[::1]` (piège IPv6-only), NAS `:8085` normalisé
+  (tableau → dict), et exploitation des compteurs nœud (`BASCULE ×N (vue nœud)`) qui voient
+  les bascules survenues ENTRE deux relevés.
+- Le « motif » complet (chemin mort ? meilleur RTT ?) reste au Lot B : le watcher n'observe
+  que le chemin SÉLECTIONNÉ ; la raison de la re-sélection vit dans tom-connect
+  (`remote_state.rs::select_v4_v6`). `prev_rtt` vs `rtt` donne déjà le sens
+  (amélioration/dégradation) de chaque bascule — suffisant pour DÉTECTER le cas dégradant
+  en direct et déclencher la capture Lot B.
+
 **Lot B — Élucider la bascule dégradante (expérience, pas du code)**
 Instrumenter puis observer une bascule v4→v6 dégradante en direct (le cas `iPad → iPhone`
 9 ms → 51 ms). Question à trancher : chemin mort remplacé, ou sélection défaillante ?

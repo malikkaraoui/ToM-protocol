@@ -30,13 +30,18 @@ import urllib.request
 
 CURL_TIMEOUT = 6
 
-# Flotte au 18/07 (IP LAN ; le NAS est en DHCP, vérifier si injoignable).
+# Flotte au 19/07 (IP LAN ; le NAS est en DHCP, vérifier si injoignable).
+# ⚠️ Mac en [::1] : le 19/07 matin le status ne répondait QUE en IPv6
+# (127.0.0.1 échouait) ; à d'autres moments les deux répondent. [::1] est
+# le choix robuste observé — ne pas revenir à 127.0.0.1 sans re-mesurer.
 NODES = {
-    "mac": "http://127.0.0.1:9091/",
+    "mac": "http://[::1]:9091/",
     "iphone": "http://192.168.0.28:9091/",
     "ipad": "http://192.168.0.23:9091/",
     "iphone-laura": "http://192.168.0.49:9091/",
-    # NAS : /status n'expose pas paths_by_peer au même format — traité à part si besoin.
+    # NAS (tom-tui) : paths_by_peer est un TABLEAU [{node_id,…}] — normalisé
+    # dans snapshot().
+    "nas": "http://192.168.0.83:8085/",
 }
 
 # node_id (préfixe 8) → nom lisible. Les deux iPhone portent le même champ "node",
@@ -70,21 +75,31 @@ def http_json(url):
 
 
 def snapshot():
-    """{observateur: {pair: {famille, kind, rtt, addr}}} — pairs down inclus en _erreur."""
+    """{observateur: {pair: {famille, kind, rtt, addr, switches, last_switch}}}
+    — pairs down inclus en _erreur."""
     out = {}
     for name, url in NODES.items():
         d = http_json(url)
         if "_erreur" in d:
             out[name] = {"_erreur": d["_erreur"]}
             continue
+        raw = d.get("paths_by_peer") or {}
+        # NAS (tom-tui) : tableau [{node_id, …}] → normaliser en dict.
+        if isinstance(raw, list):
+            raw = {e.get("node_id", "?"): e for e in raw}
         paths = {}
-        for peer_id, info in (d.get("paths_by_peer") or {}).items():
+        for peer_id, info in raw.items():
             addr = info.get("addr", "")
             paths[KNOWN.get(peer_id[:8], peer_id[:8])] = {
-                "famille": family(addr),
+                # Champ explicite (R14 Lot A, builds ≥ 128) ; sinon parsing.
+                "famille": info.get("family") or family(addr),
                 "kind": info.get("kind"),
                 "rtt": info.get("rtt_ms"),
                 "addr": addr,
+                # Compteur de bascules côté nœud (par-connexion, voit TOUT —
+                # y compris entre deux relevés). None sur un vieux build.
+                "switches": info.get("switches"),
+                "last_switch": info.get("last_switch"),
             }
         out[name] = {
             "build": d.get("app_build"),
@@ -105,6 +120,18 @@ def diff(a, b):
             old = prev.get("paths", {}).get(peer)
             if old is None:
                 changes.append(f"{obs} → {peer} : NOUVEAU chemin {info['famille']} {info['rtt']}ms")
+                continue
+            # Compteur côté nœud (builds ≥ 128) : voit les bascules survenues
+            # ENTRE deux relevés, que le diff de photos rate.
+            osw, nsw = old.get("switches"), info.get("switches")
+            if osw is not None and nsw is not None and nsw > osw:
+                detail = info.get("last_switch") or (
+                    f"{old['famille']} {old['rtt']}ms → {info['famille']} {info['rtt']}ms"
+                )
+                changes.append(
+                    f"{obs} → {peer} : BASCULE ×{nsw - osw} (vue nœud) {detail}"
+                    + ("  ⚠️ DÉGRADATION" if (info["rtt"] or 0) > (old["rtt"] or 0) else "")
+                )
             elif old["famille"] != info["famille"]:
                 changes.append(
                     f"{obs} → {peer} : BASCULE {old['famille']} {old['rtt']}ms "
@@ -157,7 +184,9 @@ def render(snap):
             continue
         paths = data.get("paths", {})
         desc = ", ".join(
-            f"{p}={i['famille']}/{i['rtt']}ms" for p, i in sorted(paths.items())
+            f"{p}={i['famille']}/{i['rtt']}ms"
+            + (f"/s{i['switches']}" if i.get("switches") is not None else "")
+            for p, i in sorted(paths.items())
         )
         lines.append(f"  {obs:<14} build {data.get('build')} {data.get('phase'):<10} {desc}")
     return "\n".join(lines)

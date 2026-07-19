@@ -558,10 +558,38 @@ pub unsafe extern "C" fn tom_node_start(
                             let node_id = event.remote.to_string();
                             // Bounded insert: ignore if at capacity and key is new
                             if lp.contains_key(&node_id) || lp.len() < MAX_PATH_ENTRIES {
+                                // R14 Lot A : historiser les bascules. La vérité
+                                // vient du watcher transport (prev_family par-
+                                // connexion), pas d'un diff de cette map (qui
+                                // mélange les connexions d'un même pair).
+                                let prev = lp.get(&node_id);
+                                let mut switches = prev.map(|p| p.switches).unwrap_or(0);
+                                let mut last_switch = prev.and_then(|p| p.last_switch.clone());
+                                let mut last_switch_at_ms = prev.and_then(|p| p.last_switch_at_ms);
+                                if let (Some(pf), Some(prtt)) = (event.prev_family, event.prev_rtt) {
+                                    switches += 1;
+                                    last_switch = Some(format!(
+                                        "{} {}ms → {} {}ms",
+                                        pf,
+                                        prtt.as_millis(),
+                                        event.family,
+                                        event.rtt.as_millis()
+                                    ));
+                                    last_switch_at_ms = Some(
+                                        std::time::SystemTime::now()
+                                            .duration_since(std::time::UNIX_EPOCH)
+                                            .unwrap_or_default()
+                                            .as_millis() as u64,
+                                    );
+                                }
                                 lp.insert(node_id, PathInfoFFI {
                                     kind: format!("{}", event.kind),
                                     rtt_ms: event.rtt.as_millis() as u64,
                                     addr: event.addr.clone(),
+                                    family: event.family.to_string(),
+                                    switches,
+                                    last_switch,
+                                    last_switch_at_ms,
                                 });
                             }
                         }
@@ -1367,6 +1395,10 @@ pub unsafe extern "C" fn tom_node_status(handle: *const TomNodeHandle) -> *mut c
                     kind: "DIRECT".to_string(),
                     rtt_ms: 0,
                     addr: String::new(),
+                    family: String::new(),
+                    switches: 0,
+                    last_switch: None,
+                    last_switch_at_ms: None,
                 };
                 for info in lp.values() {
                     let severity = match info.kind.as_str() {

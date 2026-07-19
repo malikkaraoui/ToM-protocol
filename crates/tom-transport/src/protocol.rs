@@ -1,5 +1,5 @@
 use crate::envelope::MessageEnvelope;
-use crate::path::{PathEvent, PathKind};
+use crate::path::{AddrFamily, PathEvent, PathKind};
 use crate::{NodeId, TomTransportError};
 
 use tom_connect::endpoint::Connection;
@@ -372,6 +372,7 @@ pub(crate) fn spawn_path_watcher(
     let mut stream = paths.stream();
     let mut last_kind = PathKind::Unknown;
     let mut last_family = AddrFamily::None;
+    let mut last_rtt = std::time::Duration::ZERO;
 
     tokio::spawn(async move {
         while let Some(path_info) = stream.next().await {
@@ -399,6 +400,14 @@ pub(crate) fn spawn_path_watcher(
             // ça (mesuré : ~1.75 event/min/pair à kind constant). On garde en
             // revanche le signal v4↔v6, qui est load-bearing pour le diag LAN.
             if kind != last_kind || family != last_family {
+                // R14 Lot A : une bascule est un événement qui REMPLACE un
+                // chemin déjà établi sur CETTE connexion (prev = Some). Le
+                // premier chemin d'une connexion n'est pas une bascule.
+                let (prev_family, prev_rtt) = if last_family == AddrFamily::None {
+                    (None, None)
+                } else {
+                    (Some(last_family), Some(last_rtt))
+                };
                 last_kind = kind;
                 last_family = family;
                 let event = PathEvent {
@@ -407,38 +416,20 @@ pub(crate) fn spawn_path_watcher(
                     remote,
                     timestamp: Instant::now(),
                     addr,
+                    family,
+                    prev_family,
+                    prev_rtt,
                 };
                 // Ignore send errors (no subscribers)
                 let _ = tx.send(event);
             }
+            // RTT du chemin courant, rafraîchi à CHAQUE observation (pas
+            // seulement aux bascules) : au moment d'une bascule, prev_rtt
+            // reflète la dernière mesure du chemin quitté, pas celle d'il y
+            // a N minutes.
+            last_rtt = rtt;
         }
     });
-}
-
-/// Famille d'adresse d'un path, pour filtrer le bruit de re-sélection de port
-/// à path constant sans perdre le signal v4↔v6↔relais.
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum AddrFamily {
-    None,
-    Relay,
-    V4,
-    V6,
-}
-
-impl AddrFamily {
-    /// Dérive la famille depuis la représentation affichable produite par
-    /// `format_transport_addr` ("relay:…", "[2a01:…]:port" IPv6, sinon IPv4).
-    fn of(addr: &str) -> Self {
-        if addr.is_empty() {
-            AddrFamily::None
-        } else if addr.starts_with("relay:") {
-            AddrFamily::Relay
-        } else if addr.starts_with('[') {
-            AddrFamily::V6
-        } else {
-            AddrFamily::V4
-        }
-    }
 }
 
 /// Classify the current path from the PathInfoList, returning kind, RTT, and address.
