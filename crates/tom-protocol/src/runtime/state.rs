@@ -437,10 +437,20 @@ impl RuntimeState {
     /// Purge expired entries from the router dedup / ACK caches.
     pub fn tick_cache_cleanup(&mut self) -> Vec<RuntimeEffect> {
         self.router.cleanup_caches();
-        // R15-lite : une route relais ne survit pas à l'éviction de son pair
-        // (M3) — borne la carte à la taille de la topologie.
+        // Borne toutes les cartes par-pair à la topologie. Normalement chacune
+        // est purgée à PeerOffline, mais un pair peut quitter la topologie SANS
+        // PeerOffline explicite (timeout heartbeat → cleanup_departed retire de
+        // la topologie directement). Ce retain est le filet qui empêche ces
+        // cartes d'accumuler des entrées orphelines (défense-en-profondeur,
+        // classe de bug rétention du projet). Les valeurs sont légères
+        // (PathKind/u64) mais la queue de redelivery porte des msg_id.
         let topology = &self.topology;
         self.relay_routes.retain(|id, _| topology.get(id).is_some());
+        self.peer_paths.retain(|id, _| topology.get(id).is_some());
+        self.backup_last_redelivery_at
+            .retain(|id, _| topology.get(id).is_some());
+        self.backup_redelivery_queue
+            .retain(|id, _| topology.get(id).is_some());
         Vec::new()
     }
 
@@ -610,13 +620,19 @@ impl RuntimeState {
                         effects.extend(self.surface_subnet_event(se));
                     }
                     self.role_manager.remove_node(&node_id);
-                    // Purge le suivi de path/grâce du pair parti (sinon fuite :
-                    // ces deux maps ne s'auto-nettoient pas comme la queue de
-                    // redelivery, qui se supprime quand elle se vide au drain).
-                    // Le backup lui-même survit dans le store (source de vérité)
-                    // et se ré-enqueue au retour du pair.
+                    // Purge tout le suivi par-pair du pair parti. La queue de
+                    // redelivery est reconstruite depuis le store (source de
+                    // vérité) au retour du pair (prepare_backup_delivery sur
+                    // PeerOnline) — la vider ici ne perd rien et évite qu'elle
+                    // survive à un pair qui ne revient jamais (borné au TTL par
+                    // le drain, mais autant fermer le chemin tout de suite).
                     self.peer_paths.remove(&node_id);
                     self.backup_last_redelivery_at.remove(&node_id);
+                    self.backup_redelivery_queue.remove(&node_id);
+                    // NB : relay_routes n'est PAS purgé ici — c'est le SOUVENIR
+                    // du relais habituel, précisément utile quand le pair est
+                    // hors ligne (le rejoindre au prochain démarrage, R15-lite).
+                    // Il survit avec le pair en topologie (retain M3, TTL 24 h).
                     effects.push(RuntimeEffect::Emit(ProtocolEvent::PeerOffline {
                         node_id,
                     }));
@@ -4002,6 +4018,49 @@ mod tests {
         assert!(
             !state.relay_routes.contains_key(&carol),
             "pair absent de la topologie → route purgée"
+        );
+    }
+
+    /// Défense-en-profondeur : les cartes par-pair (peer_paths, backup queue,
+    /// last_redelivery) sont bornées à la topologie même pour un pair parti
+    /// SANS PeerOffline explicite (timeout heartbeat → cleanup_departed).
+    #[test]
+    fn tick_cache_cleanup_prunes_all_per_peer_maps() {
+        use std::collections::VecDeque;
+        let mut state = default_state(1);
+        let alive = node_id(2);
+        let gone = node_id(3);
+
+        state.topology.upsert(crate::relay::PeerInfo {
+            node_id: alive,
+            role: crate::relay::PeerRole::Peer,
+            status: PeerStatus::Online,
+            last_seen: crate::types::now_ms(),
+        });
+
+        for id in [alive, gone] {
+            state.peer_paths.insert(id, PathKind::Direct);
+            state.backup_last_redelivery_at.insert(id, 1);
+            let mut q = VecDeque::new();
+            q.push_back(("m1".to_string(), u64::MAX));
+            state.backup_redelivery_queue.insert(id, q);
+        }
+
+        state.tick_cache_cleanup();
+
+        // Le pair vivant garde son état.
+        assert!(state.peer_paths.contains_key(&alive));
+        assert!(state.backup_redelivery_queue.contains_key(&alive));
+        assert!(state.backup_last_redelivery_at.contains_key(&alive));
+        // Le pair hors-topologie (départ silencieux) est intégralement purgé.
+        assert!(!state.peer_paths.contains_key(&gone), "peer_paths orphelin purgé");
+        assert!(
+            !state.backup_redelivery_queue.contains_key(&gone),
+            "backup queue orpheline purgée"
+        );
+        assert!(
+            !state.backup_last_redelivery_at.contains_key(&gone),
+            "last_redelivery orphelin purgé"
         );
     }
 

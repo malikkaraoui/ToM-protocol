@@ -22,7 +22,54 @@ v6 fonctionnent — ils n'ont juste plus de matière.
   les chemins de l'ensemble ACTIF (§2.3bis : sondes 8 octets vues au tcpdump). Le trou ne
   concerne que les candidats SORTIS de l'ensemble actif (morts, jamais validés).
 
-## §3 Proposition (à challenger)
+## §2bis Red-team (7 agents, 19/07 soir) — 3 corrections MAJEURES au design
+
+Le red-team a trouvé 3 défauts de conception réels (pas des peurs) + confirmé par la
+cartographie transport (`a2fc686`) que **les briques existent déjà** — on ne construit pas
+un mécanisme neuf.
+
+**C1 — Le déclencheur « new_rtt > old_rtt » est le mauvais signal.** Une bascule à perte
+ne peut venir QUE d'une fermeture forcée (l'hystérésis interdit de CHOISIR un pire chemin),
+donc « rtt monte » est déjà, tautologiquement, « chemin mort remplacé ». Le RTT de l'ancien
+chemin (9 ms) n'a aucune valeur prédictive : le chemin est mort parce qu'il a changé
+d'identité réseau (port NAT, adresse v6 tournée), pas parce qu'il s'est dégradé. **Correction :
+déclencher sur l'ÉVÉNEMENT DE MORT lui-même** — `PathEvent::Abandoned`/`Closed`
+(`remote_state.rs:958`, `connection/mod.rs:750 abandoned_paths.insert`), pas sur une
+comparaison de RTT. Le candidat mort est déjà horodaté `Inactive(Instant)` (`path_state.rs:51`).
+
+**C2 — Réutiliser PATH_CHALLENGE, ne pas inventer de sonde.** `open_path(addr)`
+(`remote_state.rs:832`) ré-ouvre la validation d'une adresse candidate et émet
+automatiquement un PATH_CHALLENGE (`tom-quinn-proto/paths.rs:150`). Le « re-probe » = un
+appel `open_path` sur un candidat `Inactive`, câblé sur le pattern de backoff tokio DÉJÀ
+présent pour le holepunch (`scheduled_holepunch`, `remote_state.rs:280`). Zéro protocole
+neuf, zéro trame custom. C'était une ambiguïté du design initial (§3 disait « sondes de
+validation QUIC » sans dire lesquelles) — tranché : les existantes.
+
+**C3 — Anti-oscillation + anti-amplification obligatoires (attaques confirmées).** Deux
+attaques chiffrées : (a) un pair malveillant annonce 12 adresses pointant vers une victime
+puis tue ses chemins → nos re-probes bombardent la victime (cap 12 candidats
+`iroh_hp.rs:236` limite à 72 sondes/cycle mais ne l'annule pas) ; (b) cyclage de chemins
+toutes les 40 s → 66 failovers en 11 min, batterie. **Corrections :** cooldown post-failover
+(ne pas re-basculer vers une adresse quittée < 30 s sans gain > 10 ms) + ≤ 1 re-probe en vol
+par adresse-cible. Ces deux garde-fous sont un **fade** (délai/seuil temporaire réversible),
+PAS un ban (LOCKED #4 respecté) : l'adresse redevient éligible dès le cooldown écoulé.
+
+**Non-retenu / déjà couvert :**
+- « Fade vs ban » (LOCKED #4) : le cooldown réversible EST un fade, pas une blacklist. OK.
+- TTL des candidats temporaires v6 : déjà borné par `MAX_INACTIVE_IP_PATHS=10` +
+  `prune_ip_paths` (`path_state.rs:244`) ; à vérifier < 24 h mais pas un blocage neuf.
+- Power save iOS (§5) : tranché produit (on assume). Le cooldown limite déjà le gaspillage
+  de sondes vers un mobile au churn élevé ; pas de guard foreground supplémentaire.
+
+## §3 Proposition RÉVISÉE (post-red-team)
+
+Déclencheur : `PathEvent::Abandoned` d'un chemin qui était ACTIF (pas un candidat jamais
+monté). Action : armer un re-probe `open_path(addr_mort)` à T+30 s, backoff ×2 cap 5 min,
+6 essais, abandon dès que le chemin revit OU qu'un cooldown anti-oscillation l'interdit.
+La sélection existante (`select_v4_v6`) décide au retour du RTT — aucun seuil neuf.
+Garde-fous : cooldown 30 s / gain 10 ms post-failover, ≤ 1 re-probe en vol par cible.
+
+## §3bis Proposition INITIALE (conservée pour traçabilité, dépassée par §2bis/§3)
 
 **Re-probe paresseux et borné des candidats connus non-actifs**, dans tom-connect
 (`remote_state`), déclenché par une condition de « suspicion de sous-optimalité » plutôt
