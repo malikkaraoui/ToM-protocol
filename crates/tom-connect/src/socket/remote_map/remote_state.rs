@@ -17,7 +17,7 @@ use n0_future::{
 use n0_watcher::{Watchable, Watcher};
 use quinn::WeakConnectionHandle;
 use quinn_proto::{PathError, PathEvent, PathId, PathStatus, iroh_hp};
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 use smallvec::SmallVec;
 use sync_wrapper::SyncStream;
 use tokio::sync::{mpsc, oneshot};
@@ -79,6 +79,31 @@ const RTT_SWITCHING_MIN_IP: Duration = Duration::from_millis(5);
 
 /// How much do we prefer IPv6 over IPv4?
 const IPV6_RTT_ADVANTAGE: Duration = Duration::from_millis(3);
+
+/// Delay before the first re-probe of an abandoned active path (R14 Lot C).
+///
+/// A path that dies while in active use leaves the multipath active set and is
+/// never probed again, so `select_path` has no fresh RTT to compare against and
+/// the connection can stay on a worse surviving path forever.  We re-probe the
+/// dead address with `open_path` (a plain PATH_CHALLENGE) on a backoff schedule
+/// so the existing selection logic gets fresh material once the path revives.
+const REPROBE_INITIAL_DELAY: Duration = Duration::from_secs(30);
+
+/// Cap for the re-probe backoff (doubles from [`REPROBE_INITIAL_DELAY`]).
+const REPROBE_MAX_DELAY: Duration = Duration::from_secs(5 * 60);
+
+/// Give up re-probing an address after this many attempts.
+const REPROBE_MAX_ATTEMPTS: u8 = 6;
+
+/// After a failover, how long the address we left stays on cooldown.
+///
+/// Within this window we only switch back if the gain is at least
+/// [`FAILOVER_MIN_GAIN`].  This is a reversible fade (the address becomes fully
+/// eligible again once the window elapses), not a ban.
+const FAILOVER_COOLDOWN: Duration = Duration::from_secs(30);
+
+/// Minimum RTT gain required to switch back to an address still on cooldown.
+const FAILOVER_MIN_GAIN: Duration = Duration::from_millis(10);
 
 /// A stream of events from all paths for all connections.
 ///
@@ -180,6 +205,27 @@ pub(super) struct RemoteStateActor {
     /// They failed to open because we did not have enough CIDs issued by the remote.
     pending_open_paths: VecDeque<transports::Addr>,
 
+    // Internal state - re-probing of dead paths (R14 Lot C).
+    //
+    /// Re-probe schedule for paths that died while in active use.
+    ///
+    /// At most one entry per target address, so at most one re-probe is in
+    /// flight per address (anti-amplification).  Entries are removed when the
+    /// path revives, when attempts run out, or when the address leaves
+    /// [`Self::paths`].
+    reprobes: FxHashMap<transports::Addr, ReprobeState>,
+    /// When each address stopped being the selected path due to a failover.
+    ///
+    /// Used for the anti-oscillation cooldown; entries older than
+    /// [`FAILOVER_COOLDOWN`] are purged on every `select_path` pass.
+    recent_failovers: FxHashMap<transports::Addr, Instant>,
+    /// Addresses we closed on purpose (redundant after an upgrade).
+    ///
+    /// Their `PathEvent::Abandoned` must NOT arm a re-probe: re-probing an
+    /// address we deliberately closed would reopen it just for
+    /// `close_redundant_paths` to close it again, forever.
+    deliberately_closed: FxHashSet<transports::Addr>,
+
     // Internal state - address lookup
     //
     /// Stream of Address Lookup results, or always pending if Address Lookup is not running.
@@ -213,6 +259,9 @@ impl RemoteStateActor {
             scheduled_holepunch: None,
             scheduled_open_path: None,
             pending_open_paths: VecDeque::new(),
+            reprobes: FxHashMap::default(),
+            recent_failovers: FxHashMap::default(),
+            deliberately_closed: FxHashSet::default(),
             address_lookup_stream: Either::Left(n0_future::stream::pending()),
         }
     }
@@ -282,6 +331,11 @@ impl RemoteStateActor {
                 None => MaybeFuture::None,
             };
             n0_future::pin!(scheduled_hp);
+            let scheduled_reprobe = match self.next_reprobe_at() {
+                Some(when) => MaybeFuture::Some(time::sleep_until(when)),
+                None => MaybeFuture::None,
+            };
+            n0_future::pin!(scheduled_reprobe);
             if !inbox.is_empty() || !self.connections.is_empty() {
                 idle_timeout
                     .as_mut()
@@ -332,6 +386,9 @@ impl RemoteStateActor {
                     trace!("triggering scheduled holepunching");
                     self.scheduled_holepunch = None;
                     self.trigger_holepunching();
+                }
+                _ = &mut scheduled_reprobe => {
+                    self.run_due_reprobes();
                 }
                 item = self.address_lookup_stream.next() => {
                     self.handle_address_lookup_item(item);
@@ -406,6 +463,14 @@ impl RemoteStateActor {
         }
 
         if is_major {
+            // Our local addresses likely changed: dead-path re-probes and
+            // failover cooldowns refer to a network that no longer exists.
+            // `deliberately_closed` is deliberately NOT cleared: in-flight
+            // deliberate closes will still emit their Abandoned event and must
+            // stay excluded from re-probing (keeping entries only suppresses
+            // probes; clearing would arm re-probes towards stale addresses).
+            self.reprobes.clear();
+            self.recent_failovers.clear();
             self.trigger_holepunching();
         }
     }
@@ -615,6 +680,10 @@ impl RemoteStateActor {
         if self.connections.is_empty() {
             trace!("last connection closed - clearing selected_path");
             self.selected_path.set(None).ok();
+            // No connection left: re-probes have nothing to open paths on.
+            self.reprobes.clear();
+            self.recent_failovers.clear();
+            self.deliberately_closed.clear();
         }
     }
 
@@ -951,6 +1020,8 @@ impl RemoteStateActor {
                     conn_state.add_open_path(path_remote.clone(), path_id, &self.metrics);
                     self.paths
                         .insert_open_path(path_remote.clone(), Source::Connection { _0: Private });
+                    // The path is alive (again): stop any pending re-probe.
+                    self.reprobes.remove(&path_remote);
                 }
 
                 self.select_path();
@@ -959,7 +1030,16 @@ impl RemoteStateActor {
                 trace!(?path_stats, "path abandoned");
                 // This is the last event for this path.
                 if let Some(addr) = conn_state.remove_path(&id) {
-                    self.paths.abandoned_path(&addr);
+                    let was_active = self.paths.abandoned_path(&addr);
+                    if self.deliberately_closed.remove(&addr) {
+                        // We closed it on purpose (redundant path after an
+                        // upgrade): do not re-probe what we chose to drop.
+                    } else if was_active && addr.is_ip() {
+                        // An active path died: re-probe it on a backoff
+                        // schedule so selection regains material once the
+                        // address revives.
+                        self.arm_reprobe(addr);
+                    }
                 }
             }
             PathEvent::Closed { id, .. } | PathEvent::LocallyClosed { id, .. } => {
@@ -976,6 +1056,14 @@ impl RemoteStateActor {
                     path_id = ?id,
                 );
                 conn_state.remove_open_path(&id);
+
+                // If the path that just closed was the selected path, the
+                // re-selection below is a failover: put the address we are
+                // leaving on the anti-oscillation cooldown.
+                if self.selected_path.get().as_ref() == Some(&path_remote) {
+                    self.recent_failovers
+                        .insert(path_remote.clone(), Instant::now());
+                }
 
                 // If one connection closes this path, close it on all connections.
                 for (conn_id, conn_state) in self.connections.iter_mut() {
@@ -1016,6 +1104,10 @@ impl RemoteStateActor {
     /// direct paths are closed for all connections.
     #[instrument(skip_all)]
     fn select_path(&mut self) {
+        // The failover cooldown is a fade: expired entries are simply dropped.
+        self.recent_failovers
+            .retain(|_, left_at| left_at.elapsed() < FAILOVER_COOLDOWN);
+
         // Find the lowest RTT across all connections for each open path.  The long way, so
         // we get to log *all* RTTs.
         let mut all_path_rtts: FxHashMap<transports::Addr, Vec<Duration>> = FxHashMap::default();
@@ -1080,6 +1172,24 @@ impl RemoteStateActor {
             relay_path,
         );
 
+        // Anti-oscillation: do not switch back to an address we left on a
+        // failover less than FAILOVER_COOLDOWN ago unless the gain is at least
+        // FAILOVER_MIN_GAIN.
+        let selected_path = match (&current_path, selected_path) {
+            (Some((current_addr, current_rtt)), Some((new_addr, new_rtt)))
+                if new_addr != *current_addr
+                    && failover_cooldown_blocks(
+                        self.recent_failovers.get(&new_addr).map(Instant::elapsed),
+                        *current_rtt,
+                        new_rtt,
+                    ) =>
+            {
+                trace!(?new_addr, "failover cooldown: keeping current path");
+                None
+            }
+            (_, selected) => selected,
+        };
+
         // Apply our new path
         if let Some((addr, rtt)) = selected_path {
             let prev = self.selected_path.set(Some(addr.clone()));
@@ -1137,10 +1247,71 @@ impl RemoteStateActor {
                         }
                         Ok(_fut) => {
                             // We will handle the event in Self::handle_path_events.
+                            // Remember this close was on purpose so the
+                            // resulting Abandoned event does not arm a re-probe.
+                            self.deliberately_closed.insert(path_remote.clone());
                         }
                     }
                 }
             }
+        }
+    }
+
+    /// Arms a re-probe for a dead address, if not already armed.
+    ///
+    /// One entry per address means at most one re-probe in flight per target.
+    fn arm_reprobe(&mut self, addr: transports::Addr) {
+        // Cheap bound: never track more re-probes than we keep IP paths.
+        if self.reprobes.len() >= path_state::MAX_IP_PATHS && !self.reprobes.contains_key(&addr) {
+            return;
+        }
+        self.reprobes.entry(addr).or_insert_with(|| ReprobeState {
+            next_at: Instant::now() + REPROBE_INITIAL_DELAY,
+            delay: REPROBE_INITIAL_DELAY,
+            attempts: 0,
+        });
+    }
+
+    /// The earliest scheduled re-probe, if any.
+    fn next_reprobe_at(&self) -> Option<Instant> {
+        self.reprobes.values().map(|state| state.next_at).min()
+    }
+
+    /// Runs all due re-probes and reschedules them with backoff.
+    fn run_due_reprobes(&mut self) {
+        let now = Instant::now();
+        let due: Vec<transports::Addr> = self
+            .reprobes
+            .iter()
+            .filter(|(_, state)| state.next_at <= now)
+            .map(|(addr, _)| addr.clone())
+            .collect();
+        for addr in due {
+            // Drop the re-probe if the path revived meanwhile, left our path
+            // map (pruned), or there is no connection left to probe on.
+            let still_dead = matches!(
+                self.paths.status(&addr),
+                Some(path_state::PathStatus::Inactive(_))
+            );
+            if !still_dead || self.connections.is_empty() {
+                self.reprobes.remove(&addr);
+                continue;
+            }
+            let Some(state) = self.reprobes.get_mut(&addr) else {
+                continue;
+            };
+            state.attempts += 1;
+            let attempts = state.attempts;
+            if attempts >= REPROBE_MAX_ATTEMPTS {
+                self.reprobes.remove(&addr);
+            } else {
+                state.delay = next_reprobe_delay(state.delay);
+                state.next_at = now + state.delay;
+            }
+            trace!(?addr, attempts, "re-probing dead path");
+            // open_path re-validates the address on all client connections and
+            // emits a PATH_CHALLENGE — no new probe machinery.
+            self.open_path(&addr);
         }
     }
 }
@@ -1203,6 +1374,41 @@ fn select_best_path(
                 }
             }
         }
+    }
+}
+
+/// Schedule state for re-probing one dead address (R14 Lot C).
+#[derive(Debug)]
+struct ReprobeState {
+    /// When the next re-probe fires.
+    next_at: Instant,
+    /// Current backoff delay (doubles up to [`REPROBE_MAX_DELAY`]).
+    delay: Duration,
+    /// Number of re-probes already sent.
+    attempts: u8,
+}
+
+/// Next backoff delay for a re-probe: doubles, capped at [`REPROBE_MAX_DELAY`].
+fn next_reprobe_delay(delay: Duration) -> Duration {
+    (delay * 2).min(REPROBE_MAX_DELAY)
+}
+
+/// Whether the failover cooldown forbids switching to this candidate.
+///
+/// `left_elapsed` is how long ago we left the candidate address on a failover
+/// (`None` if we never did, or the entry was purged).  Within
+/// [`FAILOVER_COOLDOWN`] the switch requires a gain of at least
+/// [`FAILOVER_MIN_GAIN`]; afterwards the address is fully eligible again.
+fn failover_cooldown_blocks(
+    left_elapsed: Option<Duration>,
+    current_rtt: Duration,
+    candidate_rtt: Duration,
+) -> bool {
+    match left_elapsed {
+        Some(elapsed) if elapsed < FAILOVER_COOLDOWN => {
+            current_rtt < candidate_rtt + FAILOVER_MIN_GAIN
+        }
+        _ => false,
     }
 }
 
@@ -1644,5 +1850,56 @@ mod tests {
         let (addr, rtt) = select_v4_v6(v4, Duration::from_millis(10), v6, Duration::from_millis(1));
         assert_eq!(addr, v6.into());
         assert_eq!(rtt, Duration::from_millis(1));
+    }
+
+    #[test]
+    fn test_next_reprobe_delay_backoff() {
+        // 30s -> 1min -> 2min -> 4min -> 5min (cap) -> 5min
+        let mut delay = REPROBE_INITIAL_DELAY;
+        let mut seen = vec![delay];
+        for _ in 1..REPROBE_MAX_ATTEMPTS {
+            delay = next_reprobe_delay(delay);
+            seen.push(delay);
+        }
+        assert_eq!(
+            seen,
+            vec![
+                Duration::from_secs(30),
+                Duration::from_secs(60),
+                Duration::from_secs(120),
+                Duration::from_secs(240),
+                REPROBE_MAX_DELAY,
+                REPROBE_MAX_DELAY,
+            ]
+        );
+    }
+
+    #[test]
+    fn test_failover_cooldown_blocks() {
+        let ms = Duration::from_millis;
+
+        // Never left this address: nothing blocks.
+        assert!(!failover_cooldown_blocks(None, ms(20), ms(5)));
+
+        // Left it recently, gain below FAILOVER_MIN_GAIN: blocked.
+        assert!(failover_cooldown_blocks(
+            Some(Duration::from_secs(5)),
+            ms(15),
+            ms(10)
+        ));
+
+        // Left it recently, gain at least FAILOVER_MIN_GAIN: allowed.
+        assert!(!failover_cooldown_blocks(
+            Some(Duration::from_secs(5)),
+            ms(20),
+            ms(10)
+        ));
+
+        // Cooldown elapsed: allowed again regardless of gain (fade, not ban).
+        assert!(!failover_cooldown_blocks(
+            Some(FAILOVER_COOLDOWN),
+            ms(15),
+            ms(10)
+        ));
     }
 }

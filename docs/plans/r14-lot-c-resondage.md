@@ -120,10 +120,55 @@ Conséquences pour ce design :
 - Les mesures I9a/I9b doivent séparer les mobiles inactifs de la flotte active, sinon
   elles mesurent le power save d'Apple, pas notre protocole.
 
+## §5bis Implémentation (2026-07-19 soir, feu vert Malik sur §2bis/§3)
+
+Livrée dans `tom-connect` uniquement (AUCUNE modification tom-quinn-proto), tout dans
+l'actor mono-tâche `RemoteStateActor` — pas de nouveau verrou, pas d'await sous mutex.
+
+- `path_state.rs` : `abandoned_path()` retourne désormais `bool` (le chemin était-il
+  `Open` ?) + getter `status()`.
+- `remote_state.rs` :
+  - Constantes : `REPROBE_INITIAL_DELAY` 30 s, `REPROBE_MAX_DELAY` 5 min,
+    `REPROBE_MAX_ATTEMPTS` 6, `FAILOVER_COOLDOWN` 30 s, `FAILOVER_MIN_GAIN` 10 ms.
+  - Déclencheur : `PathEvent::Abandoned` d'un chemin IP qui était `Open` → `arm_reprobe`.
+  - Re-probe : bras `scheduled_reprobe` dans le `select!` (pattern `MaybeFuture` du
+    holepunch) → `run_due_reprobes` → `open_path(addr)` (PATH_CHALLENGE existant),
+    backoff ×2, ≤ 1 entrée par adresse (anti-amplification), abandon si le chemin
+    revit (`PathEvent::Opened` retire l'entrée), si l'adresse est élaguée, ou s'il
+    n'y a plus de connexion.
+  - Cooldown : enregistré dans `PathEvent::Closed` quand le chemin fermé était le
+    chemin sélectionné (= failover) ; appliqué dans `select_path` via la fonction pure
+    `failover_cooldown_blocks` ; purge des entrées expirées à chaque passe (fade).
+  - Nettoyage : tout l'état Lot C est vidé à la dernière connexion fermée ;
+    `reprobes` + `recent_failovers` aussi sur changement réseau majeur
+    (`deliberately_closed` survit volontairement : les fermetures en vol émettront
+    encore leur `Abandoned` et doivent rester exclues).
+  - Réversibilité du give-up (LOCKED #4) : l'abandon après 6 essais vaut pour UN
+    cycle de mort du chemin — toute nouvelle mort d'un chemin actif ré-arme un cycle
+    complet, et un chemin revenu par n'importe quelle voie (holepunch, QNT, dial)
+    redevient candidat normal. Rien n'est permanent.
+
+**Raffinement découvert à l'implémentation** (non prévu par le red-team) :
+`close_redundant_paths` ferme VOLONTAIREMENT les chemins lents après un upgrade, et ces
+fermetures émettent aussi `PathEvent::Abandoned`. Sans discriminant, le re-probe
+rouvrirait en boucle un chemin qu'on vient de fermer exprès (probe → reopen → close →
+probe…). Ajout : `deliberately_closed` (marqué au `path.close()` volontaire, consommé à
+l'`Abandoned` correspondant) — ces chemins ne sont PAS re-sondés.
+
+Tests : backoff (`test_next_reprobe_delay_backoff`), cooldown
+(`test_failover_cooldown_blocks`), retour de `abandoned_path` (test path_state étendu).
+
 ## §6 Validation prévue
 
 - Étage L : test hermétique loopback (modèle r15_relay_cache) : tuer artificiellement un
   chemin (drop socket v6), vérifier failover PUIS retour ≤ 60 s quand le chemin revit.
+  ⚠️ Constat d'implémentation (19/07 soir) : « tuer un chemin sans le fermer » n'a pas
+  de brique dans le fork (un `path.close()` est une fermeture VOLONTAIRE, exclue du
+  re-probe par design ; un rebind change le port donc le chemin mort ne « revit » jamais
+  à l'identique). Le harnais propre = proxies UDP loopback à latence injectable
+  (kill = arrêt du forward, revive = reprise), avec la difficulté que QNT peut
+  court-circuiter le proxy en découvrant l'adresse réelle. À construire comme chantier
+  de validation dédié — PAS bricolé.
 - Étage F : rejouer la fenêtre Mac↔iPad avec `path-matrix.py` + logger : I9b (retour au
   meilleur ≤ 60 s après renaissance), I9a (pas d'oscillation accrue).
 - Invariants : aucune bascule ne doit plus durer > backoff-cap quand un chemin 5 ms

@@ -103,25 +103,34 @@ impl RemotePathState {
     ///
     /// If this path does not exist, it does nothing to the
     /// `RemotePathState`
-    pub(super) fn abandoned_path(&mut self, addr: &transports::Addr) {
-        if let Some(state) = self.paths.get_mut(addr) {
-            if matches!(state.status, PathStatus::Open) {
-                match addr {
-                    transports::Addr::Ip(_) => self.metrics.transport_ip_paths_removed.inc(),
-                    transports::Addr::Relay(_, _) => {
-                        self.metrics.transport_relay_paths_removed.inc()
-                    }
-                };
+    ///
+    /// Returns `true` if the path was open (active) before this call, i.e. this
+    /// abandonment is the death of a path that was actually in use.
+    pub(super) fn abandoned_path(&mut self, addr: &transports::Addr) -> bool {
+        let Some(state) = self.paths.get_mut(addr) else {
+            return false;
+        };
+        let was_open = matches!(state.status, PathStatus::Open);
+        if was_open {
+            match addr {
+                transports::Addr::Ip(_) => self.metrics.transport_ip_paths_removed.inc(),
+                transports::Addr::Relay(_, _) => self.metrics.transport_relay_paths_removed.inc(),
+            };
+        }
+        match state.status {
+            PathStatus::Open | PathStatus::Inactive(_) => {
+                state.status = PathStatus::Inactive(Instant::now());
             }
-            match state.status {
-                PathStatus::Open | PathStatus::Inactive(_) => {
-                    state.status = PathStatus::Inactive(Instant::now());
-                }
-                PathStatus::Unusable | PathStatus::Unknown => {
-                    state.status = PathStatus::Unusable;
-                }
+            PathStatus::Unusable | PathStatus::Unknown => {
+                state.status = PathStatus::Unusable;
             }
         }
+        was_open
+    }
+
+    /// Returns the status of a known path, if any.
+    pub(super) fn status(&self, addr: &transports::Addr) -> Option<&PathStatus> {
+        self.paths.get(addr).map(|state| &state.status)
     }
 
     /// Inserts multiple addresses of unknown status into our list of potential paths.
@@ -563,7 +572,10 @@ mod tests {
         assert!(matches!(state.paths[&addr_open].status, PathStatus::Open));
         assert_eq!(metrics.transport_ip_paths_added.get(), 1);
 
-        state.abandoned_path(&addr_open);
+        assert!(
+            state.abandoned_path(&addr_open),
+            "abandoning an open path must report it was active"
+        );
         assert!(matches!(
             state.paths[&addr_open].status,
             PathStatus::Inactive(_)
@@ -572,7 +584,7 @@ mod tests {
         assert_eq!(metrics.transport_ip_paths_removed.get(), 1);
 
         // Test: Inactive stays Inactive
-        state.abandoned_path(&addr_open);
+        assert!(!state.abandoned_path(&addr_open));
         assert!(matches!(
             state.paths[&addr_open].status,
             PathStatus::Inactive(_)
@@ -590,7 +602,10 @@ mod tests {
         assert_eq!(metrics.transport_ip_paths_added.get(), 1);
         assert_eq!(metrics.transport_ip_paths_removed.get(), 1);
 
-        state.abandoned_path(&addr_unknown);
+        assert!(
+            !state.abandoned_path(&addr_unknown),
+            "abandoning a never-open path must not report it was active"
+        );
         assert!(matches!(
             state.paths[&addr_unknown].status,
             PathStatus::Unusable
@@ -599,7 +614,7 @@ mod tests {
         assert_eq!(metrics.transport_ip_paths_removed.get(), 1);
 
         // Test: Unusable stays Unusable
-        state.abandoned_path(&addr_unknown);
+        assert!(!state.abandoned_path(&addr_unknown));
         assert!(matches!(
             state.paths[&addr_unknown].status,
             PathStatus::Unusable

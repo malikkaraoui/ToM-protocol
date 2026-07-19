@@ -217,12 +217,15 @@ Les 5 criticals de l'audit 6-agents sont corrigés (file:line revérifiés) :
         expose `family/switches/last_switch` côté FFI (contrat verrouillé par test)
         ET côté NAS ; ligne collecteur enrichie (« bascule v4 9ms → v6 51ms ») ;
         `path-matrix.py` exploite les compteurs vue-nœud. Scénario A1 : PASS.
-  - [ ] Lot B — élucider une bascule dégradante EN DIRECT (chemin mort remplacé, ou
-        sélection défaillante ?). **Aucun code de sélection avant cette réponse.**
-        Veille armée 19/07 (compteurs flotte 129 + collecteur) — en attente d'une
-        bascule dégradante franche.
-  - [ ] Lot C — déterminisme du probe, conditionné au Lot B (⚠️ `iroh_hp.rs:196` :
-        un autre mécanisme s'appuie sur l'aléatoire).
+  - [x] ✅ **Lot B — TRANCHÉ (19/07 soir, 40 min logger passif)** : non-convergence
+        = **failover sur mort de chemin + ABSENCE re-sondage du perdu**, PAS défaut
+        sélection. Bascules via hystérésis ; après failover pire, ≥25 min retour
+        zéro (perdu pas re-mesuré). Design Lot C conditionné par ce verdict.
+  - [x] ✅ **Lot C IMPLÉMENTÉ (build 131, prêt merge)** — re-sondage chemins morts :
+        `PathEvent::Abandoned` IP active → re-probe `open_path` backoff 30s→5min,
+        cooldown 30s/gain 10ms, ≤1 vol/adresse, 80 tests verts. Doc
+        `r14-lot-c-resondage.md` §5bis. **Bloqué** : harnais étage L « kill/revive »
+        (proxies UDP loopback, QNT) OBLIGATOIRE avant déploiement flotte.
   - ~~préférence v6 forcée, happy-eyeballs, filtrage temp-addrs, pare-feu Freebox~~
     ABANDONNÉS — non justifiés par les mesures / box non touchée (décision Malik).
 - [x] ✅ **R15 — ~~Annuaire local~~ → R15-lite : relais habituel seul — LIVRÉ (build 129, 19/07)**
@@ -235,7 +238,9 @@ Les 5 criticals de l'audit 6-agents sont corrigés (file:line revérifiés) :
   n'installe PAS le transport relais ; la route persistée suppose un nœud relay-enabled).
   Terrain : NAS persiste (`--data-dir /root/tom-data`, drop-in systemd), cycle complet
   observé (« Restored 1 preferred relay routes » → « R15: 1 relais habituels semés »).
-  Reste : mesure I10 (gain reconnexion ≥ 2×) sur flotte réelle.
+  **I10 VALIDÉ TERRAIN (19-20/07 soir-nuit)** : mécanisme confirme t+0,4s restart chaud
+  → relais habituel restauré, upgrade DIRECT v6. Ratio ≥2× non-mesurable LAN (baseline
+  écrasée par 3 canaux assistance). Reste : chiffrer hors-LAN (iPhone cellulaire post-restart).
 - [x] ✅ **CRITIQUE (19/07) — RÉSOLU, builds 126+127.** Le backup store ET `pending_envelopes`
   sont désormais bornés en octets (64 Mio / 32 Mio). Terrain : 688 Mo + OOM + 0 pair + 8 366
   échecs → pic 491 Mo puis **123 Mo stable**, 4-5 pairs, `NRestarts=0`. La vraie cause était

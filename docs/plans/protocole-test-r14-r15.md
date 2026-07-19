@@ -354,6 +354,29 @@ tracing::info!(
 | Cache n'aide pas (temps identique) ou ralentit | **FAIL I10** | Même proof, ratio ≤ 1 |
 | Nœud ne se reconnecte jamais (timeout) | **FAIL I10, connexion cassée** | time_warm > 60 s |
 
+#### RÉSULTATS 2026-07-19 soir (NAS, build 130) — mécanisme PROUVÉ, ratio NON MESURABLE sur ce banc
+
+Deux runs (11 cycles) : run 1 nominal (3 chauds / 3 froids), run 2 avec blocage
+iptables des flux UDP NEW entrants sur le port de bind (isolation de l'assistance).
+
+| Condition | t « premier pair » | Journal |
+|---|---|---|
+| Chaud (state.db intact) | 0,65 / 1,53 / 4,85 s (run 1) · 0,94 / 0,92 s (run 2) | « Restored 7 preferred relay routes » + « R15: 7 relais semés » → **premier path_change à t+0,4 s = RELAY via la route persistée** (span `connect` = sortant), upgrade DIRECT v6 5 ms 20 ms après |
+| Froid (state.db écarté) | 0,93 / 0,93 / 0,62 s (run 1) · 1,23 s+ (run 2) | aucun Restored/R15 ; premières connexions **entrantes** (`router.accept`) ou re-dial appris de l'entrant |
+
+**Verdicts :**
+1. **Le mécanisme R15-lite est validé terrain** : au restart chaud, la première
+   connexion est SORTANTE via la route relais persistée, avant toute découverte.
+2. **Le ratio ≥ 2× est non mesurable sur cette flotte LAN** : la baseline froide est
+   écrasée par trois canaux d'assistance immédiate — re-dials UDP entrants de la
+   flotte, flux conntrack survivants au restart, et surtout le **relais embarqué du
+   NAS** (TCP 3340) par lequel la flotte ré-injecte adresses et dials en < 1 s. Ce
+   canal est non blocable : c'est aussi la voie R15 du chaud et l'infra de la flotte.
+3. **Pour obtenir le chiffre** : il faut un pair qui ne re-diale pas et hors du relais
+   du nœud testé — ex. redémarrer le NAS pendant que l'iPhone est en CELLULAIRE
+   (app relancée après le restart), ou banc dédié 2 nœuds isolés. I10 reste « à
+   chiffrer », mais le FAIL « cache n'aide pas » est exclu par la preuve mécanisme.
+
 ---
 
 ### 3.2 Scénario I2 : Non-résurrection des fantômes (anti-ravivage + cache)
