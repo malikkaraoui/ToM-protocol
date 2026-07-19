@@ -21,6 +21,19 @@ use tom_transport::{EndpointAddr, TomNode, TomNodeConfig};
 
 #[tokio::test]
 async fn restarted_node_reconnects_via_cached_relay_route() -> anyhow::Result<()> {
+    // Yeux sur CI : le run 29686613023 échouait en silence (0 livraison en
+    // 60 s, aucun log). RUST_LOG le pilote ; défaut verbeux sur la chaîne
+    // relais.
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter(
+            std::env::var("RUST_LOG").unwrap_or_else(|_| {
+                "tom_connect::socket::transports::relay=debug,tom_relay=debug,tom_transport=debug"
+                    .to_string()
+            }),
+        )
+        .with_test_writer()
+        .try_init();
+
     let antispam = AntiSpamConfig { min_rate: 1000.0, ..AntiSpamConfig::default() };
     let data_dir = tempfile::tempdir()?;
 
@@ -107,7 +120,10 @@ async fn restarted_node_reconnects_via_cached_relay_route() -> anyhow::Result<()
                 delivered = true;
                 break;
             }
-            eprintln!("phase 1 : tentative {attempt} sans livraison, renvoi");
+            eprintln!(
+                "phase 1 : tentative {attempt} sans livraison, renvoi (relais : {:?})",
+                relay.status()
+            );
         }
         anyhow::ensure!(delivered, "B n'a pas reçu le message phase 1 (12 tentatives)");
 
