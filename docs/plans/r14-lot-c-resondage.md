@@ -55,14 +55,23 @@ qu'un timer aveugle :
   potentiel (DHCP réattribué). Borné par l'abandon + intra-connexion uniquement (la
   connexion meurt avec le pair).
 
-## §5 Question amont (peut rendre le Lot C moins urgent)
+## §5 Question amont — TRANCHÉE par décision produit (Malik, 19/07 soir)
 
-**Pourquoi les chemins v6 vers l'iPad meurent-ils toutes les ~5-15 min ?** (3 IID en
-40 min, port constant). Suspects : power save WiFi iOS (ND/keepalive manqués), rotation
-des adresses temporaires côté source Mac, path validation QUIC trop stricte. Si la cause
-est de notre côté (keepalive path trop lâche), la corriger réduit le churn à la source.
-Instrumentation possible sans code : corréler les morts avec l'état écran/veille de
-l'iPad (test manuel avec Malik), et `tcpdump` une fenêtre avec sudo interactif.
+**On ne creuse pas, on assume.** iOS restreint le réseau même en foreground sans
+activité tactile (surtout iPad — la batterie est un point fort du produit). Décision,
+extension du non-objectif APNs/background du 15/07 : **ToM n'exploite pas une machine
+mobile au-delà de ce que son utilisateur utilise réellement du réseau.** En prod, l'app
+mobile est ouverte pendant l'usage réel (envoi/réception/lecture) — pas laissée en
+foreground des heures comme au labo.
+
+Conséquences pour ce design :
+- Le churn de chemins d'un mobile inactif = comportement ATTENDU, plus une anomalie.
+  Aucun keepalive/anti-power-save ne sera ajouté pour le contrer.
+- Le Lot C est RECADRÉ, pas invalidé : sa valeur est la **re-convergence des nœuds
+  actifs** (NAS, desktop, mobile en usage réel) après un failover — dont le retour au
+  meilleur chemin quand l'utilisateur REVIENT dans l'app et que ses chemins revivent.
+- Les mesures I9a/I9b doivent séparer les mobiles inactifs de la flotte active, sinon
+  elles mesurent le power save d'Apple, pas notre protocole.
 
 ## §6 Validation prévue
 
