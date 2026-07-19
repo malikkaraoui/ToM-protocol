@@ -4,7 +4,7 @@
 use rusqlite::Connection;
 
 #[cfg(test)]
-const CURRENT_VERSION: i64 = 4;
+const CURRENT_VERSION: i64 = 5;
 
 /// Initialize the database schema (create tables if not exist, run migrations).
 pub fn initialize(conn: &Connection) -> Result<(), rusqlite::Error> {
@@ -34,6 +34,9 @@ pub fn initialize(conn: &Connection) -> Result<(), rusqlite::Error> {
     }
     if version < 4 {
         migrate_v4(conn)?;
+    }
+    if version < 5 {
+        migrate_v5(conn)?;
     }
 
     Ok(())
@@ -142,6 +145,24 @@ fn migrate_v4(conn: &Connection) -> Result<(), rusqlite::Error> {
     Ok(())
 }
 
+/// V5: R15-lite — relais habituel par pair (`preferred_relay_url`).
+///
+/// Une seule colonne dans `peers`, PAS de table d'adresses : la contrainte
+/// « une adresse ne survit pas à son pair » (anti-empoisonnement, cf.
+/// docs/plans/r15-annuaire-local.md §3) est gratuite — la ligne part, la
+/// route part. Les adresses DIRECTES sont volontairement NON persistées
+/// (décision R15-lite : gain marginal, rouvrirait l'empoisonnement du 17/07).
+fn migrate_v5(conn: &Connection) -> Result<(), rusqlite::Error> {
+    conn.execute_batch(
+        "
+        ALTER TABLE peers ADD COLUMN preferred_relay_url TEXT;
+
+        INSERT OR REPLACE INTO schema_version (version) VALUES (5);
+        ",
+    )?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -167,6 +188,47 @@ mod tests {
         assert!(tables.contains(&"contribution_metrics".to_string()));
         assert!(tables.contains(&"tracked_messages".to_string()));
         assert!(tables.contains(&"schema_version".to_string()));
+    }
+
+    /// R15-lite : une base EXISTANTE V4 (celle des apps en prod) migre vers V5
+    /// sans perte — la colonne apparaît, les lignes survivent, la route est
+    /// lisible (NULL pour les anciens pairs).
+    #[test]
+    fn v4_database_upgrades_to_v5_in_place() {
+        let conn = Connection::open_in_memory().unwrap();
+        // Reconstituer une vraie base V4 : migrations 1→4 seulement.
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY)",
+        )
+        .unwrap();
+        migrate_v1(&conn).unwrap();
+        migrate_v2(&conn).unwrap();
+        migrate_v3(&conn).unwrap();
+        migrate_v4(&conn).unwrap();
+        conn.execute(
+            "INSERT INTO peers (node_id, role, status, last_seen) VALUES ('n1', 'Peer', 'Offline', 123)",
+            [],
+        )
+        .unwrap();
+
+        // Upgrade par le chemin normal.
+        initialize(&conn).unwrap();
+
+        let version: i64 = conn
+            .query_row("SELECT MAX(version) FROM schema_version", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(version, 5);
+
+        // La ligne V4 survit, la nouvelle colonne se lit en NULL.
+        let (node_id, url): (String, Option<String>) = conn
+            .query_row(
+                "SELECT node_id, preferred_relay_url FROM peers WHERE node_id = 'n1'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(node_id, "n1");
+        assert_eq!(url, None);
     }
 
     #[test]

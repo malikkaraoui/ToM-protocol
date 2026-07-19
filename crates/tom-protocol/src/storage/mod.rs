@@ -34,6 +34,10 @@ pub struct StateSnapshot {
     pub peers: HashMap<NodeId, PeerInfo>,
     pub metrics: HashMap<NodeId, ContributionMetrics>,
     pub tracked_messages: HashMap<String, TrackedMessageRecord>,
+    /// R15-lite : relais habituel par pair (node_id → URL). Persisté dans la
+    /// colonne `preferred_relay_url` de `peers` — une route sans pair
+    /// survivant (M2) n'existe pas, par construction.
+    pub relay_routes: HashMap<NodeId, String>,
 }
 
 impl StateStore {
@@ -79,7 +83,7 @@ impl StateStore {
             self.save_hub_groups_tx(&tx, hub)?;
         }
 
-        self.save_peers_tx(&tx, &snapshot.peers)?;
+        self.save_peers_tx(&tx, &snapshot.peers, &snapshot.relay_routes)?;
         self.save_metrics_tx(&tx, &snapshot.metrics)?;
         self.save_tracked_messages_tx(&tx, &snapshot.tracked_messages)?;
 
@@ -162,10 +166,11 @@ impl StateStore {
         &self,
         tx: &rusqlite::Transaction,
         peers: &HashMap<NodeId, PeerInfo>,
+        relay_routes: &HashMap<NodeId, String>,
     ) -> Result<(), rusqlite::Error> {
         tx.execute("DELETE FROM peers", [])?;
         let mut stmt = tx.prepare(
-            "INSERT INTO peers (node_id, role, status, last_seen) VALUES (?1, ?2, ?3, ?4)",
+            "INSERT INTO peers (node_id, role, status, last_seen, preferred_relay_url) VALUES (?1, ?2, ?3, ?4, ?5)",
         )?;
         // Anti-ravivage M2 : ne PERSISTE pas les fantômes non-Online plus vieux
         // que TOPOLOGY_TTL_MS (24 h). La base ne peut plus accumuler des milliers
@@ -192,7 +197,8 @@ impl StateStore {
                 nid.to_string(),
                 role,
                 status,
-                info.last_seen as i64
+                info.last_seen as i64,
+                relay_routes.get(nid)
             ])?;
         }
         Ok(())
@@ -302,7 +308,7 @@ impl StateStore {
         let (groups, member_last_seqs) = Self::load_groups(&conn)?;
         let (local_keys, remote_keys) = Self::load_sender_keys(&conn)?;
         let (hub_groups, hub_invited_sets, hub_next_seqs) = Self::load_hub_groups(&conn)?;
-        let peers = Self::load_peers(&conn)?;
+        let (peers, relay_routes) = Self::load_peers(&conn)?;
         let metrics = Self::load_metrics(&conn)?;
         let tracked_messages = Self::load_tracked_messages(&conn)?;
 
@@ -336,6 +342,7 @@ impl StateStore {
             peers,
             metrics,
             tracked_messages,
+            relay_routes,
         })
     }
 
@@ -438,21 +445,30 @@ impl StateStore {
         Ok((groups, invited_sets, next_seqs))
     }
 
-    fn load_peers(conn: &Connection) -> Result<HashMap<NodeId, PeerInfo>, rusqlite::Error> {
-        let mut stmt = conn.prepare("SELECT node_id, role, status, last_seen FROM peers")?;
+    #[allow(clippy::type_complexity)]
+    fn load_peers(
+        conn: &Connection,
+    ) -> Result<(HashMap<NodeId, PeerInfo>, HashMap<NodeId, String>), rusqlite::Error> {
+        let mut stmt = conn
+            .prepare("SELECT node_id, role, status, last_seen, preferred_relay_url FROM peers")?;
         let mut peers = HashMap::new();
+        // R15-lite : les routes relais ne sont chargées QUE pour les pairs qui
+        // survivent au filtre M2 ci-dessous — un fantôme élagué ne peut pas
+        // laisser derrière lui une route dialable (non-résurrection).
+        let mut relay_routes = HashMap::new();
         let rows = stmt.query_map([], |row| {
             let nid: String = row.get(0)?;
             let role: String = row.get(1)?;
             let status: String = row.get(2)?;
             let last_seen: i64 = row.get(3)?;
-            Ok((nid, role, status, last_seen))
+            let relay_url: Option<String> = row.get(4)?;
+            Ok((nid, role, status, last_seen, relay_url))
         })?;
         // Anti-ravivage M2 (côté load) : now capturé une fois pour écarter les
         // bases déjà polluées (migration gratuite au premier boot post-patch).
         let now = crate::types::now_ms();
         for row in rows {
-            let (nid, role, status, last_seen) = row?;
+            let (nid, role, status, last_seen, relay_url) = row?;
             let Ok(node_id) = nid.parse::<NodeId>() else {
                 continue;
             };
@@ -484,8 +500,11 @@ impl StateStore {
                     last_seen: last_seen as u64,
                 },
             );
+            if let Some(url) = relay_url {
+                relay_routes.insert(node_id, url);
+            }
         }
-        Ok(peers)
+        Ok((peers, relay_routes))
     }
 
     fn load_metrics(conn: &Connection) -> Result<HashMap<NodeId, ContributionMetrics>, rusqlite::Error> {
@@ -762,6 +781,48 @@ mod tests {
         assert!(
             !loaded.peers.contains_key(&online_old),
             "Online > 24 h en base élagué au load"
+        );
+    }
+
+    /// R15-lite : la route relais fait le round-trip avec son pair, et meurt
+    /// avec lui — un fantôme > 24 h élagué au load n'abandonne PAS de route
+    /// dialable derrière lui (non-résurrection, piège du 17/07 rejoué).
+    #[test]
+    fn relay_routes_roundtrip_and_die_with_peer() {
+        let store = StateStore::open_memory().unwrap();
+        let now = crate::types::now_ms();
+        let fresh = node_id(1);
+        let ghost = node_id(2);
+
+        let mut peers = HashMap::new();
+        peers.insert(fresh, PeerInfo {
+            node_id: fresh, role: PeerRole::Peer, status: PeerStatus::Online,
+            last_seen: now - 60_000,
+        });
+        // Fantôme Online > 24 h : persisté au save (exemption save-side), mais
+        // élagué au load — sa route doit disparaître avec lui.
+        peers.insert(ghost, PeerInfo {
+            node_id: ghost, role: PeerRole::Peer, status: PeerStatus::Online,
+            last_seen: now - 48 * 60 * 60 * 1000,
+        });
+        let mut relay_routes = HashMap::new();
+        relay_routes.insert(fresh, "http://relay.fresh:3340".to_string());
+        relay_routes.insert(ghost, "http://relay.ghost:3340".to_string());
+
+        store
+            .save(&StateSnapshot { peers, relay_routes, ..Default::default() })
+            .unwrap();
+        let loaded = store.load().unwrap();
+
+        assert_eq!(
+            loaded.relay_routes.get(&fresh).map(String::as_str),
+            Some("http://relay.fresh:3340"),
+            "route du pair frais restaurée"
+        );
+        assert!(!loaded.peers.contains_key(&ghost), "fantôme élagué au load");
+        assert!(
+            !loaded.relay_routes.contains_key(&ghost),
+            "la route du fantôme meurt avec lui (non-résurrection)"
         );
     }
 

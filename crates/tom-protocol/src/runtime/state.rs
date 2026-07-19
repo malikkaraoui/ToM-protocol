@@ -161,6 +161,13 @@ pub struct RuntimeState {
     pub(crate) peer_paths: std::collections::HashMap<NodeId, PathKind>,
     /// Last redelivery attempt time per peer (for grace period logic).
     pub(crate) backup_last_redelivery_at: std::collections::HashMap<NodeId, u64>,
+
+    /// R15-lite : relais habituel par pair, appris des PathEvent RELAY
+    /// (authentifiés : `remote` sort du handshake QUIC). Persisté avec le
+    /// pair (colonne `preferred_relay_url`), expire avec lui via M2. Purgé
+    /// des pairs hors-topologie au tick de nettoyage — jamais une source de
+    /// présence, seulement un candidat de dial au prochain démarrage.
+    pub(crate) relay_routes: std::collections::HashMap<NodeId, String>,
 }
 
 impl RuntimeState {
@@ -203,6 +210,8 @@ impl RuntimeState {
         let mut topology = Topology::new();
         let mut role_manager = RoleManager::new(local_id);
         let mut tracker = MessageTracker::new();
+        let mut relay_routes: std::collections::HashMap<NodeId, String> =
+            std::collections::HashMap::new();
 
         if let Some(ref s) = store {
             match s.load() {
@@ -235,6 +244,16 @@ impl RuntimeState {
                         let count = snapshot.tracked_messages.len();
                         tracker.restore(snapshot.tracked_messages);
                         tracing::info!("Restored {count} tracked messages");
+                    }
+                    // R15-lite : routes relais des seuls pairs survivants à M2
+                    // (le load ne renvoie pas les autres). Le semis du pool
+                    // transport est fait par la boucle au démarrage.
+                    if !snapshot.relay_routes.is_empty() {
+                        tracing::info!(
+                            "Restored {} preferred relay routes",
+                            snapshot.relay_routes.len()
+                        );
+                        relay_routes = snapshot.relay_routes;
                     }
                 }
                 Err(e) => {
@@ -279,6 +298,7 @@ impl RuntimeState {
             backup_redelivery_queue: std::collections::HashMap::new(),
             peer_paths: std::collections::HashMap::new(),
             backup_last_redelivery_at: std::collections::HashMap::new(),
+            relay_routes,
         }
     }
 
@@ -386,12 +406,23 @@ impl RuntimeState {
     pub fn save_state(&self) {
         let Some(ref store) = self.store else { return };
 
+        // R15-lite : ne persiste que les routes des pairs encore en topologie
+        // (une route orpheline ne doit pas survivre à son pair — même
+        // contrainte que M2, appliquée aussi côté RAM au moment du save).
+        let relay_routes: std::collections::HashMap<NodeId, String> = self
+            .relay_routes
+            .iter()
+            .filter(|(id, _)| self.topology.get(id).is_some())
+            .map(|(id, url)| (*id, url.clone()))
+            .collect();
+
         let snapshot = crate::storage::StateSnapshot {
             manager: Some(self.group_manager.snapshot()),
             hub: Some(self.group_hub.snapshot()),
             peers: self.topology.peers_map().clone(),
             metrics: self.role_manager.scores().clone(),
             tracked_messages: self.tracker.snapshot(),
+            relay_routes,
         };
 
         if let Err(e) = store.save(&snapshot) {
@@ -406,7 +437,38 @@ impl RuntimeState {
     /// Purge expired entries from the router dedup / ACK caches.
     pub fn tick_cache_cleanup(&mut self) -> Vec<RuntimeEffect> {
         self.router.cleanup_caches();
+        // R15-lite : une route relais ne survit pas à l'éviction de son pair
+        // (M3) — borne la carte à la taille de la topologie.
+        let topology = &self.topology;
+        self.relay_routes.retain(|id, _| topology.get(id).is_some());
         Vec::new()
+    }
+
+    /// R15-lite : apprend le relais habituel d'un pair depuis un PathEvent.
+    ///
+    /// Source de confiance : `event.remote` sort du handshake QUIC/TLS
+    /// (NodeId = clé publique Ed25519, ADR-005) — jamais d'une annonce non
+    /// vérifiée. Seul un chemin RELAY sélectionné porte l'URL (`relay:…`).
+    pub(crate) fn note_path_event(&mut self, event: &tom_transport::PathEvent) {
+        self.peer_paths.insert(event.remote, event.kind);
+        if let Some(url) = event.addr.strip_prefix("relay:") {
+            // Cap de longueur (classe « rétention sans budget », 4 occurrences
+            // dans ce projet) : une URL de relais légitime tient largement en
+            // 512 octets ; au-delà c'est un pair qui gonfle notre état.
+            const MAX_RELAY_URL_LEN: usize = 512;
+            if url.is_empty() {
+                return;
+            }
+            if url.len() > MAX_RELAY_URL_LEN {
+                tracing::warn!(
+                    peer = %event.remote,
+                    len = url.len(),
+                    "R15: URL de relais refusée (> {MAX_RELAY_URL_LEN} octets)"
+                );
+                return;
+            }
+            self.relay_routes.insert(event.remote, url.to_string());
+        }
     }
 
     // ── Tick: tracker cleanup ────────────────────────────────────────────
@@ -3865,6 +3927,82 @@ mod tests {
     fn default_state(seed: u8) -> RuntimeState {
         let (id, secret) = keypair(seed);
         RuntimeState::new(id, secret, RuntimeConfig::default())
+    }
+
+    // ── R15-lite : relais habituel ───────────────────────────────────────
+
+    fn path_event(remote: NodeId, kind: PathKind, addr: &str) -> tom_transport::PathEvent {
+        tom_transport::PathEvent {
+            kind,
+            rtt: std::time::Duration::from_millis(10),
+            remote,
+            timestamp: std::time::Instant::now(),
+            addr: addr.to_string(),
+            family: tom_transport::AddrFamily::of(addr),
+            prev_family: None,
+            prev_rtt: None,
+        }
+    }
+
+    /// Seul un chemin RELAY sélectionné porte une URL apprenable ; un chemin
+    /// DIRECT ne doit rien écrire, et un `relay:` vide est ignoré.
+    #[test]
+    fn note_path_event_learns_relay_route_only_from_relay_paths() {
+        let mut state = default_state(1);
+        let bob = node_id(2);
+
+        state.note_path_event(&path_event(bob, PathKind::Direct, "192.168.0.23:59455"));
+        assert!(state.relay_routes.is_empty(), "DIRECT n'apprend pas de route");
+        assert_eq!(state.peer_paths.get(&bob), Some(&PathKind::Direct));
+
+        state.note_path_event(&path_event(bob, PathKind::Relay, "relay:http://r.example:3340"));
+        assert_eq!(
+            state.relay_routes.get(&bob).map(String::as_str),
+            Some("http://r.example:3340")
+        );
+
+        state.note_path_event(&path_event(bob, PathKind::Relay, "relay:"));
+        assert_eq!(
+            state.relay_routes.get(&bob).map(String::as_str),
+            Some("http://r.example:3340"),
+            "relay: vide n'écrase pas la route connue"
+        );
+
+        // Cap de longueur : une URL démesurée est refusée (rétention bornée).
+        let huge = format!("relay:http://{}:3340", "a".repeat(600));
+        state.note_path_event(&path_event(bob, PathKind::Relay, &huge));
+        assert_eq!(
+            state.relay_routes.get(&bob).map(String::as_str),
+            Some("http://r.example:3340"),
+            "URL > 512 octets refusée, route connue conservée"
+        );
+    }
+
+    /// Une route relais ne survit pas à l'éviction de son pair (contrainte
+    /// anti-empoisonnement : jamais d'adresse orpheline).
+    #[test]
+    fn relay_route_purged_when_peer_leaves_topology() {
+        let mut state = default_state(1);
+        let bob = node_id(2);
+        let carol = node_id(3);
+
+        // bob en topologie, carol non.
+        state.topology.upsert(crate::relay::PeerInfo {
+            node_id: bob,
+            role: crate::relay::PeerRole::Peer,
+            status: PeerStatus::Online,
+            last_seen: crate::types::now_ms(),
+        });
+        state.relay_routes.insert(bob, "http://r1:3340".into());
+        state.relay_routes.insert(carol, "http://r2:3340".into());
+
+        state.tick_cache_cleanup();
+
+        assert!(state.relay_routes.contains_key(&bob), "pair présent → route gardée");
+        assert!(
+            !state.relay_routes.contains_key(&carol),
+            "pair absent de la topologie → route purgée"
+        );
     }
 
     // ── Task 4 tests ─────────────────────────────────────────────────────

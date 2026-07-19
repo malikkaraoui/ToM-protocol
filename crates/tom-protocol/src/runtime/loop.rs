@@ -206,6 +206,32 @@ pub(super) async fn runtime_loop(
             });
     }
 
+    // ── R15-lite : semis des relais habituels persistés ────────────────
+    // Donne au pool transport un candidat de dial par pair connu AVANT toute
+    // découverte (mDNS/DHT). AUCUNE présence accordée (pas de statut, pas de
+    // taille_reseau), aucun dial déclenché ici — le pool s'en servira quand un
+    // send/re-dial gouverné visera ce pair. Les routes viennent du load M2
+    // (pairs < 24 h uniquement) : pas de résurrection de fantômes.
+    {
+        let mut seeded = 0usize;
+        for (peer_id, url_str) in &state.relay_routes {
+            match url_str.parse::<tom_connect::RelayUrl>() {
+                Ok(url) => {
+                    let addr = tom_connect::EndpointAddr::new(*peer_id.as_endpoint_id())
+                        .with_relay_url(url);
+                    node.add_peer_addr(addr).await;
+                    seeded += 1;
+                }
+                Err(e) => {
+                    tracing::warn!("R15: route relais illisible pour {peer_id}: {e}");
+                }
+            }
+        }
+        if seeded > 0 {
+            tracing::info!("R15: {seeded} relais habituels semés dans le pool");
+        }
+    }
+
     // Monotonic floor for rendezvous publication timestamps (see build_self_dht_addr).
     let mut rendezvous_ts_floor: u64 = 0;
 
@@ -442,8 +468,9 @@ pub(super) async fn runtime_loop(
                     rtt_ms = event.rtt.as_millis(),
                     "path changed"
                 );
-                // Store path kind for backup redelivery gating (Phase R18.1)
-                state.peer_paths.insert(event.remote, event.kind);
+                // Path kind pour le gating backup (R18.1) + apprentissage du
+                // relais habituel (R15-lite) — méthode unique, testée.
+                state.note_path_event(&event);
                 vec![RuntimeEffect::Emit(ProtocolEvent::PathChanged { event })]
             }
 

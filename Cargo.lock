@@ -5238,6 +5238,7 @@ name = "tom-integration-tests"
 version = "0.2.0"
 dependencies = [
  "anyhow",
+ "tempfile",
  "tokio",
  "tokio-test",
  "tom-protocol",

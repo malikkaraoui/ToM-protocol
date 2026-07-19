@@ -365,6 +365,7 @@ fn persistence_roundtrip_with_groups() {
         peers: alice.topology().peers_map().clone(),
         metrics: alice.role_manager().scores().clone(),
         tracked_messages: alice.tracker().snapshot(),
+        relay_routes: Default::default(),
     };
     store.save(&snapshot).unwrap();
 

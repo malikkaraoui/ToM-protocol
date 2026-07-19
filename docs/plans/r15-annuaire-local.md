@@ -216,6 +216,25 @@ mesure qui relève de R14 (reconnexion hors-LAN), pas d'une intuition.
 - Cartographie : ✅ vérifiée sur pièces.
 - Conception initiale : ✅ rédigée, ❌ **partiellement invalidée par sa propre red-team** (§7).
 - Red-team : ✅ faite, ✅ contre-vérifiée (3 findings sur 7 réfutés).
-- Fix autonome identifié (indépendant de R15) : élagage M2 contourné par un `Online` persisté (§6).
-- **Aucun code écrit.** Prochaine étape : arbitrage Malik sur §7, puis R14 d'abord (le workflow
-  de vérification tourne).
+- Fix autonome : ✅ **livré** (élagage M2 au load sans garde `Online`, commit `73f9438` —
+  test `m2_stale_ghosts_pruned_on_save_and_load` durci).
+- **R15-lite : ✅ LIVRÉ (build 129, 2026-07-19)**, validé par le brief de reprise de Malik.
+  Réalisation :
+  - Schéma **V5** : colonne `preferred_relay_url` dans `peers` (`storage/schema.rs::migrate_v5`).
+  - Apprentissage : `RuntimeState::note_path_event` — PathEvent RELAY authentifié uniquement
+    (`remote` sort du handshake QUIC, §6/F3). Purge alignée topologie au tick
+    (`tick_cache_cleanup`), filtrage au save : une route ne survit jamais à son pair.
+  - Load : routes chargées UNIQUEMENT pour les pairs survivant à M2 (même ligne SQL) —
+    non-résurrection par construction, testé (`relay_routes_roundtrip_and_die_with_peer`).
+  - Semis au démarrage : `runtime/loop.rs` injecte les routes dans le pool transport
+    (candidats de dial, AUCUNE présence accordée, aucun dial déclenché — F4 respecté :
+    pas de 3ᵉ source de dial).
+  - **Test déterministe §5 : ✅** `tom-integration-tests/tests/r15_relay_cache.rs` — relais
+    embarqué réel, phase 1 apprentissage, restart sans AUCUNE découverte ni relais configuré,
+    livraison via la route persistée seule. ⚠️ Leçon : les nœuds de test doivent être liés
+    au **loopback** (`bind_addr 127.0.0.1:0`) — en bind wildcard, la vraie flotte du LAN les
+    découvre et les auto-pingue (fuite d'herméticité déjà connue du banc chaos, toujours
+    non élucidée — le canal de découverte résiduel reste à identifier).
+- Reste (terrain) : mesure I10 (gain de reconnexion ≥ 2×) sur la flotte réelle, et décision
+  d'activer `--data-dir` sur le service NAS (aujourd'hui éphémère, donc R15-lite sans effet
+  sur le NAS tant que le flag n'est pas ajouté à l'unit systemd).
