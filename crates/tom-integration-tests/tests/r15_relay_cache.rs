@@ -27,7 +27,7 @@ async fn restarted_node_reconnects_via_cached_relay_route() -> anyhow::Result<()
     let _ = tracing_subscriber::fmt()
         .with_env_filter(
             std::env::var("RUST_LOG").unwrap_or_else(|_| {
-                "tom_connect::socket::transports::relay=debug,tom_relay=debug,tom_transport=debug"
+                "tom_connect::socket::transports::relay=debug,tom_relay=debug,tom_transport=debug,tom_protocol=info"
                     .to_string()
             }),
         )
@@ -37,7 +37,11 @@ async fn restarted_node_reconnects_via_cached_relay_route() -> anyhow::Result<()
     let antispam = AntiSpamConfig { min_rate: 1000.0, ..AntiSpamConfig::default() };
     let data_dir = tempfile::tempdir()?;
 
-    // ── 1. Relais local réel ────────────────────────────────────────────
+    // ── 1. Relais local réel + relais LEURRE ────────────────────────────
+    // Le leurre sert de relais configuré à A2 en phase 2 : le fallback
+    // « default relays » du pool pointera dessus (B n'en est PAS client) —
+    // impossible de livrer par cette voie. Seule la route PERSISTÉE (le
+    // vrai relais de B) peut aboutir : pas de faux-vert possible.
     let mut relay = EmbeddedRelayService::new();
     let relay_url = relay
         .start(EmbeddedRelayConfig {
@@ -47,6 +51,15 @@ async fn restarted_node_reconnects_via_cached_relay_route() -> anyhow::Result<()
         .await
         .map_err(|e| anyhow::anyhow!("relay start: {e}"))?;
     eprintln!("relais embarqué : {relay_url}");
+    let mut decoy_relay = EmbeddedRelayService::new();
+    let decoy_url = decoy_relay
+        .start(EmbeddedRelayConfig {
+            bind_addr: "127.0.0.1:0".parse()?,
+            advertise_addr: Some("127.0.0.1".parse()?),
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("decoy relay start: {e}"))?;
+    eprintln!("relais leurre : {decoy_url}");
 
     // ── 2. Node B — joignable via ce relais uniquement ──────────────────
     let node_b = TomNode::bind(
@@ -70,11 +83,17 @@ async fn restarted_node_reconnects_via_cached_relay_route() -> anyhow::Result<()
     // Identité persistée (comme une vraie app) : mêmes clés au restart.
     let identity_a = data_dir.path().join("identity-a.key");
     let id_a = {
+        // A est relay-enabled (réaliste : un nœud qui apprend des routes a un
+        // relais configuré) — et NÉCESSAIRE : sans relais configuré,
+        // RelayMode::Disabled n'installe pas le transport relais (constaté
+        // sur le runner CI ubuntu : A ne tentait jamais de connexion relais,
+        // run 29686919544).
         let node_a = TomNode::bind(
             TomNodeConfig::new()
                 .n0_discovery(false)
                 .local_discovery(false)
                 .bind_addr("127.0.0.1:0".parse()?)
+                .relay_url(relay_url.clone())
                 .identity_path(identity_a.clone()),
         )
         .await?;
@@ -150,14 +169,16 @@ async fn restarted_node_reconnects_via_cached_relay_route() -> anyhow::Result<()
         id_a
     };
 
-    // ── 4. Node A phase 2 — restart SANS relais configuré, SANS découverte.
-    // Seule la route persistée (semée dans le pool au démarrage) peut
-    // atteindre B.
+    // ── 4. Node A phase 2 — restart avec un relais LEURRE, SANS découverte.
+    // Le transport relais existe (réaliste), mais le fallback default-relay
+    // pointe sur le leurre où B n'est pas joignable. Seule la route
+    // persistée (le vrai relais de B, semée dans le pool) peut aboutir.
     let node_a2 = TomNode::bind(
         TomNodeConfig::new()
             .n0_discovery(false)
             .local_discovery(false)
             .bind_addr("127.0.0.1:0".parse()?)
+            .relay_url(decoy_url.clone())
             .identity_path(identity_a),
     )
     .await?;
@@ -205,5 +226,6 @@ async fn restarted_node_reconnects_via_cached_relay_route() -> anyhow::Result<()
     channels_a2.handle.shutdown().await;
     channels_b.handle.shutdown().await;
     relay.stop().await;
+    decoy_relay.stop().await;
     Ok(())
 }
