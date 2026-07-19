@@ -81,27 +81,39 @@ async fn restarted_node_reconnects_via_cached_relay_route() -> anyhow::Result<()
         channels_a.handle.add_peer_addr(addr_b_relay_only).await;
 
         // Message A→B via le relais (établit la connexion + le PathEvent).
-        channels_a
-            .handle
-            .send_message(id_b, b"phase1 via relais".to_vec())
-            .await?;
+        // RENVOI périodique : sur un runner CI lent, l'enregistrement de B
+        // auprès du relais peut arriver APRÈS l'épuisement des retries du
+        // premier send — un timeout sec ici était flaky (run 29686272468).
         // Filtre par expéditeur : ne pas asserter sur le PREMIER message reçu
         // (défense résiduelle contre toute pollution externe).
-        timeout(Duration::from_secs(20), async {
-            loop {
-                match channels_b.messages.recv().await {
-                    Some(m) if m.from == id_a => break Ok(()),
-                    Some(m) => eprintln!("phase 1 : message parasite de {} ignoré", m.from),
-                    None => break Err(anyhow::anyhow!("canal B fermé")),
+        let mut delivered = false;
+        for attempt in 1..=12 {
+            channels_a
+                .handle
+                .send_message(id_b, b"phase1 via relais".to_vec())
+                .await?;
+            let got = timeout(Duration::from_secs(5), async {
+                loop {
+                    match channels_b.messages.recv().await {
+                        Some(m) if m.from == id_a => break true,
+                        Some(m) => eprintln!("phase 1 : message parasite de {} ignoré", m.from),
+                        None => break false,
+                    }
                 }
+            })
+            .await
+            .unwrap_or(false);
+            if got {
+                delivered = true;
+                break;
             }
-        })
-        .await
-        .map_err(|_| anyhow::anyhow!("B n'a pas reçu le message phase 1"))??;
+            eprintln!("phase 1 : tentative {attempt} sans livraison, renvoi");
+        }
+        anyhow::ensure!(delivered, "B n'a pas reçu le message phase 1 (12 tentatives)");
 
         // Attendre le PathChanged RELAY côté A (la preuve que la route est
         // apprenable), puis flusher l'état — déterministe, pas de sleep.
-        let learned = timeout(Duration::from_secs(20), async {
+        let learned = timeout(Duration::from_secs(60), async {
             while let Some(evt) = channels_a.events.recv().await {
                 if let tom_protocol::ProtocolEvent::PathChanged { event } = evt {
                     if event.remote == id_b && event.addr.starts_with("relay:") {
@@ -143,27 +155,36 @@ async fn restarted_node_reconnects_via_cached_relay_route() -> anyhow::Result<()
     let channels_a2 = ProtocolRuntime::spawn(node_a2, config_a2);
 
     // Aucun add_peer_addr ici : si ce send aboutit, c'est la route persistée.
-    channels_a2
-        .handle
-        .send_message(id_b, b"phase2 depuis le cache".to_vec())
-        .await?;
-    timeout(Duration::from_secs(30), async {
-        loop {
-            match channels_b.messages.recv().await {
-                Some(m) if m.from == id_a && m.payload == b"phase2 depuis le cache" => {
-                    break Ok(())
+    // Même schéma de renvoi périodique que la phase 1 (tolérance CI).
+    let mut delivered = false;
+    for attempt in 1..=12 {
+        channels_a2
+            .handle
+            .send_message(id_b, b"phase2 depuis le cache".to_vec())
+            .await?;
+        let got = timeout(Duration::from_secs(5), async {
+            loop {
+                match channels_b.messages.recv().await {
+                    Some(m) if m.from == id_a && m.payload == b"phase2 depuis le cache" => {
+                        break true
+                    }
+                    Some(m) => eprintln!("phase 2 : message parasite de {} ignoré", m.from),
+                    None => break false,
                 }
-                Some(m) => eprintln!("phase 2 : message parasite de {} ignoré", m.from),
-                None => break Err(anyhow::anyhow!("canal B fermé (phase 2)")),
             }
+        })
+        .await
+        .unwrap_or(false);
+        if got {
+            delivered = true;
+            break;
         }
-    })
-    .await
-    .map_err(|_| {
-        anyhow::anyhow!(
-            "B n'a pas reçu le message phase 2 — la route relais persistée n'a pas été utilisée"
-        )
-    })??;
+        eprintln!("phase 2 : tentative {attempt} sans livraison, renvoi");
+    }
+    anyhow::ensure!(
+        delivered,
+        "B n'a pas reçu le message phase 2 — la route relais persistée n'a pas été utilisée"
+    );
 
     channels_a2.handle.shutdown().await;
     channels_b.handle.shutdown().await;
