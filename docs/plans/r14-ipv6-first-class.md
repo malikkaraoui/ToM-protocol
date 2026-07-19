@@ -193,6 +193,45 @@ de la box par PCP quand disponible — dépend de la mesure post-règle-43925, d
 - **Pas de changement wire** : aucun invariant `tom-*` touché ; formats DHT inchangés (les
   addrs sont déjà des `SocketAddr` sérialisés, v6 inclus).
 
+### §2.3bis TRANCHÉ par la mesure (19/07) — pas de « double tunnel »
+
+Question ouverte hier : l'asymétrie observée (A→B en v6, B→A en v4) signifie-t-elle **deux
+connexions parallèles** entre les mêmes appareils (donc du gaspillage), ou un artefact de
+lecture ? **Tranché par capture réseau (`tcpdump` sur le NAS, 1 274 paquets).**
+
+Pendant un envoi de 12 × 100 Ko NAS→Mac :
+- **861 paquets de données sur UN SEUL chemin** v6 (`…248f:…:43925` → `…f42f:…:55480`),
+- **0 paquet de données** sur le chemin v4 vers le même pair,
+- retour du Mac : 24 paquets de données **sur le même couple d'adresses** (donc symétrique),
+- les autres adresses du même pair ne reçoivent que des **sondes de 8 octets**.
+
+**Conclusion : une seule connexion QUIC, plusieurs chemins candidats maintenus et sondés, un
+seul actif pour les données.** Il n'y a ni double tunnel, ni double processus, ni gaspillage
+de bande passante. Le multipath QUIC fait déjà « observer plusieurs chemins et garder un
+secours » — le trou de R14 est donc uniquement la **ré-évaluation** (hystérésis 5 ms qui fige
+le premier choix), pas l'absence de mécanisme de choix.
+⚠️ Une première tentative de cette mesure a été **polluée** : le NAS était alors étouffé
+(§2.3ter) et ses « sondes simultanées vers 3 adresses » étaient des tentatives de reconnexion
+d'un nœud isolé, pas du multipath sain. Mesurer sur un nœud dégradé produit une fausse théorie.
+
+Note pour le Lot D : les données passent par la GUA **temporaire** du Mac (`f42f:…`), pas la
+stable (`1cfc:…`) — cohérent avec les privacy extensions actives, et confirme qu'il ne faut
+PAS filtrer les temporaires (c'est le chemin réellement utilisé).
+
+### §2.3ter Bug CRITIQUE trouvé pendant cette mesure — backup store non borné en octets
+
+Voir mémoire `tom-backup-store-oom-2026-07-19`. Résumé : `backup/store.rs:14`
+`MAX_TOTAL_MESSAGES = 10_000` borne la **cardinalité**, pas le **volume** ; `BackupEntry.payload`
+est un `Vec<u8>` entier en RAM (`backup/types.rs:50-54`) ; aucun cap en octets.
+Terrain : NAS à **688 Mo sur 920** après 13 h, **OOM-killer déjà passé** (771 Mo RSS tués),
+**8 366 échecs** (56 la veille), **0 pair** — tout en affichant `phase: "connecte"` et en étant
+vu « DIRECT v6 7 ms » par le Mac. Preuve A/B au redémarrage : **688 Mo → 24 Mo, 0 → 5 pairs,
+8 366 → 0 échec**, même binaire et même réseau.
+Contributeur : les campagnes de charge de la veille (1/2/4/8 Mo) — **un test légitime peut tuer
+un nœud de production**. 3ᵉ récidive de la classe « borne par-unité sans budget global »
+(cf. large-message-dos, reassembly-memory-dos). Fix à concevoir : budget en octets + éviction
+par volume, dimensionné selon la RAM de l'hôte.
+
 ### §2.4 Conception RETENUE — « convergence de chemin », pas « préférence v6 »
 
 Fondée sur §1bis (mesures) et le pivot (code). Le chantier change de nom et d'objectif :
