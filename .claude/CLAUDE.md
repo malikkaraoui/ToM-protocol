@@ -8,7 +8,7 @@
 | --- | --- |
 | Projet | ToM Protocol — messagerie P2P décentralisée (chaque device = client + relais) |
 | Stack | rust (workspace crates/) · ios-xcode (apps Swift iOS/tvOS/macOS) · javascript (TS legacy) · freebox (NAS relay) |
-| Phase | R12+ durcissement — build 18 sur toute la flotte (iPad/iPhone/AppleTV/macOS/NAS), fixes CPU/watchdog iOS + 4 DoS anti-pair-malveillant, review globale faite |
+| Phase | **build 127** (2026-07-19). OOM du relais RÉSOLU (backup store + `pending_envelopes` bornés en octets — 4ᵉ occurrence de cette classe, voir mémoire `tom-memory-retention-class-of-bug`). Chantiers actifs : **R14 « convergence de chemin »** (renommé — le problème n'est pas le manque d'IPv6 mais que le choix de chemin ne converge pas vers le meilleur lien) puis **R15-lite** (relais habituel seul). Différé : pic mémoire transitoire en charge (491 Mo/300 Mo poussés). |
 | MCP | qmd (vault 1RR : 114 docs · chantier 77 — PAS le repo) · GitHub via gh CLI (authentifié) |
 
 ## §1 Horodatage + Modèle — EXIGENCE non négociable

@@ -465,6 +465,25 @@ Trous historiques de l'audit multi-agent. **Réaudit 2026-07-12 : les 3 items "C
 9. 🔻 **Détection relay offline** — atténué par #1 (liveness 45s) + reprobe 15s (était ~105s). Un ping relais dédié 30s nécessiterait une API dans le transport forké (tom-connect) — reporté (gain marginal vs risque).
 10. ✅ **Meshing** — VÉRIFIÉ par-design : un mesh gossip est un graphe *connexe* (via hubs), pas *complet* ; forcer un full-mesh N² chargerait les appareils faibles (Apple TV). La connectivité est maximisée par le rendez-vous (#2) + le rejoin 15s. Pas de dial-direct forcé (contre-productif).
 
+**MAJ 2026-07-19 — deux entrées à ajouter à cette liste :**
+
+11. ✅ **Rétention mémoire sans budget en octets — RÉSOLU (builds 126/127), mais classe de bug à
+    surveiller.** Le backup store était borné en NOMBRE de messages (`MAX_TOTAL_MESSAGES=10_000`)
+    et jamais en volume, et `pending_envelopes` (cache de réémission, `runtime/state.rs`) n'était
+    borné du tout alors qu'il clone l'enveloppe complète, payload inclus. Terrain : relais NAS à
+    688 Mo sur une VM de 920, OOM-killer à répétition, 0 pair, 8 366 échecs — **tout en affichant
+    `phase: "connecte"` et vu « DIRECT v6 7 ms » par ses pairs**. Corrigé par `MAX_TOTAL_BYTES`
+    (64 Mio, `backup/store.rs`) et `PendingEnvelopes` (32 Mio, `runtime/pending.rs`), chacun avec
+    un point de mutation unique pour que le compteur ne puisse pas dériver. **4ᵉ occurrence de la
+    même classe** (large-message, reassembly, backup, pending) → devant toute structure qui garde
+    un `Vec<u8>` réseau, chercher le budget en OCTETS, pas en nombre d'entrées.
+    Voir mémoire `tom-memory-retention-class-of-bug` et `docs/plans/fix-backup-store-budget-octets.md`.
+12. 🔻 **Pic mémoire transitoire en charge — connu, différé (décision Malik 19/07).** 300 Mo poussés
+    d'un coup → `RssAnon` 491 Mo, puis retour à 123 Mo stable. Ce n'est PAS une rétention (ça se
+    libère), c'est le coût du trafic en vol non régulé ; mais c'est élevé pour une VM de 920 Mo.
+    Piste si ça revient : réguler le débit d'émission, ou borner `send_window` QUIC (jamais tuné
+    dans ToM). **À traiter APRÈS R14 et R15.**
+
 **Ce qui reste RÉELLEMENT ouvert après ce réaudit** : le ping relais dédié (#9, explicitement déprioritisé) et le nombre de slots DHT (#2, mineur). Le résiduel iOS (#4) n'est plus « ouvert » : APNs/background est un **non-objectif assumé** (décision produit 2026-07-15), pas un chantier. Aucun trou "Critique" ouvert à cette date.
 
 ## Important Notes for LLMs

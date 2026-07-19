@@ -226,13 +226,14 @@ Les 5 criticals de l'audit 6-agents sont corrigés (file:line revérifiés) :
   hors-LAN) contre un risque élevé (ré-ouvre l'empoisonnement de topologie du
   17-18/07, avec des adresses survivant au restart). Retenu : `preferred_relay_url`
   seul (déjà auto-appris en RAM), expirant avec le pair via M2. Zéro config (#6).
-- [ ] 🔴 **CRITIQUE (trouvé 19/07) — budget mémoire en octets pour le backup store** :
-  `backup/store.rs:14` `MAX_TOTAL_MESSAGES=10_000` borne le NOMBRE de messages, pas le
-  VOLUME ; `payload: Vec<u8>` entier en RAM, aucun cap en octets. Terrain : NAS à 688 Mo
-  sur 920, OOM-killer déjà passé, 8 366 échecs, 0 pair — tout en paraissant vivant.
-  A/B au restart : 688→24 Mo, 0→5 pairs, 8366→0. Un test de charge légitime tue un nœud.
-  Fix : budget global en octets + éviction par volume, dimensionné selon la RAM de l'hôte.
-  3ᵉ récidive de la classe « borne par-unité sans budget global ».
+- [x] ✅ **CRITIQUE (19/07) — RÉSOLU, builds 126+127.** Le backup store ET `pending_envelopes`
+  sont désormais bornés en octets (64 Mio / 32 Mio). Terrain : 688 Mo + OOM + 0 pair + 8 366
+  échecs → pic 491 Mo puis **123 Mo stable**, 4-5 pairs, `NRestarts=0`. La vraie cause était
+  `pending_envelopes`, pas le backup. Voir `docs/plans/fix-backup-store-budget-octets.md`.
+- [ ] 🔻 **DIFFÉRÉ (après R14 et R15, décision Malik 19/07) — pic mémoire en charge** : 300 Mo
+  poussés d'un coup → RssAnon 491 Mo (puis retour à 123 Mo stable). Pas une rétention, mais le
+  coût du trafic en vol non régulé, élevé pour une VM de 920 Mo. Piste : réguler le débit
+  d'émission ou borner `send_window` QUIC (jamais tuné dans ToM).
 - [ ] **Fix autonome (trouvé 18/07)** : `storage/mod.rs:463-475` — un pair persisté
   `Online` échappe au filtre d'élagage 24 h au load (gardé par `status != Online`).
   Borné à ~30 s en régime normal, non borné en crash-loop. Prérequis de R15-lite.
