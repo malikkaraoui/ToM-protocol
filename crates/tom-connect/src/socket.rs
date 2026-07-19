@@ -1063,6 +1063,15 @@ impl Handle {
         rx.await.ok()
     }
 
+    /// Test harness API: opens a path to `addr` on all connections to `remote`.
+    #[cfg(any(test, feature = "test-utils"))]
+    pub(crate) async fn open_path(&self, remote: EndpointId, addr: transports::Addr) {
+        self.actor_sender
+            .send(ActorMessage::OpenPath(remote, addr))
+            .await
+            .ok();
+    }
+
     /// Registers the connection in the `RemoteStateActor`.
     ///
     /// The actor is responsible for holepunching and opening additional paths to this
@@ -1123,6 +1132,10 @@ enum ActorMessage {
     ),
     #[debug("RemoteInfo(..)")]
     RemoteInfo(EndpointId, oneshot::Sender<RemoteInfo>),
+    /// Test harness API: opens a path to `addr` on all connections to the remote.
+    #[cfg(any(test, feature = "test-utils"))]
+    #[debug("OpenPath(..)")]
+    OpenPath(EndpointId, transports::Addr),
     #[cfg(test)]
     ForceNetworkChange(bool),
 }
@@ -1337,6 +1350,10 @@ impl Actor {
                 if let Some(watcher) = self.remote_map.add_connection(remote, conn).await {
                     tx.send(watcher).ok();
                 }
+            }
+            #[cfg(any(test, feature = "test-utils"))]
+            ActorMessage::OpenPath(remote, addr) => {
+                self.remote_map.open_path(remote, addr).await;
             }
             #[cfg(test)]
             ActorMessage::ForceNetworkChange(is_major) => {

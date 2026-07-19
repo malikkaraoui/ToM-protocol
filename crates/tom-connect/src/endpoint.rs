@@ -1185,6 +1185,24 @@ impl Endpoint {
         self.sock.remote_info(endpoint_id).await
     }
 
+    /// Opens an additional network path to a remote endpoint.
+    ///
+    /// Test harness API: production path opening is driven by path selection
+    /// and NAT traversal.  This directly asks the remote's state actor to
+    /// validate `addr` on all client connections (emitting a PATH_CHALLENGE),
+    /// which lets a test attach a controlled path — e.g. through a UDP proxy —
+    /// and then kill/revive it.
+    #[cfg(any(test, feature = "test-utils"))]
+    pub async fn open_path(&self, remote: EndpointId, addr: TransportAddr) {
+        let addr = match addr {
+            TransportAddr::Ip(socket_addr) => crate::socket::transports::Addr::Ip(socket_addr),
+            TransportAddr::Relay(url) => crate::socket::transports::Addr::Relay(url, remote),
+            // TransportAddr is non_exhaustive; nothing to open for future variants.
+            _ => return,
+        };
+        self.sock.open_path(remote, addr).await;
+    }
+
     // # Methods for less common state updates.
 
     /// Notifies the system of potential network changes.
@@ -1474,7 +1492,7 @@ mod tests {
         address_lookup::memory::MemoryLookup,
         endpoint::{
             ApplicationClose, BindError, BindOpts, ConnectOptions, Connection, ConnectionError,
-            PathInfo,
+            PathInfo, QuicTransportConfig,
         },
         protocol::{AcceptError, ProtocolHandler, Router},
         test_utils::{QlogFileGroup, run_relay_server, run_relay_server_with},
@@ -3039,6 +3057,220 @@ mod tests {
         assert!(client_total_relay_rx < transfer_size as u64 / 2);
         assert!(server_total_relay_tx < transfer_size as u64 / 2);
         assert!(server_total_relay_rx < transfer_size as u64 / 2);
+
+        Ok(())
+    }
+
+    /// Hermetic kill/revive harness for the R14 Lot C dead-path re-probe.
+    ///
+    /// The client reaches the server through a controllable UDP proxy — its
+    /// only known direct address, QNT being disabled on both sides so the real
+    /// bind address is never discovered — plus a relay path as the failover
+    /// survivor.  Killing the proxy must fail the connection over to the
+    /// relay; reviving it must bring the direct path back through the re-probe
+    /// schedule alone (nothing else can reopen it), and selection must return
+    /// to the direct path.
+    /// BLOQUÉ (2026-07-20) : le timer per-path `PathIdle` ne tire jamais dans
+    /// le fork — chemin affamé 20 s avec `idle_timeout=Some(1.5s)` vérifié des
+    /// deux côtés (via [`PathInfo::set_max_idle_timeout`], valeur précédente
+    /// confirmée), zéro `PathEvent::Closed`. Sans détection de mort, le
+    /// failover de l'étape 2 n'arrive jamais. Voir
+    /// `docs/plans/r14-lot-c-resondage.md` §6bis. Réactiver ce test une fois
+    /// le PathIdle réparé : les étapes 1 (attache proxy + upgrade) et
+    /// l'infra (proxy kill/revive, QNT off, open_path) fonctionnent.
+    #[ignore = "PathIdle inoperant dans le fork — voir r14-lot-c-resondage.md §6bis"]
+    #[tokio::test]
+    #[traced_test]
+    async fn endpoint_reprobes_dead_path_and_recovers() -> Result {
+        use std::sync::atomic::{AtomicBool, Ordering};
+
+        /// Single-client UDP forwarder with a drop switch.
+        struct UdpProxy {
+            addr: std::net::SocketAddr,
+            alive: Arc<AtomicBool>,
+        }
+
+        impl UdpProxy {
+            async fn spawn(upstream: std::net::SocketAddr) -> Result<Self> {
+                let socket = tokio::net::UdpSocket::bind("127.0.0.1:0").await.anyerr()?;
+                let addr = socket.local_addr().anyerr()?;
+                let alive = Arc::new(AtomicBool::new(true));
+                let flag = alive.clone();
+                // Dies with the test runtime.
+                tokio::spawn(async move {
+                    let mut client: Option<std::net::SocketAddr> = None;
+                    let mut buf = vec![0u8; 1 << 16];
+                    loop {
+                        let Ok((n, from)) = socket.recv_from(&mut buf).await else {
+                            break;
+                        };
+                        if !flag.load(Ordering::Relaxed) {
+                            continue; // killed: swallow both directions
+                        }
+                        let target = if from == upstream {
+                            match client {
+                                Some(client) => client,
+                                None => continue,
+                            }
+                        } else {
+                            client = Some(from);
+                            upstream
+                        };
+                        socket.send_to(&buf[..n], target).await.ok();
+                    }
+                });
+                Ok(Self { addr, alive })
+            }
+
+            fn set_alive(&self, alive: bool) {
+                self.alive.store(alive, Ordering::Relaxed);
+            }
+        }
+
+        async fn wait_for_selected(
+            conn: &Connection,
+            what: &str,
+            timeout: Duration,
+            pred: impl Fn(&TransportAddr) -> bool,
+        ) {
+            let deadline = Instant::now() + timeout;
+            loop {
+                let paths = conn.paths().get();
+                if paths.iter().any(|p| p.is_selected() && pred(p.remote_addr())) {
+                    info!("reached: {what}");
+                    return;
+                }
+                assert!(
+                    Instant::now() < deadline,
+                    "timed out waiting for {what}; paths: {paths:?}"
+                );
+                time::sleep(Duration::from_millis(100)).await;
+            }
+        }
+
+        let mut rng = rand_chacha::ChaCha8Rng::seed_from_u64(42);
+        let (relay_map, relay_url, _relay_guard) = run_relay_server().await?;
+
+        // Fast per-path death detection; QNT off so the proxy address stays
+        // the only direct path (no real-address bypass).
+        let transport_config = || {
+            QuicTransportConfig::builder()
+                .default_path_keep_alive_interval(Duration::from_millis(250))
+                .default_path_max_idle_timeout(Duration::from_millis(1500))
+                .disable_nat_traversal()
+                .build()
+        };
+
+        let server = Endpoint::empty_builder(RelayMode::Custom(relay_map.clone()))
+            .secret_key(SecretKey::generate(&mut rng))
+            .transport_config(transport_config())
+            .alpns(vec![TEST_ALPN.to_vec()])
+            .insecure_skip_relay_cert_verify(true)
+            .bind()
+            .await?;
+        server.online().await;
+        let server_id = server.id();
+        let server_port = server
+            .bound_sockets()
+            .iter()
+            .find(|addr| addr.is_ipv4())
+            .expect("ipv4 socket bound")
+            .port();
+        let upstream = std::net::SocketAddr::from((Ipv4Addr::LOCALHOST, server_port));
+        let proxy = UdpProxy::spawn(upstream).await?;
+
+        // Server side: echo pings on one bi stream for the whole test.
+        let server_task = tokio::spawn(async move {
+            let incoming = server.accept().await.anyerr()?;
+            let conn = incoming.await.anyerr()?;
+            let (mut send, mut recv) = conn.accept_bi().await.anyerr()?;
+            let mut buf = [0u8; 4];
+            while recv.read_exact(&mut buf).await.is_ok() {
+                if send.write_all(&buf).await.is_err() {
+                    break;
+                }
+            }
+            Ok::<_, Error>(())
+        });
+
+        let client = Endpoint::empty_builder(RelayMode::Custom(relay_map.clone()))
+            .secret_key(SecretKey::generate(&mut rng))
+            .transport_config(transport_config())
+            .insecure_skip_relay_cert_verify(true)
+            .bind()
+            .await?;
+
+        // Field-like topology: the handshake goes through the relay (path 0),
+        // the direct path is attached afterwards.  The transport config must be
+        // set per-connection (the builder one does not apply to `connect`), or
+        // QNT opens paths to the server's REAL interface addresses and the
+        // proxy is bypassed.
+        let dest = EndpointAddr::new(server_id).with_relay_url(relay_url.clone());
+        let conn = client
+            .connect_with_opts(
+                dest,
+                TEST_ALPN,
+                ConnectOptions::new().with_transport_config(transport_config()),
+            )
+            .await?
+            .await
+            .anyerr()?;
+
+        // Continuous traffic so path liveness is exercised throughout.
+        let (mut send, mut recv) = conn.open_bi().await.anyerr()?;
+        let ping_task = tokio::spawn(async move {
+            let mut buf = [0u8; 4];
+            loop {
+                if send.write_all(b"ping").await.is_err() {
+                    break;
+                }
+                if recv.read_exact(&mut buf).await.is_err() {
+                    break;
+                }
+                time::sleep(Duration::from_millis(200)).await;
+            }
+        });
+
+        let proxy_addr = TransportAddr::Ip(proxy.addr);
+
+        // 1) Attach the proxy as a direct path; selection must upgrade to it
+        //    (direct is preferred over relay).
+        client.open_path(server_id, proxy_addr.clone()).await;
+        wait_for_selected(&conn, "direct via proxy", Duration::from_secs(15), |a| {
+            *a == proxy_addr
+        })
+        .await;
+
+        // Force a short per-path idle timeout so the dead path is detected in
+        // seconds (also logs the previous value: diagnostic for whether the
+        // transport config reached the paths).
+        for path in conn.paths().get().iter() {
+            let prev = path.set_max_idle_timeout(Some(Duration::from_millis(1500)));
+            info!(?prev, addr = ?path.remote_addr(), "forced path idle timeout");
+        }
+
+        // 2) Kill the proxy: the direct path dies, selection fails over to
+        //    the surviving relay path.
+        proxy.set_alive(false);
+        wait_for_selected(&conn, "relay failover", Duration::from_secs(20), |a| {
+            matches!(a, TransportAddr::Relay(_))
+        })
+        .await;
+
+        // 3) Revive the proxy: only the re-probe schedule can reopen the dead
+        //    direct path, and selection must come back to it (I9b).
+        proxy.set_alive(true);
+        wait_for_selected(
+            &conn,
+            "direct back after revive",
+            Duration::from_secs(20),
+            |a| *a == proxy_addr,
+        )
+        .await;
+
+        ping_task.abort();
+        conn.close(0u8.into(), b"done");
+        server_task.abort();
 
         Ok(())
     }

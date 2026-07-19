@@ -30,6 +30,8 @@ use crate::{
         concurrent_read_map::{ConcurrentReadMap, ReadOnlyMap},
     },
 };
+#[cfg(any(test, feature = "test-utils"))]
+use crate::socket::transports;
 
 mod remote_state;
 
@@ -195,6 +197,13 @@ impl RemoteMap {
         let (tx, rx) = oneshot::channel();
         actor.send(RemoteStateMessage::RemoteInfo(tx)).await.ok()?;
         rx.await.ok()
+    }
+
+    /// Test harness API: asks the remote's actor to open a path to `addr`.
+    #[cfg(any(test, feature = "test-utils"))]
+    pub(super) async fn open_path(&mut self, remote: EndpointId, addr: transports::Addr) {
+        let actor = self.remote_state_actor(remote);
+        actor.send(RemoteStateMessage::OpenPath(addr)).await.ok();
     }
 
     pub(super) async fn add_connection(

@@ -158,6 +158,37 @@ l'`Abandoned` correspondant) — ces chemins ne sont PAS re-sondés.
 Tests : backoff (`test_next_reprobe_delay_backoff`), cooldown
 (`test_failover_cooldown_blocks`), retour de `abandoned_path` (test path_state étendu).
 
+## §6bis Harnais étage L — état 2026-07-20 (nuit) et DÉCOUVERTE transport
+
+**Infra livrée** (tout gated `cfg(any(test, feature = "test-utils"))`, zéro surface prod) :
+- Proxy UDP contrôlable (kill/revive par flag) dans le test.
+- `RemoteStateMessage::OpenPath` + plomberie endpoint→socket→actor
+  (`Endpoint::open_path(remote, addr)`) : attache un chemin contrôlé (validé :
+  PATH_CHALLENGE émis, chemin ouvert et sélectionné).
+- `QuicTransportConfigBuilder::disable_nat_traversal()` : sans lui, le wrapper
+  du fork IGNORE silencieusement toute valeur < 12 et QNT ouvre des chemins vers
+  les adresses RÉELLES (bypass du proxy + fuite d'herméticité).
+- `PathInfo::set_max_idle_timeout()` : override par chemin + diagnostic (retourne
+  la valeur précédente).
+- Constantes Lot C raccourcies en build test (`cfg!(test)`), invariant
+  `REPROBE_INITIAL_DELAY > FAILOVER_COOLDOWN` préservé et testé.
+- Test `endpoint_reprobes_dead_path_and_recovers` : étape 1 VERTE
+  (relais-first, attache proxy, upgrade sélection vers le direct).
+
+**DÉCOUVERTE BLOQUANTE — le timer `PathIdle` ne tire jamais.** Chemin affamé
+20 s, `idle_timeout=Some(1.5s)` CONFIRMÉ des deux côtés (prev value), keep-alives
+per-path actifs (302 tirs), LossDetection tire (17) — mais 0 PathIdle, 0
+`PathEvent::Closed`, pas de failover. Conséquences :
+1. Le harnais étape 2 (kill → failover) est bloqué par ce trou, pas par son design.
+2. **Question protocole** : qu'est-ce qui tue RÉELLEMENT les chemins en terrain ?
+   (Les failovers Lot B sont réels.) Piste : `ValidationFailed` observé quand QNT
+   est actif (revalidations) — les morts terrain viendraient de QNT/du pair, pas
+   de l'idle timeout. À instruire : si PathIdle est cassé, la détection de mort
+   sans trafic QNT repose sur rien.
+3. Chantier suivant : instruire le non-armement/non-tir de
+   `Timer::PerPath(_, PathIdle)` (`tom-quinn-proto/connection/mod.rs:3475-3484`,
+   handler `:2233`) — reproduction déterministe = ce test (retirer l'`#[ignore]`).
+
 ## §6 Validation prévue
 
 - Étage L : test hermétique loopback (modèle r15_relay_cache) : tuer artificiellement un

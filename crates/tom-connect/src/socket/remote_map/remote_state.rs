@@ -87,10 +87,23 @@ const IPV6_RTT_ADVANTAGE: Duration = Duration::from_millis(3);
 /// the connection can stay on a worse surviving path forever.  We re-probe the
 /// dead address with `open_path` (a plain PATH_CHALLENGE) on a backoff schedule
 /// so the existing selection logic gets fresh material once the path revives.
-const REPROBE_INITIAL_DELAY: Duration = Duration::from_secs(30);
+///
+/// Test builds shrink the re-probe timings so the hermetic kill/revive harness
+/// runs in seconds.  The invariant REPROBE_INITIAL_DELAY > FAILOVER_COOLDOWN is
+/// preserved: the first successful re-probe always lands after the cooldown has
+/// expired, so the cooldown only ever brakes paths reviving on their own.
+const REPROBE_INITIAL_DELAY: Duration = if cfg!(test) {
+    Duration::from_millis(1200)
+} else {
+    Duration::from_secs(30)
+};
 
 /// Cap for the re-probe backoff (doubles from [`REPROBE_INITIAL_DELAY`]).
-const REPROBE_MAX_DELAY: Duration = Duration::from_secs(5 * 60);
+const REPROBE_MAX_DELAY: Duration = if cfg!(test) {
+    Duration::from_secs(3)
+} else {
+    Duration::from_secs(5 * 60)
+};
 
 /// Give up re-probing an address after this many attempts.
 const REPROBE_MAX_ATTEMPTS: u8 = 6;
@@ -100,7 +113,11 @@ const REPROBE_MAX_ATTEMPTS: u8 = 6;
 /// Within this window we only switch back if the gain is at least
 /// [`FAILOVER_MIN_GAIN`].  This is a reversible fade (the address becomes fully
 /// eligible again once the window elapses), not a ban.
-const FAILOVER_COOLDOWN: Duration = Duration::from_secs(30);
+const FAILOVER_COOLDOWN: Duration = if cfg!(test) {
+    Duration::from_secs(1)
+} else {
+    Duration::from_secs(30)
+};
 
 /// Minimum RTT gain required to switch back to an address still on cooldown.
 const FAILOVER_MIN_GAIN: Duration = Duration::from_millis(10);
@@ -444,6 +461,12 @@ impl RemoteStateActor {
             }
             RemoteStateMessage::NetworkChange { is_major } => {
                 self.handle_network_change(is_major);
+            }
+            #[cfg(any(test, feature = "test-utils"))]
+            RemoteStateMessage::OpenPath(addr) => {
+                self.paths
+                    .insert_multiple(std::iter::once(addr.clone()), Source::App);
+                self.open_path(&addr);
             }
         }
     }
@@ -1485,6 +1508,13 @@ pub(crate) enum RemoteStateMessage {
     RemoteInfo(oneshot::Sender<RemoteInfo>),
     /// The network status has changed in some way
     NetworkChange { is_major: bool },
+    /// Opens a path to the given address on all client connections.
+    ///
+    /// Test harness API: lets a test attach a controlled path (e.g. through a
+    /// UDP proxy) without going through NAT traversal.
+    #[cfg(any(test, feature = "test-utils"))]
+    #[debug("OpenPath(..)")]
+    OpenPath(transports::Addr),
 }
 
 /// Information about a holepunch attempt.
@@ -1771,6 +1801,16 @@ impl PathInfo {
     pub fn rtt(&self) -> Duration {
         self.stats().rtt
     }
+
+    /// Test harness API: overrides this path's max idle timeout.
+    ///
+    /// Returns the previous value, or `None` if the connection or path is gone.
+    #[cfg(any(test, feature = "test-utils"))]
+    pub fn set_max_idle_timeout(&self, timeout: Option<Duration>) -> Option<Option<Duration>> {
+        let conn = self.handle.upgrade()?;
+        let path = conn.path(self.path_id)?;
+        path.set_max_idle_timeout(timeout).ok()
+    }
 }
 
 /// Poll a future once, like n0_future::future::poll_once but sync.
@@ -1854,24 +1894,23 @@ mod tests {
 
     #[test]
     fn test_next_reprobe_delay_backoff() {
-        // 30s -> 1min -> 2min -> 4min -> 5min (cap) -> 5min
+        // Doubles each step and plateaus at the cap: D -> 2D -> 4D ... -> cap.
+        // (Prod: 30s -> 1min -> 2min -> 4min -> 5min -> 5min; test builds use
+        // the shrunk constants, same law.)
         let mut delay = REPROBE_INITIAL_DELAY;
         let mut seen = vec![delay];
         for _ in 1..REPROBE_MAX_ATTEMPTS {
             delay = next_reprobe_delay(delay);
             seen.push(delay);
         }
-        assert_eq!(
-            seen,
-            vec![
-                Duration::from_secs(30),
-                Duration::from_secs(60),
-                Duration::from_secs(120),
-                Duration::from_secs(240),
-                REPROBE_MAX_DELAY,
-                REPROBE_MAX_DELAY,
-            ]
-        );
+        let expected: Vec<Duration> = (0..u32::from(REPROBE_MAX_ATTEMPTS))
+            .map(|i| (REPROBE_INITIAL_DELAY * 2u32.pow(i)).min(REPROBE_MAX_DELAY))
+            .collect();
+        assert_eq!(seen, expected);
+        assert_eq!(seen[0], REPROBE_INITIAL_DELAY);
+        assert_eq!(*seen.last().unwrap(), REPROBE_MAX_DELAY);
+        // The first re-probe can only land after the failover cooldown expired.
+        assert!(REPROBE_INITIAL_DELAY > FAILOVER_COOLDOWN);
     }
 
     #[test]
@@ -1883,14 +1922,14 @@ mod tests {
 
         // Left it recently, gain below FAILOVER_MIN_GAIN: blocked.
         assert!(failover_cooldown_blocks(
-            Some(Duration::from_secs(5)),
+            Some(FAILOVER_COOLDOWN / 2),
             ms(15),
             ms(10)
         ));
 
         // Left it recently, gain at least FAILOVER_MIN_GAIN: allowed.
         assert!(!failover_cooldown_blocks(
-            Some(Duration::from_secs(5)),
+            Some(FAILOVER_COOLDOWN / 2),
             ms(20),
             ms(10)
         ));

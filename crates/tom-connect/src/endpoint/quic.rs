@@ -546,6 +546,17 @@ impl QuicTransportConfigBuilder {
         self
     }
 
+    /// Disables NAT traversal (QNT) entirely for connections using this config.
+    ///
+    /// Test harness API: with QNT off, no path is opened towards the remote's
+    /// announced real addresses, so a test fully controls which paths exist
+    /// (e.g. only a relay path plus a path through a controllable UDP proxy).
+    #[cfg(any(test, feature = "test-utils"))]
+    pub fn disable_nat_traversal(mut self) -> Self {
+        self.0.set_max_remote_nat_traversal_addresses(0);
+        self
+    }
+
     /// Configures qlog capturing by setting a [`QlogFactory`].
     ///
     /// This assigns a [`QlogFactory`] that produces qlog capture configurations for
