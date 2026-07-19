@@ -277,6 +277,37 @@ Instrumenter puis observer une bascule v4→v6 dégradante en direct (le cas `iP
 La réponse détermine si le fix est dans la détection de mort de chemin ou dans la comparaison
 de RTT. **Aucun code de sélection ne doit être écrit avant cette réponse.**
 
+**→ VERDICT (19/07 après-midi, données du Lot A — logger `/tmp/lotb-paths.jsonl`, 40 min,
+flotte 129) : CHEMIN MORT REMPLACÉ + ABSENCE DE RE-SONDAGE, pas une sélection défaillante.**
+Trois faits mesurés, croisés sur les deux sens Mac↔iPad :
+1. **Les bascules à perte sont des failovers.** Observé « v6 10ms → v4 12ms » (Mac→iPad, ×7)
+   et « v4 7ms → v6 18ms » (iPad→Mac) : l'hystérésis (`RTT_SWITCHING_MIN_IP` = 5 ms,
+   `remote_state.rs:78-81`) interdit une bascule-comparaison vers un chemin plus lent —
+   si elle a lieu, le chemin courant était invalidé. Le suivi PAR-CONNEXION du watcher
+   (Lot A) exclut l'artefact multi-connexions.
+2. **Le chemin v6 renaît sur des adresses DIFFÉRENTES** : 3 IID v6 distincts de l'iPad en
+   40 min (`18f3:…`, `b1a2:…`, `f13d:…`, port 60706 constant) — le pair tourne entre ses
+   adresses v6 (stable + temporaires) ; chaque cycle mort/renaissance passe par un
+   re-probe d'un candidat différent. Le chemin v4, lui, n'est JAMAIS mort
+   (`192.168.0.23:64466` constant sur toute la fenêtre).
+3. **Après un failover vers un chemin pire, RIEN ne re-sonde le chemin perdu** :
+   iPad→Mac est resté à v6 18 ms ≥ 25 min alors que le v4 valait 7 ms. Un chemin mort
+   n'est plus mesuré → la comparaison RTT n'a plus de candidat → l'hystérésis n'a rien à
+   comparer. **C'est le mécanisme exact de la non-convergence** (et l'explication probable
+   du cas originel 9 ms → 51 ms resté).
+
+Résiduel (assumé) : pas de capture paquets au moment des morts (tcpdump indisponible sur
+le Mac en session autonome) — l'inférence « bascule à perte ⇒ failover » repose sur la
+règle d'hystérésis lue dans le code, pas sur l'observation du silence du chemin. Et le
+POURQUOI des morts fréquentes de chemins v6 vers un appareil iOS (suspect n°1 : power
+save WiFi / ND) reste à élucider — possiblement hors de notre code.
+
+**Conséquence pour le Lot C — il change de nature** : le tri déterministe des candidats
+(`iroh_hp.rs`) n'adresse PAS ce mécanisme. Le fix candidat devient : **re-sonder
+périodiquement les candidats inactifs** (dont les morts récents) pour redonner à la
+comparaison RTT + hystérésis la matière pour rebasculer vers le meilleur lien. À
+design-first avant toute ligne (décision requise : cadence de re-probe vs coût sondes).
+
 **Lot C — Déterminisme du probe (conditionné au Lot B)**
 Si le Lot B montre que le tirage aléatoire coûte des chemins médiocres : trier les candidats
 avant probe (`iroh_hp.rs:152` — collecter puis `sort_by` sur une clé stable, ou remplacer la
