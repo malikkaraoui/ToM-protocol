@@ -2,8 +2,9 @@
 
 > « La masse comme carburant, pas comme charge. »
 > Créée le 2026-07-20. Document VIVANT — chaque build se mesure à lui.
-> Statut : ossature + thèse (v0). Colonnes « barre industrie » à remplir depuis la
-> recherche en cours ; cibles chiffrées à ratifier avec Malik.
+> Statut : v1 — thèse recadrée après revue « avocat du diable » (20/07) : deux régimes
+> (capacité vs latence), unité nœud-équivalent, gap bootstrap Mainline acté. Cibles
+> chiffrées à ratifier avec Malik.
 
 ---
 
@@ -31,6 +32,14 @@ client, relais, nœud de stockage (backup), et point de découverte (rendez-vous
 > Ajouter un utilisateur, c'est ajouter de l'infrastructure — pas seulement de la charge.
 > La demande et l'offre de capacité arrivent **dans le même paquet** : le nouveau nœud.
 
+Précision d'honnêteté (revue 20/07) : l'infra apportée est **proportionnelle aux capacités
+du nœud** (whitepaper §5 : la contribution attendue l'est aussi) — un NAS always-on apporte
+des ordres de grandeur de plus qu'un mobile en power-save. L'unité de compte de la thèse
+est donc le **nœud-équivalent** (pondéré par capacité), pas la tête brute ; et la santé de
+l'organisme se surveille par la **concentration** (part de l'infra portée par les plus
+gros nœuds, §4) — si l'essentiel vient d'une poignée de gros nœuds, on a recentralisé de
+facto sans se l'avouer.
+
 C'est pour ça que le coût centralisé croît avec la demande (il faut acheter l'infra en
 face) alors que le coût ToM par tête **s'effondre** (l'infra arrive avec la tête). Le
 réseau auto-hébergé est la raison d'être de tout le reste de cette charte : chaque cible
@@ -39,11 +48,23 @@ test anti-cyclique appliqué partout. Si un jour une fonction exige une infra ex
 dédiée (un serveur privilégié, un service central), on a rompu le mécanisme, pas juste
 ajouté une dépendance.
 
-Ce n'est pas un slogan. C'est un critère de conception falsifiable : pour tout axe (latence,
-stockage, résilience, sécurité…), si la métrique se **dégrade** quand N croît, on a un bug
-architectural, pas une fatalité de scaling. Le juge de chaque décision devient :
-**« est-ce que ça se comporte mieux à 10 000 nœuds qu'à 5 ? »** Si la réponse n'est pas
-structurellement « oui », on n'a pas fini.
+Ce n'est pas un slogan. C'est un critère de conception falsifiable — à condition de le
+mesurer honnêtement. Recadrage (revue adverse 20/07) : l'anti-cyclicité a **deux régimes**
+à ne pas confondre :
+
+- **Capacité, résilience, anti-censure** : super-additifs par construction (plus de nœuds
+  = plus de débit servable, plus de copies, plus de portes). Là, la courbe doit MONTER
+  avec N.
+- **Latence** : une connexion 1-à-1 profite de la densité (plus de candidats proches),
+  mais une propagation broadcast (gossip) coûte au mieux ~log N — elle ne s'améliore PAS
+  avec la masse. L'exigence honnête : **bornée, au pire sous-logarithmique**, jamais
+  linéaire.
+
+Et la métrique du juge est TOUJOURS **par nœud, à charge par nœud fixe** — « le débit
+agrégé monte » est tautologique (vrai de tout système à plus de tuyaux) et ne falsifie
+rien. Le juge de chaque décision devient : **« est-ce que ça se comporte mieux — par
+nœud — à 10 000 nœuds qu'à 5 ? »** Si la réponse n'est pas structurellement « oui » (ou
+« borné sous-log » pour le broadcast), on n'a pas fini.
 
 C'est ce qui casse les codes : là où le centralisé paie la croissance, ToM la mange.
 
@@ -63,7 +84,7 @@ idéologique.
 |---|---|---|
 | Topologie **sous-linéaire** (gossip/DHT), jamais full-mesh | Full-mesh s'effondre à **50-100 pairs** (O(n²), [Cellular Mesh][mesh]) | ✅ mesh par hubs, pas full-mesh (LOCKED #10) |
 | Churn **toléré par design** (réplication) | Churn > capacité de stabilisation écrase même Kademlia tuné | ✅ backup TTL 24h + rejoin ; à chiffrer |
-| Contribution **évaluée** (tous les pairs ≠ égaux) | Masse de parasites = charge sans capacité | ✅ rôles par contribution (LOCKED #4/#5) |
+| Contribution **évaluée** (tous les pairs ≠ égaux) | Masse de parasites = charge sans capacité | ✅ équilibre usage/contribution géré par le protocole (whitepaper §5, §6.5) — pas du volontariat ; à surveiller : concentration (§4) |
 | Payload **authentifiée** | « plus de masse » devient « plus d'attaquants » (squatting) | ⚠️ signé, mais 8 slots DHT = angle mort connu |
 
 La conclusion de la recherche est nette : *« plus de masse = plus fort » est vrai SOUS
@@ -96,6 +117,14 @@ ToM applique un **fade réversible** (LOCKED #4) — le faible n'est jamais bann
 rôle et peut le regagner. La force du réseau vient de ce qu'il **n'exclut personne** tout
 en récompensant la contribution. C'est un point non négociable : l'in-censurabilité et la
 résilience VIENNENT de l'inclusion (plus de portes = moins de points de blocage).
+
+**Et l'équilibre n'est pas du volontariat** : tu ne peux pas te servir du réseau si le
+réseau ne peut pas se servir de toi — c'est le **protocole** qui gère l'équilibre
+usage/contribution (deux compteurs, score = différence, whitepaper §5.1-5.2 ; sur-coût
+progressif pour le déséquilibré, §6.5 « l'arroseur arrosé »), pas un choix de
+l'utilisateur. La question « quelle incitation à contribuer ? » est mal posée dans ToM :
+la contribution est la **condition d'usage**, réseau-imposée (rôles LOCKED #6),
+proportionnelle aux capacités du device.
 
 ---
 
@@ -130,7 +159,7 @@ connu : WebRTC LAN ~+5-10 %) ; heartbeat Tailscale 2 s.
 | Métrique | Barre industrie | Cible ToM (draft) | Mesure | Anti-cyclique ? |
 |---|---|---|---|---|
 | Propagation d'un message à N sauts | _(gossipsub vs N)_ | à fixer | banc multi-nœuds | **Test dur** : la courbe doit rester sous-linéaire |
-| Débit relais agrégé | _(BitTorrent seeders)_ | croît avec le nb de relais sains | tom-stress | Oui par construction — à PROUVER |
+| Débit **par nœud** à charge/nœud fixe | _(BitTorrent seeders)_ | ne s'effondre pas quand N croît (plat ou mieux) | banc courbe de masse (`banc-courbe-masse.md`) | Oui par construction — à PROUVER (l'agrégat brut serait tautologique) |
 
 ### Axe 3 — Résilience
 | Métrique | Barre industrie | Cible ToM (draft) | Mesure | Anti-cyclique ? |
@@ -166,7 +195,7 @@ fingerprinté/bloqué en Chine/Russie). Faiblesse universelle : **le bootstrap e
 
 | Propriété | Barre industrie | Cible ToM (agressive) | Où on en est |
 |---|---|---|---|
-| Zéro point de blocage central | Signal/WhatsApp échouent (1 serveur = 1 pays coupé) | maintenir : pas de serveur central | ✅ ADR-002 (bootstrap éliminé), ADR-010 (rendez-vous zéro-config) |
+| Zéro point de blocage central | Signal/WhatsApp échouent (1 serveur = 1 pays coupé) | maintenir : pas de serveur central | ✅ en régime établi (ADR-002, ADR-010) ; 🟡 amorçage à froid via DHT Mainline public (§4) |
 | Résistance IP/DPI/SNI | Tor+Snowflake (référence) | **la masse = anti-blocage** : chaque device une porte, PAS de liste de bridges à énumérer | 🟡 thèse forte, MAIS SNI `.tom.invalid` = signature DPI identifiable (tension, voir §4) |
 | Fonctionne sous coupure | Briar (hors-internet, Bluetooth/WiFi) | égaler à terme | 🟡 LAN/direct existe ; pas de transport hors-IP |
 
@@ -208,10 +237,23 @@ encore (à instruire, sans complaisance) :
   collision.
 - **Gossip mesh** : la propagation à N sauts doit être PROUVÉE sous-linéaire — pas mesurée
   aujourd'hui à grande échelle. Risque de broadcast storm (la masse qui DÉGRADE).
+- **Amorçage à froid : dépendance au DHT Mainline public** (vérifié `tom-dht/src/lib.rs:238`
+  « bootstraps from well-known mainline DHT nodes », `:155` : 4 hostnames publics résolus
+  en DNS). Le rendez-vous zéro-config s'amorce sur une infra EXTERNE (le DHT BitTorrent) :
+  censurable (DNS/IP des bootstrap), hors de notre contrôle. Contredit « le réseau
+  s'héberge lui-même » pour le SEUL cold-start (le warm start passe par relais + pairs
+  persistés). Atténuation déjà en place : bootstrap custom supporté (`:254`). Piste :
+  s'amorcer sur nos propres nœuds (le réseau devient son propre bootstrap), Mainline en
+  secours.
+- **Concentration de l'infra (nœud-équivalent, §0)** : si le gros de l'infra utile vient
+  du top-10 % des nœuds (NAS, always-on), la décentralisation est de façade. Métrique à
+  instrumenter au banc : part du trafic relayé/stocké par décile de nœuds. Pas de cible
+  chiffrée encore — d'abord MESURER la distribution réelle.
 - **Coût mobile** : power-save assumé (décision produit), mais le coût CPU/batterie par
   device sous charge n'est pas budgété. Un organisme ne doit pas épuiser ses cellules.
 - **Preuve du super-additif** : « plus de relais = plus de débit » est une hypothèse de
-  conception, pas encore un chiffre de tom-stress. À DÉMONTRER, sinon la thèse est nue.
+  conception, pas encore un chiffre. À DÉMONTRER avec la métrique honnête (§0 : par nœud,
+  à charge/nœud fixe) — design du banc : `docs/plans/banc-courbe-masse.md`.
 - **Pic mémoire transitoire** en charge (différé) : borné en rétention mais pas en débit
   d'émission — pourrait ne pas être constant avec N.
 - **Tableau de bord juge (§3.2)** : n'existe pas. Sans lui, la charte reste déclarative.
@@ -232,6 +274,7 @@ encore (à instruire, sans complaisance) :
   la sortie est probablement « rapide par défaut, obfusqué à la demande sous blocage ».
 
 > Le premier vrai test de la thèse ne sera pas un chiffre isolé, mais une COURBE :
-> mesurer un axe à 5, 20, 100 nœuds et montrer que la pente va dans le bon sens.
-> Tant qu'on n'a pas cette courbe sur au moins un axe, « la masse est un carburant »
-> reste une intention. Le prochain jalon structurant, c'est de la rendre visible.
+> mesurer un axe à N croissant et montrer que la pente va dans le bon sens — **par nœud,
+> à charge par nœud fixe**. Tant qu'on n'a pas cette courbe sur au moins un axe, « la
+> masse est un carburant » reste une intention. Design du banc (phases, garde-fous
+> contention, WAN simulé) : `docs/plans/banc-courbe-masse.md`.
