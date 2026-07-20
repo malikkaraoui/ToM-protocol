@@ -215,6 +215,22 @@ chemins si PathIdle est peu fiable ? (`ValidationFailed` QNT observé — les
 morts viendraient des revalidations/du pair.) Repro : lancer le test en boucle
 (`--ignored`), ~2/3 des runs échouent à « relay failover ».
 
+## §6ter Tuning terrain (2026-07-20, décision Malik) — re-probe 30 s → 15 s
+
+Campagne I9 build 134 (5 nœuds, 60 min) : **0 dégradation permanente** (le bug Lot B est
+mort en terrain, vs 129 bloqué 25 min), mais I9b ≤ 60 s NON atteint — les dégradations se
+résorbaient en 91-351 s, borne basse = `REPROBE_INITIAL_DELAY` 30 s. Direction produit :
+cibles agressives (la force du réseau = sa masse ; une latence « à trancher » dès 5 nœuds
+n'est pas acceptable). **`REPROBE_INITIAL_DELAY` : 30 s → 15 s** (build 135).
+
+Effet de bord assumé et voulu : 15 s < `FAILOVER_COOLDOWN` (30 s) — le premier re-probe
+tombe DÉSORMAIS pendant le cooldown. Ce n'est pas un conflit : le cooldown gate le
+*retour* (bascule seulement si gain ≥ 10 ms), pas la sonde. Une vraie dégradation (gain de
+retour ≫ 10 ms) revient dès que le chemin revit ; seul le flapping marginal reste tenu
+jusqu'à expiration du cooldown. Constantes de test alignées (`FAILOVER_COOLDOWN` test 1 s
+→ 2 s) pour préserver l'invariant `initial < cooldown` ; étage L 10/10 conservé. À
+re-mesurer en terrain au prochain créneau flotte libre.
+
 ## §6 Validation prévue
 
 - Étage L : test hermétique loopback (modèle r15_relay_cache) : tuer artificiellement un

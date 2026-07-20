@@ -88,14 +88,22 @@ const IPV6_RTT_ADVANTAGE: Duration = Duration::from_millis(3);
 /// dead address with `open_path` (a plain PATH_CHALLENGE) on a backoff schedule
 /// so the existing selection logic gets fresh material once the path revives.
 ///
-/// Test builds shrink the re-probe timings so the hermetic kill/revive harness
-/// runs in seconds.  The invariant REPROBE_INITIAL_DELAY > FAILOVER_COOLDOWN is
-/// preserved: the first successful re-probe always lands after the cooldown has
-/// expired, so the cooldown only ever brakes paths reviving on their own.
+/// 15 s is deliberately BELOW [`FAILOVER_COOLDOWN`] (30 s): reconvergence
+/// latency must be aggressive, and the first re-probe landing during the
+/// cooldown window is exactly right — the cooldown then gates the *return*
+/// (switch back only on a gain ≥ [`FAILOVER_MIN_GAIN`]).  A genuine degradation
+/// (the case that matters) has a return gain well above the threshold, so it is
+/// NOT blocked and recovers as soon as the path revives; only marginal
+/// near-equal flapping is held until the cooldown elapses.  Field I9 (build 134)
+/// showed degradations recovering in 91-351 s with a 30 s first probe — this
+/// halves the first window and tightens every subsequent step.
+///
+/// Test builds shrink the timings so the hermetic kill/revive harness runs in
+/// seconds.
 const REPROBE_INITIAL_DELAY: Duration = if cfg!(test) {
     Duration::from_millis(1200)
 } else {
-    Duration::from_secs(30)
+    Duration::from_secs(15)
 };
 
 /// Cap for the re-probe backoff (doubles from [`REPROBE_INITIAL_DELAY`]).
@@ -114,7 +122,9 @@ const REPROBE_MAX_ATTEMPTS: u8 = 6;
 /// [`FAILOVER_MIN_GAIN`].  This is a reversible fade (the address becomes fully
 /// eligible again once the window elapses), not a ban.
 const FAILOVER_COOLDOWN: Duration = if cfg!(test) {
-    Duration::from_secs(1)
+    // Kept above REPROBE_INITIAL_DELAY (1200ms) so the test build mirrors the
+    // prod relationship initial < cooldown.
+    Duration::from_secs(2)
 } else {
     Duration::from_secs(30)
 };
@@ -1909,7 +1919,7 @@ mod tests {
     #[test]
     fn test_next_reprobe_delay_backoff() {
         // Doubles each step and plateaus at the cap: D -> 2D -> 4D ... -> cap.
-        // (Prod: 30s -> 1min -> 2min -> 4min -> 5min -> 5min; test builds use
+        // (Prod: 15s -> 30s -> 1min -> 2min -> 4min -> 5min; test builds use
         // the shrunk constants, same law.)
         let mut delay = REPROBE_INITIAL_DELAY;
         let mut seen = vec![delay];
@@ -1923,8 +1933,10 @@ mod tests {
         assert_eq!(seen, expected);
         assert_eq!(seen[0], REPROBE_INITIAL_DELAY);
         assert_eq!(*seen.last().unwrap(), REPROBE_MAX_DELAY);
-        // The first re-probe can only land after the failover cooldown expired.
-        assert!(REPROBE_INITIAL_DELAY > FAILOVER_COOLDOWN);
+        // The first re-probe deliberately lands DURING the failover cooldown
+        // (15s < 30s): the cooldown gates the return by gain, it does not gate
+        // the probe.  A degradation returns as soon as its path revives.
+        assert!(REPROBE_INITIAL_DELAY < FAILOVER_COOLDOWN);
     }
 
     #[test]
