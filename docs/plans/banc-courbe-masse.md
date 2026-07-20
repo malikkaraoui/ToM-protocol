@@ -55,7 +55,7 @@ Avant tout point de courbe, prouver que ce qu'on compte est vrai :
 Sortie : une note « instrumentation auditée le X, écarts trouvés/corrigés ». Sans elle,
 aucune courbe n'est publiable.
 
-## §2bis Brique in-process (LIVRÉE 2026-07-20) — hermétique, avant le multi-host
+## §2bis Brique in-process (LIVRÉE 2026-07-20, RÉVISÉE post-oracle le soir même) — hermétique, avant le multi-host
 
 Avant le multi-machines (§3), une brique **in-process** répond au risque #1 de
 l'avocat mesure de la façon la plus radicale : les N nœuds sont câblés par
@@ -63,49 +63,92 @@ l'avocat mesure de la façon la plus radicale : les N nœuds sont câblés par
 construction**, la vraie flotte ne PEUT pas fausser la courbe. Bonus : horloge
 de process UNIQUE → latence par message sans skew.
 
+**Herméticité aussi dans l'AUTRE sens** (leçon de l'incident du 20/07 : la V1
+du banc a publié ~150 nœuds fantômes au rendez-vous DHT partagé de la vraie
+flotte) : chaque nœud du banc coupe le trio découverte —
+`n0_discovery(false).local_discovery(false)` + `enable_dht: false`
+(`scenario_courbe.rs:112,127`). Règle générale : un nœud de test ne touche
+JAMAIS le rendez-vous partagé.
+
 Commande : `tom-stress courbe --sizes 5,10,20 --duration N` (crate
 `scenario_courbe.rs`). Charge fixe/nœud (1 msg/s, 1 Ko, cible aléatoire),
 topologie all-pairs directe.
 
-**Ce que la brique JUGE (axes qu'elle peut trancher) :**
-- **Débit livré PAR NŒUD** à charge/nœud fixe (pas l'agrégat, tautologique).
-- **Dédup (I8)** : doublon = même horodatage d'émission revu chez un récepteur.
+**Ce que la brique JUGE (axe unique, resserré par la revue oracle) :
+l'INTÉGRITÉ de livraison.**
+- **Perte réelle** : comptage après **drain à quiescence** — le récepteur
+  continue de drainer tant qu'il reçoit, ne clôt qu'après ≥ 2 s de silence
+  (borne dure de filet). Plus AUCUNE troncature de messages en vol : une
+  livraison < 100 % est une perte vraie, pas un artefact de fenêtre.
+- **Dédup (I8)** : doublon = même **clé unique `(nœud << 32 | seq)`** revue
+  chez un récepteur — incontestable. (La V1 utilisait l'horodatage d'émission
+  comme clé : deux envois dans la même milliseconde = faux « doublon ». Les
+  doublons vus par la V1 étaient un artefact de MON instrument, pas du
+  protocole.)
 - **Herméticité** : filtre de signature de payload → les messages non-banc du
   canal applicatif sont isolés, pas comptés.
 
-**Premiers résultats (20/07, seed 42, 15 s/point, loopback) :**
+**Résultats RÉVISÉS (20/07 soir, banc corrigé : drain à quiescence + clé
+`(nœud,seq)` — seed 42, 15 s/point, loopback, build 137) :**
 
-| N | livré/nœud (Hz) | livraison | p50 | p95 | dérive | dup | verdict |
-|---|---|---|---|---|---|---|---|
-| 5 | 1.000 | 100 % | 5 ms | 12 ms | 1.00× | 0 | ok |
-| 10 | 1.000 | 100 % | 88 ms | 1.25 s | 1.01× | 0 | ok |
-| 20 | 0.73 | 74 % | 1.45 s | 9.6 s | 1.15× | 0 | **INVALIDE** |
+| N | livraison | offert→reçu | livré/nœud | p50 | p95 | max | dérive | dup | état |
+|---|---|---|---|---|---|---|---|---|---|
+| 5 | 100.0 % | 75→75 | 1.00 Hz | 17.8 ms | 28.9 ms | 46.6 ms | 1.00× | 0 | ok |
+| 10 | 99.3 % | 150→149 | 0.99 Hz | 166 ms | 2.10 s | 6.44 s | 1.01× | 0 | ok |
+| 20 | 87.7 % | 300→263 | 0.88 Hz | 1.45 s | 7.77 s | 10.35 s | 1.02× | 0 | ok |
 
-→ **VERDICT DÉBIT/DÉDUP (N=5→10) : ×1.00, 0 doublon = PASS.** Le débit par nœud
-tient et la livraison est intègre jusqu'à N=10. **Premier signal chiffré que
-« la masse ≠ effondrement » sur l'axe débit** (sous les réserves ci-dessous).
+→ **VERDICT INTÉGRITÉ : FAIL à N=20** — 37 messages sur 300 non livrés
+(12,3 %), 0 doublon. Différence clé avec la V1 : tous les points sont VALIDES
+(dérive d'émission ≤ 1.02× — la charge promise a été tenue) et le drain à
+quiescence élimine l'artefact de troncature → cette perte est RÉELLE **sur ce
+banc**. L'ATTRIBUTION reste ouverte : à N=20 le runtime partagé est saturé
+(p50 ×81 vs N=5) — perte protocolaire, ou messages sacrifiés par
+l'ordonnanceur affamé ? Trancher = multi-process/multi-host (§3). Ce qu'on
+peut affirmer aujourd'hui : intégrité parfaite à N=5 (100 %), quasi parfaite à
+N=10 (99,3 %), zéro doublon partout. (La V1 lisait « 74 % INVALIDE » à N=20 :
+elle tronquait les messages en vol ET comptait de faux doublons — les deux
+artefacts sont morts, le chiffre 87,7 % est le premier chiffre de perte
+publiable de ce banc.)
 
 **Ce que la brique NE juge PAS (limites ASSUMÉES, écrites dans la sortie) :**
-- **Latence-vs-N : NON concluante in-process.** À N=10, p50 ×17 alors que la
-  dérive d'ÉMISSION reste à 1.01 → ce n'est pas le réseau, c'est le **runtime
+- **Débit à saturation : PAS sondé.** À charge fixe 1 msg/s, « livré/nœud
+  ×1.00 » est **tautologique** tant que l'intégrité tient — c'est l'absence de
+  perte, PAS une preuve d'anti-effondrement. Sonder la saturation exigerait de
+  monter `--rate` jusqu'à casser — et sur un runtime partagé on mesurerait le
+  Mac, pas le protocole (§3).
+- **Latence-vs-N : RAPPORTÉE, pas jugée.** À N=10, p50 ×17 alors que la
+  dérive d'ÉMISSION reste ~1.0 → ce n'est pas le réseau, c'est le **runtime
   tokio PARTAGÉ** qui sature côté RÉCEPTION. Un banc mono-runtime ne peut pas
   séparer « latence protocolaire ∝ N » de « ordonnanceur saturé ». ⇒ l'axe
   latence exige l'**isolation par processus** (§3).
-- **Garde-fou de validité durci** : un point dont p95 > fenêtre de drain (3 s)
-  est INVALIDE — son comptage de livraison est TRONQUÉ (messages en vol coupés),
-  pas une perte réseau. C'est ce qui disqualifie N=20 proprement (au lieu de le
-  lire comme un faux « FAIL protocole » — exactement le piège à éviter).
+- **Validité d'un point** : INVALIDE ⟺ **dérive de cadence à l'émission
+  > 1.5×** (la charge promise n'a pas été tenue → on mesure la contention du
+  banc, pas le réseau). Le p95 n'est PLUS un critère d'exclusion — le drain à
+  quiescence rend la livraison vraie même lente.
 - **loopback (RTT ~0)**, pas LAN/WAN → validité externe = §3/§4.
 - Plafond du banc local ≈ N≈10-15 avant saturation réception.
+- **Ce banc ignore les RÔLES** (recadrage fondateur 20/07) : relais multi-hop,
+  backup/gardien, rendez-vous, subnets, rotation de rôles — voir
+  `docs/plans/prisme-des-roles.md` (grille R1-R8) ; c'est le prochain banc qui
+  les exerce.
 
 **Findings transport (la brique fait fuzzer le teardown de masse) — à instruire,
 NON bloquants (post-mesure) :** l'arrêt simultané de ~20 nœuds fait surgir des
 races de teardown dans le transport forké : `unreachable: drained connections
-always have an error` (tom-quinn-proto), `gossip/net.rs:454` panic sur
+always have an error` (`tom-quinn/src/connection.rs:289` — attribution corrigée,
+c'est tom-quinn, PAS tom-quinn-proto), `gossip/net.rs:454` panic sur
 `JoinError::Cancelled`, `could not close last open path`, `RETIRE_CONNECTION_ID
 for unknown path`, `PTO expired while unset`. N'altèrent pas la mesure mais
 révèlent des `unwrap`/`unreachable` atteints sous arrêt concurrent massif — zone
 deadlocks historique, à durcir séparément avec soin.
+**Nouveaux au run révisé (20/07 soir)** : panic `closed without error reason`
+(`tom-quinn/src/connection.rs:1723`, ×5 au teardown N=20) ; **boucle chaude de
+retry sur `MaxPathIdReached`** (~46 tentatives d'`open_path` dans la MÊME
+milliseconde — aucun backoff, spam massif de WARN) ; le multipath sonde
+l'**IPv6 globale du Mac** (`2a01:e0a:…`) entre nœuds du même process — pas une
+fuite de découverte (le trio isolated tient), mais les nœuds échangent leurs
+adresses observées et tentent des chemins hors loopback : bruit + travail
+inutile en banc, comportement à borner (backoff) côté transport.
 
 **Chatter du canal applicatif :** ~20 messages/run non-banc arrivent dans le
 canal `DeliveredMessage` (filtrés). À élucider : presence/gossip surfacé comme
