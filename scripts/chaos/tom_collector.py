@@ -19,6 +19,7 @@ est désormais la source de vérité. Contrat prouvé sur pièces (sorties réel
 """
 import json
 import socket
+from time import strftime
 
 LOG = "/tmp/tom_collector.log"
 ERR = "/tmp/tom_collector_err.log"
@@ -49,7 +50,6 @@ def main() -> None:
             if not line:
                 continue
             d = json.loads(line)
-            from time import strftime
             out.write(f"{strftime('%H:%M:%S')} {fmt(d)}\n")
         except json.JSONDecodeError:
             err.write(f"non-json: {line[:200]}\n")

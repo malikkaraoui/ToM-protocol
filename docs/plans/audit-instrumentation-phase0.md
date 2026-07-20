@@ -14,7 +14,7 @@ natifs.** Source de vérité : le collecteur UDP (apps, par seq) et `/inbox` (he
 ## Findings
 
 1. **Les compteurs `:9300`/`:9091` comptent des ENVELOPES protocolaires, pas des messages
-   applicatifs.** Preuve code : `executor.rs:178` (`inc_messages_sent` à CHAQUE envelope
+   applicatifs.** Preuve code : `executor.rs:179` (`inc_messages_sent` à CHAQUE envelope
    sortante — ACKs signés inclus, décision #1 oblige), `loop.rs:344`
    (`inc_messages_received` à chaque datagramme entrant, avant routage). Preuve terrain
    (canari B) : ΔNAS_envoyes = +37 pour 20 injectés = 20 CTRL + 3 réponses bot
@@ -30,7 +30,7 @@ natifs.** Source de vérité : le collecteur UDP (apps, par seq) et `/inbox` (he
    l'export UDP des headless vers le collecteur, OU compter par `/inbox`
    (`?contains=CTRL:`, existe déjà) + journalctl (⚠️ UTC).
 4. **L'écho applicatif pour la latence EXISTE déjà** : le bot répond « recu 5/5 (msg #N) »
-   à tout message non-écho, anti-boucle intégré (`tom-tui/src/main.rs:1478-1485`). MAIS la
+   à tout message non-écho, anti-boucle intégré (`tom-tui/src/main.rs:1483-1490`). MAIS la
    réponse ne cite PAS le seq du message d'origine → appariement requête/réponse impossible
    sous concurrence. → Phase 1 : sérialiser les pings de latence (1 en vol à la fois), ou
    patch mineur « la réponse cite le seq reçu ».
