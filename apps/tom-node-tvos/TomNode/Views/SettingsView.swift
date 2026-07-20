@@ -1,5 +1,8 @@
 import SwiftUI
 import TomProtocolKit
+#if os(iOS)
+import UIKit
+#endif
 
 struct SettingsRow: View {
     let label: String
@@ -28,11 +31,34 @@ struct SettingsView: View {
     @EnvironmentObject var nodeService: TomNodeService
     @State private var confirmNetworkReset = false
     @State private var confirmFactoryReset = false
+    /// Feedback des resets : l'effacement va trop vite (<1 s) pour être vu →
+    /// sans spinner ni confirmation, les boutons semblaient inertes.
+    @State private var resetInProgress = false
+    @State private var resetDone: String?
 
     /// Reset autorisé uniquement nœud arrêté (invariant sûreté #4 : les .db
     /// SQLite sont ouvertes tant que le runtime tourne).
     private var canReset: Bool {
         nodeService.state == .stopped || nodeService.state == .error
+    }
+
+    /// Exécute le reset avec retour visible : spinner pendant l'effacement,
+    /// haptique (iPhone/iPad seulement — tvOS/macOS n'ont pas de moteur) puis
+    /// toast ✓ qui s'efface seul.
+    private func performReset(level: TomNodeService.ResetLevel) async {
+        resetInProgress = true
+        resetDone = nil
+        _ = await nodeService.resetNode(level: level, source: .button)
+        resetInProgress = false
+        let msg = level == .factory
+            ? "Réinitialisation usine faite — node_id neuf au prochain démarrage"
+            : "Réseau oublié — le nœud est amnésique"
+        resetDone = msg
+        #if os(iOS)
+        UINotificationFeedbackGenerator().notificationOccurred(.success)
+        #endif
+        try? await Task.sleep(nanoseconds: 4_000_000_000)
+        if resetDone == msg { resetDone = nil }
     }
 
     var body: some View {
@@ -176,16 +202,27 @@ struct SettingsView: View {
                     } label: {
                         Label("Oublier le réseau", systemImage: "arrow.counterclockwise")
                     }
-                    .disabled(!canReset)
+                    .disabled(!canReset || resetInProgress)
 
                     Button(role: .destructive) {
                         confirmFactoryReset = true
                     } label: {
                         Label("Réinitialisation usine (nouveau node_id)", systemImage: "trash")
                     }
-                    .disabled(!canReset)
+                    .disabled(!canReset || resetInProgress)
 
-                    if !canReset {
+                    if resetInProgress {
+                        HStack(spacing: 8) {
+                            ProgressView()
+                            Text("Effacement en cours…")
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+                        }
+                    } else if let done = resetDone {
+                        Label(done, systemImage: "checkmark.circle.fill")
+                            .font(.caption2)
+                            .foregroundColor(.green)
+                    } else if !canReset {
                         Text("Arrêter le nœud pour activer le reset.")
                             .font(.caption2)
                             .foregroundColor(.secondary)
@@ -207,7 +244,7 @@ struct SettingsView: View {
         }
         .confirmationDialog("Oublier le réseau ?", isPresented: $confirmNetworkReset, titleVisibility: .visible) {
             Button("Oublier le réseau", role: .destructive) {
-                Task { await nodeService.resetNode(level: .network, source: .button) }
+                Task { await performReset(level: .network) }
             }
             Button("Annuler", role: .cancel) {}
         } message: {
@@ -215,7 +252,7 @@ struct SettingsView: View {
         }
         .confirmationDialog("Réinitialisation usine ?", isPresented: $confirmFactoryReset, titleVisibility: .visible) {
             Button("Tout effacer (nouveau node_id)", role: .destructive) {
-                Task { await nodeService.resetNode(level: .factory, source: .button) }
+                Task { await performReset(level: .factory) }
             }
             Button("Annuler", role: .cancel) {}
         } message: {

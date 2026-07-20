@@ -54,8 +54,10 @@ tvsim:
 		-configuration Debug \
 		-derivedDataPath $(BUILD_DIR) \
 		CODE_SIGNING_ALLOWED=NO \
-		| tee $(LOG_DIR)/tvos_build.log \
-		| xcpretty --color 2>/dev/null || tail -20 $(LOG_DIR)/tvos_build.log
+		2>&1 | tee $(LOG_DIR)/tvos_build.log \
+		| (xcpretty --color 2>/dev/null || cat > /dev/null)
+	@grep -q "BUILD SUCCEEDED" $(LOG_DIR)/tvos_build.log \
+		|| { echo "❌ BUILD FAILED — dernières lignes :"; tail -30 $(LOG_DIR)/tvos_build.log; exit 1; }
 	@echo "✅ Build tvOS done"
 
 .PHONY: tvrun
@@ -78,13 +80,18 @@ tvrun: tvsim
 .PHONY: tvdevice
 tvdevice:
 	@if [ -z "$(DEVICE_ID)" ]; then echo "❌ DEVICE_ID required. Run: make devices"; exit 1; fi
+	@mkdir -p $(LOG_DIR)
 	xcodebuild \
 		-project $(PROJECT) \
 		-scheme $(SCHEME) \
 		-destination 'id=$(DEVICE_ID)' \
 		-configuration Debug \
 		-allowProvisioningUpdates \
-		| xcpretty --color 2>/dev/null || true
+		2>&1 | tee $(LOG_DIR)/tvdevice_build.log \
+		| (xcpretty --color 2>/dev/null || cat > /dev/null)
+	@grep -q "BUILD SUCCEEDED" $(LOG_DIR)/tvdevice_build.log \
+		|| { echo "❌ BUILD FAILED — dernières lignes :"; tail -30 $(LOG_DIR)/tvdevice_build.log; exit 1; }
+	@echo "✅ Build device done"
 
 .PHONY: tvtest
 tvtest:
@@ -94,8 +101,11 @@ tvtest:
 		-scheme $(SCHEME) \
 		-destination '$(TVOS_DEST)' \
 		-derivedDataPath $(BUILD_DIR) \
-		| tee $(LOG_DIR)/tests.log \
-		| xcpretty --color 2>/dev/null || tail -20 $(LOG_DIR)/tests.log
+		2>&1 | tee $(LOG_DIR)/tests.log \
+		| (xcpretty --color 2>/dev/null || cat > /dev/null)
+	@grep -q "TEST SUCCEEDED" $(LOG_DIR)/tests.log \
+		|| { echo "❌ TESTS FAILED — dernières lignes :"; tail -30 $(LOG_DIR)/tests.log; exit 1; }
+	@echo "✅ Tests tvOS done"
 
 .PHONY: macbuild
 macbuild:
@@ -107,8 +117,10 @@ macbuild:
 		-destination 'platform=macOS,arch=arm64' \
 		-configuration Debug \
 		-derivedDataPath $(BUILD_DIR) \
-		| tee $(LOG_DIR)/macos_build.log \
-		| xcpretty --color 2>/dev/null || tail -30 $(LOG_DIR)/macos_build.log
+		2>&1 | tee $(LOG_DIR)/macos_build.log \
+		| (xcpretty --color 2>/dev/null || cat > /dev/null)
+	@grep -q "BUILD SUCCEEDED" $(LOG_DIR)/macos_build.log \
+		|| { echo "❌ BUILD FAILED — dernières lignes :"; tail -30 $(LOG_DIR)/macos_build.log; exit 1; }
 	@echo "✅ macOS build done"
 
 .PHONY: macrun
@@ -182,9 +194,14 @@ clean:
 .PHONY: archive
 archive:
 	@mkdir -p $(ARCHIVE_DIR)
+	@mkdir -p $(LOG_DIR)
 	xcodebuild archive \
 		-project $(PROJECT) \
 		-scheme $(SCHEME) \
 		-archivePath $(ARCHIVE_DIR)/$(SCHEME).xcarchive \
 		-allowProvisioningUpdates \
-		| xcpretty --color 2>/dev/null || true
+		2>&1 | tee $(LOG_DIR)/archive.log \
+		| (xcpretty --color 2>/dev/null || cat > /dev/null)
+	@grep -q "ARCHIVE SUCCEEDED" $(LOG_DIR)/archive.log \
+		|| { echo "❌ ARCHIVE FAILED — dernières lignes :"; tail -30 $(LOG_DIR)/archive.log; exit 1; }
+	@echo "✅ Archive done"
