@@ -3070,15 +3070,11 @@ mod tests {
     /// relay; reviving it must bring the direct path back through the re-probe
     /// schedule alone (nothing else can reopen it), and selection must return
     /// to the direct path.
-    /// FLAKY (2026-07-20 nuit) : passe VERT de bout en bout (~1 run sur 3) —
-    /// kill → PathIdle → failover relais → revive → re-probe Lot C → retour au
-    /// direct. Le mécanisme Lot C est donc VALIDÉ étage L. Les 2 runs sur 3
-    /// restants échouent à l'étape 2 : le timer per-path `PathIdle` ne tire
-    /// pas de façon NON-DÉTERMINISTE (chemin affamé 20 s, `idle_timeout`
-    /// confirmé `Some(1.5s)` des deux côtés, zéro `PathEvent::Closed`).
-    /// Réactiver quand PathIdle est fiabilisé — voir
-    /// `docs/plans/r14-lot-c-resondage.md` §6bis.
-    #[ignore = "flaky : PathIdle non-deterministe — voir r14-lot-c-resondage.md §6bis"]
+    /// Étage L du R14 Lot C — validé 10/10 (2026-07-20) après deux fixes que
+    /// ce harnais a mis au jour : le court-circuit `open_path` sur chemin
+    /// zombie, et le reset de l'idle PER-PATH à l'émission (`permit_idle_reset`
+    /// global connexion) qui empêchait un chemin mort d'expirer tant qu'un
+    /// autre chemin recevait. Historique : r14-lot-c-resondage.md §6bis.
     #[tokio::test]
     #[traced_test]
     async fn endpoint_reprobes_dead_path_and_recovers() -> Result {

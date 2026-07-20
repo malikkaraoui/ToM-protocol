@@ -322,7 +322,11 @@ impl<'a, 'b> PacketBuilder<'a, 'b> {
                     .for_path(path_id)
                     .time_of_last_ack_eliciting_packet = Some(now);
                 if conn.permit_idle_reset {
-                    conn.reset_idle_timeout(now, space_id, path_id);
+                    // Only the CONNECTION idle timer: sending on a path proves
+                    // nothing about that path's liveness (see
+                    // `reset_conn_idle_timeout`).  The per-path idle timer is
+                    // reset exclusively on authenticated receipt.
+                    conn.reset_conn_idle_timeout(now, space_id);
                 }
                 conn.permit_idle_reset = false;
             }

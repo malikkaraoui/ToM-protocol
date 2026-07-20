@@ -3457,19 +3457,7 @@ impl Connection {
     /// enabled there is an additional per-path idle timeout.
     fn reset_idle_timeout(&mut self, now: Instant, space: SpaceId, path_id: PathId) {
         // First reset the global idle timeout.
-        if let Some(timeout) = self.idle_timeout {
-            if self.state.is_closed() {
-                self.timers
-                    .stop(Timer::Conn(ConnTimer::Idle), self.qlog.with_time(now));
-            } else {
-                let dt = cmp::max(timeout, 3 * self.max_pto_all_paths(space));
-                self.timers.set(
-                    Timer::Conn(ConnTimer::Idle),
-                    now + dt,
-                    self.qlog.with_time(now),
-                );
-            }
-        }
+        self.reset_conn_idle_timeout(now, space);
 
         // Now handle the per-path state
         if let Some(timeout) = self.path_data(path_id).idle_timeout {
@@ -3483,6 +3471,32 @@ impl Connection {
                 trace!(%path_id, ?dt, "arming PathIdle");
                 self.timers.set(
                     Timer::PerPath(path_id, PathTimer::PathIdle),
+                    now + dt,
+                    self.qlog.with_time(now),
+                );
+            }
+        }
+    }
+
+    /// Resets only the connection-wide idle timer.
+    ///
+    /// Used on SEND (via `permit_idle_reset`): sending proves nothing about a
+    /// path's liveness, so the per-path idle timer — whose purpose is to
+    /// abandon paths that stopped RECEIVING — must only be reset by
+    /// authenticated receipt on that path ([`Self::reset_idle_timeout`]).
+    /// Resetting it on send let the per-path keep-alives emitted on a dead
+    /// path re-arm its own idle timer forever (as long as any OTHER path kept
+    /// receiving, `permit_idle_reset` being connection-wide), so dead paths
+    /// were never abandoned and selection stayed stuck on them.
+    pub(super) fn reset_conn_idle_timeout(&mut self, now: Instant, space: SpaceId) {
+        if let Some(timeout) = self.idle_timeout {
+            if self.state.is_closed() {
+                self.timers
+                    .stop(Timer::Conn(ConnTimer::Idle), self.qlog.with_time(now));
+            } else {
+                let dt = cmp::max(timeout, 3 * self.max_pto_all_paths(space));
+                self.timers.set(
+                    Timer::Conn(ConnTimer::Idle),
                     now + dt,
                     self.qlog.with_time(now),
                 );

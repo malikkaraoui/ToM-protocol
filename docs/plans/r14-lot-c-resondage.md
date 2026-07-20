@@ -192,7 +192,17 @@ dédup exclut correctement les abandonnés) ; + hygiène `remove_path` (ne retir
 kill → failover → revive → re-probe (backoff 1,2 s→3 s, ≤1 en vol, deux côtés
 armés) → chemin revalidé → retour au direct.
 
-**Finding 2 (OUVERT, tâche dédiée) — `PathIdle` non-déterministe (~2 runs/3).**
+**Finding 2 (RÉSOLU ~04:40, build 134) — `PathIdle` non-déterministe (~2 runs/3).**
+CAUSE RACINE : héritage single-path. `packet_builder.rs` resettait l'idle du chemin
+d'ÉMISSION quand `permit_idle_reset` (posé par une réception sur N'IMPORTE quel
+chemin — global connexion) était armé. Les keep-alives per-path émis sur le chemin
+MORT ré-armaient donc son propre PathIdle grâce à la vivacité du RELAIS (~4×/s selon
+l'entrelacement — d'où le non-déterminisme). FIX : l'émission ne resette plus que
+l'idle CONNEXION (`reset_conn_idle_timeout`) ; le per-path n'est resetté que par la
+réception authentifiée sur CE chemin. **Harnais : 10/10 runs vertes → `#[ignore]`
+retiré, le test tourne en suite.** Conséquence terrain attendue : la détection de
+mort de chemin devient fiable même sous trafic d'émission continu (explique
+possiblement la lenteur de failover historique). Constat original :
 Quand il tire : +1,44 s après kill, parfait. Quand il ne tire pas : chemin
 affamé 20 s, `idle_timeout=Some(1.5s)` confirmé des deux côtés (valeur
 précédente via `PathInfo::set_max_idle_timeout`), keep-alives per-path actifs,
