@@ -27,20 +27,21 @@ use rand::{Rng, SeedableRng};
 use tom_protocol::{NodeId, ProtocolRuntime, RuntimeConfig};
 use tom_transport::{TomNode, TomNodeConfig};
 
-/// Garde-fou contention #1 : si la cadence d'émission réelle dérive au-delà de
-/// ce facteur de l'intervalle visé, le runtime partagé n'a pas suivi côté
-/// émission → point INVALIDE (on ne mesure plus le réseau mais l'ordonnanceur).
+/// Garde-fou contention côté ÉMISSION : si la cadence d'émission réelle dérive
+/// au-delà de ce facteur de l'intervalle visé, le runtime n'a pas suivi côté
+/// envoi → point INVALIDE (on ne mesure plus le réseau mais l'ordonnanceur).
 const DRIFT_INVALID_RATIO: f64 = 1.5;
 
-/// Fenêtre de drain après la phase de charge : temps laissé aux derniers
-/// messages pour arriver avant de clore le comptage.
-//
-// Garde-fou contention #2 (le décisif), appliqué dans `PointMetrics::invalid` :
-// si la latence p95 DÉPASSE `DRAIN_GRACE`, des messages en vol sont coupés du
-// comptage → le taux de livraison est TRONQUÉ, pas fiable → point INVALIDE.
-// C'est ce qui distingue « contention du banc » (la dérive d'émission peut
-// rester basse alors que la RÉCEPTION est saturée) d'une vraie perte réseau.
-const DRAIN_GRACE: Duration = Duration::from_secs(3);
+/// Drain jusqu'à QUIESCENCE : après la phase de charge, on continue de recevoir
+/// tant qu'un message arrive ; on ne clôt le comptage qu'après ce silence.
+/// → le taux de livraison est VRAI (rien n'est coupé « en vol »), donc une perte
+/// est une VRAIE perte, pas un artefact de fenêtre trop courte (contre le piège
+/// « garde-fou commode qui invalide le point gênant » — revue avocat 20/07).
+const QUIESCENCE: Duration = Duration::from_secs(2);
+
+/// Filet de sécurité : borne dure du drain (au-delà, on arrête même si ça arrive
+/// encore — évite un blocage si un backlog ne se résorbe jamais).
+const MAX_DRAIN: Duration = Duration::from_secs(120);
 
 /// Mesures d'un point de courbe (une valeur de N).
 struct PointMetrics {
@@ -51,8 +52,9 @@ struct PointMetrics {
     delivery_rate: f64,
     latency_p50_ms: f64,
     latency_p95_ms: f64,
+    latency_max_ms: f64,
     /// Pire ratio (intervalle d'émission réel moyen / intervalle visé) sur les
-    /// nœuds — > DRIFT_INVALID_RATIO ⇒ contention ⇒ point INVALIDE.
+    /// nœuds — > DRIFT_INVALID_RATIO ⇒ contention côté émission ⇒ INVALIDE.
     worst_cadence_drift: f64,
     total_offered: u64,
     total_errs: u64,
@@ -63,17 +65,17 @@ struct PointMetrics {
 }
 
 impl PointMetrics {
+    /// INVALIDE = seulement la contention CÔTÉ ÉMISSION (dérive de cadence).
+    /// On ne juge plus la latence de réception comme critère de validité (avec
+    /// le drain jusqu'à quiescence, la livraison est VRAIE) : la latence est
+    /// RAPPORTÉE, jamais transformée en cause d'exclusion « commode ».
     fn invalid(&self) -> bool {
         self.worst_cadence_drift > DRIFT_INVALID_RATIO
-            || self.latency_p95_ms > DRAIN_GRACE.as_millis() as f64
     }
 
-    /// Raison lisible de l'invalidité (pour le rapport).
     fn invalid_reason(&self) -> &'static str {
         if self.worst_cadence_drift > DRIFT_INVALID_RATIO {
             "dérive d'émission (ordonnanceur saturé côté envoi)"
-        } else if self.latency_p95_ms > DRAIN_GRACE.as_millis() as f64 {
-            "p95 > fenêtre de drain (comptage tronqué, réception saturée)"
         } else {
             ""
         }
@@ -99,10 +101,16 @@ async fn run_point(
     eprintln!("\n── Point N={n} (charge {:.1} msg/s/nœud, {}o, {}s) ──",
         1.0 / interval.as_secs_f64(), payload_bytes, duration.as_secs());
 
-    // 1. Spawn N nœuds hermétiques (aucune découverte).
+    // 1. Spawn N nœuds VRAIMENT hermétiques : n0 OFF + mDNS OFF (transport) ET
+    //    DHT rendez-vous OFF (runtime, voir cfg plus bas). Sans ce trio, un nœud
+    //    de test PUBLIE au rendez-vous PARTAGÉ et pollue la vraie flotte de
+    //    fantômes loopback injoignables (incident 20/07 : ~150 fantômes sur le
+    //    Mac) — cf runbook « nœud de test → --isolated ».
     let mut nodes = Vec::with_capacity(n);
     for _ in 0..n {
-        nodes.push(TomNode::bind(TomNodeConfig::new().n0_discovery(false)).await?);
+        nodes.push(
+            TomNode::bind(TomNodeConfig::new().n0_discovery(false).local_discovery(false)).await?,
+        );
     }
     let ids: Vec<NodeId> = nodes.iter().map(|nd| nd.id()).collect();
     let addrs: Vec<_> = nodes.iter().map(|nd| nd.addr()).collect();
@@ -113,6 +121,10 @@ async fn run_point(
         let cfg = RuntimeConfig {
             username: format!("{}courbe-{i}", tom_protocol::TEST_NODE_PREFIX),
             encryption: true,
+            // CRITIQUE : couper le rendez-vous DHT PARTAGÉ. `..Default::default()`
+            // le laisse à `true` (runtime/mod.rs:130) → sinon publication de
+            // fantômes dans le rendez-vous de la vraie flotte (incident 20/07).
+            enable_dht: false,
             ..Default::default()
         };
         channels.push(ProtocolRuntime::spawn(node, cfg));
@@ -133,6 +145,10 @@ async fn run_point(
     // Époque commune : latence = delta de nanos sur CETTE horloge (pas de skew).
     let epoch = Instant::now();
     let ids = Arc::new(ids);
+    // Payload = [0..8] horodatage d'émission | [8..16] clé UNIQUE (nœud<<32|seq)
+    // | [16..] remplissage 'A' (signature du banc). ≥24 → dédup incontestable
+    // (pas de collision d'horodatage possible, contrairement à `sent_ns` seul).
+    let expect_len = payload_bytes.max(24);
 
     // 4. Une tâche émettrice + une réceptrice par nœud.
     let mut send_tasks = Vec::with_capacity(n);
@@ -143,44 +159,51 @@ async fn run_point(
         let ids = ids.clone();
         let n_ids = ids.len();
 
-        // Récepteur : draine jusqu'à `duration` + grâce. Ne compte QUE les
-        // messages du banc (signature de payload), isole les « étrangers »
-        // (chatter protocolaire éventuel dans le canal applicatif).
-        let recv_deadline = duration + DRAIN_GRACE;
-        let expect_len = payload_bytes.max(8);
+        // Récepteur : reçoit pendant la charge PUIS draine jusqu'à QUIESCENCE
+        // (plus rien pendant `QUIESCENCE`) → livraison VRAIE, pas tronquée.
+        // Ne compte QUE les messages du banc (signature de payload), isole les
+        // « étrangers » (chatter protocolaire éventuel dans le canal applicatif).
+        let hard_cap = duration + MAX_DRAIN;
         recv_tasks.push(tokio::spawn(async move {
             let mut mine = 0u64;
             let mut foreign = 0u64;
             let mut dups = 0u64;
             let mut seen: std::collections::HashSet<u64> = std::collections::HashSet::new();
             let mut lat_ms: Vec<f64> = Vec::new();
+            let mut last_msg = Duration::ZERO; // instant (depuis epoch) du dernier message du banc
             loop {
-                let remaining = recv_deadline.checked_sub(epoch.elapsed());
-                let Some(remaining) = remaining else { break };
-                match tokio::time::timeout(remaining.min(Duration::from_millis(500)), messages.recv()).await {
+                let now = epoch.elapsed();
+                if now >= hard_cap {
+                    break; // filet de sécurité : backlog qui ne se résorbe pas
+                }
+                // Après la charge : clore si silence ≥ QUIESCENCE (drain complet).
+                if now >= duration && now.saturating_sub(last_msg) >= QUIESCENCE {
+                    break;
+                }
+                match tokio::time::timeout(Duration::from_millis(250), messages.recv()).await {
                     Ok(Some(msg)) => {
-                        // « Mien » = longueur exacte + remplissage 'A' (le corps
-                        // après l'horodatage). Sinon = trafic non-banc.
+                        // « Mien » = longueur exacte + signature 'A' (octets de
+                        // remplissage, début ET fin du corps). Sinon = non-banc.
                         let is_mine = msg.payload.len() == expect_len
-                            && (expect_len == 8 || msg.payload[expect_len - 1] == b'A');
+                            && msg.payload[16] == b'A'
+                            && msg.payload[expect_len - 1] == b'A';
                         if !is_mine {
                             foreign += 1;
                             continue;
                         }
                         mine += 1;
+                        last_msg = epoch.elapsed();
                         let sent_ns = u64::from_le_bytes(msg.payload[..8].try_into().unwrap());
-                        // Doublon = même horodatage d'émission revu (collision
-                        // inter-émetteurs au nanosecond ≈ impossible → fiable).
-                        if !seen.insert(sent_ns) {
+                        // Doublon = même clé UNIQUE (nœud, seq) revue → incontestable.
+                        let key = u64::from_le_bytes(msg.payload[8..16].try_into().unwrap());
+                        if !seen.insert(key) {
                             dups += 1;
                         }
                         let now_ns = epoch.elapsed().as_nanos() as u64;
                         lat_ms.push((now_ns.saturating_sub(sent_ns)) as f64 / 1e6);
                     }
                     Ok(None) => break,        // canal fermé (shutdown)
-                    Err(_) => {
-                        if epoch.elapsed() >= recv_deadline { break; }
-                    }
+                    Err(_) => {}              // tick de 250 ms → reboucle (teste la quiescence)
                 }
             }
             (mine, dups, foreign, lat_ms)
@@ -195,6 +218,7 @@ async fn run_point(
             // peut livrer) → on compte l'offre, pas le succès API.
             let mut offered = 0u64;
             let mut errs = 0u64;
+            let mut seq = 0u32;
             let mut intervals_ns: Vec<u64> = Vec::new();
             let mut last = Instant::now();
             while epoch.elapsed() < duration {
@@ -202,9 +226,12 @@ async fn run_point(
                 let mut j = rng.random_range(0..n_ids);
                 if j == i { j = (j + 1) % n_ids; }
                 let sent_ns = epoch.elapsed().as_nanos() as u64;
-                let mut payload = Vec::with_capacity(payload_bytes.max(8));
+                let key: u64 = ((i as u64) << 32) | (seq as u64); // unique par (nœud, seq)
+                seq += 1;
+                let mut payload = Vec::with_capacity(expect_len);
                 payload.extend_from_slice(&sent_ns.to_le_bytes());
-                payload.resize(payload_bytes.max(8), b'A');
+                payload.extend_from_slice(&key.to_le_bytes());
+                payload.resize(expect_len, b'A');
                 offered += 1;
                 if handle.send_message(ids[j], payload).await.is_err() {
                     errs += 1;
@@ -250,7 +277,8 @@ async fn run_point(
         if count > 0 { recv_nodes += 1; }
         all_lat.extend(lat);
     }
-    all_lat.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    all_lat.sort_by(f64::total_cmp); // NaN-safe (les latences ne peuvent pas être NaN, mais robuste)
+    let latency_max_ms = all_lat.last().copied().unwrap_or(0.0);
 
     // Livraison UNIQUE = reçus moins doublons (dédup = santé I8, doit être 0).
     let unique = total_recv.saturating_sub(total_dups);
@@ -267,6 +295,7 @@ async fn run_point(
         delivery_rate: if total_offered > 0 { unique as f64 / total_offered as f64 } else { 0.0 },
         latency_p50_ms: percentile(&all_lat, 50.0),
         latency_p95_ms: percentile(&all_lat, 95.0),
+        latency_max_ms,
         worst_cadence_drift: worst_drift,
         total_offered,
         total_errs,
@@ -295,14 +324,21 @@ pub async fn run(
     }
 
     // ── Rapport ──
+    // AXE JUGÉ = intégrité de livraison (perte RÉELLE, mesurée par drain complet
+    // jusqu'à quiescence) + dédup. La latence est RAPPORTÉE, pas jugée : sur un
+    // runtime tokio PARTAGÉ elle mêle « latence protocolaire ∝ N » et
+    // « ordonnanceur saturé ». Le débit/nœud à charge FAIBLE ≈ la charge offerte
+    // (tautologique) : le point de SATURATION n'est pas sondé ici — il faut
+    // monter --rate (et, pour la latence, l'isolation par PROCESSUS, banc §3).
     eprintln!("\n=== COURBE ===");
-    eprintln!("{:>4}  {:>14}  {:>10}  {:>9}  {:>9}  {:>7}  {:>13}  {:>5}  {:>8}",
-        "N", "livré/nœud(Hz)", "livraison", "p50(ms)", "p95(ms)", "dérive", "offert→reçu", "dup", "verdict");
+    eprintln!("{:>4}  {:>10}  {:>12}  {:>11}  {:>8}  {:>8}  {:>8}  {:>6}  {:>4}  {:>8}",
+        "N", "livraison", "offert→reçu", "livré/nœud", "p50ms", "p95ms", "maxms", "dérive", "dup", "état");
     for p in &points {
-        eprintln!("{:>4}  {:>14.3}  {:>8.1}%  {:>9.2}  {:>9.2}  {:>6.2}x  {:>6}→{:<6}  {:>5}  {:>8}",
-            p.n, p.delivered_per_node_hz, p.delivery_rate * 100.0,
-            p.latency_p50_ms, p.latency_p95_ms, p.worst_cadence_drift,
-            p.total_offered, p.total_recv, p.total_dups,
+        eprintln!("{:>4}  {:>8.1}%  {:>5}→{:<6}  {:>9.2}Hz  {:>8.1}  {:>8.1}  {:>8.1}  {:>5.2}x  {:>4}  {:>8}",
+            p.n, p.delivery_rate * 100.0,
+            p.total_offered, p.total_recv, p.delivered_per_node_hz,
+            p.latency_p50_ms, p.latency_p95_ms, p.latency_max_ms, p.worst_cadence_drift,
+            p.total_dups,
             if p.invalid() { "INVALIDE" } else { "ok" });
         if p.invalid() {
             eprintln!("       └ N={} INVALIDE : {}", p.n, p.invalid_reason());
@@ -311,9 +347,6 @@ pub async fn run(
     let any_dups: u64 = points.iter().map(|p| p.total_dups).sum();
     let any_errs: u64 = points.iter().map(|p| p.total_errs).sum();
     let any_foreign: u64 = points.iter().map(|p| p.total_foreign).sum();
-    if any_dups > 0 {
-        eprintln!("⚠️ {any_dups} DOUBLON(S) de livraison au total — dédup I8 à investiguer (ne devrait jamais arriver).");
-    }
     if any_errs > 0 {
         eprintln!("ℹ️ {any_errs} rejet(s) API à l'émission (retries transport possibles derrière — non compté comme perte).");
     }
@@ -321,39 +354,91 @@ pub async fn run(
         eprintln!("ℹ️ {any_foreign} message(s) non-banc filtré(s) du canal applicatif (chatter protocolaire — exclus du calcul).");
     }
 
-    // Verdict pré-enregistré (banc §0). AXE JUGÉ IN-PROCESS = débit/nœud + dédup
-    // uniquement. La latence est INDICATIVE : le runtime tokio partagé ne permet
-    // pas de séparer « latence protocolaire ∝ N » de « ordonnanceur saturé »
-    // (constaté : p50 explose alors que la cadence d'émission tient). L'axe
-    // latence-vs-N exige l'isolation par PROCESSUS (banc §3, multi-process).
+    // ── Verdict : INTÉGRITÉ DE LIVRAISON (le seul axe que le in-process juge) ──
     let valid: Vec<&PointMetrics> = points.iter().filter(|p| !p.invalid()).collect();
     eprintln!();
-    if valid.len() < 2 {
-        eprintln!("VERDICT : indéterminé — {} point(s) valide(s) (dérive de cadence). \
-            Réduire N ou passer au matériel distribué.", valid.len());
+    if valid.is_empty() {
+        eprintln!("VERDICT : indéterminé — 0 point valide (dérive d'émission partout).");
         return Ok(());
     }
-    let base = valid.first().unwrap();
-    let top = valid.last().unwrap();
-    let thr_ratio = if base.delivered_per_node_hz > 0.0 {
-        top.delivered_per_node_hz / base.delivered_per_node_hz
-    } else { 0.0 };
-    let dedup_ok = any_dups == 0;
-    let pass = thr_ratio >= 0.80 && dedup_ok;
-    eprintln!("VERDICT DÉBIT/DÉDUP (N={}→{}) : débit/nœud ×{:.2} (seuil ≥0.80), dédup {} → {}",
-        base.n, top.n, thr_ratio,
-        if dedup_ok { "0 doublon" } else { "DOUBLONS" },
-        if pass { "PASS" } else { "FAIL (bug archi à localiser)" });
-    // Latence : rapportée, jamais transformée en verdict ici.
-    let lat_ratio = if base.latency_p50_ms > 0.0 {
-        top.latency_p50_ms / base.latency_p50_ms
+    let worst_delivery = valid.iter().map(|p| p.delivery_rate).fold(1.0_f64, f64::min);
+    let worst_n = valid.iter().min_by(|a, b| a.delivery_rate.total_cmp(&b.delivery_rate)).unwrap().n;
+    let integrity_ok = worst_delivery >= 0.999 && any_dups == 0;
+    eprintln!("VERDICT INTÉGRITÉ (N valides {}→{}) : livraison min {:.2}% (N={}), dédup {} → {}",
+        valid.first().unwrap().n, valid.last().unwrap().n,
+        worst_delivery * 100.0, worst_n,
+        if any_dups == 0 { "0 doublon" } else { "DOUBLONS !" },
+        if integrity_ok { "PASS (0 perte, 0 doublon, hermétique)" } else { "FAIL — perte ou doublon RÉEL à investiguer" });
+
+    // Latence + débit-à-l'échelle : RAPPORTÉS, explicitement NON jugés ici.
+    let lat_ratio = if valid.first().unwrap().latency_p50_ms > 0.0 {
+        valid.last().unwrap().latency_p50_ms / valid.first().unwrap().latency_p50_ms
     } else { f64::INFINITY };
-    eprintln!("LATENCE (indicative, runtime partagé) : p50 ×{:.1} de N={} à N={} — NON concluant in-process.",
-        lat_ratio, base.n, top.n);
-    if lat_ratio > 3.0 {
-        eprintln!("   → forte inflation = signature de contention du banc, PAS un verdict protocole. \
-            Axe latence-vs-N ⇒ harnais multi-process (banc §3).");
-    }
-    eprintln!("⚠️ loopback + runtime partagé : signal de PENTE sur le débit, pas une preuve à grande échelle (banc §5).");
+    eprintln!("LATENCE (rapportée, NON jugée) : p50 ×{:.1} de N={} à N={} sur runtime PARTAGÉ.",
+        lat_ratio, valid.first().unwrap().n, valid.last().unwrap().n);
+    eprintln!("⚠️ Portée : ce banc prouve l'INTÉGRITÉ (perte/doublon/herméticité) à charge {:.0} msg/s/nœud \
+        sur loopback. Il ne prouve NI le débit à saturation (monter --rate) NI la latence-vs-N \
+        (runtime partagé → multi-process, banc §3). Pas de conclusion « la masse tient » sur la \
+        perf sans ces deux-là.", rate_hz);
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn metrics(drift: f64, p95: f64) -> PointMetrics {
+        PointMetrics {
+            n: 5,
+            delivered_per_node_hz: 1.0,
+            delivery_rate: 1.0,
+            latency_p50_ms: 1.0,
+            latency_p95_ms: p95,
+            latency_max_ms: p95,
+            worst_cadence_drift: drift,
+            total_offered: 100,
+            total_errs: 0,
+            total_recv: 100,
+            total_dups: 0,
+            total_foreign: 0,
+        }
+    }
+
+    #[test]
+    fn percentile_empty_is_zero() {
+        assert_eq!(percentile(&[], 50.0), 0.0);
+        assert_eq!(percentile(&[], 95.0), 0.0);
+    }
+
+    #[test]
+    fn percentile_single_element() {
+        assert_eq!(percentile(&[42.0], 50.0), 42.0);
+        assert_eq!(percentile(&[42.0], 95.0), 42.0);
+    }
+
+    #[test]
+    fn percentile_p50_p95_on_sorted() {
+        let d = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0];
+        assert_eq!(percentile(&d, 50.0), 6.0); // idx round(0.5*9)=5 → 6.0
+        assert_eq!(percentile(&d, 95.0), 10.0); // idx round(0.95*9)=9 → 10.0
+        assert_eq!(percentile(&d, 0.0), 1.0);
+        assert_eq!(percentile(&d, 100.0), 10.0);
+    }
+
+    #[test]
+    fn invalid_only_on_send_drift_not_latency() {
+        // Latence énorme mais cadence d'émission tenue → VALIDE (la latence n'est
+        // PLUS un critère d'exclusion depuis le drain jusqu'à quiescence).
+        assert!(!metrics(1.0, 60_000.0).invalid());
+        // Dérive d'émission au-delà du seuil → INVALIDE.
+        assert!(metrics(2.0, 5.0).invalid());
+        assert!(!metrics(1.49, 5.0).invalid());
+        assert!(metrics(1.51, 5.0).invalid());
+    }
+
+    #[test]
+    fn invalid_reason_matches_cause() {
+        assert_eq!(metrics(1.0, 5.0).invalid_reason(), "");
+        assert!(metrics(2.0, 5.0).invalid_reason().contains("dérive"));
+    }
 }

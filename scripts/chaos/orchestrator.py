@@ -37,7 +37,8 @@ NODES = {
     # iPhone sont indiscernables par le nom ; distinguer par node_id
     # (Malik 80eb9196…, Laura b76a43d2…) ou par IP.
     "iphone-laura": {"status": "http://192.168.0.49:9091/", "kind": "app"},
-    # ATV retirée le 18/07 soir (Malik regarde la télé) — réintégrer si dispo.
+    # Apple TV réintégrée le 20/07 (dispo, participe) — status :9091 sur .76.
+    "atv": {"status": "http://192.168.0.76:9091/", "kind": "app"},
 }
 
 
