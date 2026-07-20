@@ -106,6 +106,11 @@ impl UdpLogger {
     fn new(target: &str) -> Option<Self> {
         let socket = UdpSocket::bind("0.0.0.0:0").ok()?;
         socket.set_nonblocking(true).ok()?;
+        // SO_BROADCAST : sans lui, un send_to vers une adresse broadcast
+        // (ex. 192.168.0.255) échoue en EACCES sous Linux — erreur AVALÉE par
+        // le `let _` de send() → le NAS a exporté dans le vide pendant des
+        // semaines (audit Phase 0, 2026-07-20). Inoffensif en unicast.
+        socket.set_broadcast(true).ok()?;
         Some(Self {
             socket,
             target: target.to_string(),

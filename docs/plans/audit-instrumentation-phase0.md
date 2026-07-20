@@ -51,6 +51,32 @@ natifs.** Source de vérité : le collecteur UDP (apps, par seq) et `/inbox` (he
 > (décision #1 : delivered ⟺ ACK). À vérifier sur pièces (ordre persistance/ACK côté
 > app + FFI) avant d'en faire un chantier.
 
+## Findings 7-9 — la remise en route de l'export NAS (même session, suite du finding 3)
+
+7. **Le script du collecteur avait été PURGÉ de /tmp** (macOS nettoie /tmp) alors que son
+   process tournait encore — irrécupérable au prochain reboot, et le runbook pointait un
+   fichier fantôme. **CORRIGÉ** : reconstitué et VERSIONNÉ (`scripts/chaos/tom_collector.py`,
+   contrat prouvé sur pièces). Au passage : le collecteur ne journalise QUE du JSON valide
+   (schémas Swift `appendLog` / Rust `log_event`) et JETTE le reste → ne jamais tester le
+   canal avec du texte brut (deux « faux négatifs réseau » pendant cet audit).
+8. **Le broadcast UDP de la VM NAS ne traverse pas le bridge Freebox** (prouvé : JSON
+   valide broadcasté avec SO_BROADCAST → jamais reçu ; le même en UNICAST vers l'IP du
+   Mac → reçu). **CORRIGÉ** : ExecStart du NAS passé à `--log-udp 192.168.0.82:9999`
+   (unicast ; fragilité assumée : IP Mac en DHCP — outil de dev, pas de la prod).
+9. **Bug Rust `UdpLogger` : pas de `set_broadcast(true)`** → tout `send_to` vers une
+   adresse broadcast échouait en EACCES sous Linux, erreur avalée par le fire-and-forget.
+   Le NAS avait DÉJÀ `--log-udp 192.168.0.255:9999` configuré : il exportait dans le vide
+   depuis des semaines (deux causes empilées avec le finding 8 — corriger l'une sans
+   l'autre n'aurait rien montré). **CORRIGÉ** (`tom-tui/src/main.rs`, +1 ligne) et
+   **déployé** (NAS, md5 vérifié) : premières lignes « nas » jamais vues au collecteur.
+
+Bonus d'observabilité obtenu : on VOIT désormais le bruit ambiant en direct — une part
+est le ping-pong « probe applicatif (flotte) → réponse `recu 5/5` (bot NAS) », à
+soustraire de toute mesure (fenêtre témoin, déjà en place). Note : dans les lignes du
+collecteur, `peers=` pour un headless affiche `peers_known` (topologie connue, ex. 218),
+PAS les pairs connectés — ne pas confondre avec `taille_reseau`/`pairs_connectes` du
+status HTTP.
+
 ## Validations positives (ce qui est fiable)
 
 - **Comptage exact par seq au collecteur** : 2 runs, 20/20 seq distincts, 0 doublon.
@@ -68,8 +94,9 @@ natifs.** Source de vérité : le collecteur UDP (apps, par seq) et `/inbox` (he
 1. Débit livré/nœud : **par seq au collecteur** (apps) et **/inbox** (headless) — jamais
    par `:9300`/`:9091`.
 2. Latence : écho bot **sérialisé** (ou patch seq-dans-la-réponse d'abord).
-3. Les headless doivent devenir visibles du collecteur (export UDP) ou comptés par
-   inbox/journalctl — à trancher avant d'écrire le harnais Phase 1.
+3. ~~Les headless doivent devenir visibles du collecteur~~ **FAIT** (findings 7-9) :
+   `--log-udp` fonctionne désormais — headless Mac → `127.0.0.1:9999`, headless NAS →
+   unicast IP Mac. Le harnais Phase 1 passe ce flag à chaque nœud qu'il lance.
 4. Churn : fenêtre d'exclusion ±5 s autour des kills pour le comptage par traces.
 
 ## Reproduire
