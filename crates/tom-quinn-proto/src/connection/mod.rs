@@ -3480,6 +3480,7 @@ impl Connection {
                 );
             } else {
                 let dt = cmp::max(timeout, 3 * self.pto(space, path_id));
+                trace!(%path_id, ?dt, "arming PathIdle");
                 self.timers.set(
                     Timer::PerPath(path_id, PathTimer::PathIdle),
                     now + dt,

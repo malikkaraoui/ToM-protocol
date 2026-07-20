@@ -939,8 +939,17 @@ impl RemoteStateActor {
                 continue;
             };
             if let Some(&path_id) = conn_state.path_ids.get(open_addr)
+                && conn_state.open_paths.contains_key(&path_id)
                 && let Some(path) = conn.path(path_id)
             {
+                // Only take this shortcut for a path that is actually OPEN: a
+                // stale `path_ids` entry can reference an abandoned path that
+                // quinn has not fully discarded yet (draining zombie), and
+                // short-circuiting on it turns every re-open of the address
+                // into a no-op set_status on a corpse — no PATH_CHALLENGE is
+                // ever sent again.  Falling through lets `open_path_ensure`
+                // decide: its dedup already excludes abandoned paths.
+                //
                 // We still need to ensure that the path status is set correctly,
                 // in case the path was opened by QNT, which opens all IP paths
                 // using PATH_STATUS_BACKUP. We need to switch the selected path
@@ -1600,7 +1609,12 @@ impl ConnectionState {
     fn remove_path(&mut self, path_id: &PathId) -> Option<transports::Addr> {
         let addr = self.paths.remove(path_id);
         if let Some(ref addr) = addr {
-            self.path_ids.remove(addr);
+            // The address may have been remapped to a NEWER path (re-open of
+            // the same address while this one was draining): only drop the
+            // reverse mapping if it still points at the path being removed.
+            if self.path_ids.get(addr) == Some(path_id) {
+                self.path_ids.remove(addr);
+            }
         }
         self.open_paths.remove(path_id);
         addr

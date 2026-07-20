@@ -175,19 +175,35 @@ Tests : backoff (`test_next_reprobe_delay_backoff`), cooldown
 - Test `endpoint_reprobes_dead_path_and_recovers` : étape 1 VERTE
   (relais-first, attache proxy, upgrade sélection vers le direct).
 
-**DÉCOUVERTE BLOQUANTE — le timer `PathIdle` ne tire jamais.** Chemin affamé
-20 s, `idle_timeout=Some(1.5s)` CONFIRMÉ des deux côtés (prev value), keep-alives
-per-path actifs (302 tirs), LossDetection tire (17) — mais 0 PathIdle, 0
-`PathEvent::Closed`, pas de failover. Conséquences :
-1. Le harnais étape 2 (kill → failover) est bloqué par ce trou, pas par son design.
-2. **Question protocole** : qu'est-ce qui tue RÉELLEMENT les chemins en terrain ?
-   (Les failovers Lot B sont réels.) Piste : `ValidationFailed` observé quand QNT
-   est actif (revalidations) — les morts terrain viendraient de QNT/du pair, pas
-   de l'idle timeout. À instruire : si PathIdle est cassé, la détection de mort
-   sans trafic QNT repose sur rien.
-3. Chantier suivant : instruire le non-armement/non-tir de
-   `Timer::PerPath(_, PathIdle)` (`tom-quinn-proto/connection/mod.rs:3475-3484`,
-   handler `:2233`) — reproduction déterministe = ce test (retirer l'`#[ignore]`).
+**MAJ 2026-07-20 ~04:00 — LOT C VALIDÉ ÉTAGE L (run verte de bout en bout) + 2 findings :**
+
+**Finding 1 (RÉSOLU, le vrai gibier du harnais) — chemin zombie bloquait tout
+re-open.** Le re-probe #1 (cible encore morte) crée un chemin, sa validation
+échoue (`PathOpen` → `ValidationFailed` → abandon), MAIS l'entrée
+`conn_state.path_ids[addr]` réinscrite par ce probe pointe vers le zombie (que
+quinn garde en draining jusqu'à `DiscardPath`). Tous les re-probes suivants —
+cible VIVANTE — prenaient la branche « chemin déjà connu » d'`open_path` et se
+réduisaient à un `set_status` sur le cadavre : plus AUCUN `PATH_CHALLENGE`
+émis, jamais. Le même verrou aurait bloqué les upgrades QNT après churn.
+**Fix (livré)** : la branche courte exige `open_paths.contains_key(path_id)`
+(chemin réellement ouvert), sinon fallthrough vers `open_path_ensure` (dont la
+dédup exclut correctement les abandonnés) ; + hygiène `remove_path` (ne retire
+`path_ids[addr]` que s'il mappe encore ce path_id). Preuve : run VERTE complète
+kill → failover → revive → re-probe (backoff 1,2 s→3 s, ≤1 en vol, deux côtés
+armés) → chemin revalidé → retour au direct.
+
+**Finding 2 (OUVERT, tâche dédiée) — `PathIdle` non-déterministe (~2 runs/3).**
+Quand il tire : +1,44 s après kill, parfait. Quand il ne tire pas : chemin
+affamé 20 s, `idle_timeout=Some(1.5s)` confirmé des deux côtés (valeur
+précédente via `PathInfo::set_max_idle_timeout`), keep-alives per-path actifs,
+LossDetection tire — mais 0 PathIdle, 0 `PathEvent::Closed`, pas de failover.
+Armement instrumenté (`arming PathIdle`, trace ajoutée `mod.rs`) : 835
+armements observés sur une run qui tire. Zone : `tom-quinn-proto/connection/
+mod.rs:3475-3484` (armement), `:2233` (handler), `timer.rs` (TimerTable/
+SmallMap). Question protocole associée : en terrain, qu'est-ce qui tue les
+chemins si PathIdle est peu fiable ? (`ValidationFailed` QNT observé — les
+morts viendraient des revalidations/du pair.) Repro : lancer le test en boucle
+(`--ignored`), ~2/3 des runs échouent à « relay failover ».
 
 ## §6 Validation prévue
 

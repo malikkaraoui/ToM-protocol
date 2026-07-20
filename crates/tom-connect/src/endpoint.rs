@@ -3070,15 +3070,15 @@ mod tests {
     /// relay; reviving it must bring the direct path back through the re-probe
     /// schedule alone (nothing else can reopen it), and selection must return
     /// to the direct path.
-    /// BLOQUÉ (2026-07-20) : le timer per-path `PathIdle` ne tire jamais dans
-    /// le fork — chemin affamé 20 s avec `idle_timeout=Some(1.5s)` vérifié des
-    /// deux côtés (via [`PathInfo::set_max_idle_timeout`], valeur précédente
-    /// confirmée), zéro `PathEvent::Closed`. Sans détection de mort, le
-    /// failover de l'étape 2 n'arrive jamais. Voir
-    /// `docs/plans/r14-lot-c-resondage.md` §6bis. Réactiver ce test une fois
-    /// le PathIdle réparé : les étapes 1 (attache proxy + upgrade) et
-    /// l'infra (proxy kill/revive, QNT off, open_path) fonctionnent.
-    #[ignore = "PathIdle inoperant dans le fork — voir r14-lot-c-resondage.md §6bis"]
+    /// FLAKY (2026-07-20 nuit) : passe VERT de bout en bout (~1 run sur 3) —
+    /// kill → PathIdle → failover relais → revive → re-probe Lot C → retour au
+    /// direct. Le mécanisme Lot C est donc VALIDÉ étage L. Les 2 runs sur 3
+    /// restants échouent à l'étape 2 : le timer per-path `PathIdle` ne tire
+    /// pas de façon NON-DÉTERMINISTE (chemin affamé 20 s, `idle_timeout`
+    /// confirmé `Some(1.5s)` des deux côtés, zéro `PathEvent::Closed`).
+    /// Réactiver quand PathIdle est fiabilisé — voir
+    /// `docs/plans/r14-lot-c-resondage.md` §6bis.
+    #[ignore = "flaky : PathIdle non-deterministe — voir r14-lot-c-resondage.md §6bis"]
     #[tokio::test]
     #[traced_test]
     async fn endpoint_reprobes_dead_path_and_recovers() -> Result {
