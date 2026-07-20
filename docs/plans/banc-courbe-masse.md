@@ -55,6 +55,63 @@ Avant tout point de courbe, prouver que ce qu'on compte est vrai :
 Sortie : une note « instrumentation auditée le X, écarts trouvés/corrigés ». Sans elle,
 aucune courbe n'est publiable.
 
+## §2bis Brique in-process (LIVRÉE 2026-07-20) — hermétique, avant le multi-host
+
+Avant le multi-machines (§3), une brique **in-process** répond au risque #1 de
+l'avocat mesure de la façon la plus radicale : les N nœuds sont câblés par
+`add_peer_addr` (aucune découverte n0/mDNS/DHT) → **hermétique par
+construction**, la vraie flotte ne PEUT pas fausser la courbe. Bonus : horloge
+de process UNIQUE → latence par message sans skew.
+
+Commande : `tom-stress courbe --sizes 5,10,20 --duration N` (crate
+`scenario_courbe.rs`). Charge fixe/nœud (1 msg/s, 1 Ko, cible aléatoire),
+topologie all-pairs directe.
+
+**Ce que la brique JUGE (axes qu'elle peut trancher) :**
+- **Débit livré PAR NŒUD** à charge/nœud fixe (pas l'agrégat, tautologique).
+- **Dédup (I8)** : doublon = même horodatage d'émission revu chez un récepteur.
+- **Herméticité** : filtre de signature de payload → les messages non-banc du
+  canal applicatif sont isolés, pas comptés.
+
+**Premiers résultats (20/07, seed 42, 15 s/point, loopback) :**
+
+| N | livré/nœud (Hz) | livraison | p50 | p95 | dérive | dup | verdict |
+|---|---|---|---|---|---|---|---|
+| 5 | 1.000 | 100 % | 5 ms | 12 ms | 1.00× | 0 | ok |
+| 10 | 1.000 | 100 % | 88 ms | 1.25 s | 1.01× | 0 | ok |
+| 20 | 0.73 | 74 % | 1.45 s | 9.6 s | 1.15× | 0 | **INVALIDE** |
+
+→ **VERDICT DÉBIT/DÉDUP (N=5→10) : ×1.00, 0 doublon = PASS.** Le débit par nœud
+tient et la livraison est intègre jusqu'à N=10. **Premier signal chiffré que
+« la masse ≠ effondrement » sur l'axe débit** (sous les réserves ci-dessous).
+
+**Ce que la brique NE juge PAS (limites ASSUMÉES, écrites dans la sortie) :**
+- **Latence-vs-N : NON concluante in-process.** À N=10, p50 ×17 alors que la
+  dérive d'ÉMISSION reste à 1.01 → ce n'est pas le réseau, c'est le **runtime
+  tokio PARTAGÉ** qui sature côté RÉCEPTION. Un banc mono-runtime ne peut pas
+  séparer « latence protocolaire ∝ N » de « ordonnanceur saturé ». ⇒ l'axe
+  latence exige l'**isolation par processus** (§3).
+- **Garde-fou de validité durci** : un point dont p95 > fenêtre de drain (3 s)
+  est INVALIDE — son comptage de livraison est TRONQUÉ (messages en vol coupés),
+  pas une perte réseau. C'est ce qui disqualifie N=20 proprement (au lieu de le
+  lire comme un faux « FAIL protocole » — exactement le piège à éviter).
+- **loopback (RTT ~0)**, pas LAN/WAN → validité externe = §3/§4.
+- Plafond du banc local ≈ N≈10-15 avant saturation réception.
+
+**Findings transport (la brique fait fuzzer le teardown de masse) — à instruire,
+NON bloquants (post-mesure) :** l'arrêt simultané de ~20 nœuds fait surgir des
+races de teardown dans le transport forké : `unreachable: drained connections
+always have an error` (tom-quinn-proto), `gossip/net.rs:454` panic sur
+`JoinError::Cancelled`, `could not close last open path`, `RETIRE_CONNECTION_ID
+for unknown path`, `PTO expired while unset`. N'altèrent pas la mesure mais
+révèlent des `unwrap`/`unreachable` atteints sous arrêt concurrent massif — zone
+deadlocks historique, à durcir séparément avec soin.
+
+**Chatter du canal applicatif :** ~20 messages/run non-banc arrivent dans le
+canal `DeliveredMessage` (filtrés). À élucider : presence/gossip surfacé comme
+message applicatif ? (n'affecte pas la mesure, mais l'axe #8 « invisibilité »
+aime savoir ce qui traverse la frontière applicative).
+
 ## §3 Phase 1 — Courbe LAN multi-machines
 
 - **Hôtes physiques** : Mac, NAS (VM Debian), iPad, iPhone, Apple TV = 5 hôtes.

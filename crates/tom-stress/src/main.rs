@@ -13,6 +13,7 @@ mod scenario_backup;
 mod scenario_chaos;
 mod scenario_churn;
 mod scenario_common;
+mod scenario_courbe;
 mod scenario_e2e;
 mod scenario_endurance;
 mod scenario_failover;
@@ -202,6 +203,26 @@ enum Command {
     /// Run all 8 protocol scenarios in sequence (e2e, group, backup, failover, roles, chaos, partition, churn).
     Scenarios,
 
+    /// Banc courbe de masse (Phase 1) : mesure le débit livré PAR NŒUD et la
+    /// latence à charge/nœud fixe, sur N croissant (nœuds in-process hermétiques).
+    Courbe {
+        /// Valeurs de N à balayer (nombre de nœuds).
+        #[arg(long, value_delimiter = ',', default_value = "5,10,20")]
+        sizes: Vec<usize>,
+        /// Durée de la phase de charge par point, en secondes.
+        #[arg(long, default_value = "30")]
+        duration: u64,
+        /// Charge par nœud, en messages/seconde.
+        #[arg(long, default_value = "1.0")]
+        rate: f64,
+        /// Taille de payload en octets (min 8 pour l'horodatage de latence).
+        #[arg(long, default_value = "1024")]
+        payload: usize,
+        /// Graine RNG (reproductibilité du choix des cibles).
+        #[arg(long, default_value = "42")]
+        seed: u64,
+    },
+
     /// Full-protocol responder (auto-echo, auto-accept groups, auto-reply).
     Responder,
 
@@ -264,6 +285,7 @@ async fn main() -> anyhow::Result<()> {
         Command::Partition => "partition",
         Command::Churn => "churn",
         Command::Scenarios => "scenarios",
+        Command::Courbe { .. } => "courbe",
         Command::Responder => "responder",
         Command::FleetProbe { .. } => "fleet-probe",
         Command::Campaign { .. } => "campaign",
@@ -340,6 +362,10 @@ async fn main() -> anyhow::Result<()> {
         }
         Command::Scenarios => {
             scenario_runner::run().await?;
+            return Ok(());
+        }
+        Command::Courbe { sizes, duration, rate, payload, seed } => {
+            scenario_courbe::run(sizes.clone(), *duration, *rate, *payload, *seed).await?;
             return Ok(());
         }
         Command::Responder => {
@@ -453,6 +479,7 @@ async fn main() -> anyhow::Result<()> {
         Command::ChaosMonkey { .. } => unreachable!("handled in the scenario block above"),
         Command::Invariants { .. } => unreachable!("handled in the scenario block above"),
         Command::FleetProbe { .. } => unreachable!("handled in the dispatch block above"),
+        Command::Courbe { .. } => unreachable!("handled in the dispatch block above"),
 
         Command::Ping {
             connect,
