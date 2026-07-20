@@ -2,7 +2,8 @@
   "mcpServers": {
     "qmd": {
       "command": "qmd",
-      "args": ["mcp"]
+      "args": ["mcp", "--index", "tom"],
+      "_comment": "Index scoppé projet (2026-07-20) : 'tom' = vault/ du repo UNIQUEMENT. Sans --index, qmd sert l'index global machine (~/.cache/qmd/index.sqlite) qui contient les collections d'AUTRES projets (1RR, partie politique) — fuite inter-projets, interdit ici."
     }
   }
 }

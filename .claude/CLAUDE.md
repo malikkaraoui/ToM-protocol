@@ -9,7 +9,7 @@
 | Projet | ToM Protocol — messagerie P2P décentralisée (chaque device = client + relais) |
 | Stack | rust (workspace crates/) · ios-xcode (apps Swift iOS/tvOS/macOS) · javascript (TS legacy) · freebox (NAS relay) |
 | Phase | **build 130** (2026-07-19 soir). LIVRÉS : R14 **Lot A** (128, observabilité bascules) ; **R15-lite** (129, preferred_relay_url V5, terrain NAS validé `--data-dir`) ; fix élagage Online au load ; durcissement cartes par-pair (130, red-team). **Lot B TRANCHÉ** : non-convergence = failover sur mort de chemin + absence de re-sondage du perdu (pas une sélection défaillante). **Décision : on assume le power save iOS** (churn mobile inactif = attendu). Chantiers OUVERTS (2, distincts) : **(a)** valider R15-lite = mesurer I10 (gain reconnexion ≥ 2×, terrain, zéro code) ; **(b)** coder **R14 Lot C** = re-sondage des chemins morts dans le TRANSPORT QUIC forké (design révisé par red-team, `docs/plans/r14-lot-c-resondage.md`, feu vert requis avant code — zone deadlocks historiques). Différé : pic mémoire transitoire. Prompt de reprise : `docs/plans/PROMPT-REPRISE-I10-LOTC.md`. |
-| MCP | qmd (vault 1RR : 114 docs · chantier 77 — PAS le repo) · GitHub via gh CLI (authentifié) |
+| MCP | qmd `--index tom` (vault/ du repo UNIQUEMENT — étanchéité inter-projets actée 20/07, l'index global machine contenait 1RR) · GitHub via gh CLI (authentifié) |
 
 ## §1 Horodatage + Modèle — EXIGENCE non négociable
 
