@@ -1,10 +1,10 @@
 //! Banc « courbe de masse » — Phase 1, brique in-process (hermétique).
 //!
 //! But (charte `docs/plans/charte-cibles-agressives.md` §0, banc
-//! `docs/plans/banc-courbe-masse.md`) : mesurer si, à **charge par nœud FIXE**,
-//! quand N croît, le **débit livré PAR NŒUD** ne s'effondre pas et la **latence**
-//! reste bornée. L'agrégat brut serait tautologique (avocat mesure) → tout est
-//! par nœud.
+//! `docs/plans/banc-courbe-masse.md` §2bis) : juger l'**INTÉGRITÉ de livraison**
+//! (perte réelle après drain à quiescence, doublons par clé unique (nœud,seq),
+//! herméticité) à charge par nœud FIXE quand N croît. Le débit à saturation et
+//! la latence sont RAPPORTÉS, jamais jugés ici (runtime tokio partagé).
 //!
 //! Pourquoi in-process : les nœuds sont câblés par `add_peer_addr` (aucune
 //! découverte n0/mDNS/DHT), donc **hermétique par construction** — la vraie
@@ -90,6 +90,123 @@ fn percentile(sorted_ms: &[f64], p: f64) -> f64 {
     sorted_ms[idx.min(sorted_ms.len() - 1)]
 }
 
+// ── Logiques de MESURE extraites en fonctions pures (testables) ──────────────
+// L'instrument qui juge le protocole doit être verrouillé par des tests : la V1
+// de ce banc accusait le protocole à tort (clé de dédup ambiguë + troncature du
+// drain). Chaque mécanisme de mesure vit ici, hors I/O, couvert par un test.
+
+/// Signature du banc dans le payload :
+/// `[0..8]` horodatage ns | `[8..16]` clé unique (nœud<<32|seq) | `[16..20]`
+/// magic | `[20..]` remplissage `'A'`. Le magic 4 octets rend le filtre
+/// d'herméticité non ambigu (un padding accidentel `'A'` ne suffit plus).
+const BANC_MAGIC: [u8; 4] = *b"CRBE";
+
+/// Taille minimale d'un payload du banc (ts + clé + magic + ≥ 4 de padding).
+const MIN_PAYLOAD: usize = 24;
+
+/// Construit un payload du banc (miroir exact de `parse_mine`).
+fn build_payload(sent_ns: u64, key: u64, expect_len: usize) -> Vec<u8> {
+    let mut payload = Vec::with_capacity(expect_len);
+    payload.extend_from_slice(&sent_ns.to_le_bytes());
+    payload.extend_from_slice(&key.to_le_bytes());
+    payload.extend_from_slice(&BANC_MAGIC);
+    payload.resize(expect_len, b'A');
+    payload
+}
+
+/// Reconnaît un payload du banc → `Some((sent_ns, clé))`, sinon `None`
+/// (message « étranger » : chatter protocolaire dans le canal applicatif).
+fn parse_mine(payload: &[u8], expect_len: usize) -> Option<(u64, u64)> {
+    if payload.len() != expect_len || expect_len < MIN_PAYLOAD {
+        return None;
+    }
+    if payload[16..20] != BANC_MAGIC || payload[expect_len - 1] != b'A' {
+        return None;
+    }
+    let sent_ns = u64::from_le_bytes(payload[..8].try_into().ok()?);
+    let key = u64::from_le_bytes(payload[8..16].try_into().ok()?);
+    Some((sent_ns, key))
+}
+
+/// Comptage de livraison unique/doublons — point de mutation UNIQUE (leçon
+/// « classe de bug compteur qui dérive » : l'état et ses compteurs mutent
+/// ensemble, jamais séparément).
+#[derive(Default)]
+struct DeliveryLedger {
+    seen: std::collections::HashSet<u64>,
+    unique: u64,
+    dups: u64,
+}
+
+impl DeliveryLedger {
+    /// Enregistre une clé reçue. `true` = première livraison de cette clé.
+    fn record(&mut self, key: u64) -> bool {
+        if self.seen.insert(key) {
+            self.unique += 1;
+            true
+        } else {
+            self.dups += 1;
+            false
+        }
+    }
+}
+
+/// Décision de clôture du drain (pure). `last_msg` DOIT être initialisé à
+/// `duration` par l'appelant : la fenêtre de quiescence court alors au plus tôt
+/// à partir de la FIN de charge — même si aucun message n'est jamais arrivé, on
+/// accorde ≥ QUIESCENCE aux tardifs avant de conclure (un 0 % doit être vrai).
+fn drain_should_close(now: Duration, duration: Duration, last_msg: Duration, hard_cap: Duration) -> bool {
+    if now >= hard_cap {
+        return true; // filet de sécurité : backlog qui ne se résorbe jamais
+    }
+    now >= duration && now.saturating_sub(last_msg) >= QUIESCENCE
+}
+
+/// Dérive de cadence d'émission (pure) : moyenne des intervalles réels (hors
+/// premier, qui mesure le démarrage) rapportée à l'intervalle visé.
+/// `None` = pas assez d'intervalles pour une moyenne honnête.
+fn cadence_drift(intervals_ns: &[u64], interval: Duration) -> Option<f64> {
+    let body = intervals_ns.get(1..)?;
+    if body.is_empty() {
+        return None;
+    }
+    let mean_ns = body.iter().sum::<u64>() as f64 / body.len() as f64;
+    Some(mean_ns / interval.as_nanos() as f64)
+}
+
+/// Verdict d'intégrité (pur, extrait pour testabilité).
+#[derive(Debug, PartialEq)]
+enum IntegrityVerdict {
+    /// 0 point valide → on ne conclut RIEN (jamais de PASS silencieux).
+    Indeterminate,
+    Judged {
+        pass: bool,
+        worst_delivery: f64,
+        worst_n: usize,
+        total_dups: u64,
+    },
+}
+
+fn integrity_verdict(points: &[PointMetrics]) -> IntegrityVerdict {
+    let valid: Vec<&PointMetrics> = points.iter().filter(|p| !p.invalid()).collect();
+    if valid.is_empty() {
+        return IntegrityVerdict::Indeterminate;
+    }
+    // Les doublons de TOUS les points comptent (même invalides) : un doublon est
+    // une maladie d'intégrité quelle que soit la validité du point de cadence.
+    let total_dups: u64 = points.iter().map(|p| p.total_dups).sum();
+    let worst = valid
+        .iter()
+        .min_by(|a, b| a.delivery_rate.total_cmp(&b.delivery_rate))
+        .unwrap();
+    IntegrityVerdict::Judged {
+        pass: worst.delivery_rate >= 0.999 && total_dups == 0,
+        worst_delivery: worst.delivery_rate,
+        worst_n: worst.n,
+        total_dups,
+    }
+}
+
 /// Lance un point de courbe : N nœuds, charge fixe/nœud pendant `duration`.
 async fn run_point(
     n: usize,
@@ -98,6 +215,12 @@ async fn run_point(
     payload_bytes: usize,
     seed: u64,
 ) -> anyhow::Result<PointMetrics> {
+    if n < 2 {
+        anyhow::bail!(
+            "N doit être ≥ 2 : à N=1 la seule cible possible est soi-même \
+             (self-send = interception locale, pas un chemin réseau — tautologie)"
+        );
+    }
     eprintln!("\n── Point N={n} (charge {:.1} msg/s/nœud, {}o, {}s) ──",
         1.0 / interval.as_secs_f64(), payload_bytes, duration.as_secs());
 
@@ -139,16 +262,17 @@ async fn run_point(
             }
         }
     }
+    // Handles conservés pour le teardown explicite de fin de point.
+    let handles: Vec<_> = channels.iter().map(|c| c.handle.clone()).collect();
+
     // Chauffe : laisser les premières connexions s'établir.
     tokio::time::sleep(Duration::from_secs(2)).await;
 
     // Époque commune : latence = delta de nanos sur CETTE horloge (pas de skew).
     let epoch = Instant::now();
     let ids = Arc::new(ids);
-    // Payload = [0..8] horodatage d'émission | [8..16] clé UNIQUE (nœud<<32|seq)
-    // | [16..] remplissage 'A' (signature du banc). ≥24 → dédup incontestable
-    // (pas de collision d'horodatage possible, contrairement à `sent_ns` seul).
-    let expect_len = payload_bytes.max(24);
+    // Format du payload : voir `BANC_MAGIC` (ts | clé unique | magic | 'A').
+    let expect_len = payload_bytes.max(MIN_PAYLOAD);
 
     // 4. Une tâche émettrice + une réceptrice par nœud.
     let mut send_tasks = Vec::with_capacity(n);
@@ -167,38 +291,27 @@ async fn run_point(
         recv_tasks.push(tokio::spawn(async move {
             let mut mine = 0u64;
             let mut foreign = 0u64;
-            let mut dups = 0u64;
-            let mut seen: std::collections::HashSet<u64> = std::collections::HashSet::new();
+            let mut ledger = DeliveryLedger::default();
             let mut lat_ms: Vec<f64> = Vec::new();
-            let mut last_msg = Duration::ZERO; // instant (depuis epoch) du dernier message du banc
+            // Init à `duration` (contrat de `drain_should_close`) : la fenêtre
+            // de quiescence court au plus tôt à partir de la FIN de charge —
+            // même à zéro message reçu, les tardifs ont leur fenêtre complète.
+            let mut last_msg = duration;
             loop {
                 let now = epoch.elapsed();
-                if now >= hard_cap {
-                    break; // filet de sécurité : backlog qui ne se résorbe pas
-                }
-                // Après la charge : clore si silence ≥ QUIESCENCE (drain complet).
-                if now >= duration && now.saturating_sub(last_msg) >= QUIESCENCE {
+                if drain_should_close(now, duration, last_msg, hard_cap) {
                     break;
                 }
                 match tokio::time::timeout(Duration::from_millis(250), messages.recv()).await {
                     Ok(Some(msg)) => {
-                        // « Mien » = longueur exacte + signature 'A' (octets de
-                        // remplissage, début ET fin du corps). Sinon = non-banc.
-                        let is_mine = msg.payload.len() == expect_len
-                            && msg.payload[16] == b'A'
-                            && msg.payload[expect_len - 1] == b'A';
-                        if !is_mine {
-                            foreign += 1;
+                        let Some((sent_ns, key)) = parse_mine(&msg.payload, expect_len) else {
+                            foreign += 1; // non-banc : chatter protocolaire
                             continue;
-                        }
+                        };
                         mine += 1;
                         last_msg = epoch.elapsed();
-                        let sent_ns = u64::from_le_bytes(msg.payload[..8].try_into().unwrap());
                         // Doublon = même clé UNIQUE (nœud, seq) revue → incontestable.
-                        let key = u64::from_le_bytes(msg.payload[8..16].try_into().unwrap());
-                        if !seen.insert(key) {
-                            dups += 1;
-                        }
+                        ledger.record(key);
                         let now_ns = epoch.elapsed().as_nanos() as u64;
                         lat_ms.push((now_ns.saturating_sub(sent_ns)) as f64 / 1e6);
                     }
@@ -206,7 +319,7 @@ async fn run_point(
                     Err(_) => {}              // tick de 250 ms → reboucle (teste la quiescence)
                 }
             }
-            (mine, dups, foreign, lat_ms)
+            (mine, ledger.dups, foreign, lat_ms)
         }));
 
         // Émetteur : 1 message / `interval` vers un pair aléatoire, jusqu'à
@@ -228,10 +341,7 @@ async fn run_point(
                 let sent_ns = epoch.elapsed().as_nanos() as u64;
                 let key: u64 = ((i as u64) << 32) | (seq as u64); // unique par (nœud, seq)
                 seq += 1;
-                let mut payload = Vec::with_capacity(expect_len);
-                payload.extend_from_slice(&sent_ns.to_le_bytes());
-                payload.extend_from_slice(&key.to_le_bytes());
-                payload.resize(expect_len, b'A');
+                let payload = build_payload(sent_ns, key, expect_len);
                 offered += 1;
                 if handle.send_message(ids[j], payload).await.is_err() {
                     errs += 1;
@@ -253,14 +363,8 @@ async fn run_point(
         let (offered, errs, intervals) = t.await.unwrap_or((0, 0, Vec::new()));
         total_offered += offered;
         total_errs += errs;
-        if !intervals.is_empty() {
-            // 1er intervalle = temps jusqu'au 1er tick, ignoré.
-            let body = &intervals[1.min(intervals.len())..];
-            if !body.is_empty() {
-                let mean_ns = body.iter().sum::<u64>() as f64 / body.len() as f64;
-                let drift = mean_ns / interval.as_nanos() as f64;
-                worst_drift = worst_drift.max(drift);
-            }
+        if let Some(drift) = cadence_drift(&intervals, interval) {
+            worst_drift = worst_drift.max(drift);
         }
     }
 
@@ -288,6 +392,12 @@ async fn run_point(
     } else {
         0.0
     };
+
+    // Teardown explicite borné : réduit le bruit de teardown massif (findings
+    // §2bis) et évite les fuites de tâches si run_point est appelé en boucle.
+    for h in handles {
+        let _ = tokio::time::timeout(Duration::from_secs(5), h.shutdown()).await;
+    }
 
     Ok(PointMetrics {
         n,
@@ -344,7 +454,6 @@ pub async fn run(
             eprintln!("       └ N={} INVALIDE : {}", p.n, p.invalid_reason());
         }
     }
-    let any_dups: u64 = points.iter().map(|p| p.total_dups).sum();
     let any_errs: u64 = points.iter().map(|p| p.total_errs).sum();
     let any_foreign: u64 = points.iter().map(|p| p.total_foreign).sum();
     if any_errs > 0 {
@@ -354,20 +463,23 @@ pub async fn run(
         eprintln!("ℹ️ {any_foreign} message(s) non-banc filtré(s) du canal applicatif (chatter protocolaire — exclus du calcul).");
     }
 
-    // ── Verdict : INTÉGRITÉ DE LIVRAISON (le seul axe que le in-process juge) ──
+    // ── Verdict : INTÉGRITÉ DE LIVRAISON (le seul axe que le in-process juge,
+    //    logique pure `integrity_verdict` — testée) ──
     let valid: Vec<&PointMetrics> = points.iter().filter(|p| !p.invalid()).collect();
     eprintln!();
-    if valid.is_empty() {
-        eprintln!("VERDICT : indéterminé — 0 point valide (dérive d'émission partout).");
-        return Ok(());
-    }
-    let worst_delivery = valid.iter().map(|p| p.delivery_rate).fold(1.0_f64, f64::min);
-    let worst_n = valid.iter().min_by(|a, b| a.delivery_rate.total_cmp(&b.delivery_rate)).unwrap().n;
-    let integrity_ok = worst_delivery >= 0.999 && any_dups == 0;
+    let (worst_delivery, worst_n, verdict_dups, integrity_ok) = match integrity_verdict(&points) {
+        IntegrityVerdict::Indeterminate => {
+            eprintln!("VERDICT : indéterminé — 0 point valide (dérive d'émission partout).");
+            return Ok(());
+        }
+        IntegrityVerdict::Judged { pass, worst_delivery, worst_n, total_dups } => {
+            (worst_delivery, worst_n, total_dups, pass)
+        }
+    };
     eprintln!("VERDICT INTÉGRITÉ (N valides {}→{}) : livraison min {:.2}% (N={}), dédup {} → {}",
         valid.first().unwrap().n, valid.last().unwrap().n,
         worst_delivery * 100.0, worst_n,
-        if any_dups == 0 { "0 doublon" } else { "DOUBLONS !" },
+        if verdict_dups == 0 { "0 doublon" } else { "DOUBLONS !" },
         if integrity_ok { "PASS (0 perte, 0 doublon, hermétique)" } else { "FAIL — perte ou doublon RÉEL à investiguer" });
 
     // Latence + débit-à-l'échelle : RAPPORTÉS, explicitement NON jugés ici.
@@ -440,5 +552,145 @@ mod tests {
     fn invalid_reason_matches_cause() {
         assert_eq!(metrics(1.0, 5.0).invalid_reason(), "");
         assert!(metrics(2.0, 5.0).invalid_reason().contains("dérive"));
+    }
+
+    // ── Mécanismes de MESURE (verrouillage oracle 20/07 : l'instrument qui a
+    //    déjà accusé le protocole à tort doit être testé pièce par pièce) ──
+
+    fn pt(n: usize, delivery_rate: f64, dups: u64, drift: f64) -> PointMetrics {
+        PointMetrics {
+            n,
+            delivery_rate,
+            total_dups: dups,
+            ..metrics(drift, 5.0)
+        }
+    }
+
+    #[test]
+    fn payload_roundtrip_and_reject_foreign() {
+        let key = (7u64 << 32) | 42;
+        let p = build_payload(123_456, key, 64);
+        assert_eq!(p.len(), 64);
+        assert_eq!(parse_mine(&p, 64), Some((123_456, key)));
+        // Longueur inattendue → étranger.
+        assert_eq!(parse_mine(&p, 65), None);
+        // Magic corrompu → étranger (l'ancien filtre « octet 'A' » d'avant la
+        // révision aurait pu l'accepter).
+        let mut bad = p.clone();
+        bad[17] = b'X';
+        assert_eq!(parse_mine(&bad, 64), None);
+        // Trop court pour porter la signature → jamais mien.
+        assert_eq!(parse_mine(&[b'A'; 8], 8), None);
+    }
+
+    #[test]
+    fn ledger_counts_unique_and_dup_exactly_once() {
+        let mut l = DeliveryLedger::default();
+        assert!(l.record(1));
+        assert!(l.record(2));
+        assert!(!l.record(1)); // doublon revu
+        assert!(!l.record(1)); // revu encore
+        assert_eq!(l.unique, 2);
+        assert_eq!(l.dups, 2);
+    }
+
+    #[test]
+    fn drain_gives_full_quiescence_window_even_with_zero_messages() {
+        let dur = Duration::from_secs(15);
+        let cap = dur + MAX_DRAIN;
+        // Pendant la charge : jamais de clôture, même silence long.
+        assert!(!drain_should_close(Duration::from_secs(14), dur, dur, cap));
+        // Zéro message reçu (last_msg initialisé à duration, contrat) : la
+        // fenêtre de quiescence COMPLÈTE est accordée après la fin de charge —
+        // un « 0 % livré » ne peut pas venir d'une clôture prématurée.
+        assert!(!drain_should_close(dur, dur, dur, cap));
+        assert!(!drain_should_close(dur + QUIESCENCE - Duration::from_millis(1), dur, dur, cap));
+        assert!(drain_should_close(dur + QUIESCENCE, dur, dur, cap));
+        // Un message tardif fait glisser la fenêtre.
+        let late = Duration::from_secs(16);
+        assert!(!drain_should_close(late + QUIESCENCE - Duration::from_millis(1), dur, late, cap));
+        assert!(drain_should_close(late + QUIESCENCE, dur, late, cap));
+    }
+
+    #[test]
+    fn drain_hard_cap_always_closes() {
+        let dur = Duration::from_secs(15);
+        let cap = dur + MAX_DRAIN;
+        // Même en pleine activité (last_msg = now), le filet dur ferme.
+        assert!(drain_should_close(cap, dur, cap, cap));
+        assert!(drain_should_close(cap + Duration::from_secs(1), dur, cap + Duration::from_secs(1), cap));
+    }
+
+    #[test]
+    fn cadence_drift_ignores_first_interval_and_measures_contention() {
+        let target = Duration::from_millis(100);
+        // Nominal : le 1er intervalle (démarrage) est ignoré.
+        let d = cadence_drift(&[999_999_999, 100_000_000, 100_000_000], target).unwrap();
+        assert!((d - 1.0).abs() < 0.01, "dérive nominale ≈ 1.0, obtenu {d}");
+        // Contention ×2.
+        let d = cadence_drift(&[0, 200_000_000, 200_000_000], target).unwrap();
+        assert!((d - 2.0).abs() < 0.01, "dérive contention ≈ 2.0, obtenu {d}");
+        // Pas assez d'échantillons pour une moyenne honnête.
+        assert_eq!(cadence_drift(&[], target), None);
+        assert_eq!(cadence_drift(&[100], target), None);
+    }
+
+    #[test]
+    fn verdict_never_passes_silently() {
+        // 0 point valide → Indeterminate (jamais un PASS par défaut).
+        assert_eq!(
+            integrity_verdict(&[pt(5, 1.0, 0, 9.0)]),
+            IntegrityVerdict::Indeterminate
+        );
+        // Zéro offert → delivery_rate 0.0 → FAIL, pas de pass silencieux.
+        match integrity_verdict(&[pt(5, 0.0, 0, 1.0)]) {
+            IntegrityVerdict::Judged { pass, .. } => assert!(!pass),
+            v => panic!("attendu Judged, obtenu {v:?}"),
+        }
+        // 99,8 % < seuil 99,9 % → FAIL.
+        match integrity_verdict(&[pt(5, 0.998, 0, 1.0)]) {
+            IntegrityVerdict::Judged { pass, worst_n, .. } => {
+                assert!(!pass);
+                assert_eq!(worst_n, 5);
+            }
+            v => panic!("attendu Judged, obtenu {v:?}"),
+        }
+        // 100 % mais un doublon → FAIL (même si le doublon vient d'un point
+        // INVALIDE : un doublon est une maladie d'intégrité, point).
+        match integrity_verdict(&[pt(5, 1.0, 0, 1.0), pt(10, 1.0, 1, 9.0)]) {
+            IntegrityVerdict::Judged { pass, total_dups, .. } => {
+                assert!(!pass);
+                assert_eq!(total_dups, 1);
+            }
+            v => panic!("attendu Judged, obtenu {v:?}"),
+        }
+        // 100 %, 0 doublon → PASS.
+        match integrity_verdict(&[pt(5, 1.0, 0, 1.0), pt(10, 1.0, 0, 1.0)]) {
+            IntegrityVerdict::Judged { pass, .. } => assert!(pass),
+            v => panic!("attendu Judged, obtenu {v:?}"),
+        }
+    }
+
+    /// F1 — smoke d'orchestration de bout en bout : 2 nœuds RÉELS in-process,
+    /// charge courte. Assertions volontairement robustes (aucun seuil de perf,
+    /// un runner CI chargé ne doit pas le faire flaker) : ≥ 1 message livré,
+    /// zéro doublon. Hermétique par construction (trio isolated).
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn smoke_run_point_n2_hermetic() {
+        let p = run_point(2, Duration::from_secs(2), Duration::from_millis(500), 64, 7)
+            .await
+            .expect("run_point N=2");
+        assert!(p.total_offered >= 2, "chaque nœud doit offrir ≥ 1 message");
+        assert!(p.total_recv > 0, "aucun message livré sur loopback N=2");
+        assert_eq!(p.total_dups, 0, "doublon inattendu");
+    }
+
+    #[tokio::test]
+    async fn run_point_rejects_n1_self_send_tautology() {
+        assert!(
+            run_point(1, Duration::from_secs(1), Duration::from_millis(500), 64, 7)
+                .await
+                .is_err()
+        );
     }
 }
