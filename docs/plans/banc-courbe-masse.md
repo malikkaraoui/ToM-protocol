@@ -88,27 +88,33 @@ l'INTÉGRITÉ de livraison.**
 - **Herméticité** : filtre de signature de payload → les messages non-banc du
   canal applicatif sont isolés, pas comptés.
 
-**Résultats RÉVISÉS (20/07 soir, banc corrigé : drain à quiescence + clé
-`(nœud,seq)` — seed 42, 15 s/point, loopback, build 137) :**
+**Résultats FINAUX (20/07 soir, banc corrigé — drain à quiescence, clé
+`(nœud,seq)`, magic d'herméticité, teardown par point ; revue oracle 4 agents
+passée. Seed 42, 15 s/point, loopback, build 137) :**
 
 | N | livraison | offert→reçu | livré/nœud | p50 | p95 | max | dérive | dup | état |
 |---|---|---|---|---|---|---|---|---|---|
-| 5 | 100.0 % | 75→75 | 1.00 Hz | 17.8 ms | 28.9 ms | 46.6 ms | 1.00× | 0 | ok |
-| 10 | 99.3 % | 150→149 | 0.99 Hz | 166 ms | 2.10 s | 6.44 s | 1.01× | 0 | ok |
-| 20 | 87.7 % | 300→263 | 0.88 Hz | 1.45 s | 7.77 s | 10.35 s | 1.02× | 0 | ok |
+| 5 | 100.0 % | 75→75 | 1.00 Hz | 16.5 ms | 23.4 ms | 32.6 ms | 1.00× | 0 | ok |
+| 10 | 100.0 % | 150→150 | 1.00 Hz | 6.8 ms | 172 ms | 1.25 s | 1.01× | 0 | ok |
+| 20 | 97.3 % | 300→292 | 0.97 Hz | 504 ms | 2.69 s | 6.81 s | 1.02× | 0 | ok |
 
-→ **VERDICT INTÉGRITÉ : FAIL à N=20** — 37 messages sur 300 non livrés
-(12,3 %), 0 doublon. Différence clé avec la V1 : tous les points sont VALIDES
-(dérive d'émission ≤ 1.02× — la charge promise a été tenue) et le drain à
-quiescence élimine l'artefact de troncature → cette perte est RÉELLE **sur ce
-banc**. L'ATTRIBUTION reste ouverte : à N=20 le runtime partagé est saturé
-(p50 ×81 vs N=5) — perte protocolaire, ou messages sacrifiés par
-l'ordonnanceur affamé ? Trancher = multi-process/multi-host (§3). Ce qu'on
-peut affirmer aujourd'hui : intégrité parfaite à N=5 (100 %), quasi parfaite à
-N=10 (99,3 %), zéro doublon partout. (La V1 lisait « 74 % INVALIDE » à N=20 :
-elle tronquait les messages en vol ET comptait de faux doublons — les deux
-artefacts sont morts, le chiffre 87,7 % est le premier chiffre de perte
-publiable de ce banc.)
+→ **VERDICT INTÉGRITÉ : FAIL à N=20** — 8 messages sur 300 non livrés
+(2,7 %), 0 doublon partout, 100 % à N=5 ET N=10. Tous les points sont VALIDES
+(dérive d'émission ≤ 1.02× : la charge promise a été tenue) → cette perte est
+réelle **sur ce banc**, et son ATTRIBUTION reste ouverte : à N=20 le runtime
+partagé est saturé côté réception (p50 ×31 vs N=5) — perte protocolaire ou
+messages sacrifiés par l'ordonnanceur affamé ? Trancher = multi-process/
+multi-host (§3).
+
+**L'histoire de l'instrument (3 artefacts de mesure tués, TOUS accusaient le
+protocole à tort)** : la V1 lisait « 74 % + doublons » à N=20 → clé de dédup
+ambiguë (horodatage) + troncature du drain. Le 1er run révisé lisait 87,7 % →
+3ᵉ artefact découvert par le finding teardown de la revue oracle : **sans
+shutdown explicite, les nœuds des points précédents restaient VIVANTS pendant
+les points suivants** (le point N=20 tournait avec 15 nœuds parasites des
+points N=5/N=10 — keepalives, gossip, contention). Chaque point est désormais
+isolé par un teardown borné. Leçon : un banc qui juge le protocole doit être
+soupçonné D'ABORD — trois fois de suite, « la perte » était l'instrument.
 
 **Ce que la brique NE juge PAS (limites ASSUMÉES, écrites dans la sortie) :**
 - **Débit à saturation : PAS sondé.** À charge fixe 1 msg/s, « livré/nœud
