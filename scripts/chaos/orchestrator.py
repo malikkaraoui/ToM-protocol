@@ -239,9 +239,12 @@ def scenario_7_kill(rep, victim="mac"):
     http_json(f"{NAS_CONTROL}/send?to={tid}&size=2048&count=20")
     time.sleep(10)
     # #8 retour
+    # ⚠️ Chemin = celui du process OBSERVÉ en live (ps + app_build :9091), PAS .build/xcode/
+    # (audit Phase 0 20/07 : deux bundles à md5 différents coexistaient — relancer l'autre
+    # aurait ressuscité un binaire non vérifié, piège du « vieux 51 »).
     subprocess.run(
         ["/usr/bin/open",
-         "/Users/malik/Documents/tom-protocol/apps/tom-node-tvos/.build/xcode/Build/Products/Debug/TomNode-macOS.app"],
+         "/Users/malik/Documents/tom-protocol/apps/tom-node-tvos/build/Build/Products/Debug/TomNode-macOS.app"],
         check=False)
     t_back = None
     for _ in range(60):
