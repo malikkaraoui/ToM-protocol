@@ -24,6 +24,7 @@ mod scenario_presence_attack;
 mod scenario_chaos_monkey;
 mod scenario_invariants;
 mod scenario_presence_storm;
+mod scenario_r4_rendezvous;
 mod scenario_roles;
 mod scenario_roles_charge;
 mod scenario_runner;
@@ -166,6 +167,22 @@ enum Command {
     /// Protocol scenario: Roles (scoring pipeline + metrics queries).
     Roles,
 
+    /// R4 rendez-vous : deux inconnus se trouvent via DHT namespace TEST.
+    R4 {
+        /// Namespace du rendez-vous (TEST, isolation de test).
+        #[arg(long, default_value = "test-r4")]
+        namespace: String,
+        /// Timeout total en secondes.
+        #[arg(long, default_value = "120")]
+        timeout_secs: u64,
+        /// Intervalle entre probes en secondes.
+        #[arg(long, default_value = "2")]
+        probe_interval_secs: u64,
+        /// Durée du mode linger (après verdict local) en secondes.
+        #[arg(long, default_value = "10")]
+        linger_secs: u64,
+    },
+
     /// Banc « rôles sous charge » Phase A étage L (oracles durs, hermétique) :
     /// R5 subnets (formation/frontière/dissolution), R8 arroseur arrosé.
     RolesCharge {
@@ -284,6 +301,7 @@ async fn main() -> anyhow::Result<()> {
         Command::Backup => "backup",
         Command::Failover => "failover",
         Command::Roles => "roles",
+        Command::R4 { .. } => "r4",
         Command::RolesCharge { .. } => "roles-charge",
         Command::Chaos => "chaos",
         Command::Presence => "presence",
@@ -345,30 +363,140 @@ async fn main() -> anyhow::Result<()> {
 
     // ── Protocol scenarios (spawn their own nodes) ───────────────
     match &cli.command {
-        Command::E2e | Command::Group | Command::Backup | Command::Failover | Command::Roles | Command::Chaos | Command::Endurance | Command::Partition | Command::Churn | Command::Presence | Command::PresenceStorm | Command::PresenceAttack | Command::ChaosMonkey { .. } | Command::Invariants { .. } => {
-            let result = match cli.command {
-                Command::E2e => scenario_e2e::run().await?,
-                Command::Group => scenario_group::run().await?,
-                Command::Backup => scenario_backup::run().await?,
-                Command::Failover => scenario_failover::run().await?,
-                Command::Roles => scenario_roles::run().await?,
-                Command::Chaos => scenario_chaos::run().await?,
-                Command::Endurance => scenario_endurance::run().await?,
-                Command::Partition => scenario_partition::run().await?,
-                Command::Churn => scenario_churn::run().await?,
-                Command::Presence => scenario_presence::run().await?,
-                Command::PresenceStorm => scenario_presence_storm::run().await?,
-                Command::PresenceAttack => scenario_presence_attack::run().await?,
-                Command::ChaosMonkey { seed } => scenario_chaos_monkey::run_with_seed(seed).await?,
-                Command::Invariants { seed } => scenario_invariants::run_with_seed(seed).await?,
+        Command::E2e | Command::Group | Command::Backup | Command::Failover | Command::Roles | Command::R4 { .. } | Command::Chaos | Command::Endurance | Command::Partition | Command::Churn | Command::Presence | Command::PresenceStorm | Command::PresenceAttack | Command::ChaosMonkey { .. } | Command::Invariants { .. } => {
+            match cli.command {
+                Command::E2e => {
+                    let result = scenario_e2e::run().await?;
+                    result.print_summary();
+                    result.emit_jsonl();
+                    if !result.success() {
+                        std::process::exit(1);
+                    }
+                    return Ok(());
+                }
+                Command::Group => {
+                    let result = scenario_group::run().await?;
+                    result.print_summary();
+                    result.emit_jsonl();
+                    if !result.success() {
+                        std::process::exit(1);
+                    }
+                    return Ok(());
+                }
+                Command::Backup => {
+                    let result = scenario_backup::run().await?;
+                    result.print_summary();
+                    result.emit_jsonl();
+                    if !result.success() {
+                        std::process::exit(1);
+                    }
+                    return Ok(());
+                }
+                Command::Failover => {
+                    let result = scenario_failover::run().await?;
+                    result.print_summary();
+                    result.emit_jsonl();
+                    if !result.success() {
+                        std::process::exit(1);
+                    }
+                    return Ok(());
+                }
+                Command::Roles => {
+                    let result = scenario_roles::run().await?;
+                    result.print_summary();
+                    result.emit_jsonl();
+                    if !result.success() {
+                        std::process::exit(1);
+                    }
+                    return Ok(());
+                }
+                Command::R4 { namespace, timeout_secs, probe_interval_secs, linger_secs } => {
+                    scenario_r4_rendezvous::run(namespace, timeout_secs, probe_interval_secs, linger_secs).await?;
+                    return Ok(());
+                }
+                Command::Chaos => {
+                    let result = scenario_chaos::run().await?;
+                    result.print_summary();
+                    result.emit_jsonl();
+                    if !result.success() {
+                        std::process::exit(1);
+                    }
+                    return Ok(());
+                }
+                Command::Endurance => {
+                    let result = scenario_endurance::run().await?;
+                    result.print_summary();
+                    result.emit_jsonl();
+                    if !result.success() {
+                        std::process::exit(1);
+                    }
+                    return Ok(());
+                }
+                Command::Partition => {
+                    let result = scenario_partition::run().await?;
+                    result.print_summary();
+                    result.emit_jsonl();
+                    if !result.success() {
+                        std::process::exit(1);
+                    }
+                    return Ok(());
+                }
+                Command::Churn => {
+                    let result = scenario_churn::run().await?;
+                    result.print_summary();
+                    result.emit_jsonl();
+                    if !result.success() {
+                        std::process::exit(1);
+                    }
+                    return Ok(());
+                }
+                Command::Presence => {
+                    let result = scenario_presence::run().await?;
+                    result.print_summary();
+                    result.emit_jsonl();
+                    if !result.success() {
+                        std::process::exit(1);
+                    }
+                    return Ok(());
+                }
+                Command::PresenceStorm => {
+                    let result = scenario_presence_storm::run().await?;
+                    result.print_summary();
+                    result.emit_jsonl();
+                    if !result.success() {
+                        std::process::exit(1);
+                    }
+                    return Ok(());
+                }
+                Command::PresenceAttack => {
+                    let result = scenario_presence_attack::run().await?;
+                    result.print_summary();
+                    result.emit_jsonl();
+                    if !result.success() {
+                        std::process::exit(1);
+                    }
+                    return Ok(());
+                }
+                Command::ChaosMonkey { seed } => {
+                    let result = scenario_chaos_monkey::run_with_seed(seed).await?;
+                    result.print_summary();
+                    result.emit_jsonl();
+                    if !result.success() {
+                        std::process::exit(1);
+                    }
+                    return Ok(());
+                }
+                Command::Invariants { seed } => {
+                    let result = scenario_invariants::run_with_seed(seed).await?;
+                    result.print_summary();
+                    result.emit_jsonl();
+                    if !result.success() {
+                        std::process::exit(1);
+                    }
+                    return Ok(());
+                }
                 _ => unreachable!(),
-            };
-            result.print_summary();
-            result.emit_jsonl();
-            if !result.success() {
-                std::process::exit(1);
             }
-            return Ok(());
         }
         Command::Scenarios => {
             scenario_runner::run().await?;
@@ -598,6 +726,7 @@ async fn main() -> anyhow::Result<()> {
 
         // Already handled above
         Command::E2e | Command::Group | Command::Backup | Command::Failover | Command::Roles
+        | Command::R4 { .. }
         | Command::RolesCharge { .. }
         | Command::Chaos | Command::Endurance | Command::Partition | Command::Churn
         | Command::Scenarios | Command::Responder | Command::Campaign { .. } => {

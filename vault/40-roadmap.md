@@ -91,6 +91,13 @@
 - [x] **Oracle renforcé** : R7.herméticité-zéro-étranger, **23/23 PASS, 0 ligne fallback relay au log**.
 - ✅ **Capstone R4-F multi-host prérequis propre débloqué** (voir « Ensuite »).
 
+### ✅ R4-F « Deux inconnus se trouvent » — PASS multi-host (2026-07-21 après-midi)
+> Nouvelle sous-commande `tom-stress r4 --namespace <label>` : nœud hermétique + DHT P1. Baseline froide ~25 s (design ≤120 s) mesurée réelle : Mac↔NAS PASS, 1 pair/0 rejet chacun, exit 0. Isolation R4 achevée, design-first matérialisé.
+- [x] Oracles : RTT≤120s / source amorçage rendez-vous / anti-squat compteur.
+- [x] Run Mac (2 process) t+24,0 s symétrique, RTT 10ms.
+- [x] Run multi-host Mac↔NAS : t+23,5/26,5 s, RTT ~20ms, zéro résiduel.
+- **Prochain** : capstone Phase C (multi-host flotte complète, hubs, extinction device).
+
 ### ✅ start Rust borné + anti-zombie — LIVRÉ build 99 (2026-07-17), validation terrain 3G en attente
 > Bug terrain reproduit par l'utilisateur (3G + stress avion/wifi) : `tom_node_start` non borné se figeait → actor Swift empoisonné → zombie qui ACK → messages perdus. Fix livré :
 - [x] ① `tom_node_start` borné (bind sur tâche tokio + timeout `start_timeout_secs` 20 s → rc **-2** + last_error ; abort + reaper `shutdown()` sur la course — rien ne survit, re-start OK, test `start_expires_on_stalled_network_then_recovers`)
