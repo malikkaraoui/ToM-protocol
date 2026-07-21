@@ -3,6 +3,28 @@
 > Session précédente : 2026-07-20. Rédigé après recadrage fort de Malik.
 > **À lire EN PREMIER, avant toute action, avec QMD (`mcp__qmd__*`), en prenant le temps.**
 
+## ⏩ ÉTAT AU 21/07 (le mandat ci-dessous a été MATÉRIALISÉ — lire d'abord le handoff)
+
+**Handoff courant : mémoire `session-handoff-2026-07-21`** (état complet). La
+critique fondatrice de Malik (§0 ci-dessous) reste LE cap et n'a pas bougé —
+mais la Phase A est FAITE :
+- **Flotte build 139.** Banc `tom-stress roles-charge` **Phase A COMPLÈTE — 22
+  oracles PASS** (r1 multi-hop+promotion, r2 backup absent→retour, r5 subnets,
+  r7 PoP anti-fantômes, r8 arroseur). Grille des rôles :
+  `docs/plans/prisme-des-roles.md`. Design du banc : `banc-roles-sous-charge.md`.
+- **3 bugs protocolaires débusqués par le banc + corrigés** (antispam percé,
+  crédit-origine au relais, backup non purgé à l'ACK). P1 namespace rendez-vous
+  isolé + P3 timeout subnet livrés (débloquent R4/R5).
+- **PROCHAIN GROS CHANTIER : le CAPSTONE R4-F multi-host** — deux inconnus se
+  trouvent via le rendez-vous (namespace test P1), puis tous les rôles sous
+  charge EN MÊME TEMPS sur la flotte réelle. Design : `banc-roles-sous-charge.md`
+  §3. Prérequis propre : herméticité étage L (le nœud de banc doit refuser les
+  connexions entrantes non-câblées — cf finding « fuite mDNS entrante »).
+- **Findings ouverts** (dans le handoff) : KL#13 famine par spoof, KL#14
+  raffinement multi-replica, flake CI DHT.
+
+--- (la critique fondatrice originale, inchangée, ci-dessous) ---
+
 ## 0. LA CRITIQUE FONDATRICE DE MALIK (le cœur — ne pas la perdre)
 
 **Texte exact de Malik (20/07, verbatim — à garder à l'esprit en permanence)** :
