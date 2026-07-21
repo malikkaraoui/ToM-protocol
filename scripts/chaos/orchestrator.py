@@ -37,10 +37,9 @@ NODES = {
     # iPhone sont indiscernables par le nom ; distinguer par node_id
     # (Malik 80eb9196…, Laura b76a43d2…) ou par IP.
     "iphone-laura": {"status": "http://192.168.0.49:9091/", "kind": "app"},
-    # ATV retirée de la flotte 137 (20/07 soir, remplacée par iPhone Laura —
-    # cf handoff/PROMPT-REPRISE-ROLES §2 ; sondée injoignable sur .76:9091).
-    # Réintégrer ici si elle revient :
-    # "atv": {"status": "http://192.168.0.76:9091/", "kind": "app"},
+    # ATV réintégrée le 21/07 matin (demande Malik — elle était en 134/137,
+    # remise au build courant par deploy-apps.sh).
+    "atv": {"status": "http://192.168.0.76:9091/", "kind": "app"},
 }
 
 
