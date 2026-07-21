@@ -85,13 +85,24 @@ fn parse_echo(payload: &[u8]) -> Option<String> {
 }
 
 pub async fn run(
-    namespace: String,
+    namespace: Option<String>,
     timeout_secs: u64,
     probe_interval_secs: u64,
     linger_secs: u64,
 ) -> anyhow::Result<()> {
-    eprintln!("\n=== R4 : Rendez-vous DHT — deux inconnus se trouvent (namespace={}) ===", namespace);
-    eprintln!("   Timeout total: {} s, probe interval: {} s, linger: {} s", timeout_secs, probe_interval_secs, linger_secs);
+    // None = rendez-vous RÉEL (capstone) : le probing applicatif est coupé pour
+    // ne jamais injecter de r4-probe dans les chats des vraies apps ; le
+    // verdict se réduit à (b) source-rendezvous. Some(label) = étage isolé.
+    let probing = namespace.is_some();
+    let ns_label = namespace
+        .clone()
+        .unwrap_or_else(|| "PRODUCTION (capstone)".to_string());
+    eprintln!("\n=== R4 : Rendez-vous DHT — deux inconnus se trouvent (namespace={}) ===", ns_label);
+    eprintln!(
+        "   Timeout total: {} s, probe interval: {} s, linger: {} s, probing: {}",
+        timeout_secs, probe_interval_secs, linger_secs,
+        if probing { "on" } else { "OFF (mode capstone)" }
+    );
 
     // ── Spawn un seul nœud hermétique sans pair configuré ──
     let node = TomNode::bind(TomNodeConfig::new().hermetic()).await?;
@@ -103,7 +114,7 @@ pub async fn run(
         username: format!("{}r4-{:08x}", tom_protocol::TEST_NODE_PREFIX, rand::random::<u32>()),
         encryption: true,
         enable_dht: true,
-        rendezvous_namespace: Some(namespace.clone()),
+        rendezvous_namespace: namespace.clone(),
         ..Default::default()
     };
 
@@ -196,8 +207,15 @@ pub async fn run(
             );
         }
 
+        // Mode capstone (probing off) : le verdict local tombe dès la découverte —
+        // la preuve de connexion est relevée CÔTÉ FLOTTE par l'orchestrateur
+        // (node_id de l'inconnu dans pairs_connectes des :9091).
+        if !probing && peer_discovered && done_time.is_none() {
+            done_time = Some(Instant::now());
+        }
+
         // Envoyer probes toutes les `probe_interval_secs`.
-        if last_probe_time.elapsed() > Duration::from_secs(probe_interval_secs) {
+        if probing && last_probe_time.elapsed() > Duration::from_secs(probe_interval_secs) {
             if peer_discovered {
                 if let Some((peer_id, _)) = statuses.iter().find(|(id, _)| *id != node_id) {
                     let nonce = gen_nonce();
@@ -242,15 +260,22 @@ pub async fn run(
         (obs_data.rendezvous_seen, obs_data.rendezvous_detail.clone())
     };
 
-    eprintln!(
-        "  [{}] R4.aller-retour : {}",
-        if ok_aller_retour { "PASS" } else { "FAIL" },
-        if ok_aller_retour {
-            "probe→echo validé"
-        } else {
-            "AUCUN echo reçu"
-        }
-    );
+    if probing {
+        eprintln!(
+            "  [{}] R4.aller-retour : {}",
+            if ok_aller_retour { "PASS" } else { "FAIL" },
+            if ok_aller_retour {
+                "probe→echo validé"
+            } else {
+                "AUCUN echo reçu"
+            }
+        );
+    } else {
+        eprintln!(
+            "  [N/A ] R4.aller-retour : probing OFF (capstone) — preuve de \
+             connexion relevée côté flotte par l'orchestrateur"
+        );
+    }
 
     eprintln!(
         "  [{}] R4.source-rendez-vous : {}",
@@ -272,10 +297,10 @@ pub async fn run(
         }
     );
 
-    let all_ok = ok_aller_retour && ok_rendezvous;
+    let all_ok = ok_rendezvous && (ok_aller_retour || !probing);
     eprintln!(
         "\n=== VERDICT R4 ({}) : {} ===",
-        namespace,
+        ns_label,
         if all_ok { "PASS" } else { "FAIL" }
     );
 

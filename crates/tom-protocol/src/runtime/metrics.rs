@@ -26,6 +26,11 @@ pub struct MetricsSnapshot {
     pub relayeurs_connus: u64,
     /// Local node role (Peer or Relay).
     pub role_local: PeerRole,
+    /// [DIAG OOM] Clients relais actuellement connectés au serveur embarqué
+    /// (accepts − disconnects, compteurs appariés). 0 si pas de self-relay.
+    pub clients_relais_actifs: u64,
+    /// [DIAG OOM] Total cumulé de connexions acceptées par le relais embarqué.
+    pub relais_accepts_total: u64,
 }
 
 /// Shared, clonable metrics handle.
@@ -50,6 +55,10 @@ struct Inner {
     relayeurs_connus: Gauge,
     /// 0=Peer, 1=Relay
     role_local: std::sync::atomic::AtomicU8,
+    /// [DIAG OOM] Clients relais actifs (accepts − disconnects du relais embarqué).
+    clients_relais_actifs: Gauge,
+    /// [DIAG OOM] Accepts cumulés du relais embarqué.
+    relais_accepts_total: Gauge,
 }
 
 impl ProtocolMetrics {
@@ -67,6 +76,8 @@ impl ProtocolMetrics {
                 taille_reseau: Gauge::new(),
                 relayeurs_connus: Gauge::new(),
                 role_local: std::sync::atomic::AtomicU8::new(0),
+                clients_relais_actifs: Gauge::new(),
+                relais_accepts_total: Gauge::new(),
             }),
         }
     }
@@ -123,6 +134,12 @@ impl ProtocolMetrics {
         self.inner.role_local.store(v, std::sync::atomic::Ordering::Relaxed);
     }
 
+    /// [DIAG OOM] Met à jour les stats du relais embarqué (clients actifs + accepts cumulés).
+    pub fn set_relais_stats(&self, actifs: u64, accepts_total: u64) {
+        self.inner.clients_relais_actifs.set(actifs);
+        self.inner.relais_accepts_total.set(accepts_total);
+    }
+
     // ── Read method (called by app via RuntimeHandle) ────────────────
 
     /// Take a consistent snapshot of all metrics.
@@ -149,6 +166,8 @@ impl ProtocolMetrics {
             taille_reseau: self.inner.taille_reseau.get(),
             relayeurs_connus: self.inner.relayeurs_connus.get(),
             role_local,
+            clients_relais_actifs: self.inner.clients_relais_actifs.get(),
+            relais_accepts_total: self.inner.relais_accepts_total.get(),
         }
     }
 }

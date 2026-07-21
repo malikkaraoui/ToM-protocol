@@ -751,6 +751,12 @@ pub(super) async fn runtime_loop(
                 metrics.set_taille_reseau(state.topology.online_count() as u64);
                 metrics.set_relayeurs_connus(state.topology.relay_count() as u64);
                 metrics.set_role_local(state.topology.local_role(&state.local_id));
+                // [DIAG OOM] Stats relais embarqué (accepts − disconnects) pour trancher
+                // relais vs DHT sous interaction. (0,0) si pas de self-relay.
+                let (relais_actifs, relais_accepts) = embedded_relay
+                    .relay_client_stats()
+                    .map_or((0, 0), |(actifs, accepts, _dis)| (actifs, accepts));
+                metrics.set_relais_stats(relais_actifs, relais_accepts);
                 Vec::new()
             }
 

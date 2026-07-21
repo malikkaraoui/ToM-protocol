@@ -31,10 +31,36 @@ mod scenario_runner;
 
 use clap::{Parser, Subcommand};
 use common::parse_node_id;
-use std::sync::Mutex;
+use std::sync::{Mutex, atomic::{AtomicUsize, Ordering}};
 use std::time::Instant;
 use tom_transport::{TomNode, TomNodeConfig};
 use tracing_subscriber::fmt::writer::MakeWriterExt;
+
+/// Wrapper allocator pour compter les octets alloués (TEST B — discerner vraie fuite vs rétention allocateur).
+struct TrackingAllocator;
+
+static ALLOCATED_BYTES: AtomicUsize = AtomicUsize::new(0);
+
+unsafe impl std::alloc::GlobalAlloc for TrackingAllocator {
+    unsafe fn alloc(&self, layout: std::alloc::Layout) -> *mut u8 {
+        ALLOCATED_BYTES.fetch_add(layout.size(), Ordering::Relaxed);
+        std::alloc::System.alloc(layout)
+    }
+
+    unsafe fn dealloc(&self, ptr: *mut u8, layout: std::alloc::Layout) {
+        ALLOCATED_BYTES.fetch_sub(layout.size(), Ordering::Relaxed);
+        std::alloc::System.dealloc(ptr, layout)
+    }
+}
+
+#[global_allocator]
+static GLOBAL: TrackingAllocator = TrackingAllocator;
+
+/// Obtenir le nombre brut d'octets alloués (TEST B).
+#[allow(dead_code)]
+pub fn get_allocated_bytes() -> usize {
+    ALLOCATED_BYTES.load(Ordering::Relaxed)
+}
 
 #[derive(Parser)]
 #[command(name = "tom-stress", about = "Stress test for ToM transport layer")]
@@ -170,8 +196,16 @@ enum Command {
     /// R4 rendez-vous : deux inconnus se trouvent via DHT namespace TEST.
     R4 {
         /// Namespace du rendez-vous (TEST, isolation de test).
-        #[arg(long, default_value = "test-r4")]
+        /// Incompatible avec --production-rendezvous.
+        #[arg(long, default_value = "test-r4", conflicts_with = "production_rendezvous")]
         namespace: String,
+        /// CAPSTONE UNIQUEMENT : rejoint le rendez-vous RÉEL de la flotte
+        /// (namespace de prod). Le probing applicatif est DÉSACTIVÉ (pas de
+        /// r4-probe dans les chats des vraies apps) : verdict = source
+        /// d'amorçage seule. Discipline anti-pollution : nœud éphémère
+        /// TEST_NODE_PREFIX, l'entrée expire par fraîcheur au rendez-vous.
+        #[arg(long)]
+        production_rendezvous: bool,
         /// Timeout total en secondes.
         #[arg(long, default_value = "120")]
         timeout_secs: u64,
@@ -410,8 +444,11 @@ async fn main() -> anyhow::Result<()> {
                     }
                     return Ok(());
                 }
-                Command::R4 { namespace, timeout_secs, probe_interval_secs, linger_secs } => {
-                    scenario_r4_rendezvous::run(namespace, timeout_secs, probe_interval_secs, linger_secs).await?;
+                Command::R4 { namespace, production_rendezvous, timeout_secs, probe_interval_secs, linger_secs } => {
+                    // --production-rendezvous → namespace None = rendez-vous RÉEL
+                    // (réservé au capstone ; clap garantit l'exclusion mutuelle).
+                    let ns = if production_rendezvous { None } else { Some(namespace) };
+                    scenario_r4_rendezvous::run(ns, timeout_secs, probe_interval_secs, linger_secs).await?;
                     return Ok(());
                 }
                 Command::Chaos => {
@@ -503,7 +540,17 @@ async fn main() -> anyhow::Result<()> {
             return Ok(());
         }
         Command::Courbe { sizes, duration, rate, payload, seed } => {
+            let bytes_start = get_allocated_bytes();
+            eprintln!("\n[TEST B] Octets alloués au START du banc courbe : {} Mo", bytes_start / 1_000_000);
             scenario_courbe::run(sizes.clone(), *duration, *rate, *payload, *seed).await?;
+            let bytes_end = get_allocated_bytes();
+            eprintln!("[TEST B] Octets alloués à la FIN du banc courbe : {} Mo", bytes_end / 1_000_000);
+            eprintln!("[TEST B] Écart (VERDICT) : {} Mo", (bytes_end as i64 - bytes_start as i64) / 1_000_000);
+            if bytes_end >= bytes_start {
+                eprintln!("         ⚠️  Croissance positive → VRAIE FUITE non bornée");
+            } else {
+                eprintln!("         ✅ Retour à baseline → RÉTENTION ALLOCATEUR (artefact RSS)");
+            }
             return Ok(());
         }
         Command::RolesCharge { scenario } => {

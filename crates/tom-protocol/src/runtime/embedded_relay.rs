@@ -99,6 +99,18 @@ impl EmbeddedRelayService {
         }
     }
 
+    /// [DIAG OOM] Stats du serveur relais embarqué pour le diagnostic mémoire.
+    /// Renvoie `(clients_actifs, accepts_cumul, disconnects_cumul)`, ou `None` si arrêté.
+    /// `clients_actifs = accepts − disconnects` (compteurs appariés, cf. tom-relay `client.rs`).
+    pub fn relay_client_stats(&self) -> Option<(u64, u64, u64)> {
+        self.server.as_ref().map(|s| {
+            let m = &s.metrics().server;
+            let accepts = m.accepts.get();
+            let disconnects = m.disconnects.get();
+            (accepts.saturating_sub(disconnects), accepts, disconnects)
+        })
+    }
+
     /// Start the embedded relay server.
     ///
     /// Returns the bound URL on success.
