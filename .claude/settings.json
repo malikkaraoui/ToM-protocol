@@ -1,6 +1,5 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-settings.json",
-  "_comment": "Template claude-atelier consolide (ex §15 env + §23 permissions). A copier dans .claude/settings.json (projet) ou ~/.claude/settings.json (global). Ajuster maxBudgetUsd et permissions selon le niveau d'autonomie voulu.",
   "env": {
     "MAX_THINKING_TOKENS": "10000",
     "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE": "50",
@@ -8,8 +7,6 @@
     "DISABLE_NON_ESSENTIAL_MODEL_CALLS": "1"
   },
   "permissions": {
-    "defaultMode": "bypassPermissions",
-    "_comment_allow": "Liste blanche pour le mode 'acceptEdits' (nuit). Garde 'default' pour le dev interactif.",
     "allow": [
       "Read",
       "Glob",
@@ -50,7 +47,6 @@
       "Bash(git push:*)",
       "Bash(chmod:*)"
     ],
-    "_comment_deny": "Liste noire absolue. Jamais autorisee, peu importe le mode.",
     "deny": [
       "Bash(rm -rf:*)",
       "Bash(sudo:*)",
@@ -62,24 +58,12 @@
       "Bash(curl * | bash:*)",
       "Bash(wget * | sh:*)",
       "Bash(wget * | bash:*)"
-    ]
+    ],
+    "defaultMode": "bypassPermissions",
+    "_comment_allow": "Liste blanche pour le mode 'acceptEdits' (nuit). Garde 'default' pour le dev interactif.",
+    "_comment_deny": "Liste noire absolue. Jamais autorisee, peu importe le mode."
   },
-  "preferences": {
-    "_comment_budget": "Disjoncteur hard. Claude stoppe automatiquement au-dela.",
-    "maxBudgetUsd": 20
-  },
-  "mcpServers": {
-    "_comment_github": "MCP Copilot (api.githubcopilot.com) RETIRÉ — plus d'abonnement GitHub Copilot. GitHub via `gh` CLI + review interne par agent (pas de dépendance Copilot).",
-    "obsidian-vault": {
-      "command": "npx",
-      "args": [
-        "-y",
-        "@modelcontextprotocol/server-filesystem",
-        "/Users/malik/Vault/Malik"
-      ],
-      "_comment": "MCP filesystem vault Obsidian — lecture/écriture .md directs, sans dépendance API Obsidian. Vault global : /Users/malik/Vault/Malik/"
-    }
-  },
+  "model": "sonnet",
   "hooks": {
     "SessionStart": [
       {
@@ -180,5 +164,35 @@
       }
     ]
   },
-  "model": "sonnet"
+  "enabledPlugins": {
+    "frontend-design@claude-plugins-official": true,
+    "code-review@claude-plugins-official": true,
+    "context7@claude-plugins-official": true,
+    "github@claude-plugins-official": true,
+    "feature-dev@claude-plugins-official": true,
+    "code-simplifier@claude-plugins-official": true,
+    "skill-creator@claude-plugins-official": true,
+    "security-guidance@claude-plugins-official": true,
+    "ralph-loop@claude-plugins-official": true,
+    "claude-code-setup@claude-plugins-official": true,
+    "pr-review-toolkit@claude-plugins-official": true,
+    "agent-sdk-dev@claude-plugins-official": true
+  },
+  "_comment": "Template claude-atelier consolide (ex §15 env + §23 permissions). A copier dans .claude/settings.json (projet) ou ~/.claude/settings.json (global). Ajuster maxBudgetUsd et permissions selon le niveau d'autonomie voulu.",
+  "preferences": {
+    "_comment_budget": "Disjoncteur hard. Claude stoppe automatiquement au-dela.",
+    "maxBudgetUsd": 20
+  },
+  "mcpServers": {
+    "_comment_github": "MCP Copilot (api.githubcopilot.com) RETIRÉ — plus d'abonnement GitHub Copilot. GitHub via `gh` CLI + review interne par agent (pas de dépendance Copilot).",
+    "obsidian-vault": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-filesystem",
+        "/Users/malik/Vault/Malik"
+      ],
+      "_comment": "MCP filesystem vault Obsidian — lecture/écriture .md directs, sans dépendance API Obsidian. Vault global : /Users/malik/Vault/Malik/"
+    }
+  }
 }
