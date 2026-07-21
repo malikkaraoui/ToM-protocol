@@ -286,7 +286,12 @@ impl Future for ConnectionDriver {
             return Poll::Pending;
         }
         if conn.error.is_none() {
-            unreachable!("drained connections always have an error");
+            // Une connexion peut atteindre l'état drained sans qu'aucun chemin n'ait
+            // appelé terminate() (fermeture sans erreur applicative). On restaure
+            // l'invariant attendu par State::drop / OnClosed au lieu de paniquer :
+            // un panic ici tue la task driver, qui ne nettoie alors plus la connexion
+            // (Arc/buffers/on_closed non libérés → fuite mémoire ∝ connexions).
+            conn.terminate(ConnectionError::LocallyClosed, &self.0.shared);
         }
         Poll::Ready(Ok(()))
     }
@@ -1720,7 +1725,14 @@ impl Drop for State {
 
         if !self.on_closed.is_empty() {
             // Ensure that all on_closed oneshot senders are triggered before dropping.
-            let reason = self.error.as_ref().expect("closed without error reason");
+            // Défense en profondeur : si la connexion est droppée sans terminate()
+            // (error None), on notifie quand même les waiters avec une raison par
+            // défaut plutôt que de paniquer dans un Drop — un panic ici laisse les
+            // on_closed non notifiés → tasks `closed()` bloquées → fuite mémoire.
+            let reason = self
+                .error
+                .clone()
+                .unwrap_or(ConnectionError::LocallyClosed);
             let stats = self.inner.stats();
             for tx in self.on_closed.drain(..) {
                 tx.send((reason.clone(), stats.clone())).ok();
