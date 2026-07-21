@@ -1865,16 +1865,22 @@ impl RuntimeState {
             // Strangers (fresh identities) get is_known=false, still bounded by global cap.
             let is_known = self.topology.get(&envelope.from).is_some();
             if let Err(_reason) = self.antispam.check_rate(envelope.from, sender_score, now, is_known) {
-                let current_rate = self.antispam.compute_rate(sender_score);
-                // Dedup the alert: emit SenderThrottled at most once per peer per 10s window
-                // to prevent spam of dozens/sec when a known peer reconnects.
+                // Le message hors-budget est TOUJOURS rejeté (return court-circuite
+                // la livraison). Seule l'ALERTE est dédupliquée (1×/pair/10 s).
+                // Bug historique (banc R8, 21/07) : le return vivait DANS le if
+                // should_emit → seul le 1er message hors-budget par fenêtre était
+                // rejeté, les 1600 suivants étaient LIVRÉS — throttle percé,
+                // décision #5 réduite à une alerte cosmétique.
+                let mut effects = Vec::new();
                 if self.antispam.should_emit_sender_throttled(envelope.from, now) {
-                    return vec![RuntimeEffect::Emit(ProtocolEvent::SenderThrottled {
+                    let current_rate = self.antispam.compute_rate(sender_score);
+                    effects.push(RuntimeEffect::Emit(ProtocolEvent::SenderThrottled {
                         node_id: envelope.from,
                         score: sender_score,
                         current_rate,
-                    })];
+                    }));
                 }
+                return effects;
             }
         }
 
@@ -6581,6 +6587,76 @@ mod tests {
 
         assert!(throttled > 0, "spammer should be throttled after burst");
         // We only assert behavioral throttling, not an exact count.
+    }
+
+    #[test]
+    fn antispam_rejects_every_over_budget_message_even_when_alert_deduped() {
+        // Bug débusqué par le banc R8 (21/07) : le rejet vivait DANS le dédup
+        // de l'alerte → seul le 1er message hors-budget par fenêtre de 10 s
+        // était rejeté, les suivants étaient LIVRÉS (1608/1609 au banc).
+        // Contrat : TOUT message hors-budget est court-circuité ; seule
+        // l'ALERTE est dédupliquée.
+        let (local_id, local_secret) = keypair(1);
+        let mut antispam_config = crate::roles::AntiSpamConfig::default();
+        antispam_config.min_rate = 1.0;
+        antispam_config.max_rate = 1.0;
+
+        let mut state = RuntimeState::new(
+            local_id,
+            local_secret,
+            RuntimeConfig {
+                antispam_config,
+                ..Default::default()
+            },
+        );
+        let (sender_id, sender_secret) = keypair(42);
+
+        let env = crate::envelope::EnvelopeBuilder::new(
+            sender_id,
+            state.local_id,
+            MessageType::Chat,
+            b"spam".to_vec(),
+        )
+        .sign(&sender_secret);
+        let raw = env.to_bytes().expect("serialize");
+
+        let mut alerts = 0u32;
+        let mut leaked_after_burst = 0u32;
+        for i in 0..50u32 {
+            let effects = state.handle_incoming(raw.as_slice());
+            let alert = effects.iter().any(|e| {
+                matches!(e, RuntimeEffect::Emit(ProtocolEvent::SenderThrottled { .. }))
+            });
+            if alert {
+                alerts += 1;
+            }
+            // Largement au-delà du burst (rate=1, burst≈2) : chaque message
+            // doit être rejeté — aucun effet AUTRE que l'éventuelle alerte.
+            if i >= 5 {
+                let non_alert = effects
+                    .iter()
+                    .filter(|e| {
+                        !matches!(
+                            e,
+                            RuntimeEffect::Emit(ProtocolEvent::SenderThrottled { .. })
+                        )
+                    })
+                    .count();
+                if non_alert > 0 {
+                    leaked_after_burst += 1;
+                }
+            }
+        }
+
+        assert!(alerts >= 1, "au moins une alerte SenderThrottled");
+        assert!(
+            alerts <= 2,
+            "l'alerte est dédupliquée (1×/10 s), obtenu {alerts}"
+        );
+        assert_eq!(
+            leaked_after_burst, 0,
+            "chaque message hors-budget doit être rejeté, alerte dédupliquée ou non"
+        );
     }
 
     #[test]
