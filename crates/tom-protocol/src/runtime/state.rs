@@ -1126,16 +1126,16 @@ impl RuntimeState {
                 let sender = envelope.from;
                 let now = now_ms();
 
-                self.role_manager.record_relay(sender, now);
-
-                // Track bandwidth: estimate size from serialized envelope
-                let bytes = envelope
-                    .to_bytes()
-                    .map(|b| b.len() as u64)
-                    .unwrap_or(0);
-                if bytes > 0 {
-                    self.role_manager.record_bytes_relayed(sender, bytes, now);
-                }
+                // PAS de crédit de contribution à l'ORIGINE ici (bug débusqué
+                // par le banc R1, 21/07) : `sender` = l'émetteur du message, il
+                // CONSOMME le relais, il ne contribue pas (PoP ADR-011 §1 — le
+                // crédit vient d'un travail CONSTATÉ, jamais du transit). Le
+                // crédit légitime du RELAIS vit chez l'émetteur au retour du
+                // RelayForwarded ACK signé (verrou anti-pumping FINDING #7,
+                // plus bas). L'ancien crédit ici gonflait le score du sender
+                // chez le relais : budget antispam élargi (compute_rate) et
+                // gate anti-Sybil A5 franchissable en émettant — l'usage
+                // devenait de la confiance.
 
                 // L1-003 witness observation: when this relay forwards a SIGNED
                 // ACK, the ACK's `from` cryptographically proved it was alive at
@@ -4518,6 +4518,47 @@ mod tests {
         assert_eq!(msg.payload, plaintext);
         assert!(msg.was_encrypted);
         assert!(msg.signature_valid);
+    }
+
+    #[test]
+    fn forward_never_credits_the_origin_with_relay_score() {
+        // Bug débusqué par le banc R1 (21/07) : le relais créditait l'ORIGINE
+        // du message (record_relay + bytes_relayed sur envelope.from) — l'usage
+        // devenait de la contribution : budget antispam élargi et gate
+        // anti-Sybil A5 franchissable en émettant. Contrat PoP (ADR-011 §1) :
+        // le crédit vient d'un travail CONSTATÉ — ici, personne n'a constaté
+        // de travail de `sender`, elle a juste émis.
+        let mut state = default_state(1);
+        let (sender_id, sender_secret) = keypair(2);
+        let recipient_id = node_id(3);
+
+        let score_before = state.role_manager.score(&sender_id, now_ms());
+
+        let env = crate::envelope::EnvelopeBuilder::new(
+            sender_id,
+            recipient_id,
+            MessageType::Chat,
+            b"relayed".to_vec(),
+        )
+        .via(vec![state.local_id])
+        .sign(&sender_secret);
+        let sig_valid = env.verify_signature().is_ok();
+        let effects = state.handle_incoming_chat(env, sig_valid);
+
+        // Le forward a bien lieu…
+        assert!(
+            effects.iter().any(|e| matches!(
+                e,
+                RuntimeEffect::SendEnvelopeTo { target, .. } if *target == recipient_id
+            )),
+            "le forward doit avoir lieu"
+        );
+        // …mais le score de l'origine ne bouge PAS chez le relais.
+        let score_after = state.role_manager.score(&sender_id, now_ms());
+        assert_eq!(
+            score_before, score_after,
+            "forwarder un message ne crédite JAMAIS son origine"
+        );
     }
 
     #[test]
