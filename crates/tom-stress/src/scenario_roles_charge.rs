@@ -61,8 +61,53 @@ struct NodeObs {
 
 struct BenchNode {
     id: NodeId,
+    addr: tom_transport::EndpointAddr,
     handle: RuntimeHandle,
     obs: Arc<Mutex<NodeObs>>,
+}
+
+impl BenchNode {
+    /// Câble ce nœud vers un autre (adresse directe, sans découverte).
+    async fn connect_to(&self, other: &BenchNode) {
+        self.handle.add_peer_addr(other.addr.clone()).await;
+    }
+}
+
+/// Attache runtime + collecteur d'observations à un `TomNode` déjà bindé.
+/// Extrait pour que R2 puisse RE-créer un nœud (même identité) après un arrêt.
+fn attach_node(node: TomNode, cfg: RuntimeConfig) -> BenchNode {
+    let id = node.id();
+    let addr = node.addr();
+    let channels = ProtocolRuntime::spawn(node, cfg);
+    let obs = Arc::new(Mutex::new(NodeObs::default()));
+
+    let mut messages = channels.messages;
+    let mut events = channels.events;
+    let obs_task = obs.clone();
+    tokio::spawn(async move {
+        loop {
+            tokio::select! {
+                msg = messages.recv() => {
+                    let Some(msg) = msg else { break };
+                    obs_task.lock().unwrap().recv_from.entry(msg.from).and_modify(|c| *c += 1).or_insert(1);
+                }
+                ev = events.recv() => {
+                    let Some(ev) = ev else { break };
+                    let mut o = obs_task.lock().unwrap();
+                    match ev {
+                        ProtocolEvent::SubnetFormed { subnet_id, members } => o.formed.push((subnet_id, members)),
+                        ProtocolEvent::SubnetDissolved { subnet_id, reason } => o.dissolved.push((subnet_id, reason)),
+                        ProtocolEvent::SenderThrottled { node_id, .. } => { *o.throttled.entry(node_id).or_default() += 1; }
+                        ProtocolEvent::Forwarded { .. } => o.forwarded += 1,
+                        ProtocolEvent::RolePromoted { node_id, score } => o.promoted.push((node_id, score)),
+                        _ => {}
+                    }
+                }
+            }
+        }
+    });
+
+    BenchNode { id, addr, handle: channels.handle, obs }
 }
 
 /// Spawn N nœuds hermétiques câblés all-pairs + une tâche collectrice par
@@ -89,7 +134,6 @@ async fn spawn_mesh_wired(
 
     let mut out = Vec::with_capacity(n);
     for (i, node) in nodes.into_iter().enumerate() {
-        let id = node.id();
         let mut cfg = RuntimeConfig {
             username: format!("{}rolch-{i}", tom_protocol::TEST_NODE_PREFIX),
             encryption: true,
@@ -98,47 +142,7 @@ async fn spawn_mesh_wired(
             ..Default::default()
         };
         tune(&mut cfg);
-        let channels = ProtocolRuntime::spawn(node, cfg);
-        let obs = Arc::new(Mutex::new(NodeObs::default()));
-
-        let mut messages = channels.messages;
-        let mut events = channels.events;
-        let obs_task = obs.clone();
-        tokio::spawn(async move {
-            loop {
-                tokio::select! {
-                    msg = messages.recv() => {
-                        let Some(msg) = msg else { break };
-                        let mut o = obs_task.lock().unwrap();
-                        *o.recv_from.entry(msg.from).or_default() += 1;
-                    }
-                    ev = events.recv() => {
-                        let Some(ev) = ev else { break };
-                        let mut o = obs_task.lock().unwrap();
-                        match ev {
-                            ProtocolEvent::SubnetFormed { subnet_id, members } => {
-                                o.formed.push((subnet_id, members));
-                            }
-                            ProtocolEvent::SubnetDissolved { subnet_id, reason } => {
-                                o.dissolved.push((subnet_id, reason));
-                            }
-                            ProtocolEvent::SenderThrottled { node_id, .. } => {
-                                *o.throttled.entry(node_id).or_default() += 1;
-                            }
-                            ProtocolEvent::Forwarded { .. } => {
-                                o.forwarded += 1;
-                            }
-                            ProtocolEvent::RolePromoted { node_id, score } => {
-                                o.promoted.push((node_id, score));
-                            }
-                            _ => {}
-                        }
-                    }
-                }
-            }
-        });
-
-        out.push(BenchNode { id, handle: channels.handle, obs });
+        out.push(attach_node(node, cfg));
     }
 
     // Câblage transport (adresses directes, aucune découverte).
@@ -537,17 +541,163 @@ async fn r7_pop_ghosts() -> anyhow::Result<bool> {
     Ok(ok)
 }
 
+// ── R2-L : backup virus — l'absent est servi à son retour ──────────────────
+
+async fn r2_backup_absent_return() -> anyhow::Result<bool> {
+    eprintln!("\n── R2-L : backup (ADR-009) — A garde pour B absent, livre à son retour ──");
+    eprintln!("   B a une identité STABLE (identity_path) → le MÊME node_id revient après arrêt.");
+
+    // Identité persistante de B dans un fichier temporaire du scratchpad.
+    let id_path = std::env::temp_dir().join(format!(
+        "tom-bench-r2-identity-{}.key",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_file(&id_path);
+
+    let a = attach_node(
+        TomNode::bind(TomNodeConfig::new().n0_discovery(false).local_discovery(false)).await?,
+        RuntimeConfig {
+            username: format!("{}r2-A", tom_protocol::TEST_NODE_PREFIX),
+            enable_dht: false,
+            ..Default::default()
+        },
+    );
+    let b_node =
+        TomNode::bind(
+            TomNodeConfig::new()
+                .n0_discovery(false)
+                .local_discovery(false)
+                .identity_path(id_path.clone()),
+        )
+        .await?;
+    let b_id = b_node.id();
+    let b = attach_node(
+        b_node,
+        RuntimeConfig {
+            username: format!("{}r2-B", tom_protocol::TEST_NODE_PREFIX),
+            enable_dht: false,
+            ..Default::default()
+        },
+    );
+
+    // Câblage A↔B + échauffement (B devient connu/online chez A).
+    a.connect_to(&b).await;
+    b.connect_to(&a).await;
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    let _ = a.handle.send_message(b_id, b"r2-warmup".to_vec()).await;
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    let warmup_ok = count_from(&b, a.id) >= 1;
+
+    // B s'éteint (teardown borné) → offline.
+    let _ = tokio::time::timeout(Duration::from_secs(5), b.handle.shutdown()).await;
+    drop(b);
+    tokio::time::sleep(Duration::from_secs(1)).await;
+
+    // A envoie 3 messages à B ABSENT → l'envoi transport échoue → backup local.
+    const N: u32 = 3;
+    for i in 0..N {
+        let _ = a.handle.send_message(b_id, format!("r2-offline-{i}").into_bytes()).await;
+        tokio::time::sleep(Duration::from_millis(300)).await;
+    }
+    tokio::time::sleep(Duration::from_secs(2)).await; // laisse l'échec + backup se produire
+    // Preuve DIRECTE que le backup ADR-009 a retenu (pas le cache de réémission
+    // pending_envelopes R9.2) : le store de A contient les messages pour B.
+    let backup_pending_during_absence = a.handle.get_backup_pending_count().await;
+
+    // B REVIENT : re-bind avec le MÊME identity_path → MÊME node_id.
+    let b2_node =
+        TomNode::bind(
+            TomNodeConfig::new()
+                .n0_discovery(false)
+                .local_discovery(false)
+                .identity_path(id_path.clone()),
+        )
+        .await?;
+    let b2_id = b2_node.id();
+    let b2 = attach_node(
+        b2_node,
+        RuntimeConfig {
+            username: format!("{}r2-B", tom_protocol::TEST_NODE_PREFIX),
+            enable_dht: false,
+            ..Default::default()
+        },
+    );
+    let same_identity = b2_id == b_id;
+
+    // Re-câbler A↔B' (nouvelle adresse transport, même identité) et faire signe
+    // à A pour qu'il voie B' Online → prepare_backup_delivery → drain.
+    a.connect_to(&b2).await;
+    b2.connect_to(&a).await;
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    let _ = b2.handle.send_message(a.id, b"r2-imback".to_vec()).await;
+
+    // Laisser la re-livraison (grâce 3 s + drain 5 msg/s/pair) opérer.
+    let redelivered = wait_for_count(&b2, a.id, N as u64, Duration::from_secs(20)).await;
+    tokio::time::sleep(Duration::from_secs(3)).await; // laisse l'ACK purger le store
+    let received = count_from(&b2, a.id);
+    // Preuve DIRECTE de la purge : le store de A se vide après ACK (auto-délétion).
+    let backup_pending_after = a.handle.get_backup_pending_count().await;
+
+    let mut ok = true;
+    ok &= verdict("R2.échauffement", warmup_ok, "B a bien reçu le message initial (online)");
+    ok &= verdict(
+        "R2.même-identité",
+        same_identity,
+        &format!("B revient avec le MÊME node_id ({}…)", &b2_id.to_string()[..8]),
+    );
+    ok &= verdict(
+        "R2.backup-à-absence",
+        backup_pending_during_absence >= N as usize,
+        &format!("le store de A retient {backup_pending_during_absence} message(s) pour B absent (≥ {N} — backup ADR-009, pas le cache R9.2)"),
+    );
+    ok &= verdict(
+        "R2.livraison-différée",
+        redelivered && received >= N as u64,
+        &format!("B' a reçu les {received}/{N} messages différés à son retour (virus ADR-009)"),
+    );
+    ok &= verdict(
+        "R2.exactement-une-fois",
+        received == N as u64,
+        &format!("exactement {N} livrés, pas de doublon ({received})"),
+    );
+    ok &= verdict(
+        "R2.purge-après-ack",
+        backup_pending_after == 0,
+        &format!("le store de A se vide après livraison+ACK ({backup_pending_after} restant — auto-délétion)"),
+    );
+
+    let _ = tokio::time::timeout(Duration::from_secs(5), a.handle.shutdown()).await;
+    let _ = tokio::time::timeout(Duration::from_secs(5), b2.handle.shutdown()).await;
+    let _ = std::fs::remove_file(&id_path);
+    Ok(ok)
+}
+
+/// Attend que `node` ait reçu au moins `target` messages de `from` (poll 500 ms).
+async fn wait_for_count(node: &BenchNode, from: NodeId, target: u64, budget: Duration) -> bool {
+    let t0 = Instant::now();
+    while t0.elapsed() < budget {
+        if count_from(node, from) >= target {
+            return true;
+        }
+        tokio::time::sleep(Duration::from_millis(500)).await;
+    }
+    false
+}
+
 // ── Entrée ──────────────────────────────────────────────────────────────────
 
 pub async fn run(scenario: String) -> anyhow::Result<()> {
     eprintln!("=== Banc rôles sous charge — Phase A étage L (hermétique, in-process) ===");
     let wanted = scenario.as_str();
-    if !matches!(wanted, "r1" | "r5" | "r7" | "r8" | "all") {
-        anyhow::bail!("scénario inconnu '{wanted}' — valeurs : r1, r5, r7, r8, all");
+    if !matches!(wanted, "r1" | "r2" | "r5" | "r7" | "r8" | "all") {
+        anyhow::bail!("scénario inconnu '{wanted}' — valeurs : r1, r2, r5, r7, r8, all");
     }
     let mut all_ok = true;
     if matches!(wanted, "r1" | "all") {
         all_ok &= r1_r3_multihop_promotion().await?;
+    }
+    if matches!(wanted, "r2" | "all") {
+        all_ok &= r2_backup_absent_return().await?;
     }
     if matches!(wanted, "r5" | "all") {
         all_ok &= r5_subnets().await?;

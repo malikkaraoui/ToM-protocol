@@ -486,6 +486,18 @@ Trous historiques de l'audit multi-agent. **Réaudit 2026-07-12 : les 3 items "C
 
 **MAJ 2026-07-21 — banc rôles Phase A :**
 
+14. ✅ **Backup non purgé à la livraison quand émetteur = gardien — RÉSOLU (banc R2, 21/07).**
+    Le bras `RecipientReceived` (`runtime/state.rs`) faisait `mark_delivered` +
+    `pending_envelopes.remove` mais JAMAIS `backup.confirm_delivery` → quand un nœud backupe
+    un message pour un destinataire absent (state.rs:2634, cas très fréquent) puis le re-livre
+    lui-même à son retour, l'ACK signé ne purgeait pas son backup store : le message y restait
+    jusqu'au TTL 24h (contraire à ADR-009 « self-delete WHEN DELIVERED »). Pas une fuite non
+    bornée (budget octets 64 Mio + TTL), mais rétention inutilement longue. Fix : purge LOCALE
+    (`store_mut().mark_delivered_batch`, sans broadcast — le gardien livre en direct, aucun
+    replica tiers à notifier ; no-op sur les livraisons directes normales). Prouvé : R2
+    purge-après-ack 0 restant. **3ᵉ finding du banc rôles** (après antispam percé et
+    crédit-origine) — voir `banc-roles-sous-charge.md`.
+
 13. 🟠 **Ordre antispam → signature = famine par spoof (1:1, préexistant).** Le budget
     anti-spam est consommé sur `envelope.from` AVANT la vérification de signature
     (`runtime/state.rs` : check_rate ~1867, verify ~1892) : un pair connecté peut forger
