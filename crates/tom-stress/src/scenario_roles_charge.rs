@@ -34,6 +34,14 @@ use std::time::{Duration, Instant};
 use tom_protocol::{NodeId, ProtocolEvent, ProtocolRuntime, RuntimeConfig, RuntimeHandle};
 use tom_transport::{TomNode, TomNodeConfig};
 
+/// Câblage transport du mesh de banc.
+enum Wiring {
+    /// Tous connectés à tous (r5, r8).
+    AllPairs,
+    /// Arêtes explicites (r1 : A⇄R, R⇄B — surtout PAS A⇄B).
+    Links(Vec<(usize, usize)>),
+}
+
 /// Observations d'un nœud du banc (alimentées par sa tâche collectrice).
 #[derive(Default)]
 struct NodeObs {
@@ -45,6 +53,10 @@ struct NodeObs {
     dissolved: Vec<(String, String)>,
     /// `SenderThrottled` : expéditeur → occurrences.
     throttled: HashMap<NodeId, u64>,
+    /// `Forwarded` (le nœud a relayé) : occurrences.
+    forwarded: u64,
+    /// `RolePromoted` : node_id promu → score.
+    promoted: Vec<(NodeId, f64)>,
 }
 
 struct BenchNode {
@@ -57,6 +69,14 @@ struct BenchNode {
 /// nœud (messages + événements → `NodeObs`). Pattern du banc courbe.
 async fn spawn_mesh(
     n: usize,
+    tune: impl Fn(&mut RuntimeConfig),
+) -> anyhow::Result<Vec<BenchNode>> {
+    spawn_mesh_wired(n, Wiring::AllPairs, tune).await
+}
+
+async fn spawn_mesh_wired(
+    n: usize,
+    wiring: Wiring,
     tune: impl Fn(&mut RuntimeConfig),
 ) -> anyhow::Result<Vec<BenchNode>> {
     let mut nodes = Vec::with_capacity(n);
@@ -105,6 +125,12 @@ async fn spawn_mesh(
                             ProtocolEvent::SenderThrottled { node_id, .. } => {
                                 *o.throttled.entry(node_id).or_default() += 1;
                             }
+                            ProtocolEvent::Forwarded { .. } => {
+                                o.forwarded += 1;
+                            }
+                            ProtocolEvent::RolePromoted { node_id, score } => {
+                                o.promoted.push((node_id, score));
+                            }
                             _ => {}
                         }
                     }
@@ -115,11 +141,21 @@ async fn spawn_mesh(
         out.push(BenchNode { id, handle: channels.handle, obs });
     }
 
-    // Câblage all-pairs (adresses directes, aucune découverte).
-    for (i, bn) in out.iter().enumerate() {
-        for (j, addr) in addrs.iter().enumerate() {
-            if i != j {
-                bn.handle.add_peer_addr(addr.clone()).await;
+    // Câblage transport (adresses directes, aucune découverte).
+    match &wiring {
+        Wiring::AllPairs => {
+            for (i, bn) in out.iter().enumerate() {
+                for (j, addr) in addrs.iter().enumerate() {
+                    if i != j {
+                        bn.handle.add_peer_addr(addr.clone()).await;
+                    }
+                }
+            }
+        }
+        Wiring::Links(links) => {
+            for &(a, b) in links {
+                out[a].handle.add_peer_addr(addrs[b].clone()).await;
+                out[b].handle.add_peer_addr(addrs[a].clone()).await;
             }
         }
     }
@@ -314,15 +350,128 @@ async fn r8_arroseur() -> anyhow::Result<bool> {
     Ok(ok)
 }
 
+// ── R1+R3 : relais multi-hop → promotion par contribution constatée ────────
+
+async fn r1_r3_multihop_promotion() -> anyhow::Result<bool> {
+    eprintln!("\n── R1+R3 : multi-hop A→R→B puis promotion de R par crédits CONSTATÉS ──");
+    eprintln!("   Câblage transport : A⇄R, R⇄B — AUCUNE connexion A⇄B possible.");
+    eprintln!("   Amorce : R est déclaré Relay/Online chez A et B (upsert API — le rôle");
+    eprintln!("   de départ ; la PREUVE R3 est le score gagné par relais réels ensuite).");
+
+    use tom_protocol::{PeerInfo, PeerRole, PeerStatus};
+    fn wall_ms() -> u64 {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0)
+    }
+
+    let nodes = spawn_mesh_wired(3, Wiring::Links(vec![(0, 1), (1, 2)]), |_| {}).await?;
+    let (a_id, r_id, b_id) = (nodes[0].id, nodes[1].id, nodes[2].id);
+
+    // Amorce du rôle : R relais aux yeux d'A (sélection sortante) ET de B
+    // (le chemin retour des ACKs de B passe aussi par R — B n'a pas de
+    // connexion vers A).
+    for n in [&nodes[0], &nodes[2]] {
+        n.handle
+            .upsert_peer(PeerInfo {
+                node_id: r_id,
+                role: PeerRole::Relay,
+                status: PeerStatus::Online,
+                last_seen: wall_ms(),
+            })
+            .await;
+    }
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
+    // 25 messages A→B à 2 msg/s : chaque forward constaté crédite R chez A
+    // (RelayForwarded ACK signé, verrou anti-pumping #7).
+    for i in 0..25u32 {
+        let _ = nodes[0]
+            .handle
+            .send_message(b_id, format!("r1-{i}").into_bytes())
+            .await;
+        tokio::time::sleep(Duration::from_millis(400)).await;
+    }
+    tokio::time::sleep(Duration::from_secs(3)).await; // drain forwards + ACKs
+
+    let b_received = count_from(&nodes[2], a_id);
+    let r_delivered_leak = count_from(&nodes[1], a_id);
+    let r_forwarded = nodes[1].obs.lock().unwrap().forwarded;
+    let score_r_at_a = nodes[0]
+        .handle
+        .get_role_metrics(r_id)
+        .await
+        .map(|m| m.score)
+        .unwrap_or(0.0);
+    let score_a_at_r = nodes[1]
+        .handle
+        .get_role_metrics(a_id)
+        .await
+        .map(|m| m.score)
+        .unwrap_or(0.0);
+    let promoted_at_a = nodes[0]
+        .obs
+        .lock()
+        .unwrap()
+        .promoted
+        .iter()
+        .any(|(id, _)| *id == r_id);
+
+    let mut ok = true;
+    ok &= verdict(
+        "R1.livraison-multi-hop",
+        b_received >= 20,
+        &format!("B a reçu {b_received}/25 SANS connexion directe A⇄B (tout via R)"),
+    );
+    ok &= verdict(
+        "R1.pass-through",
+        r_delivered_leak == 0,
+        &format!("R ne DÉLIVRE pas ce qu'il relaie ({r_delivered_leak} fuite(s) applicative(s))"),
+    );
+    ok &= verdict(
+        "R1.forward-constaté",
+        r_forwarded >= 20,
+        &format!("R a émis {r_forwarded} événements Forwarded"),
+    );
+    ok &= verdict(
+        "R1.usage-non-crédité",
+        score_a_at_r < 2.0,
+        &format!(
+            "le score de l'ORIGINE A chez R reste sous le gate anti-Sybil ({score_a_at_r:.2} < 2.0 — anti-régression fix 2937330)"
+        ),
+    );
+    ok &= verdict(
+        "R3.score-par-constat",
+        score_r_at_a >= 10.0,
+        &format!(
+            "score de R chez A = {score_r_at_a:.2} ≥ 10.0 (PROMOTION_THRESHOLD) par RelayForwarded signés"
+        ),
+    );
+    // La promotion EFFECTIVE tombe au tick d'évaluation (300 s) — si le run
+    // l'attrape tant mieux, sinon le SCORE est la preuve (le déclenchement
+    // seuil→upsert est couvert par les tests unitaires du RoleManager).
+    eprintln!(
+        "  [info] RolePromoted observé pendant le run : {} (tick d'éval = 300 s, non exigé)",
+        if promoted_at_a { "OUI" } else { "non" }
+    );
+
+    teardown(nodes).await;
+    Ok(ok)
+}
+
 // ── Entrée ──────────────────────────────────────────────────────────────────
 
 pub async fn run(scenario: String) -> anyhow::Result<()> {
     eprintln!("=== Banc rôles sous charge — Phase A étage L (hermétique, in-process) ===");
     let wanted = scenario.as_str();
-    if !matches!(wanted, "r5" | "r8" | "all") {
-        anyhow::bail!("scénario inconnu '{wanted}' — valeurs : r5, r8, all");
+    if !matches!(wanted, "r1" | "r5" | "r8" | "all") {
+        anyhow::bail!("scénario inconnu '{wanted}' — valeurs : r1, r5, r8, all");
     }
     let mut all_ok = true;
+    if matches!(wanted, "r1" | "all") {
+        all_ok &= r1_r3_multihop_promotion().await?;
+    }
     if matches!(wanted, "r5" | "all") {
         all_ok &= r5_subnets().await?;
     }
