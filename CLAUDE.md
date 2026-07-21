@@ -484,7 +484,19 @@ Trous historiques de l'audit multi-agent. **Réaudit 2026-07-12 : les 3 items "C
     Piste si ça revient : réguler le débit d'émission, ou borner `send_window` QUIC (jamais tuné
     dans ToM). **À traiter APRÈS R14 et R15.**
 
-**Ce qui reste RÉELLEMENT ouvert après ce réaudit** : le ping relais dédié (#9, explicitement déprioritisé) et le nombre de slots DHT (#2, mineur). Le résiduel iOS (#4) n'est plus « ouvert » : APNs/background est un **non-objectif assumé** (décision produit 2026-07-15), pas un chantier. Aucun trou "Critique" ouvert à cette date.
+**MAJ 2026-07-21 — banc rôles Phase A :**
+
+13. 🟠 **Ordre antispam → signature = famine par spoof (1:1, préexistant).** Le budget
+    anti-spam est consommé sur `envelope.from` AVANT la vérification de signature
+    (`runtime/state.rs` : check_rate ~1867, verify ~1892) : un pair connecté peut forger
+    des enveloppes `from=victime` (signature invalide, rejetées ensuite) qui vident le
+    budget de la victime → ses messages légitimes se font throttler. Pas d'amplification
+    (1 message forgé = 1 unité de budget). Découvert lors du fix du bug « rejet avalé par
+    le dédup d'alerte » (banc R8, e1dc778 — AVANT ce fix le throttle ne rejetait quasi
+    rien, donc le vecteur était théorique). Piste : vérifier la signature d'abord (coût
+    CPU sur le spam) OU imputer le budget au hop de CONNEXION authentifié plutôt qu'au
+    `from` déclaré (aligné « sprinkler » : le porteur du spam paie). Ticket futur,
+    non-critique (exige d'être déjà connecté/connu).
 
 ## Important Notes for LLMs
 
