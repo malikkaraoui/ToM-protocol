@@ -229,6 +229,12 @@ pub enum RuntimeCommand {
     GetPeerStatuses {
         reply: oneshot::Sender<Vec<(NodeId, crate::relay::PeerStatus)>>,
     },
+    /// Query the number of messages currently held in the backup store
+    /// (ADR-009 virus): non-zero while a recipient is offline, back to zero
+    /// after delivery/ACK or TTL purge.
+    GetBackupPendingCount {
+        reply: oneshot::Sender<usize>,
+    },
     // ── DHT discovery ──────────────────────────────
     /// DHT lookup completed — inject discovered address into transport.
     DhtLookupResult { addr: tom_dht::DhtNodeAddr },
@@ -834,6 +840,16 @@ impl RuntimeHandle {
             .send(RuntimeCommand::GetPeerStatuses { reply: tx })
             .await;
         rx.await.unwrap_or_default()
+    }
+
+    /// Number of messages currently held in the backup store (ADR-009).
+    pub async fn get_backup_pending_count(&self) -> usize {
+        let (tx, rx) = oneshot::channel();
+        let _ = self
+            .cmd_tx
+            .send(RuntimeCommand::GetBackupPendingCount { reply: tx })
+            .await;
+        rx.await.unwrap_or(0)
     }
 
     // ── Embedded relay ──────────────────────────────

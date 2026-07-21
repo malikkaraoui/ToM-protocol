@@ -1230,6 +1230,19 @@ impl RuntimeState {
                         let change = self.tracker.mark_delivered(&original_message_id, from);
                         if change.is_some() {
                             self.pending_envelopes.remove(&original_message_id);
+                            // ADR-009 « self-delete WHEN DELIVERED » : quand nous
+                            // sommes le gardien de ce message (nous l'avons backupé
+                            // pour un destinataire alors absent, puis re-livré nous-
+                            // même), l'ACK signé prouve la livraison → purge locale
+                            // immédiate. Sans ceci le message restait jusqu'au TTL
+                            // 24h (gap débusqué par le banc R2, 21/07). Purge LOCALE
+                            // seule (pas de broadcast ConfirmDelivery) : nous livrons
+                            // en direct, aucun autre replica à notifier ; et le
+                            // no-op sur un id absent du store ne coûte rien pour les
+                            // livraisons directes normales.
+                            self.backup
+                                .store_mut()
+                                .mark_delivered_batch(std::slice::from_ref(&original_message_id));
                         }
                         change
                     }
@@ -2976,6 +2989,11 @@ impl RuntimeState {
 
             RuntimeCommand::GetPeerStatuses { reply } => {
                 let _ = reply.send(self.topology.peer_statuses());
+                Vec::new()
+            }
+
+            RuntimeCommand::GetBackupPendingCount { reply } => {
+                let _ = reply.send(self.backup.store().message_count());
                 Vec::new()
             }
 
