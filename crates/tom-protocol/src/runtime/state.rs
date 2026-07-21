@@ -271,7 +271,13 @@ impl RuntimeState {
             group_manager,
             group_hub,
             backup: BackupCoordinator::new(local_id),
-            subnets: EphemeralSubnetManager::new(local_id),
+            subnets: {
+                let mut subnets = EphemeralSubnetManager::new(local_id);
+                if let Some(ms) = config.subnet_inactivity_timeout_ms {
+                    subnets.set_inactivity_timeout_ms(ms);
+                }
+                subnets
+            },
             role_manager,
             local_roles: vec![PeerRole::Peer],
             role_announce_throttle: std::collections::HashMap::new(),

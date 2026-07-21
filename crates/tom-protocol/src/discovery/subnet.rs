@@ -89,6 +89,9 @@ pub struct EphemeralSubnetManager {
     node_subnets: HashMap<NodeId, String>,
     /// Counter for deterministic subnet IDs.
     next_subnet_seq: u64,
+    /// Dissolution timeout (P3) — production default `INACTIVITY_TIMEOUT_MS`;
+    /// benches shorten it (R5 in CI can't wait 5 real minutes).
+    inactivity_timeout_ms: u64,
 }
 
 impl EphemeralSubnetManager {
@@ -100,7 +103,14 @@ impl EphemeralSubnetManager {
             subnets: HashMap::new(),
             node_subnets: HashMap::new(),
             next_subnet_seq: 0,
+            inactivity_timeout_ms: INACTIVITY_TIMEOUT_MS,
         }
+    }
+
+    /// P3 (test-only) — shorten the dissolution timeout for benches (R5 in CI).
+    /// Production keeps the default; never exposed to apps.
+    pub fn set_inactivity_timeout_ms(&mut self, ms: u64) {
+        self.inactivity_timeout_ms = ms;
     }
 
     /// Record a communication between two nodes.
@@ -247,7 +257,7 @@ impl EphemeralSubnetManager {
         for (id, subnet) in &self.subnets {
             if subnet.members.len() < MIN_SUBNET_SIZE {
                 to_dissolve.push((id.clone(), DissolveReason::InsufficientMembers));
-            } else if now.saturating_sub(subnet.last_activity) > INACTIVITY_TIMEOUT_MS {
+            } else if now.saturating_sub(subnet.last_activity) > self.inactivity_timeout_ms {
                 to_dissolve.push((id.clone(), DissolveReason::Inactive));
             }
         }
@@ -413,6 +423,44 @@ mod tests {
         for _ in 0..count {
             mgr.record_communication(a, b, now);
         }
+    }
+
+    #[test]
+    fn p3_custom_inactivity_timeout_respected() {
+        let me = node_id(0);
+        let (a, b, c) = (node_id(1), node_id(2), node_id(3));
+        let now = 10_000u64;
+
+        // Manager avec timeout raccourci (banc R5) : dissout à +1 s.
+        let mut short = EphemeralSubnetManager::new(me);
+        short.set_inactivity_timeout_ms(1_000);
+        communicate(&mut short, a, b, 3, now);
+        communicate(&mut short, b, c, 3, now);
+        communicate(&mut short, a, c, 3, now);
+        let formed = short.evaluate(now);
+        assert!(
+            formed.iter().any(|e| matches!(e, SubnetEvent::SubnetFormed { .. })),
+            "le trio dense doit former un subnet"
+        );
+        let dissolved = short.evaluate(now + 1_001);
+        assert!(
+            dissolved
+                .iter()
+                .any(|e| matches!(e, SubnetEvent::SubnetDissolved { reason: DissolveReason::Inactive, .. })),
+            "timeout custom 1 s : le subnet doit être dissous à +1,001 s"
+        );
+
+        // Défaut PROD inchangé : un manager neuf ne dissout PAS à +1,001 s.
+        let mut prod = EphemeralSubnetManager::new(me);
+        communicate(&mut prod, a, b, 3, now);
+        communicate(&mut prod, b, c, 3, now);
+        communicate(&mut prod, a, c, 3, now);
+        prod.evaluate(now);
+        let events = prod.evaluate(now + 1_001);
+        assert!(
+            !events.iter().any(|e| matches!(e, SubnetEvent::SubnetDissolved { .. })),
+            "défaut 5 min : rien ne se dissout à +1 s"
+        );
     }
 
     #[test]
