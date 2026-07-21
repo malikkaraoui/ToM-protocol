@@ -111,6 +111,17 @@ pub struct RuntimeConfig {
     /// ignored. NOT exposed via FFI on purpose — it must never reach a
     /// production app. See `L1-001-matrice-flotte.md`.
     pub presence_clock_offset_ms: i64,
+    /// P1 (test-only, default `None` = production) — label of an ISOLATED
+    /// rendezvous namespace for benches: `Some(label)` becomes
+    /// `RendezvousNamespace::test(label)`, always prefixed `tom-test-` so it
+    /// can never collide with production. NOT exposed via FFI on purpose — a
+    /// production app must never leave the shared rendezvous. Design +
+    /// red-team: `docs/plans/p1-namespace-rendezvous-test.md`.
+    pub rendezvous_namespace: Option<String>,
+    /// P3 (test-only, default `None` = 5 min production timeout) — shortened
+    /// subnet dissolution timeout so bench R5 can observe Formed→Dissolved in
+    /// CI. Never exposed to apps.
+    pub subnet_inactivity_timeout_ms: Option<u64>,
 }
 
 impl Default for RuntimeConfig {
@@ -140,6 +151,8 @@ impl Default for RuntimeConfig {
             presence_contribution_min: crate::presence::RELAY_CONTRIBUTION_MIN,
             presence_probe_interval: None,
             presence_clock_offset_ms: 0,
+            rendezvous_namespace: None,
+            subnet_inactivity_timeout_ms: None,
         }
     }
 }

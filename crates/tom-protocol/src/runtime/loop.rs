@@ -99,6 +99,20 @@ pub(super) async fn runtime_loop(
     let mut reconnect_check = maintenance_interval(std::time::Duration::from_secs(15));
     // Shared DHT rendezvous: periodic re-announce + zero-config peer discovery.
     let mut rendezvous_tick = maintenance_interval(std::time::Duration::from_secs(60));
+    // P1 : namespace du rendez-vous, construit UNE fois. Non-prod ⇒ WARN au
+    // boot : un nœud sur un namespace de test est INVISIBLE du réseau public
+    // (voulu pour les bancs, dramatique pour une app).
+    let rendezvous_ns = match &state.config.rendezvous_namespace {
+        None => tom_dht::RendezvousNamespace::production(),
+        Some(label) => {
+            let ns = tom_dht::RendezvousNamespace::test(label);
+            tracing::warn!(
+                namespace = %ns.as_str(),
+                "rendez-vous NON-PRODUCTION — nœud isolé du réseau public (banc de test)"
+            );
+            ns
+        }
+    };
     // L1-001 presence: purge 30s-TTL artifacts every 5s (ephemeral, LOCKED #2).
     let mut presence_purge = maintenance_interval(std::time::Duration::from_secs(5));
     // L1-001 presence auto-probe (fleet observability). When disabled the
@@ -259,6 +273,7 @@ pub(super) async fn runtime_loop(
         &node,
         &state.local_id,
         dht_handle.as_ref(),
+        &rendezvous_ns,
         &cmd_tx,
         &mut rendezvous_ts_floor,
         &secret_seed,
@@ -774,6 +789,7 @@ pub(super) async fn runtime_loop(
                     &node,
                     &state.local_id,
                     dht_handle.as_ref(),
+                    &rendezvous_ns,
                     &cmd_tx,
                     &mut rendezvous_ts_floor,
                     &secret_seed,
@@ -892,6 +908,7 @@ pub(super) async fn runtime_loop(
                             &node,
                             &state.local_id,
                             dht_handle.as_ref(),
+                            &rendezvous_ns,
                             &cmd_tx,
                             &mut rendezvous_ts_floor,
                             &secret_seed,
@@ -1288,6 +1305,7 @@ fn spawn_rendezvous_round(
     node: &TomNode,
     local_id: &NodeId,
     dht_handle: Option<&tom_dht::SharedDht>,
+    rendezvous_ns: &tom_dht::RendezvousNamespace,
     cmd_tx: &mpsc::Sender<RuntimeCommand>,
     ts_floor: &mut u64,
     secret_seed: &[u8; 32],
@@ -1302,6 +1320,7 @@ fn spawn_rendezvous_round(
     };
     let self_addr = build_self_dht_addr(node, local_id, ts_floor, secret_seed, username, app_build);
     let own_id = self_addr.node_id.clone();
+    let ns = rendezvous_ns.clone();
     let tx = cmd_tx.clone();
     tokio::spawn(async move {
         // La ronde de démarrage part ~100 ms après l'init du client DHT :
@@ -1313,10 +1332,10 @@ fn spawn_rendezvous_round(
             tracing::info!("rendezvous round sauté : client DHT pas prêt (init DNS lente)");
             return;
         };
-        if let Err(e) = tom_dht::rendezvous_publish(&dht, &self_addr).await {
+        if let Err(e) = tom_dht::rendezvous_publish(&dht, &ns, &self_addr).await {
             tracing::debug!("rendezvous publish failed: {e}");
         }
-        let found = tom_dht::rendezvous_discover(&dht, &own_id).await;
+        let found = tom_dht::rendezvous_discover(&dht, &ns, &own_id).await;
         // SECURITY: only inject entries with a valid proof-of-possession signature.
         // Drops squatted/poisoned slots (forged node_id or addrs) PUIS les
         // entrées périmées (fantômes : nœuds morts qui ne se réannoncent plus).

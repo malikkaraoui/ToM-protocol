@@ -46,10 +46,53 @@ pub const RENDEZVOUS_SLOTS: u8 = 8;
 /// Salt for rendezvous items — distinct from the per-node address salt.
 const RENDEZVOUS_SALT: &[u8] = b"tom-rdv-v1";
 
-/// Derive the shared signing key for rendezvous slot `i` from the public constant.
-fn rendezvous_slot_key(i: u8) -> SigningKey {
+/// Rendezvous namespace, opaque. Production by default; test benches derive an
+/// ISOLATED one — always prefixed `tom-test-`, so colliding with production is
+/// structurally impossible whatever the label (P1 design:
+/// `docs/plans/p1-namespace-rendezvous-test.md`). No env-var override BY
+/// DESIGN: an env var would let anyone controlling a process environment
+/// silently fragment a legitimate node off the public network.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RendezvousNamespace(Vec<u8>);
+
+impl RendezvousNamespace {
+    /// The production namespace every real ToM node meets on (WIRE INVARIANT).
+    pub fn production() -> Self {
+        Self(RENDEZVOUS_NAMESPACE.to_vec())
+    }
+
+    /// An isolated TEST namespace: `tom-test-` + sanitized label
+    /// (`[a-z0-9-]`, ≤ 64 chars). Never equals production, by construction.
+    pub fn test(label: &str) -> Self {
+        let clean: String = label
+            .to_ascii_lowercase()
+            .chars()
+            .filter(|c| c.is_ascii_alphanumeric() || *c == '-')
+            .take(64)
+            .collect();
+        Self([b"tom-test-".as_slice(), clean.as_bytes()].concat())
+    }
+
+    pub fn is_production(&self) -> bool {
+        self.0 == RENDEZVOUS_NAMESPACE
+    }
+
+    /// Human-readable form for logs (ASCII by construction).
+    pub fn as_str(&self) -> String {
+        String::from_utf8_lossy(&self.0).into_owned()
+    }
+}
+
+impl Default for RendezvousNamespace {
+    fn default() -> Self {
+        Self::production()
+    }
+}
+
+/// Derive the shared signing key for rendezvous slot `i` of a namespace.
+fn rendezvous_slot_key(ns: &RendezvousNamespace, i: u8) -> SigningKey {
     let mut hasher = Sha256::new();
-    hasher.update(RENDEZVOUS_NAMESPACE);
+    hasher.update(&ns.0);
     hasher.update([i]);
     let seed: [u8; 32] = hasher.finalize().into();
     SigningKey::from_bytes(&seed)
@@ -344,17 +387,25 @@ impl DhtDiscovery {
     ///
     /// Writes `addr` to the slot derived from its `node_id`, using the
     /// publication timestamp as BEP-0044 seq (most recent writer wins).
-    pub async fn publish_rendezvous(&self, addr: &DhtNodeAddr) -> Result<()> {
-        rendezvous_publish(self.ready_dht()?, addr).await
+    pub async fn publish_rendezvous(
+        &self,
+        ns: &RendezvousNamespace,
+        addr: &DhtNodeAddr,
+    ) -> Result<()> {
+        rendezvous_publish(self.ready_dht()?, ns, addr).await
     }
 
     /// Discover live peers from the shared rendezvous (reads every slot).
     ///
     /// Returns fresh records (< 2h) excluding `own_node_id`. Never errors on a
     /// single bad/missing slot — best-effort enumeration.
-    pub async fn discover_rendezvous(&self, own_node_id: &str) -> Vec<DhtNodeAddr> {
+    pub async fn discover_rendezvous(
+        &self,
+        ns: &RendezvousNamespace,
+        own_node_id: &str,
+    ) -> Vec<DhtNodeAddr> {
         match self.ready_dht() {
-            Ok(dht) => rendezvous_discover(dht, own_node_id).await,
+            Ok(dht) => rendezvous_discover(dht, ns, own_node_id).await,
             Err(_) => Vec::new(),
         }
     }
@@ -445,9 +496,13 @@ fn rendezvous_entry_is_fresh(timestamp: u64, now: u64) -> bool {
 }
 
 /// Standalone rendezvous publish — for spawned tasks holding a cloned `AsyncDht`.
-pub async fn rendezvous_publish(dht: &AsyncDht, addr: &DhtNodeAddr) -> Result<()> {
+pub async fn rendezvous_publish(
+    dht: &AsyncDht,
+    ns: &RendezvousNamespace,
+    addr: &DhtNodeAddr,
+) -> Result<()> {
     let slot = slot_for_node(&addr.node_id);
-    let signer = rendezvous_slot_key(slot);
+    let signer = rendezvous_slot_key(ns, slot);
     let value = serde_json::to_vec(addr).context("failed to serialize rendezvous addr")?;
     // seq = timestamp → later writer always wins, no cross-writer seq coordination.
     let seq = addr.timestamp as i64;
@@ -491,12 +546,16 @@ fn rendezvous_entry_authentic(addr: &DhtNodeAddr) -> bool {
 /// `own_node_id` are excluded. The result is de-duplicated by node_id (a node
 /// may briefly appear twice if it changed slots after an identity change —
 /// keep the freshest).
-pub async fn rendezvous_discover(dht: &AsyncDht, own_node_id: &str) -> Vec<DhtNodeAddr> {
+pub async fn rendezvous_discover(
+    dht: &AsyncDht,
+    ns: &RendezvousNamespace,
+    own_node_id: &str,
+) -> Vec<DhtNodeAddr> {
     let now = now_ms();
     let mut found: Vec<DhtNodeAddr> = Vec::new();
 
     for i in 0..RENDEZVOUS_SLOTS {
-        let pk = rendezvous_slot_key(i).verifying_key().to_bytes();
+        let pk = rendezvous_slot_key(ns, i).verifying_key().to_bytes();
         let Some(item) = dht.get_mutable_most_recent(&pk, Some(RENDEZVOUS_SALT)).await else {
             continue;
         };
@@ -620,8 +679,11 @@ mod tests {
             };
             let t0 = std::time::Instant::now();
             assert!(d.publish(&[7u8; 32], &addr).await.is_err());
-            assert!(d.publish_rendezvous(&addr).await.is_err());
-            assert!(d.discover_rendezvous("n").await.is_empty());
+            assert!(d.publish_rendezvous(&RendezvousNamespace::production(), &addr).await.is_err());
+            assert!(d
+                .discover_rendezvous(&RendezvousNamespace::production(), "n")
+                .await
+                .is_empty());
             assert!(d.lookup(&[7u8; 32]).await.is_err());
             assert!(
                 t0.elapsed() < Duration::from_secs(1),
@@ -1017,12 +1079,58 @@ mod tests {
 
     #[test]
     fn rendezvous_slot_keys_distinct_and_deterministic() {
+        let ns = RendezvousNamespace::production();
         let mut keys = std::collections::HashSet::new();
         for i in 0..RENDEZVOUS_SLOTS {
-            let k1 = rendezvous_slot_key(i).verifying_key().to_bytes();
-            let k2 = rendezvous_slot_key(i).verifying_key().to_bytes();
+            let k1 = rendezvous_slot_key(&ns, i).verifying_key().to_bytes();
+            let k2 = rendezvous_slot_key(&ns, i).verifying_key().to_bytes();
             assert_eq!(k1, k2, "slot key {i} not deterministic");
             assert!(keys.insert(k1), "slot key {i} collides with another slot");
+        }
+    }
+
+    // ── P1 : namespace de test isolé (p1-namespace-rendezvous-test.md §4) ──
+
+    #[test]
+    fn p1_production_namespace_is_wire_invariant() {
+        // GOLDEN : l'octet près. Si ce test casse, le réseau réel se fragmente.
+        assert_eq!(
+            RendezvousNamespace::production().as_str(),
+            "tom-protocol-rendezvous-v1"
+        );
+        assert!(RendezvousNamespace::production().is_production());
+        assert!(RendezvousNamespace::default().is_production());
+    }
+
+    #[test]
+    fn p1_test_namespace_never_equals_production() {
+        // Même un label forgé pour imiter la prod reste préfixé.
+        let forged = RendezvousNamespace::test("tom-protocol-rendezvous-v1");
+        assert_ne!(forged, RendezvousNamespace::production());
+        assert!(!forged.is_production());
+        assert!(forged.as_str().starts_with("tom-test-"));
+        assert!(RendezvousNamespace::test("").as_str().starts_with("tom-test-"));
+    }
+
+    #[test]
+    fn p1_test_namespace_sanitizes_hostile_labels() {
+        let ns = RendezvousNamespace::test("../;π€ FOO_bar!!");
+        // minuscules, alphanum + tiret uniquement, préfixe intact
+        assert_eq!(ns.as_str(), "tom-test-foobar");
+        let long = "x".repeat(200);
+        assert!(RendezvousNamespace::test(&long).as_str().len() <= "tom-test-".len() + 64);
+    }
+
+    #[test]
+    fn p1_slot_keys_isolated_between_namespaces() {
+        let prod = RendezvousNamespace::production();
+        let test = RendezvousNamespace::test("banc-r4");
+        for i in 0..RENDEZVOUS_SLOTS {
+            assert_ne!(
+                rendezvous_slot_key(&prod, i).verifying_key().to_bytes(),
+                rendezvous_slot_key(&test, i).verifying_key().to_bytes(),
+                "slot {i} : les clés test/prod DOIVENT différer (isolation)"
+            );
         }
     }
 
@@ -1065,7 +1173,9 @@ mod tests {
         async fn test() {
             let testnet = Testnet::builder(10).build().unwrap();
             let reader = make_dht(&testnet);
-            let found = reader.discover_rendezvous("whoever").await;
+            let found = reader
+                .discover_rendezvous(&RendezvousNamespace::production(), "whoever")
+                .await;
             assert!(found.is_empty(), "empty rendezvous must yield no peers");
         }
         futures_lite::future::block_on(test());
@@ -1080,14 +1190,16 @@ mod tests {
             let ids: Vec<String> = seeds.iter().map(|s| node_id_for(*s)).collect();
             for seed in &seeds {
                 make_dht(&testnet)
-                    .publish_rendezvous(&fresh_addr(*seed))
+                    .publish_rendezvous(&RendezvousNamespace::production(), &fresh_addr(*seed))
                     .await
                     .expect("publish_rendezvous");
             }
 
             // A 4th node that knows NOBODY discovers all three.
             let newcomer = make_dht(&testnet);
-            let found = newcomer.discover_rendezvous("newcomer-self").await;
+            let found = newcomer
+                .discover_rendezvous(&RendezvousNamespace::production(), "newcomer-self")
+                .await;
 
             let found_ids: std::collections::HashSet<_> =
                 found.iter().map(|a| a.node_id.clone()).collect();
@@ -1109,10 +1221,12 @@ mod tests {
             let testnet = Testnet::builder(10).build().unwrap();
             let me = node_id_for(1);
             make_dht(&testnet)
-                .publish_rendezvous(&fresh_addr(1))
+                .publish_rendezvous(&RendezvousNamespace::production(), &fresh_addr(1))
                 .await
                 .unwrap();
-            let found = make_dht(&testnet).discover_rendezvous(&me).await;
+            let found = make_dht(&testnet)
+                .discover_rendezvous(&RendezvousNamespace::production(), &me)
+                .await;
             assert!(found.iter().all(|a| a.node_id != me), "must not discover self");
         }
         futures_lite::future::block_on(test());
@@ -1124,10 +1238,10 @@ mod tests {
             let testnet = Testnet::builder(10).build().unwrap();
             let ghost = node_id_for(1);
             make_dht(&testnet)
-                .publish_rendezvous(&stale_addr(1))
+                .publish_rendezvous(&RendezvousNamespace::production(), &stale_addr(1))
                 .await
                 .unwrap();
-            let found = make_dht(&testnet).discover_rendezvous("reader").await;
+            let found = make_dht(&testnet).discover_rendezvous(&RendezvousNamespace::production(), "reader").await;
             assert!(
                 found.iter().all(|a| a.node_id != ghost),
                 "stale (>2h) rendezvous entry must not be discovered"
@@ -1150,10 +1264,10 @@ mod tests {
             sign_addr(&mut older, &secret_for(a));
             let newer = fresh_addr(b); // now_ms() > older
 
-            make_dht(&testnet).publish_rendezvous(&older).await.unwrap();
-            make_dht(&testnet).publish_rendezvous(&newer).await.unwrap();
+            make_dht(&testnet).publish_rendezvous(&RendezvousNamespace::production(), &older).await.unwrap();
+            make_dht(&testnet).publish_rendezvous(&RendezvousNamespace::production(), &newer).await.unwrap();
 
-            let found = make_dht(&testnet).discover_rendezvous("reader").await;
+            let found = make_dht(&testnet).discover_rendezvous(&RendezvousNamespace::production(), "reader").await;
             let ids: std::collections::HashSet<_> =
                 found.iter().map(|x| x.node_id.clone()).collect();
             assert!(ids.contains(&b_id), "freshest writer {b_id} should win the slot");
@@ -1171,15 +1285,15 @@ mod tests {
             let mut addr = fresh_addr(1);
             addr.direct_addrs = vec!["1.1.1.1:3340".into()];
             sign_addr(&mut addr, &secret);
-            make_dht(&testnet).publish_rendezvous(&addr).await.unwrap();
+            make_dht(&testnet).publish_rendezvous(&RendezvousNamespace::production(), &addr).await.unwrap();
 
             // Node moves networks: new addr, newer timestamp, re-signed.
             addr.direct_addrs = vec!["2.2.2.2:3340".into()];
             addr.timestamp = now_ms() + 1;
             sign_addr(&mut addr, &secret);
-            make_dht(&testnet).publish_rendezvous(&addr).await.unwrap();
+            make_dht(&testnet).publish_rendezvous(&RendezvousNamespace::production(), &addr).await.unwrap();
 
-            let found = make_dht(&testnet).discover_rendezvous("reader").await;
+            let found = make_dht(&testnet).discover_rendezvous(&RendezvousNamespace::production(), "reader").await;
             let found_mover = found.iter().find(|a| a.node_id == mover).expect("find mover");
             assert_eq!(found_mover.direct_addrs, vec!["2.2.2.2:3340".to_string()], "must see updated addr");
         }
@@ -1206,10 +1320,10 @@ mod tests {
                     stale_addr(i)
                 };
                 // Best-effort: same-slot lower-seq writes may be rejected — that's fine.
-                let _ = make_dht(&testnet).publish_rendezvous(&addr).await;
+                let _ = make_dht(&testnet).publish_rendezvous(&RendezvousNamespace::production(), &addr).await;
             }
 
-            let found = make_dht(&testnet).discover_rendezvous("chaos-self").await;
+            let found = make_dht(&testnet).discover_rendezvous(&RendezvousNamespace::production(), "chaos-self").await;
             let found_ids: Vec<String> = found.iter().map(|a| a.node_id.clone()).collect();
 
             // Invariants that MUST hold under chaos:
@@ -1241,18 +1355,18 @@ mod tests {
 
             // Phase 1: everyone is dead (stale). A newcomer finds nothing.
             for i in 0..4u64 {
-                let _ = make_dht(&testnet).publish_rendezvous(&stale_addr(i)).await;
+                let _ = make_dht(&testnet).publish_rendezvous(&RendezvousNamespace::production(), &stale_addr(i)).await;
             }
-            let blackout = make_dht(&testnet).discover_rendezvous("survivor").await;
+            let blackout = make_dht(&testnet).discover_rendezvous(&RendezvousNamespace::production(), "survivor").await;
             assert!(blackout.is_empty(), "all-stale rendezvous must look empty");
 
             // Phase 2: ONE node comes back alive → the network is rejoinable again.
             let revived = node_id_for(100);
             make_dht(&testnet)
-                .publish_rendezvous(&fresh_addr(100))
+                .publish_rendezvous(&RendezvousNamespace::production(), &fresh_addr(100))
                 .await
                 .unwrap();
-            let recovered = make_dht(&testnet).discover_rendezvous("survivor").await;
+            let recovered = make_dht(&testnet).discover_rendezvous(&RendezvousNamespace::production(), "survivor").await;
             assert!(
                 recovered.iter().any(|a| a.node_id == revived),
                 "a single revived node must restore discoverability"
