@@ -20,6 +20,9 @@ final class TomNodeService: ObservableObject {
     private var pollTask: Task<Void, Never>?
     private var startTask: Task<Void, Never>?
     private var autoStartTask: Task<Void, Never>?
+    /// Compte à rebours de l'auto-start (5→1, nil = inactif) — décision Malik
+    /// 20/07 : l'auto-start reste (5 s) mais doit être VISIBLE à l'écran.
+    @Published private(set) var autoStartCountdown: Int?
     // Watchdog anti-blocage : `.starting` est autrement un état PIÈGE — ni le
     // retour foreground (skip si .starting) ni la relance réseau (exige
     // .running/.error) n'en sortent. Si `node.start()` hang pendant un handoff
@@ -594,6 +597,7 @@ final class TomNodeService: ObservableObject {
         echoCount = 0
         autoStartTask?.cancel()
         autoStartTask = nil
+        autoStartCountdown = nil
         autoMessagedPeerIds.removeAll()
         autoMessageAttemptedAt.removeAll()
         seededPeerIds.removeAll()
@@ -1387,9 +1391,16 @@ final class TomNodeService: ObservableObject {
         appendLog(.info, "Auto-start scheduled in 5 seconds")
 
         autoStartTask = Task { [weak self] in
-            try? await Task.sleep(nanoseconds: Self.autoStartDelayNanoseconds)
-            guard let self = self, !Task.isCancelled else { return }
+            guard let self = self else { return }
+            let total = Int(Self.autoStartDelayNanoseconds / 1_000_000_000)
+            for remaining in stride(from: total, through: 1, by: -1) {
+                if Task.isCancelled { self.autoStartCountdown = nil; return }
+                self.autoStartCountdown = remaining
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+            }
             self.autoStartTask = nil
+            self.autoStartCountdown = nil
+            if Task.isCancelled { return }
 
             guard self.state == .stopped || self.state == .error else { return }
 

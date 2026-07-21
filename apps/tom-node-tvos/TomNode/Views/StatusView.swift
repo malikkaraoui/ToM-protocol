@@ -452,6 +452,11 @@ struct StatusView: View {
                     Label("Démarrer", systemImage: "play.fill")
                 }
                 .buttonStyle(.borderedProminent).tint(.green)
+                if let remaining = nodeService.autoStartCountdown {
+                    Label("Démarrage auto : \(remaining) s", systemImage: "timer")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                }
             }
             if nodeService.state == .running {
                 Button(action: { nodeService.appendLog(.warning, "👆 BOUTON Arrêter pressé (utilisateur)"); nodeService.stop() }) {
