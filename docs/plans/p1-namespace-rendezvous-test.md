@@ -66,6 +66,12 @@ rendre impossible, pas facile.
 4. Sanitisation : label hostile (`"../;π€ FOO"`) → assaini `[a-z0-9-]`, ≤ 64.
 5. Runtime : `RuntimeConfig { rendezvous_namespace: Some(...) }` → le WARN est
    émis et le namespace passé aux deux appels de `loop.rs`.
+   **Arbitrage post-oracle (21/07)** : le contrat runtime complet (WARN + ns
+   effectif dans les rondes) n'a pas de test d'intégration dédié — il sera
+   prouvé EN RÉEL par le scénario R4-F (deux inconnus se trouvent sur un
+   namespace test, source d'amorçage tracée). Le verrou 3bis ajouté à la place :
+   test Testnet bout-en-bout `p1_rendezvous_isolation_between_namespaces_end_to_end`
+   (publish en ns test → invisible de la prod ET visible de son propre ns).
 
 ## §5 Hors périmètre P1 (notés, pas oubliés)
 

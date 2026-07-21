@@ -1300,6 +1300,41 @@ mod tests {
         futures_lite::future::block_on(test());
     }
 
+    #[test]
+    fn p1_rendezvous_isolation_between_namespaces_end_to_end() {
+        async fn test() {
+            let testnet = Testnet::builder(10).build().unwrap();
+            let test_ns = RendezvousNamespace::test("banc1");
+            let prod = RendezvousNamespace::production();
+
+            // Publie dans le namespace de TEST…
+            make_dht(&testnet)
+                .publish_rendezvous(&test_ns, &fresh_addr(1))
+                .await
+                .unwrap();
+
+            // …invisible depuis la PROD (l'isolation est comportementale,
+            // pas seulement une différence de clés).
+            let seen_from_prod = make_dht(&testnet)
+                .discover_rendezvous(&prod, "reader")
+                .await;
+            assert!(
+                seen_from_prod.is_empty(),
+                "une entrée du namespace test NE DOIT PAS être vue de la prod"
+            );
+
+            // Et visible depuis SON namespace (le test n'est pas un trou noir).
+            let seen_from_test = make_dht(&testnet)
+                .discover_rendezvous(&test_ns, "reader")
+                .await;
+            assert!(
+                seen_from_test.iter().any(|a| a.node_id == node_id_for(1)),
+                "l'entrée doit être trouvable dans SON namespace de test"
+            );
+        }
+        futures_lite::future::block_on(test());
+    }
+
     // ── CHAOS: hardcore churn / disconnection stress ─────────────────────────
 
     #[test]
