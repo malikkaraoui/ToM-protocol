@@ -435,8 +435,14 @@ pub async fn run(
     let interval = Duration::from_secs_f64(1.0 / rate_hz);
     let duration = Duration::from_secs(duration_secs);
     let mut points = Vec::new();
-    for n in sizes {
-        points.push(run_point(n, duration, interval, payload_bytes, seed).await?);
+    for (cycle, n) in sizes.iter().enumerate() {
+        // TEST B : logguer octets alloués avant/après run_point
+        let bytes_before = crate::get_allocated_bytes();
+        eprintln!("[TEST B CYCLE {}] Octets AVANT : {} Mo", cycle + 1, bytes_before / 1_000_000);
+        points.push(run_point(*n, duration, interval, payload_bytes, seed).await?);
+        let bytes_after = crate::get_allocated_bytes();
+        eprintln!("[TEST B CYCLE {}] Octets APRÈS : {} Mo (diff: {} Mo)",
+            cycle + 1, bytes_after / 1_000_000, (bytes_after as i64 - bytes_before as i64) / 1_000_000);
     }
 
     // ── Rapport ──
