@@ -2974,6 +2974,11 @@ impl RuntimeState {
                 Vec::new()
             }
 
+            RuntimeCommand::GetPeerStatuses { reply } => {
+                let _ = reply.send(self.topology.peer_statuses());
+                Vec::new()
+            }
+
             RuntimeCommand::GetKnownRelays { reply } => {
                 let mut relays: Vec<_> = self.relay_registry.all().cloned().collect();
                 relays.sort_by_key(|a| Reverse(a.refreshed_at));
@@ -4518,6 +4523,39 @@ mod tests {
         assert_eq!(msg.payload, plaintext);
         assert!(msg.was_encrypted);
         assert!(msg.signature_valid);
+    }
+
+    #[test]
+    fn get_peer_statuses_distinguishes_online_from_known() {
+        // API R7 : la vue PoP sépare Online (travail constaté) de Known
+        // (juste découvert). Un fantôme mark_known ne doit jamais compter Online.
+        let mut state = default_state(1);
+        let online_peer = node_id(2);
+        let known_peer = node_id(3);
+
+        state.topology.upsert(PeerInfo {
+            node_id: online_peer,
+            role: PeerRole::Peer,
+            status: PeerStatus::Online,
+            last_seen: now_ms(),
+        });
+        state.mark_known(known_peer, PeerRole::Peer);
+
+        let (tx, mut rx) = tokio::sync::oneshot::channel();
+        let effects = state.handle_command(RuntimeCommand::GetPeerStatuses { reply: tx });
+        assert!(effects.is_empty(), "GetPeerStatuses should not emit effects");
+
+        let statuses = rx.try_recv().expect("réponse attendue");
+        assert_eq!(
+            statuses.iter().find(|(id, _)| *id == online_peer).map(|(_, s)| *s),
+            Some(PeerStatus::Online)
+        );
+        assert_eq!(
+            statuses.iter().find(|(id, _)| *id == known_peer).map(|(_, s)| *s),
+            Some(PeerStatus::Known)
+        );
+        let online = statuses.iter().filter(|(_, s)| *s == PeerStatus::Online).count();
+        assert_eq!(online, 1, "seul le pair au travail constaté compte Online");
     }
 
     #[test]

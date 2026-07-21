@@ -168,6 +168,12 @@ impl Topology {
         self.peers.values().filter(|p| p.status == PeerStatus::Online).count()
     }
 
+    /// Snapshot `(node_id, status)` of every known peer — read-only observability
+    /// (PoP: distinguishes `Online`, i.e. proven-live, from merely `Known`).
+    pub fn peer_statuses(&self) -> Vec<(NodeId, PeerStatus)> {
+        self.peers.values().map(|p| (p.node_id, p.status)).collect()
+    }
+
     /// Number of peers with Relay role.
     pub fn relay_count(&self) -> usize {
         self.peers.values().filter(|p| p.role == PeerRole::Relay).count()

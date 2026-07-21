@@ -27,6 +27,19 @@ pas construits (jalons M1.2-M1.6) — le banc ne peut pas les tester, il le dit.
    (`n0_discovery(false)`, `local_discovery(false)`, `enable_dht: false`).
    Exception UNIQUE : R4 (rendez-vous), qui exige un **namespace DHT de test
    dédié** (§5-P1) — jamais celui de la production.
+   ⚠️ **Trou d'herméticité ENTRANT découvert par R7 (21/07)** : le trio coupe
+   la découverte **sortante** du nœud de banc, mais PAS l'acceptation de
+   connexions **entrantes**. Quand des apps de la flotte tournent sur la
+   **même machine**, leur mDNS actif trouve le nœud de banc et lui pousse leur
+   carnet par gossip → il les liste en `Known` (jamais `Online` : pas de
+   travail constaté, le PoP tient). **Même cause que le « chatter du canal
+   applicatif » du banc courbe** (`banc-courbe-masse.md` §2bis : 24-43 msg
+   non-banc filtrés = la flotte locale). Conséquence : ne jamais fonder un
+   oracle sur un **compte ABSOLU** (`online_count`, nombre de pairs) — juger
+   RELATIVEMENT aux nœuds du banc identifiés. À traiter pour l'étage L : soit
+   kill la flotte avant un run, soit refuser les connexions non-câblées (à
+   investiguer : `local_discovery(false)` coupe-t-il l'écoute mDNS entrante ou
+   seulement la publication ?).
 2. **La vérité = le collecteur + oracles in-process**, pas les impressions
    (findings Phase 0 : compteurs :9300/:9091 = ENVELOPES pas messages ; :9091
    retardé < 2 min ; vérité = seq collecteur + /inbox).

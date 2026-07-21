@@ -460,13 +460,90 @@ async fn r1_r3_multihop_promotion() -> anyhow::Result<bool> {
     Ok(ok)
 }
 
+// ── R7-L : PoP — les fantômes ne votent pas ────────────────────────────────
+
+async fn r7_pop_ghosts() -> anyhow::Result<bool> {
+    eprintln!("\n── R7-L : PoP (ADR-011) — un mort découvert ne passe JAMAIS Online ──");
+    eprintln!("   O ↔ V échangent du trafic RÉEL ; un fantôme G est « re-découvert » 6×");
+    eprintln!("   (add_peer = mark_known) sans jamais travailler → doit rester Known.");
+
+    // Fantôme : une identité VALIDE jamais connectée (nœud jetable → on garde
+    // juste son NodeId). C'est un « mort » plausible côté carnet d'adresses.
+    let ghost_id = {
+        let throwaway =
+            TomNode::bind(TomNodeConfig::new().n0_discovery(false).local_discovery(false)).await?;
+        let id = throwaway.id();
+        drop(throwaway);
+        id
+    };
+
+    let nodes = spawn_mesh(2, |_| {}).await?; // O = 0, V = 1
+    let (v_id, _o) = (nodes[1].id, nodes[0].id);
+
+    // « Ré-annonces gossip du mort » : O le re-découvre en boucle. La découverte
+    // (ADR-011) ne doit accorder AUCUN crédit de présence — juste le carnet.
+    for _ in 0..6 {
+        nodes[0].handle.add_peer(ghost_id).await;
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
+
+    // Trafic RÉEL O ↔ V (dans les deux sens : chacun devient Online chez l'autre).
+    for i in 0..10u32 {
+        let _ = nodes[0].handle.send_message(v_id, format!("r7-{i}").into_bytes()).await;
+        let _ = nodes[1].handle.send_message(nodes[0].id, format!("r7b-{i}").into_bytes()).await;
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
+    tokio::time::sleep(Duration::from_secs(2)).await;
+
+    // Vue PoP de O (nouvelle API get_peer_statuses).
+    use tom_protocol::PeerStatus;
+    let statuses = nodes[0].handle.get_peer_statuses().await;
+    let ghost_status = statuses.iter().find(|(id, _)| *id == ghost_id).map(|(_, s)| *s);
+    let v_online = statuses
+        .iter()
+        .any(|(id, s)| *id == v_id && *s == PeerStatus::Online);
+    // NOTE herméticité : si des apps de la flotte tournent sur la MÊME machine,
+    // elles trouvent O par mDNS ENTRANT (le trio isolated ne coupe que la
+    // découverte SORTANTE) et lui poussent leur carnet → O les liste en Known.
+    // Ces Known « étrangers » ne faussent PAS le contrat R7 (ils restent Known,
+    // pas Online, faute de travail constaté), mais rendent un `online_count`
+    // ABSOLU non déterministe. On juge donc RELATIVEMENT : G ne vote pas, V vote.
+    // Trou d'herméticité documenté (banc-roles-sous-charge.md §1) — à traiter
+    // pour l'étage L en présence d'une flotte locale.
+    let foreign_known = statuses
+        .iter()
+        .filter(|(id, s)| *id != v_id && *id != ghost_id && *s == PeerStatus::Known)
+        .count();
+    if foreign_known > 0 {
+        eprintln!(
+            "  [info] {foreign_known} pair(s) étranger(s) en Known (flotte locale via mDNS entrant — \
+             n'affecte pas le contrat R7, cf note herméticité)"
+        );
+    }
+
+    let mut ok = true;
+    ok &= verdict(
+        "R7.fantôme-jamais-online",
+        ghost_status != Some(PeerStatus::Online),
+        &format!("G re-découvert 6× reste {ghost_status:?} (jamais Online — PoP : pas de travail constaté)"),
+    );
+    ok &= verdict(
+        "R7.vivant-online",
+        v_online,
+        "V, avec qui O a VRAIMENT échangé, est Online (le travail constaté, lui, compte)",
+    );
+
+    teardown(nodes).await;
+    Ok(ok)
+}
+
 // ── Entrée ──────────────────────────────────────────────────────────────────
 
 pub async fn run(scenario: String) -> anyhow::Result<()> {
     eprintln!("=== Banc rôles sous charge — Phase A étage L (hermétique, in-process) ===");
     let wanted = scenario.as_str();
-    if !matches!(wanted, "r1" | "r5" | "r8" | "all") {
-        anyhow::bail!("scénario inconnu '{wanted}' — valeurs : r1, r5, r8, all");
+    if !matches!(wanted, "r1" | "r5" | "r7" | "r8" | "all") {
+        anyhow::bail!("scénario inconnu '{wanted}' — valeurs : r1, r5, r7, r8, all");
     }
     let mut all_ok = true;
     if matches!(wanted, "r1" | "all") {
@@ -474,6 +551,9 @@ pub async fn run(scenario: String) -> anyhow::Result<()> {
     }
     if matches!(wanted, "r5" | "all") {
         all_ok &= r5_subnets().await?;
+    }
+    if matches!(wanted, "r7" | "all") {
+        all_ok &= r7_pop_ghosts().await?;
     }
     if matches!(wanted, "r8" | "all") {
         all_ok &= r8_arroseur().await?;

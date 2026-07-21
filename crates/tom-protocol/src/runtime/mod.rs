@@ -224,6 +224,11 @@ pub enum RuntimeCommand {
     GetAllRoleScores {
         reply: oneshot::Sender<Vec<(NodeId, f64, crate::relay::PeerRole)>>,
     },
+    /// Query `(node_id, status)` of every known peer (PoP observability:
+    /// Online = proven-live vs Known = merely discovered).
+    GetPeerStatuses {
+        reply: oneshot::Sender<Vec<(NodeId, crate::relay::PeerStatus)>>,
+    },
     // ── DHT discovery ──────────────────────────────
     /// DHT lookup completed — inject discovered address into transport.
     DhtLookupResult { addr: tom_dht::DhtNodeAddr },
@@ -817,6 +822,16 @@ impl RuntimeHandle {
         let _ = self
             .cmd_tx
             .send(RuntimeCommand::GetAllRoleScores { reply: tx })
+            .await;
+        rx.await.unwrap_or_default()
+    }
+
+    /// Get `(node_id, status)` of every known peer (PoP observability).
+    pub async fn get_peer_statuses(&self) -> Vec<(NodeId, crate::relay::PeerStatus)> {
+        let (tx, rx) = oneshot::channel();
+        let _ = self
+            .cmd_tx
+            .send(RuntimeCommand::GetPeerStatuses { reply: tx })
             .await;
         rx.await.unwrap_or_default()
     }
