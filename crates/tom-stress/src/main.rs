@@ -25,6 +25,7 @@ mod scenario_chaos_monkey;
 mod scenario_invariants;
 mod scenario_presence_storm;
 mod scenario_roles;
+mod scenario_roles_charge;
 mod scenario_runner;
 
 use clap::{Parser, Subcommand};
@@ -165,6 +166,14 @@ enum Command {
     /// Protocol scenario: Roles (scoring pipeline + metrics queries).
     Roles,
 
+    /// Banc « rôles sous charge » Phase A étage L (oracles durs, hermétique) :
+    /// R5 subnets (formation/frontière/dissolution), R8 arroseur arrosé.
+    RolesCharge {
+        /// Scénario : r5 | r8 | all
+        #[arg(long, default_value = "all")]
+        scenario: String,
+    },
+
     /// Chaos scenario: randomized multi-node test with random delays and message sizes.
     Chaos,
 
@@ -275,6 +284,7 @@ async fn main() -> anyhow::Result<()> {
         Command::Backup => "backup",
         Command::Failover => "failover",
         Command::Roles => "roles",
+        Command::RolesCharge { .. } => "roles-charge",
         Command::Chaos => "chaos",
         Command::Presence => "presence",
         Command::PresenceStorm => "presence-storm",
@@ -366,6 +376,10 @@ async fn main() -> anyhow::Result<()> {
         }
         Command::Courbe { sizes, duration, rate, payload, seed } => {
             scenario_courbe::run(sizes.clone(), *duration, *rate, *payload, *seed).await?;
+            return Ok(());
+        }
+        Command::RolesCharge { scenario } => {
+            scenario_roles_charge::run(scenario.clone()).await?;
             return Ok(());
         }
         Command::Responder => {
@@ -584,6 +598,7 @@ async fn main() -> anyhow::Result<()> {
 
         // Already handled above
         Command::E2e | Command::Group | Command::Backup | Command::Failover | Command::Roles
+        | Command::RolesCharge { .. }
         | Command::Chaos | Command::Endurance | Command::Partition | Command::Churn
         | Command::Scenarios | Command::Responder | Command::Campaign { .. } => {
             unreachable!()
