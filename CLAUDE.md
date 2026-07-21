@@ -387,15 +387,16 @@ cargo zigbuild -p tom-stress --target aarch64-unknown-linux-musl --release
 
 ### Own Relay (NAS)
 ```bash
-# Freebox NAS — Debian VM, ARM64 Cortex-A72
-ssh root@192.168.0.21               # Local
+# Freebox NAS — Debian VM « SERVEUR », ARM64 Cortex-A72
+# ⚠️ IP LAN DYNAMIQUE (bail DHCP change au redémarrage de la VM) :
+#   .21 et .83 observés (07/2026). Si ssh timeout : `arp -a` → chercher le
+#   hostname base32 sur une autre IP. Témoin de vie fiable : nc 82.67.95.8 3340.
+ssh root@192.168.0.83               # Local (IP du 2026-07-21 — vérifier arp)
 ssh root@82.67.95.8                 # Remote (port 22 redirect)
 
-# tom-relay running on port 3340 (HTTP, no TLS)
-/root/tom-relay --dev
-
-# Environment variable for clients
-TOM_RELAY_URL=http://192.168.0.21:3340
+# Relais 3340 : servi par tom-chat --self-relay (service systemd-like via /usr/local/bin)
+# Environment variable for clients (utiliser l'IP LAN du jour)
+TOM_RELAY_URL=http://192.168.0.83:3340
 
 # Port forwarding: UDP 3340 → 82.67.95.8:3340 (public)
 ```
