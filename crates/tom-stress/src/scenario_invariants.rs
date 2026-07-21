@@ -164,15 +164,9 @@ async fn spawn_node(index: usize, tmpdir: &std::path::Path, tracker: MessageTrac
 
     let node = TomNode::bind(
         TomNodeConfig::new()
-            .n0_discovery(false)
-            .local_discovery(false)
-            // Coupe AUSSI le DNS-TXT fallback (_relay._tcp.tom-protocol.org) —
-            // sinon un 4ᵉ canal reste ouvert. ⚠️ Le relais EXTRA_FALLBACK_RELAY
-            // (compile-time, config.rs:24) N'est PAS coupable ici au runtime :
-            // ne JAMAIS builder ce binaire avec TOM_EXTRA_FALLBACK_RELAY sous
-            // peine de fuite vers la vraie flotte (incident 18/07).
-            .relay_dns_fallback_domain(String::new())
-            .relay_urls(vec![])
+            .hermetic()
+            // Note: hermetic() cuts n0 discovery, local discovery, all relays,
+            // and DNS TXT fallback — see design/hermeticite-etage-l.md
             .identity_path(identity_path),
     )
     .await?;

@@ -40,17 +40,9 @@ struct Slot {
 }
 
 async fn spawn_node(index: usize) -> anyhow::Result<Slot> {
-    // Empty relay list + no n0 discovery → fast local binds (no DNS-failing
-    // default-relay probing on every revive).
-    let node = TomNode::bind(
-        TomNodeConfig::new()
-            .n0_discovery(false)
-            // local_discovery (mDNS) est `true` par défaut → sans ce false, un
-            // run local pollue la vraie flotte sur le LAN (fuite mDNS, 18/07).
-            .local_discovery(false)
-            .relay_urls(vec![]),
-    )
-    .await?;
+    // Hermetic mode: no relays, no discovery → fast local binds.
+    // Prevents mDNS leakage to the real fleet on the LAN (incident 18/07).
+    let node = TomNode::bind(TomNodeConfig::new().hermetic()).await?;
     let id = node.id();
     let addr = node.addr();
     let cfg = RuntimeConfig {

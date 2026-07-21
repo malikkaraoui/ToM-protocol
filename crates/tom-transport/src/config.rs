@@ -102,6 +102,12 @@ pub struct TomNodeConfig {
     /// inbound firewall rules (e.g. opening IPv6 on a router). When unset
     /// (default), the OS assigns an ephemeral port on each bind.
     pub(crate) bind_addr: Option<SocketAddr>,
+    /// Hermetic mode: no relays, no discovery (bench/test only).
+    ///
+    /// When enabled, the node runs in complete isolation: no relays (RelayMode::Disabled),
+    /// no n0 discovery, no local discovery, and no fallback mechanisms. Only for benchmarks
+    /// and tests. Not exposed in the FFI layer.
+    pub(crate) hermetic: bool,
 }
 
 impl Default for TomNodeConfig {
@@ -168,6 +174,7 @@ impl TomNodeConfig {
             relay_only: false,
             identity_path,
             bind_addr,
+            hermetic: false,
         }
     }
 
@@ -302,6 +309,26 @@ impl TomNodeConfig {
         self.bind_addr = Some(addr);
         self
     }
+
+    /// Enable hermetic mode: no relays, no discovery, completely isolated.
+    ///
+    /// For benchmarks and tests only. When enabled:
+    /// - Disables n0 discovery (Pkarr/DNS)
+    /// - Disables local discovery (mDNS)
+    /// - Clears all relay URLs
+    /// - Disables all fallback relay mechanisms
+    /// - Results in RelayMode::Disabled
+    ///
+    /// Not exposed in the FFI layer. Incompatible with relay_only.
+    pub fn hermetic(mut self) -> Self {
+        self.hermetic = true;
+        self.n0_discovery = false;
+        self.local_discovery = false;
+        self.relay_url = None;
+        self.relay_urls.clear();
+        self.relay_discovery_url = None;
+        self
+    }
 }
 
 #[cfg(test)]
@@ -393,5 +420,16 @@ mod tests {
     fn relay_only_sets_value() {
         let cfg = TomNodeConfig::new().relay_only(true);
         assert!(cfg.relay_only);
+    }
+
+    #[test]
+    fn hermetic_disables_discovery_and_relays() {
+        let cfg = TomNodeConfig::new().hermetic();
+        assert!(cfg.hermetic);
+        assert!(!cfg.n0_discovery);
+        assert!(!cfg.local_discovery);
+        assert!(cfg.relay_url.is_none());
+        assert!(cfg.relay_urls.is_empty());
+        assert!(cfg.relay_discovery_url.is_none());
     }
 }

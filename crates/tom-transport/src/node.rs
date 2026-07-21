@@ -1,6 +1,7 @@
 use crate::config::TomNodeConfig;
 use crate::connection::ConnectionPool;
 use crate::envelope::MessageEnvelope;
+use crate::gate::GatedHandler;
 use crate::path::{PathEvent, PathKind};
 use crate::protocol::{self, HandlerState, TomProtocolHandler};
 use crate::{BootstrapHint, NodeId, TomTransportError};
@@ -13,7 +14,7 @@ use tom_connect::{Endpoint, RelayMode};
 use tom_gossip::Gossip;
 use n0_future::StreamExt;
 use serde::Deserialize;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
@@ -153,6 +154,8 @@ pub struct TomNode {
     peer_present_rx: Option<mpsc::Receiver<(tom_connect::EndpointId, tom_connect::RelayUrl)>>,
     /// Receiver for transport bootstrap hints (mDNS, future local discovery signals).
     bootstrap_hint_rx: Option<mpsc::Receiver<BootstrapHint>>,
+    /// Shared handle for peer whitelist (gate filtering).
+    allowed_peers: Arc<std::sync::RwLock<Option<std::collections::HashSet<tom_base::EndpointId>>>>,
 }
 
 impl TomNode {
@@ -161,6 +164,13 @@ impl TomNode {
     /// If `identity_path` is configured, loads or creates a persistent identity.
     /// Otherwise, generates a fresh ephemeral Ed25519 identity.
     pub async fn bind(config: TomNodeConfig) -> Result<Self, TomTransportError> {
+        // Validate hermetic + relay_only incompatibility
+        if config.hermetic && config.relay_only {
+            return Err(TomTransportError::Config(
+                "hermetic and relay_only are mutually exclusive".to_string(),
+            ));
+        }
+
         // Load or generate identity
         let secret_key = match &config.identity_path {
             Some(path) => Some(load_or_create_identity(path)?),
@@ -174,72 +184,76 @@ impl TomNode {
         };
 
         let mut discovery_refresh_delay = next_discovery_refresh_delay(None);
-        if let Some(discovery_url) = config.relay_discovery_url.as_deref() {
-            match fetch_discovery_relays(discovery_url).await {
-                Ok(snapshot) => {
-                    tracing::info!(
-                        discovery_url = %discovery_url,
-                        relays = snapshot.relays.len(),
-                        "relay discovery fetched relays"
-                    );
-                    discovery_refresh_delay = next_discovery_refresh_delay(snapshot.ttl_seconds);
-                    configured_relays = merge_relay_lists(configured_relays, snapshot.relays);
-                }
-                Err(err) => {
-                    tracing::warn!(
-                        discovery_url = %discovery_url,
-                        error = %err,
-                        "relay discovery failed"
-                    );
 
-                    if configured_relays.is_empty() {
-                        configured_relays = crate::config::fallback_relay_urls();
+        // Skip all fallback relay mechanisms if hermetic mode
+        if !config.hermetic {
+            if let Some(discovery_url) = config.relay_discovery_url.as_deref() {
+                match fetch_discovery_relays(discovery_url).await {
+                    Ok(snapshot) => {
                         tracing::info!(
-                            relays = configured_relays.len(),
-                            "using fallback relay list after discovery failure"
+                            discovery_url = %discovery_url,
+                            relays = snapshot.relays.len(),
+                            "relay discovery fetched relays"
+                        );
+                        discovery_refresh_delay = next_discovery_refresh_delay(snapshot.ttl_seconds);
+                        configured_relays = merge_relay_lists(configured_relays, snapshot.relays);
+                    }
+                    Err(err) => {
+                        tracing::warn!(
+                            discovery_url = %discovery_url,
+                            error = %err,
+                            "relay discovery failed"
+                        );
+
+                        if configured_relays.is_empty() {
+                            configured_relays = crate::config::fallback_relay_urls();
+                            tracing::info!(
+                                relays = configured_relays.len(),
+                                "using fallback relay list after discovery failure"
+                            );
+                        }
+                    }
+                }
+            }
+
+            if configured_relays.is_empty() {
+                let dns_domain = config
+                    .relay_dns_fallback_domain
+                    .as_deref()
+                    .unwrap_or(crate::config::DEFAULT_DNS_FALLBACK_DOMAIN);
+
+                match fetch_dns_fallback_relays(dns_domain).await {
+                    Ok(relays) if !relays.is_empty() => {
+                        tracing::info!(
+                            dns_domain = %dns_domain,
+                            relays = relays.len(),
+                            "using DNS TXT relay fallback"
+                        );
+                        configured_relays = merge_relay_lists(configured_relays, relays);
+                    }
+                    Ok(_) => {
+                        tracing::warn!(
+                            dns_domain = %dns_domain,
+                            "dns relay fallback returned no relay URLs"
+                        );
+                    }
+                    Err(err) => {
+                        tracing::warn!(
+                            dns_domain = %dns_domain,
+                            error = %err,
+                            "dns relay fallback failed"
                         );
                     }
                 }
             }
-        }
 
-        if configured_relays.is_empty() {
-            let dns_domain = config
-                .relay_dns_fallback_domain
-                .as_deref()
-                .unwrap_or(crate::config::DEFAULT_DNS_FALLBACK_DOMAIN);
-
-            match fetch_dns_fallback_relays(dns_domain).await {
-                Ok(relays) if !relays.is_empty() => {
-                    tracing::info!(
-                        dns_domain = %dns_domain,
-                        relays = relays.len(),
-                        "using DNS TXT relay fallback"
-                    );
-                    configured_relays = merge_relay_lists(configured_relays, relays);
-                }
-                Ok(_) => {
-                    tracing::warn!(
-                        dns_domain = %dns_domain,
-                        "dns relay fallback returned no relay URLs"
-                    );
-                }
-                Err(err) => {
-                    tracing::warn!(
-                        dns_domain = %dns_domain,
-                        error = %err,
-                        "dns relay fallback failed"
-                    );
-                }
+            if configured_relays.is_empty() {
+                configured_relays = crate::config::fallback_relay_urls();
+                tracing::info!(
+                    relays = configured_relays.len(),
+                    "no relay configured, using fallback relay list"
+                );
             }
-        }
-
-        if configured_relays.is_empty() {
-            configured_relays = crate::config::fallback_relay_urls();
-            tracing::info!(
-                relays = configured_relays.len(),
-                "no relay configured, using fallback relay list"
-            );
         }
 
         let mut builder = match (configured_relays.is_empty(), config.n0_discovery) {
@@ -338,9 +352,17 @@ impl TomNode {
 
         let gossip = Gossip::builder().spawn(endpoint.clone());
 
+        // Create shared allowed peers list (for gate filtering).
+        // Both handlers share the same whitelist.
+        let allowed_peers = Arc::new(std::sync::RwLock::new(None));
+
+        // Wrap both handlers with the gate, sharing the allowed peers list
+        let gated_tom_handler = GatedHandler::new(handler, allowed_peers.clone());
+        let gated_gossip_handler = GatedHandler::new(gossip.clone(), allowed_peers.clone());
+
         let router = Router::builder(endpoint.clone())
-            .accept(config.alpn.clone(), Arc::new(handler))
-            .accept(tom_gossip::ALPN, gossip.clone())
+            .accept(config.alpn.clone(), Arc::new(gated_tom_handler))
+            .accept(tom_gossip::ALPN, Arc::new(gated_gossip_handler))
             .spawn();
 
         let (discovery_refresh_stop_tx, discovery_refresh_task) =
@@ -458,6 +480,7 @@ impl TomNode {
             discovery_refresh_task,
             peer_present_rx,
             bootstrap_hint_rx,
+            allowed_peers,
         })
     }
 
@@ -519,6 +542,31 @@ impl TomNode {
         self.memory_lookup.add_endpoint_info(addr.clone());
         let id = NodeId::from_endpoint_id(addr.id);
         self.pool.add_addr(id, addr).await;
+    }
+
+    /// Set the whitelist of allowed peers for incoming connections.
+    ///
+    /// When `Some(peers)`, only connections from peers in the set are accepted.
+    /// When `None` (default), all connections are accepted (normal prod behavior).
+    ///
+    /// BENCH/TESTS ONLY — never call this in a production node (LOCKED #6:
+    /// the protocol layer stays invisible; a prod node must accept anyone).
+    ///
+    /// Contract (review-oracle 2026-07-21):
+    /// - Call it right after `bind()`, BEFORE any connection is made: the gate
+    ///   only filters NEW incoming connections; already-established ones are
+    ///   NOT closed retroactively (no sweep — future refinement, see
+    ///   docs/plans/hermeticite-etage-l.md §3).
+    /// - Asymmetric by design: OUTGOING connections are not filtered. A can
+    ///   dial C even if C is absent from A's whitelist; only C's inbound view
+    ///   of A is gated by C's own list.
+    pub fn set_allowed_peers(&self, peers: Option<HashSet<NodeId>>) {
+        let allowed = peers.map(|set| {
+            set.into_iter()
+                .map(|id| *id.as_endpoint_id())
+                .collect()
+        });
+        *self.allowed_peers.write().unwrap_or_else(|e| e.into_inner()) = allowed;
     }
 
     /// Send an envelope to a peer.
@@ -1270,6 +1318,193 @@ mod tests {
 
         node.shutdown().await.unwrap();
         let _ = pool_relays; // suppress unused warning
+    }
+
+    #[tokio::test]
+    async fn hermetic_bind_has_no_relay() {
+        // Hermetic mode must disable all relays and discovery — differential assertion.
+        // (a) Hermetic node has no relay URLs
+        let config_hermetic = TomNodeConfig::new().hermetic();
+        let node_hermetic = TomNode::bind(config_hermetic)
+            .await
+            .expect("hermetic bind should succeed");
+
+        let relays_hermetic = node_hermetic.default_relay_urls().await;
+        assert!(
+            relays_hermetic.is_empty(),
+            "hermetic node should have no relay URLs, got: {:?}",
+            relays_hermetic
+        );
+
+        node_hermetic.shutdown().await.expect("shutdown should succeed");
+
+        // (b) Witness: non-hermetic node with test-net relay URL has observable relays
+        let testnet_relay: tom_connect::RelayUrl = "http://192.0.2.9:3340".parse().unwrap(); // TEST-NET, never dialable
+        let config_witness = TomNodeConfig::new()
+            .n0_discovery(false)
+            .local_discovery(false)
+            .relay_urls(vec![testnet_relay.clone()]);
+        let node_witness = TomNode::bind(config_witness)
+            .await
+            .expect("witness bind should succeed");
+
+        let relays_witness = node_witness.default_relay_urls().await;
+        assert!(
+            relays_witness.contains(&testnet_relay),
+            "witness node should have configured relay URL, got: {:?}",
+            relays_witness
+        );
+
+        node_witness.shutdown().await.expect("shutdown should succeed");
+    }
+
+    #[tokio::test]
+    async fn hermetic_incompatible_with_relay_only() {
+        let config = TomNodeConfig::new()
+            .hermetic()
+            .relay_only(true);
+
+        let result = TomNode::bind(config).await;
+        if let Err(err) = result {
+            let err_str = format!("{}", err);
+            assert!(
+                err_str.contains("mutually exclusive"),
+                "error should mention mutual exclusivity, got: {err_str}"
+            );
+        } else {
+            panic!("hermetic + relay_only should fail");
+        }
+    }
+
+    #[tokio::test]
+    async fn gate_default_accepts_all() {
+        // Default behavior: no whitelist, all connections accepted.
+        // Use .hermetic() to avoid DNS/n0 discovery side effects.
+        let config = TomNodeConfig::new().hermetic();
+        let node = TomNode::bind(config).await.expect("bind should succeed");
+
+        // Verify that allowed_peers is None (accept all)
+        {
+            let allowed = node.allowed_peers.read().unwrap_or_else(|e| e.into_inner());
+            assert!(allowed.is_none(), "default should have no whitelist");
+        }
+
+        node.shutdown().await.expect("shutdown should succeed");
+    }
+
+    #[tokio::test]
+    async fn gate_whitelist_mode() {
+        // Test that set_allowed_peers actually sets the whitelist.
+        // Use .hermetic() to avoid DNS/n0 discovery side effects.
+        let config = TomNodeConfig::new().hermetic();
+        let node = TomNode::bind(config).await.expect("bind should succeed");
+
+        // Create a test set of allowed peers
+        let mut allowed_set = std::collections::HashSet::new();
+        allowed_set.insert(node.id());
+
+        // Set the whitelist
+        node.set_allowed_peers(Some(allowed_set.clone()));
+
+        // Verify that the whitelist was set
+        {
+            let allowed = node.allowed_peers.read().unwrap_or_else(|e| e.into_inner());
+            assert!(allowed.is_some(), "whitelist should be set");
+            let set = allowed.as_ref().unwrap();
+            assert_eq!(set.len(), 1, "whitelist should contain one peer");
+        }
+
+        // Verify we can clear the whitelist
+        node.set_allowed_peers(None);
+        {
+            let allowed = node.allowed_peers.read().unwrap_or_else(|e| e.into_inner());
+            assert!(allowed.is_none(), "whitelist should be cleared");
+        }
+
+        node.shutdown().await.expect("shutdown should succeed");
+    }
+
+    /// Real network test: gate rejects connections from peers not in the whitelist.
+    /// Three hermetic nodes A (gated), B (allowed), C (not allowed);
+    /// both B and C send to A, only B's message arrives.
+    /// Hermetic binds: no DNS/fallback-relay traffic even on dev machines with
+    /// TOM_EXTRA_FALLBACK_RELAY compiled in.
+    #[tokio::test]
+    async fn gate_rejects_unlisted_peer() {
+        use std::collections::HashSet;
+
+        // A: gated node, whitelist will be set to {B}
+        let mut a = TomNode::bind(TomNodeConfig::new().hermetic())
+            .await
+            .expect("bind A");
+
+        // B: allowed peer
+        let b = TomNode::bind(TomNodeConfig::new().hermetic())
+            .await
+            .expect("bind B");
+
+        // C: rejected peer
+        let c = TomNode::bind(TomNodeConfig::new().hermetic())
+            .await
+            .expect("bind C");
+
+        let id_a = a.id();
+        let id_b = b.id();
+        let _id_c = c.id();
+        let a_addr = a.addr();
+        let b_addr = b.addr();
+        let c_addr = c.addr();
+        let a_eid = a_addr.id;
+
+        // Exchange addresses
+        a.add_peer_addr(b_addr.clone()).await;
+        a.add_peer_addr(c_addr.clone()).await;
+        b.add_peer_addr(a_addr.clone()).await;
+        c.add_peer_addr(a_addr.clone()).await;
+
+        tokio::time::sleep(Duration::from_millis(500)).await;
+
+        // Set whitelist on A: only B is allowed
+        let mut whitelist = HashSet::new();
+        whitelist.insert(NodeId::from_endpoint_id(a_eid));
+        whitelist.insert(NodeId::from_endpoint_id(b_addr.id));
+        a.set_allowed_peers(Some(whitelist));
+
+        // B sends to A (should arrive)
+        let payload_b = b"from_B";
+        b.sender().send_raw(id_a, payload_b).await.expect("B send");
+
+        // C sends to A (should be rejected by gate)
+        let payload_c = b"from_C";
+        c.sender().send_raw(id_a, payload_c).await.expect("C send");
+
+        tokio::time::sleep(Duration::from_millis(500)).await;
+
+        // A should receive only from B
+        let timeout = Duration::from_secs(2);
+        match tokio::time::timeout(timeout, a.recv_raw()).await {
+            Ok(Ok((from, data))) => {
+                assert_eq!(from, id_b, "should receive from B, got from {from}");
+                assert_eq!(data, payload_b, "payload from B should match");
+            }
+            Ok(Err(e)) => panic!("recv_raw failed: {e}"),
+            Err(_) => panic!("timeout receiving from B (should have arrived)"),
+        }
+
+        // Check that C's message does NOT arrive after whitelist rejection
+        match tokio::time::timeout(timeout, a.recv_raw()).await {
+            Ok(Ok((from, _))) => {
+                panic!("should NOT receive from C (not in whitelist), but got from {from}");
+            }
+            Ok(Err(e)) => panic!("unexpected recv_raw error: {e}"),
+            Err(_) => {
+                // Expected: timeout because C was rejected by gate
+            }
+        }
+
+        a.shutdown().await.expect("shutdown A");
+        b.shutdown().await.expect("shutdown B");
+        c.shutdown().await.expect("shutdown C");
     }
 
 }

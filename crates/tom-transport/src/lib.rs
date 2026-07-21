@@ -31,6 +31,7 @@ mod config;
 mod connection;
 mod envelope;
 mod error;
+mod gate;
 mod node;
 mod path;
 mod protocol;

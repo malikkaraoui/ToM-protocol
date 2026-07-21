@@ -127,13 +127,19 @@ async fn spawn_mesh_wired(
     let mut nodes = Vec::with_capacity(n);
     for _ in 0..n {
         nodes.push(
-            TomNode::bind(TomNodeConfig::new().n0_discovery(false).local_discovery(false)).await?,
+            TomNode::bind(TomNodeConfig::new().hermetic()).await?,
         );
     }
     let addrs: Vec<_> = nodes.iter().map(|nd| nd.addr()).collect();
 
+    // Collect node ids for whitelisting
+    let node_ids: std::collections::HashSet<_> = nodes.iter().map(|nd| nd.id()).collect();
+
     let mut out = Vec::with_capacity(n);
     for (i, node) in nodes.into_iter().enumerate() {
+        // Set allowed peers whitelist before attaching runtime
+        node.set_allowed_peers(Some(node_ids.clone()));
+
         let mut cfg = RuntimeConfig {
             username: format!("{}rolch-{i}", tom_protocol::TEST_NODE_PREFIX),
             encryption: true,
@@ -475,7 +481,7 @@ async fn r7_pop_ghosts() -> anyhow::Result<bool> {
     // juste son NodeId). C'est un « mort » plausible côté carnet d'adresses.
     let ghost_id = {
         let throwaway =
-            TomNode::bind(TomNodeConfig::new().n0_discovery(false).local_discovery(false)).await?;
+            TomNode::bind(TomNodeConfig::new().hermetic()).await?;
         let id = throwaway.id();
         drop(throwaway);
         id
@@ -506,26 +512,21 @@ async fn r7_pop_ghosts() -> anyhow::Result<bool> {
     let v_online = statuses
         .iter()
         .any(|(id, s)| *id == v_id && *s == PeerStatus::Online);
-    // NOTE herméticité : si des apps de la flotte tournent sur la MÊME machine,
-    // elles trouvent O par mDNS ENTRANT (le trio isolated ne coupe que la
-    // découverte SORTANTE) et lui poussent leur carnet → O les liste en Known.
-    // Ces Known « étrangers » ne faussent PAS le contrat R7 (ils restent Known,
-    // pas Online, faute de travail constaté), mais rendent un `online_count`
-    // ABSOLU non déterministe. On juge donc RELATIVEMENT : G ne vote pas, V vote.
-    // Trou d'herméticité documenté (banc-roles-sous-charge.md §1) — à traiter
-    // pour l'étage L en présence d'une flotte locale.
+    // Herméticité étage L (voir docs/plans/hermeticite-etage-l.md) : hermetic()
+    // ferme le relais compile-time, gate() refuse les étrangers. Aucun pair
+    // extérieur ne doit apparaître en Known.
     let foreign_known = statuses
         .iter()
         .filter(|(id, s)| *id != v_id && *id != ghost_id && *s == PeerStatus::Known)
         .count();
-    if foreign_known > 0 {
-        eprintln!(
-            "  [info] {foreign_known} pair(s) étranger(s) en Known (flotte locale via mDNS entrant — \
-             n'affecte pas le contrat R7, cf note herméticité)"
-        );
-    }
 
     let mut ok = true;
+    ok &= verdict(
+        "R7.herméticité-zéro-étranger",
+        foreign_known == 0,
+        &format!("aucun pair étranger ne doit être en Known ; trouvé: {}",
+            if foreign_known > 0 { format!("{} intrus", foreign_known) } else { "0 (ok)".to_string() }),
+    );
     ok &= verdict(
         "R7.fantôme-jamais-online",
         ghost_status != Some(PeerStatus::Online),
@@ -554,23 +555,37 @@ async fn r2_backup_absent_return() -> anyhow::Result<bool> {
     ));
     let _ = std::fs::remove_file(&id_path);
 
+    let a_node = TomNode::bind(TomNodeConfig::new().hermetic()).await?;
+    let a_id = a_node.id();
+
+    let b_node =
+        TomNode::bind(
+            TomNodeConfig::new()
+                .hermetic()
+                .identity_path(id_path.clone()),
+        )
+        .await?;
+    let b_id = b_node.id();
+
+    // Set allowed peers for both (A can connect to B and vice versa)
+    // Must be done BEFORE attaching runtime
+    let mut allowed = std::collections::HashSet::new();
+    allowed.insert(b_id);
+    a_node.set_allowed_peers(Some(allowed.clone()));
+
+    allowed.clear();
+    allowed.insert(a_id);
+    b_node.set_allowed_peers(Some(allowed));
+
     let a = attach_node(
-        TomNode::bind(TomNodeConfig::new().n0_discovery(false).local_discovery(false)).await?,
+        a_node,
         RuntimeConfig {
             username: format!("{}r2-A", tom_protocol::TEST_NODE_PREFIX),
             enable_dht: false,
             ..Default::default()
         },
     );
-    let b_node =
-        TomNode::bind(
-            TomNodeConfig::new()
-                .n0_discovery(false)
-                .local_discovery(false)
-                .identity_path(id_path.clone()),
-        )
-        .await?;
-    let b_id = b_node.id();
+
     let b = attach_node(
         b_node,
         RuntimeConfig {
@@ -608,12 +623,17 @@ async fn r2_backup_absent_return() -> anyhow::Result<bool> {
     let b2_node =
         TomNode::bind(
             TomNodeConfig::new()
-                .n0_discovery(false)
-                .local_discovery(false)
+                .hermetic()
                 .identity_path(id_path.clone()),
         )
         .await?;
     let b2_id = b2_node.id();
+
+    // Set allowed peers for B2 (same as before)
+    let mut allowed = std::collections::HashSet::new();
+    allowed.insert(a_id);
+    b2_node.set_allowed_peers(Some(allowed));
+
     let b2 = attach_node(
         b2_node,
         RuntimeConfig {

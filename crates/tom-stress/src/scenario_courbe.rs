@@ -232,15 +232,21 @@ async fn run_point(
     let mut nodes = Vec::with_capacity(n);
     for _ in 0..n {
         nodes.push(
-            TomNode::bind(TomNodeConfig::new().n0_discovery(false).local_discovery(false)).await?,
+            TomNode::bind(TomNodeConfig::new().hermetic()).await?,
         );
     }
     let ids: Vec<NodeId> = nodes.iter().map(|nd| nd.id()).collect();
     let addrs: Vec<_> = nodes.iter().map(|nd| nd.addr()).collect();
 
+    // Collect node ids for whitelisting
+    let node_ids: std::collections::HashSet<_> = ids.iter().copied().collect();
+
     // 2. Runtimes + canaux.
     let mut channels = Vec::with_capacity(n);
     for (i, node) in nodes.into_iter().enumerate() {
+        // Set allowed peers whitelist before spawning runtime
+        node.set_allowed_peers(Some(node_ids.clone()));
+
         let cfg = RuntimeConfig {
             username: format!("{}courbe-{i}", tom_protocol::TEST_NODE_PREFIX),
             encryption: true,
