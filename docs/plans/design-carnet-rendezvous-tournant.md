@@ -69,6 +69,37 @@ l'avance). C'est un rendez-vous rotatif : K hôtes tournants par node_id au lieu
 | Risque | slot encore semi-diffusif | divergence de vue → chercheur rate | complexité |
 | Reco | — | **privilégiée** (la plus proche de la vision) avec amorçage DHT (C) pour trouver l'ensemble | — |
 
+## 4bis. Algorithme de l'approche B (détail technique)
+**Sélection des K hôtes (rendezvous hashing / HRW)** : pour un `node_id` X et une
+période P, chaque candidat H (Online, éligible) reçoit un poids
+`w(H) = hash(H_id ‖ X_id ‖ P) · f(contribution_H)`. Les **K plus hauts poids** sont
+les hôtes de X pour P.
+- **Déterministe** : tout chercheur qui connaît {ensemble candidat, P} recalcule les
+  mêmes K hôtes → il sait QUI interroger pour trouver X.
+- **Tournant** : P change → poids changent → hôtes changent. Pas de point fixe.
+- **Réparti** : HRW distribue uniformément ; pondéré par contribution (LOCKED #6),
+  borné par le fade (pas toujours les mêmes → anti-aspirateur).
+- **Stable au churn** : ajouter/retirer un candidat ne déplace que ~1/N des mappings
+  (propriété HRW) → robuste aux vues légèrement divergentes.
+
+**Ensemble candidat** : nœuds Online (PoP constaté) éligibles au rôle. Découvert par
+amorçage DHT grossier (C) — le DHT ne publie plus les adresses de tous, il sert juste
+à savoir QUI peut héberger.
+
+**Période P** : d'abord temporelle `P = floor(now / T)` (T ex. 1 h). À durcir avec un
+**beacon d'entropie vérifiable** (imprévisibilité forte, §4.3) — sans lui, P est
+précalculable donc grindable (cf. red-team). Rotation simple d'abord, beacon ensuite (§8).
+
+**Publication (X)** : à chaque période, X calcule ses K hôtes pour P **et P+1**
+(chevauchement), leur envoie `{node_id, addrs}` **signé** (preuve de possession),
+TTL = période + grâce.
+
+**Recherche** : qui cherche X calcule ses K hôtes pour P (et P−1/P+1 en grâce), les
+interroge, retient la 1ʳᵉ réponse **signée valide** (quorum si divergence).
+
+**Transition (grâce)** : republier chez les hôtes de P+1 AVANT expiration des
+publications de P → 0 perte de lien pendant la rotation.
+
 ## 5. Red-team (modes de défaillance)
 - **Fragmentation / vues divergentes** : si l'`ensemble_Online` diffère entre nœuds,
   publieur et chercheur calculent des hôtes différents → X introuvable. → mapping
