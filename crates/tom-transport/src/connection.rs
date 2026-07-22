@@ -18,10 +18,22 @@ use tokio::sync::{broadcast, mpsc, Mutex};
 /// (~250-400 Ko) s'accumulait sans borne (OOM NAS,
 /// docs/plans/verdict-oom-connectioninner-2026-07-22.md). Le close actif fait
 /// drainer le driver → toutes les refs tombent → la mémoire est rendue.
-fn close_abandoned(conn: &Connection, reason: &[u8]) {
-    if conn.close_reason().is_none() {
-        conn.close(0u32.into(), reason);
-    }
+///
+/// ⚠️ TOUJOURS appeler HORS des verrous du pool, jamais dessous :
+/// `Connection::close()` prend le mutex d'ÉTAT de la connexion (tom-quinn
+/// `state.lock("close")`). Sous churn en rafale (~145 remplacements/s
+/// mesurés), fermer sous `inbound.lock()`/`connections.lock()` a GELÉ le NAS
+/// entier (même classe que pool-lock-hostage du 17/07 : le pool otage d'un
+/// verrou de connexion contendu → sends/accepts/status figés). D'où la tâche
+/// détachée : le caller ne paie jamais la contention du state lock.
+fn close_abandoned_detached(conn: Connection, reason: &'static [u8]) {
+    tokio::spawn(async move {
+        // Le check est DANS la task : close_reason() prend lui aussi le state
+        // lock — l'appelant ne doit toucher aucun verrou de connexion.
+        if conn.close_reason().is_none() {
+            conn.close(0u32.into(), reason);
+        }
+    });
 }
 
 /// Caches QUIC connections per peer. First `send()` triggers connect,
@@ -111,12 +123,12 @@ impl ConnectionPool {
         // ré-enregistrement de la même connexion est un no-op). C'est LE cas
         // dominant du churn : un pair qui re-dial écrase son entrée à chaque
         // fois, et chaque ancienne abandonnée sans close fuyait.
-        if let Some(old) = inbound.get(&id) {
-            if old.stable_id() != conn.stable_id() {
-                close_abandoned(old, b"replaced by newer inbound");
+        let new_sid = conn.stable_id();
+        if let Some(old) = inbound.insert(id, conn) {
+            if old.stable_id() != new_sid {
+                close_abandoned_detached(old, b"replaced by newer inbound");
             }
         }
-        inbound.insert(id, conn);
     }
 
     /// Retire une connexion entrante (à la fermeture de l'accept-loop) —
@@ -135,7 +147,7 @@ impl ConnectionPool {
             if let Some(old) = inbound.remove(id) {
                 // L'accept-loop est finie, la connexion est normalement déjà
                 // fermée — close défensif (no-op si close_reason est déjà posé).
-                close_abandoned(&old, b"accept loop ended");
+                close_abandoned_detached(old, b"accept loop ended");
             }
         }
     }
@@ -259,8 +271,9 @@ impl ConnectionPool {
         if let Some(existing) = conns.get(&target) {
             if existing.close_reason().is_none() {
                 tracing::debug!("dial concurrent gagnant pour {}, réutilisation", target);
-                close_abandoned(&conn, b"lost concurrent dial");
-                return Ok(existing.clone());
+                let existing = existing.clone();
+                close_abandoned_detached(conn, b"lost concurrent dial");
+                return Ok(existing);
             }
         }
 
@@ -286,7 +299,7 @@ impl ConnectionPool {
         // défensif uniforme, no-op sur une connexion déjà fermée.
         if let Some(old) = conns.insert(target, conn.clone()) {
             if old.stable_id() != conn.stable_id() {
-                close_abandoned(&old, b"replaced by newer outbound");
+                close_abandoned_detached(old, b"replaced by newer outbound");
             }
         }
         Ok(conn)
@@ -298,7 +311,7 @@ impl ConnectionPool {
     /// fermée). Le prochain send() re-dialera proprement.
     pub async fn remove(&self, target: &NodeId) {
         if let Some(old) = self.connections.lock().await.remove(target) {
-            close_abandoned(&old, b"evicted from pool");
+            close_abandoned_detached(old, b"evicted from pool");
         }
     }
 
