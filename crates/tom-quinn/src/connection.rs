@@ -66,6 +66,9 @@ impl Connecting {
             )),
             shared: Shared::default(),
             ref_count: std::sync::atomic::AtomicUsize::new(0),
+            app_handle_count: std::sync::atomic::AtomicUsize::new(0),
+            app_closed: std::sync::atomic::AtomicBool::new(false),
+            driver_waker: std::sync::Mutex::new(None),
         })));
 
         let driver = ConnectionDriver(conn.clone());
@@ -139,7 +142,7 @@ impl Connecting {
 
         if is_ok {
             let conn = self.conn.take().unwrap();
-            Ok((Connection(conn), ZeroRttAccepted(self.connected)))
+            Ok((Connection::new_handle(conn), ZeroRttAccepted(self.connected)))
         } else {
             Err(self)
         }
@@ -218,7 +221,7 @@ impl Future for Connecting {
             let inner = conn.state.lock("connecting");
             if inner.connected {
                 drop(inner);
-                Ok(Connection(conn))
+                Ok(Connection::new_handle(conn))
             } else {
                 Err(inner
                     .error
@@ -264,6 +267,27 @@ impl Future for ConnectionDriver {
 
         let span = debug_span!("drive", id = conn.handle.0);
         let _guard = span.enter();
+
+        // Fermeture applicative : (ré)enregistrer notre waker dans le mutex
+        // FEUILLE (pris sous le verrou d'état ici — l'ordre inverse n'existe
+        // nulle part, cf. ConnectionInner::driver_waker), puis honorer une
+        // demande armée par le drop du dernier handle applicatif : fermer ICI,
+        // sous NOTRE verrou (seul endroit autorisé) → drained → la task finit
+        // → toutes les refs tombent → `ConnectionInner` est libérée tout de
+        // suite, plus d'attente d'un idle timeout non fiable sous churn.
+        *self
+            .0
+            .driver_waker
+            .lock()
+            .expect("driver_waker poisoned") = Some(cx.waker().clone());
+        if self
+            .0
+            .app_closed
+            .load(std::sync::atomic::Ordering::Acquire)
+            && !conn.inner.is_closed()
+        {
+            conn.implicit_close(&self.0.shared);
+        }
 
         if let Err(e) = conn.process_conn_events(&self.0.shared, cx) {
             conn.terminate(e, &self.0.shared);
@@ -312,8 +336,35 @@ impl Future for ConnectionDriver {
 /// May be cloned to obtain another handle to the same connection.
 ///
 /// [`Connection::close()`]: Connection::close
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct Connection(ConnectionRef);
+
+// Clone/Drop MANUELS (le derive(Clone) est parti exprès) : chaque handle
+// applicatif est compté dans `app_handle_count`, et le drop du dernier
+// déclenche la fermeture via le driver — la sémantique quinn standard
+// documentée ci-dessus, que l'unification du ref_count avait perdue.
+impl Clone for Connection {
+    fn clone(&self) -> Self {
+        self.0.app_handle_added();
+        Self(self.0.clone())
+    }
+}
+
+impl Drop for Connection {
+    fn drop(&mut self) {
+        self.0.app_handle_dropped();
+    }
+}
+
+impl Connection {
+    /// Unique constructeur d'un handle applicatif — TOUTE construction passe
+    /// ici pour que le compteur ne puisse pas dériver (point de mutation
+    /// unique, même règle que les budgets en octets).
+    pub(crate) fn new_handle(conn: ConnectionRef) -> Self {
+        conn.app_handle_added();
+        Self(conn)
+    }
+}
 
 impl Connection {
     /// Returns a weak reference to the inner connection struct.
@@ -1306,6 +1357,55 @@ pub(crate) struct ConnectionInner {
     /// s'auto-deadlockait (mutex non réentrant) — gels terrain NAS 13/07 et
     /// iOS 17/07, signature gdb « futex tenu sans détenteur visible ».
     pub(crate) ref_count: std::sync::atomic::AtomicUsize,
+    /// Compteur de handles APPLICATIFS (`Connection`, `SendStream`,
+    /// `RecvStream`) — séparé de `ref_count`, qui compte AUSSI le driver et
+    /// les paths et ne peut donc jamais tomber à 0 tant que le driver vit.
+    /// Cette unification avait perdu la sémantique quinn standard « drop du
+    /// dernier handle ⇒ fermeture » : une connexion abandonnée par
+    /// l'application restait ouverte en attendant un idle timeout non fiable
+    /// sous churn/kill-brutal → `ConnectionInner` (~250-400 Ko) fuyait sans
+    /// borne (OOM NAS, docs/plans/verdict-oom-connectioninner-2026-07-22.md).
+    pub(crate) app_handle_count: std::sync::atomic::AtomicUsize,
+    /// Armé une seule fois (jamais désarmé) quand le dernier handle
+    /// applicatif tombe. Le driver le lit à chaque poll et ferme alors la
+    /// connexion sous SON verrou.
+    pub(crate) app_closed: std::sync::atomic::AtomicBool,
+    /// Waker du driver, HORS du mutex d'état (`State::driver` exige le
+    /// verrou — interdit depuis un Drop, classe deadlock 13/07). Mutex
+    /// FEUILLE : ne JAMAIS prendre un autre verrou en le tenant, et
+    /// `app_handle_dropped` ne touche JAMAIS le verrou d'état — aucune
+    /// inversion possible avec le driver (qui fait state → feuille).
+    pub(crate) driver_waker: std::sync::Mutex<Option<Waker>>,
+}
+
+impl ConnectionInner {
+    /// Un handle applicatif (Connection/SendStream/RecvStream) naît.
+    pub(crate) fn app_handle_added(&self) {
+        self.app_handle_count
+            .fetch_add(1, std::sync::atomic::Ordering::AcqRel);
+    }
+
+    /// Un handle applicatif meurt. Au DERNIER : arme `app_closed` et
+    /// réveille le driver, sans jamais toucher le verrou d'état.
+    pub(crate) fn app_handle_dropped(&self) {
+        let prev = self.app_handle_count.fetch_update(
+            std::sync::atomic::Ordering::AcqRel,
+            std::sync::atomic::Ordering::Acquire,
+            |x| x.checked_sub(1),
+        );
+        if prev == Ok(1) {
+            self.app_closed
+                .store(true, std::sync::atomic::Ordering::Release);
+            let waker = self
+                .driver_waker
+                .lock()
+                .expect("driver_waker poisoned")
+                .take();
+            if let Some(waker) = waker {
+                waker.wake();
+            }
+        }
+    }
 }
 
 /// A handle to some connection internals, use with care.
@@ -1325,7 +1425,7 @@ impl WeakConnectionHandle {
     pub fn upgrade(&self) -> Option<Connection> {
         self.0
             .upgrade()
-            .map(|inner| Connection(ConnectionRef::from_arc(inner)))
+            .map(|inner| Connection::new_handle(ConnectionRef::from_arc(inner)))
     }
 }
 

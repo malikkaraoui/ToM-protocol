@@ -39,6 +39,7 @@ pub struct SendStream {
 
 impl SendStream {
     pub(crate) fn new(conn: ConnectionRef, stream: StreamId, is_0rtt: bool) -> Self {
+        conn.app_handle_added();
         Self {
             conn,
             stream,
@@ -351,6 +352,16 @@ impl tokio::io::AsyncWrite for SendStream {
 
 impl Drop for SendStream {
     fn drop(&mut self) {
+        self.drop_inner();
+        // TOUJOURS décrémenter, y compris sur les sorties précoces de
+        // drop_inner : un handle non rendu laisserait la connexion ouverte
+        // pour toujours (fuite ConnectionInner). Hors verrou d'état.
+        self.conn.app_handle_dropped();
+    }
+}
+
+impl SendStream {
+    fn drop_inner(&mut self) {
         let mut conn = self.conn.state.lock("SendStream::drop");
 
         // clean up any previously registered wakers

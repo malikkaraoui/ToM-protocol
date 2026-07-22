@@ -59,6 +59,7 @@ pub struct RecvStream {
 
 impl RecvStream {
     pub(crate) fn new(conn: ConnectionRef, stream: StreamId, is_0rtt: bool) -> Self {
+        conn.app_handle_added();
         Self {
             conn,
             stream,
@@ -581,6 +582,15 @@ impl tokio::io::AsyncRead for RecvStream {
 
 impl Drop for RecvStream {
     fn drop(&mut self) {
+        self.drop_inner();
+        // TOUJOURS décrémenter, y compris sur les sorties précoces de
+        // drop_inner (cf. SendStream::drop). Hors verrou d'état.
+        self.conn.app_handle_dropped();
+    }
+}
+
+impl RecvStream {
+    fn drop_inner(&mut self) {
         let mut conn = self.conn.state.lock("RecvStream::drop");
 
         // clean up any previously registered wakers
