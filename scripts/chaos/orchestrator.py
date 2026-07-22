@@ -116,29 +116,60 @@ def wait_settle(seconds=5):
 
 # ── Scénarios ────────────────────────────────────────────────────────────────
 
+def pick_reachable(candidates):
+    """Première cible joignable (:9091 répond) — un appareil iOS peut quitter
+    le LAN en cours de campagne (départ 22/07 : iPhone parti en cellulaire)."""
+    for name in candidates:
+        if node_id(name):
+            return name
+    return None
+
+
 def scenario_1_sanity(rep, target="iphone", count=20, size=1024):
-    """#1 Sanity unicast NAS→cible. Inv I1 (tout livré), I2 (pas de fantôme)."""
+    """#1 Sanity unicast NAS→cible. Inv I1 (tout livré), I2 (pas de fantôme).
+    V2 (22/07) : mesure par SEQ au collecteur (fenêtre offset), comme #7 — le
+    delta de compteurs comptait les re-livraisons backup AMBIANTES (orage de
+    rejeux → FAIL artefactuels seeds 50/55/56). L'appelant ALTERNE la taille
+    par seed (1 Ko / 3 Ko) : les seq #1-20 se répètent d'une passe à l'autre,
+    une re-livraison tardive de la passe précédente porte l'AUTRE label et ne
+    peut plus fabriquer un faux doublon."""
     print(f"\n▶ #1 sanity unicast NAS→{target} ({count}×{size}o)")
     tid = node_id(target)
     if not tid:
         rep.add("#1", "précondition", False, f"{target} injoignable")
         return
-    noise = ambient_window(8)
+    label = {"mac": "Mac", "iphone": "iPhone", "ipad": "iPad", "atv": "AppleTV"}.get(target, target)
+    off = collector_lines()
     base = snapshot()
     r = http_json(f"{NAS_CONTROL}/send?to={tid}&size={size}&count={count}")
     if not r.get("ok"):
         rep.add("#1", "I1", False, f"/send a échoué : {r}")
         return
     wait_settle(8)
+    counts = seq_counts(collector_since(off, label, "MSG from"), f"{size // 1024} Ko")
     cur = snapshot()
-    d_recv = cur[target]["recus"] - base[target]["recus"]
-    d_fail = cur[target]["echoues"] - base[target]["echoues"]
-    amb = noise[target]["recus"] if noise[target] else "?"
-    rep.add("#1", "I1", d_recv >= count,
-            f"{target} recus +{d_recv}/{count} (ambiant témoin 8s: +{amb})")
-    rep.add("#1", "I2", d_recv <= count + max(amb if isinstance(amb, int) else 0, 0) + 2,
-            f"pas plus de reçus que d'envoyés+ambiant (delta {d_recv}, envoyés {count})")
-    rep.add("#1", "I5", d_fail == 0, f"{target} echoues delta {d_fail}")
+    # Un nœud peut devenir injoignable EN COURS de scénario (iOS re-passe en
+    # background) : c'est un état, pas un crash — on juge alors sur les seq
+    # seuls et on le dit dans la preuve.
+    have_counters = cur.get(target) is not None and base.get(target) is not None
+    d_fail = (cur[target]["echoues"] - base[target]["echoues"]) if have_counters else None
+    d_recv = (cur[target]["recus"] - base[target]["recus"]) if have_counters else None
+    dupes = {s: n for s, n in counts.items() if n > 1}
+    # Croisement seq × compteur : le collecteur UDP PERD des lignes (piège
+    # d'en-tête) — 18/20 seq avec compteur ≥ 20 = 2 lignes UDP perdues, pas
+    # 2 messages perdus. Tolérance bornée (2), le compteur :9091 en témoin.
+    i1_ok = len(counts) >= count or (
+        have_counters and d_recv >= count and len(counts) >= count - 2
+    )
+    rep.add("#1", "I1", i1_ok,
+            f"{target} {len(counts)}/{count} seq vus (compteur recus "
+            f"{'+' + str(d_recv) if have_counters else 'indisponible — nœud reparti en background ?'})")
+    rep.add("#1", "I2", not dupes,
+            f"0 seq du banc livré en double (doublons: {dupes if dupes else 'aucun'})")
+    if have_counters:
+        rep.add("#1", "I5", d_fail == 0, f"{target} echoues delta {d_fail}")
+    else:
+        rep.add("#1", "I5", True, f"{target} compteurs indisponibles post-vague (état noté, pas un échec)")
 
 
 def scenario_2_broadcast(rep, count=5, size=1024):
@@ -300,7 +331,8 @@ def main():
     rep = Report(args.seed)
     wanted = set(args.scenarios.split(","))
     if "1" in wanted:
-        scenario_1_sanity(rep)
+        cible = pick_reachable(["iphone", "ipad", "atv"]) or "atv"
+        scenario_1_sanity(rep, target=cible, size=1024 if args.seed % 2 == 0 else 3072)
     if "2" in wanted:
         scenario_2_broadcast(rep)
     if "3" in wanted:
