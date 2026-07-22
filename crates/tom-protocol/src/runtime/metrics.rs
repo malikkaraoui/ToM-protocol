@@ -31,6 +31,11 @@ pub struct MetricsSnapshot {
     pub clients_relais_actifs: u64,
     /// [DIAG OOM] Total cumulé de connexions acceptées par le relais embarqué.
     pub relais_accepts_total: u64,
+    /// [DIAG OOM] Connexions QUIC actuellement ouvertes (proto.connections.len).
+    /// JUGE fuite : monte + ne redescend pas post-kill → connexions non purgées.
+    pub conns_quic_live: u64,
+    /// [DIAG OOM] Handshakes QUIC acceptés cumulés (proxy churn connexions entrantes).
+    pub handshakes_accepted: u64,
 }
 
 /// Shared, clonable metrics handle.
@@ -59,6 +64,10 @@ struct Inner {
     clients_relais_actifs: Gauge,
     /// [DIAG OOM] Accepts cumulés du relais embarqué.
     relais_accepts_total: Gauge,
+    /// [DIAG OOM] Connexions QUIC vivantes (open_connections).
+    conns_quic_live: Gauge,
+    /// [DIAG OOM] Handshakes QUIC acceptés cumulés.
+    handshakes_accepted: Gauge,
 }
 
 impl ProtocolMetrics {
@@ -78,6 +87,8 @@ impl ProtocolMetrics {
                 role_local: std::sync::atomic::AtomicU8::new(0),
                 clients_relais_actifs: Gauge::new(),
                 relais_accepts_total: Gauge::new(),
+                conns_quic_live: Gauge::new(),
+                handshakes_accepted: Gauge::new(),
             }),
         }
     }
@@ -140,6 +151,12 @@ impl ProtocolMetrics {
         self.inner.relais_accepts_total.set(accepts_total);
     }
 
+    /// [DIAG OOM] Met à jour le compteur de connexions QUIC vivantes + handshakes cumulés.
+    pub fn set_conns_quic(&self, live: u64, handshakes_accepted: u64) {
+        self.inner.conns_quic_live.set(live);
+        self.inner.handshakes_accepted.set(handshakes_accepted);
+    }
+
     // ── Read method (called by app via RuntimeHandle) ────────────────
 
     /// Take a consistent snapshot of all metrics.
@@ -168,6 +185,8 @@ impl ProtocolMetrics {
             role_local,
             clients_relais_actifs: self.inner.clients_relais_actifs.get(),
             relais_accepts_total: self.inner.relais_accepts_total.get(),
+            conns_quic_live: self.inner.conns_quic_live.get(),
+            handshakes_accepted: self.inner.handshakes_accepted.get(),
         }
     }
 }

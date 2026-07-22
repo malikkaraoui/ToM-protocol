@@ -504,6 +504,16 @@ impl TomNode {
         self.endpoint.addr()
     }
 
+    /// [DIAG OOM] Nombre de connexions QUIC actuellement ouvertes au niveau endpoint.
+    pub fn open_connections(&self) -> usize {
+        self.endpoint.open_connections()
+    }
+
+    /// [DIAG OOM] Handshakes QUIC acceptés cumulés (proxy churn connexions entrantes).
+    pub fn accepted_handshakes(&self) -> u64 {
+        self.endpoint.accepted_handshakes()
+    }
+
     /// Takes the receiver for PeerPresent events from relay servers.
     ///
     /// Returns `None` if already taken. Yields `(EndpointId, RelayUrl)` tuples

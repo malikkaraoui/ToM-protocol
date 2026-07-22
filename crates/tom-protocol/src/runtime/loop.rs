@@ -757,6 +757,13 @@ pub(super) async fn runtime_loop(
                     .relay_client_stats()
                     .map_or((0, 0), |(actifs, accepts, _dis)| (actifs, accepts));
                 metrics.set_relais_stats(relais_actifs, relais_accepts);
+                // [DIAG OOM] JUGE : connexions QUIC vivantes (open_connections) +
+                // handshakes cumulés. Si `live` monte et ne redescend pas post-kill,
+                // les connexions ne sont pas purgées → fuite au niveau connexion.
+                metrics.set_conns_quic(
+                    node.open_connections() as u64,
+                    node.accepted_handshakes(),
+                );
                 Vec::new()
             }
 

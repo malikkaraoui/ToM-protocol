@@ -1293,6 +1293,18 @@ impl Endpoint {
         ServerConfigBuilder::new(inner, self.static_config.transport_config.clone())
     }
 
+    /// [DIAG OOM] Nombre de connexions QUIC que l'endpoint considère actuellement
+    /// ouvertes (`proto.connections.len()`). Si ça monte et ne redescend jamais,
+    /// les connexions ne sont pas purgées — fuite au niveau connexion.
+    pub fn open_connections(&self) -> usize {
+        self.sock.endpoint().open_connections()
+    }
+
+    /// [DIAG OOM] Handshakes QUIC acceptés cumulés (proxy du churn de connexions entrantes).
+    pub fn accepted_handshakes(&self) -> u64 {
+        self.sock.endpoint().stats().accepted_handshakes
+    }
+
     // # Remaining private methods
 
     #[cfg(test)]
