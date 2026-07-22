@@ -1151,3 +1151,58 @@ async fn weak_connection_handle() {
     server_res.expect("server task panicked");
     client_res.expect("client task panicked");
 }
+
+/// NON-RÉGRESSION : le drop du dernier handle applicatif (Connection, aucun
+/// stream) doit fermer la connexion — le pair reçoit CONNECTION_CLOSE
+/// (code 0) en < 5 s, pas un idle timeout, même avec keep-alive actif.
+///
+/// ⚠️ Honnêteté de banc : ce scénario in-process (dial localhost) fermait
+/// DÉJÀ au drop avant `app_handle_count` (contre-épreuve 2026-07-22) — un
+/// mécanisme de fermeture-au-drop existe sur ce chemin, alors qu'il ÉCHOUE
+/// sur le chemin terrain (connexions ACCEPTÉES sous churn : 991 fantômes,
+/// RSS figé, verdict OOM NAS). Ce test fige donc le comportement observable,
+/// il ne prouve PAS le mécanisme : la validation du fix est le banc load-8
+/// terrain (runs 2 vs 3, docs/plans/verdict-oom-connectioninner-2026-07-22.md
+/// § Résultats). Cartographier qui-ferme-au-drop in-process = entrée de la
+/// session piste 4 (idle/keep-alive).
+#[tokio::test]
+async fn dropping_last_app_handle_closes_connection() {
+    let _guard = subscribe();
+    let factory = EndpointFactory::new();
+    // Keep-alive ACTIF (config du terrain tom-connect, quic.rs:153) : c'est
+    // lui qui immortalise une connexion abandonnée en ré-armant l'idle —
+    // sans app_handle_count ce test reste bloqué sur server.closed().
+    let mut ka_config = TransportConfig::default();
+    ka_config.keep_alive_interval(Some(std::time::Duration::from_millis(200)));
+    ka_config.max_idle_timeout(Some(std::time::Duration::from_secs(2).try_into().unwrap()));
+    let server_ep = factory.endpoint_with_config("server", {
+        let mut c = TransportConfig::default();
+        c.keep_alive_interval(Some(std::time::Duration::from_millis(200)));
+        c.max_idle_timeout(Some(std::time::Duration::from_secs(2).try_into().unwrap()));
+        c
+    });
+    let client_ep = factory.endpoint_with_config("client", ka_config);
+    let server_addr = server_ep.local_addr().unwrap();
+
+    let server_task = tokio::spawn(async move {
+        server_ep.accept().await.unwrap().await.unwrap()
+    });
+    let client = client_ep
+        .connect(server_addr, "localhost")
+        .unwrap()
+        .await
+        .unwrap();
+    let server = server_task.await.unwrap();
+
+    drop(client);
+
+    match tokio::time::timeout(std::time::Duration::from_secs(5), server.closed()).await {
+        Ok(ConnectionError::ApplicationClosed(close)) => {
+            assert_eq!(close.error_code, 0u32.into(), "code de fermeture applicative attendu");
+        }
+        Ok(other) => panic!("fermeture inattendue: {other}"),
+        Err(_) => panic!(
+            "pas de CONNECTION_CLOSE en 5 s — le drop du dernier handle applicatif n'a pas fermé la connexion"
+        ),
+    }
+}

@@ -135,3 +135,40 @@ Décider : garder (utile en prod pour l'observabilité connexion) ou retirer ava
 NAS restauré propre (35 Mo). Verdict + localisation confirmés file:line. **Prochain (avec Malik) :
 valider le design du fix `app_handle_count`, l'implémenter en worktree, re-run load-8 → `conns_quic`
 doit redescendre au nb de pairs ET le RSS avec.** Voir mémoire `tom-freebox-oom-carnet-rendezvous`.
+
+---
+
+## Résultats des fixes (2026-07-22 matin — branche fix/connectioninner-leak, 3 runs load-8)
+
+| run | binaire | pic conns_quic | post-kill conns_quic | pic RSS | RSS final | notes |
+|-----|---------|---------------|---------------------|---------|-----------|-------|
+| pré-fix (réf) | instrumenté | 991 | **330 figé** | 293 Mo | **293 figé** | fuite monotone |
+| 1 | piste 2 (close sous verrou) | ~830 | (aveugle) | 251 Mo | 249 figé | **GEL /status** t+128s→fin (pool-lock-hostage), dégel spontané post-charge, purge différée 80→50 |
+| 2 | piste 2 détachée | 499 | **107** en 15 s | 184 Mo | 184 figé | zéro gel, sends 8/8, purge massive, RSS non rendu |
+| 3 | pistes 2+1 (`app_handle_count`) | **342** | **52** en 15 s | **136 Mo** | 136 **PLAT** (±1 Mo sur 5 min de repos) | dérive mémoire STOPPÉE, RSS non rendu vers baseline |
+
+**Acquis prouvés** : (a) fermeture active des connexions abandonnées → l'accumulation
+monotone a disparu (`conns_quic` oscille 52-65 au repos au lieu de monter) ; (b) le RSS ne
+dérive plus (plat vs +80 Mo/h pré-fix) ; (c) pic mémoire ÷2,2 ; (d) leçon pool-lock-hostage
+re-payée puis gravée dans le code (`close_abandoned_detached`, jamais de verrou de connexion
+sous un verrou de pool).
+
+**Résiduels (ce que les pistes 2+1 ne couvrent PAS)** :
+1. **~50 connexions fantômes éternelles vers les pairs tués** — l'idle timeout ne tire
+   JAMAIS : call-site suspect confirmé `tom-connect/src/endpoint/quic.rs:153-154`
+   (`keep_alive_interval` + `default_path_keep_alive_interval` sur TOUTES les connexions ;
+   l'émission ack-eliciting ré-arme l'idle → une connexion vers un mort est immortelle).
+   ⚠️ NE PAS couper à l'aveugle : le keep-alive tient les mappings NAT (hole punching).
+   Chantier piste 4 : trace RUST_LOG idle/PTO d'une connexion vers un mort, puis keep-alive
+   conditionnel au trafic ENTRANT récent (ou PTO-cap). Session dédiée.
+2. **Rafales de churn** (~100-215 handshakes acceptés d'un coup, période ~30 s, corrélées
+   `relais_accepts`) — piste 3, préexistant, moteur du stock tournant.
+3. **RSS non rendu vers la baseline** (136 vs 40-75 Mo) : à re-quantifier APRÈS piste 4
+   (les ~50 ConnectionInner vivantes + leurs buffers n'expliquent que ~20-25 Mo ; le reste =
+   rétention allocateur musl à départager d'une rétention hors-connexion par un repos long
+   SANS fantômes).
+
+**Endurance** : NAS restauré 35,9 Mo sur le binaire fixé (pistes 2+1) — la nuit dira si
+l'OOM revient (Restart=always, kernel ~920 Mo). `sends OK 8/8` sur tous les runs : aucune
+régression de réception (#46b/#46c préservés, test discriminant
+`disconnect_actively_closes_connection_for_peer` + contre-épreuve FAILED-sans-fix).
