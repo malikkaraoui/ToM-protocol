@@ -3,7 +3,7 @@
 # Stop propre (évite le Restart=always pendant le scp) → backup → scp → start → vérif.
 set -uo pipefail   # PAS -e : on garantit le restart du service même en cas d'échec
 NAS=root@192.168.0.83
-BIN=/Users/malik/Documents/tom-protocol/target/aarch64-unknown-linux-musl/release/tom-chat
+BIN=${BIN:-/Users/malik/Documents/tom-protocol/target/aarch64-unknown-linux-musl/release/tom-chat}
 
 [ -f "$BIN" ] || { echo "ABORT: binaire ARM absent ($BIN) — zigbuild pas fini ?"; exit 1; }
 LOCAL_MD5=$(md5 -q "$BIN" 2>/dev/null || md5sum "$BIN" | awk '{print $1}')

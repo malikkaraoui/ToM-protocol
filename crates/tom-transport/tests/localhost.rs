@@ -120,6 +120,55 @@ async fn reject_message_above_reassembly_ceiling() {
     node_b.shutdown().await.unwrap();
 }
 
+/// Fix fuite `ConnectionInner` : évincer une connexion du pool la FERME
+/// activement (CONNECTION_CLOSE) au lieu de l'abandonner vivante. Observable
+/// côté pair : l'accept-loop de B se termine → B ne compte plus A parmi ses
+/// pairs connectés bien avant l'idle timeout (~10 s). Avant le fix, la
+/// connexion évincée restait un zombie vivant côté B (drop sans close) et ce
+/// test échouait au timeout de 8 s.
+#[tokio::test]
+async fn disconnect_actively_closes_connection_for_peer() {
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter("warn")
+        .try_init();
+
+    let node_a = TomNode::bind(TomNodeConfig::new().hermetic()).await.unwrap();
+    let mut node_b = TomNode::bind(TomNodeConfig::new().hermetic()).await.unwrap();
+
+    let id_a = node_a.id();
+    let id_b = node_b.id();
+    node_a.add_peer_addr(node_b.addr()).await;
+    node_b.add_peer_addr(node_a.addr()).await;
+
+    // Établit la connexion A→B (B l'enregistre côté inbound).
+    let env = MessageEnvelope::new(id_a, id_b, "ping", serde_json::json!({}));
+    node_a.send(id_b, &env).await.unwrap();
+    tokio::time::timeout(std::time::Duration::from_secs(30), node_b.recv())
+        .await
+        .expect("recv timed out")
+        .unwrap();
+    assert!(
+        node_b.connected_peers().await.contains(&id_a),
+        "B doit voir A connecté après réception"
+    );
+
+    // Éviction côté A → le CONNECTION_CLOSE doit se propager à B bien avant
+    // l'idle timeout (~10 s) : borne à 8 s pour discriminer close actif vs
+    // abandon passif.
+    node_a.disconnect(id_b).await;
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(8);
+    while node_b.connected_peers().await.contains(&id_a) {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "B compte encore A 8 s après disconnect — la connexion évincée n'a pas été fermée activement"
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    }
+
+    node_a.shutdown().await.unwrap();
+    node_b.shutdown().await.unwrap();
+}
+
 /// Bidirectional: A sends to B, B responds to A.
 #[tokio::test]
 async fn bidirectional_exchange() {

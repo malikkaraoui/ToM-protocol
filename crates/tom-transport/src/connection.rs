@@ -8,6 +8,22 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::{broadcast, mpsc, Mutex};
 
+/// Ferme activement une connexion vivante qu'on abandonne (remplacée par une
+/// nouvelle du même pair, perdante d'un dial concurrent, ou évincée du pool).
+///
+/// Dropper le handle ne ferme RIEN : le fork unifie le `ref_count` (handles
+/// applicatifs + driver + paths) et le driver garde sa ref jusqu'au drain —
+/// une connexion abandonnée sans CONNECTION_CLOSE attend un idle timeout qui,
+/// sous churn/kill-brutal, ne vient pas de façon fiable → `ConnectionInner`
+/// (~250-400 Ko) s'accumulait sans borne (OOM NAS,
+/// docs/plans/verdict-oom-connectioninner-2026-07-22.md). Le close actif fait
+/// drainer le driver → toutes les refs tombent → la mémoire est rendue.
+fn close_abandoned(conn: &Connection, reason: &[u8]) {
+    if conn.close_reason().is_none() {
+        conn.close(0u32.into(), reason);
+    }
+}
+
 /// Caches QUIC connections per peer. First `send()` triggers connect,
 /// subsequent sends reuse the cached connection.
 pub(crate) struct ConnectionPool {
@@ -90,6 +106,16 @@ impl ConnectionPool {
             );
             return;
         }
+        // Fermer l'ancienne connexion vivante que CETTE insertion remplace
+        // (même pair, connexion différente) — jamais celle qu'on insère (un
+        // ré-enregistrement de la même connexion est un no-op). C'est LE cas
+        // dominant du churn : un pair qui re-dial écrase son entrée à chaque
+        // fois, et chaque ancienne abandonnée sans close fuyait.
+        if let Some(old) = inbound.get(&id) {
+            if old.stable_id() != conn.stable_id() {
+                close_abandoned(old, b"replaced by newer inbound");
+            }
+        }
         inbound.insert(id, conn);
     }
 
@@ -106,7 +132,11 @@ impl ConnectionPool {
             .get(id)
             .is_some_and(|current| current.stable_id() == conn.stable_id())
         {
-            inbound.remove(id);
+            if let Some(old) = inbound.remove(id) {
+                // L'accept-loop est finie, la connexion est normalement déjà
+                // fermée — close défensif (no-op si close_reason est déjà posé).
+                close_abandoned(&old, b"accept loop ended");
+            }
         }
     }
 
@@ -221,12 +251,15 @@ impl ConnectionPool {
 
         // Re-lock BREF pour publier. Double-check : un dial concurrent a pu
         // aboutir pendant le nôtre (le verrou n'est plus tenu pendant les
-        // dials) — on réutilise alors la sienne et la nôtre sera fermée par
-        // drop (le remote_map QUIC fusionne de toute façon, cf. #46c).
+        // dials) — on réutilise alors la sienne et on ferme ACTIVEMENT la
+        // nôtre (le drop seul ne ferme rien — c'était la fuite
+        // `ConnectionInner`). Sans risque pour la réception : ni watcher ni
+        // stream-reader ne sont encore attachés à la nôtre (spawnés plus bas).
         let mut conns = self.connections.lock().await;
         if let Some(existing) = conns.get(&target) {
             if existing.close_reason().is_none() {
                 tracing::debug!("dial concurrent gagnant pour {}, réutilisation", target);
+                close_abandoned(&conn, b"lost concurrent dial");
                 return Ok(existing.clone());
             }
         }
@@ -248,13 +281,25 @@ impl ConnectionPool {
             self.max_message_size,
         );
 
-        conns.insert(target, conn.clone());
+        // L'entrée écrasée ici est en pratique déjà morte (retirée au premier
+        // check si morte, réutilisée au double-check si vivante) — close
+        // défensif uniforme, no-op sur une connexion déjà fermée.
+        if let Some(old) = conns.insert(target, conn.clone()) {
+            if old.stable_id() != conn.stable_id() {
+                close_abandoned(&old, b"replaced by newer outbound");
+            }
+        }
         Ok(conn)
     }
 
     /// Remove a connection from the cache (e.g., after send failure).
+    /// L'éviction FERME la connexion retirée : la laisser vivante en dehors du
+    /// pool en faisait un zombie invisible (plus jamais réutilisée, jamais
+    /// fermée). Le prochain send() re-dialera proprement.
     pub async fn remove(&self, target: &NodeId) {
-        self.connections.lock().await.remove(target);
+        if let Some(old) = self.connections.lock().await.remove(target) {
+            close_abandoned(&old, b"evicted from pool");
+        }
     }
 
     /// List all connected peers — connexions SORTANTES (pool) ET ENTRANTES

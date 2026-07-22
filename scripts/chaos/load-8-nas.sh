@@ -4,7 +4,7 @@
 # Puis kill des 8 → le RSS redescend-il ? quel compteur redescend ?
 # Pollution bornée : kill des 8 en fin + note reset carnet NAS.
 set -uo pipefail
-BIN=/Users/malik/Documents/tom-protocol/target/debug/tom-chat
+BIN=${BIN:-/Users/malik/Documents/tom-protocol/target/debug/tom-chat}
 NAS=root@192.168.0.83
 NAS_RELAY=http://192.168.0.83:3340
 NAS_ST=http://192.168.0.83:8085
