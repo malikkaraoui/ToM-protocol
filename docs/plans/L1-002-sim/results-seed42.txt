@@ -1,0 +1,72 @@
+# L1-002 grinding simulation  (seed=42, rounds=600)
+
+## EXP-0a — uniformite de la selection (tirage egal)
+  N=  20  ecart_max_observe=0.045  bande_bruit_~3sigma=0.065  [OK]
+  N=  50  ecart_max_observe=0.048  bande_bruit_~3sigma=0.066  [OK]
+  N= 100  ecart_max_observe=0.057  bande_bruit_~3sigma=0.067  [OK]
+  -> ecart_max <= bande de bruit : compatible avec l'UNIFORME (chaque noeud ~1/N).
+     Donc le baseline equitable est bien f=G/N.
+
+## EXP-0b — chaque re-tirage = tirage independant Bernoulli(f) ?
+  N=200, G=20 (f=0.10) — P(grinder gagne en <=R essais) :
+     R |  empirique |  loi 1-(1-f)^R
+     1 |     0.0950 |         0.1000
+     2 |     0.1783 |         0.1900
+     5 |     0.3817 |         0.4095
+    10 |     0.6367 |         0.6513
+    20 |     0.8767 |         0.8784
+    40 |     0.9883 |         0.9852
+  -> empirique ~= loi : re-tirer donne K tirages independants. Modele valide.
+
+## EXP-1 — REGIME A (naif) : avantage vs budget de re-tirage T, a f=0.10 fixe
+   (le grinder re-tire T fois et garde le meilleur ; le trou de L1-001)
+        T \ N | N=    50 | N=   500 | N=  5000 | N= 50000
+            1 | -2.8e-17 | -2.8e-17 | -2.8e-17 | -2.8e-17
+           10 |   0.5513 |   0.5513 |   0.5513 |   0.5513
+          100 |   0.9000 |   0.9000 |   0.9000 |   0.9000
+         1000 |   0.9000 |   0.9000 |   0.9000 |   0.9000
+        10000 |   0.9000 |   0.9000 |   0.9000 |   0.9000
+      1000000 |   0.9000 |   0.9000 |   0.9000 |   0.9000
+   -> a fraction f FIXE, l'avantage NE DEPEND PAS de N et -> ~0.9 a T=10^6.
+      VERDICT : la masse seule NE protege PAS contre le re-tirage. Le trou reste.
+
+## EXP-2 — REGIME B (temoigne-par-vague) : re-tirage IMPOSSIBLE, reste l'abstention
+   Tries effectifs = b+1 (b = nb d'abstentions tolerees avant fade). f=0.10 fixe.
+   Compare au critere du plan : Regime A a T=10^6.
+     b |  tries |   avantage_B   (rappel A@1e6 = 0.9000)
+     0 |      1 |     -2.8e-17
+     1 |      2 |       0.0900
+     2 |      3 |       0.1710
+     5 |      6 |       0.3686
+    10 |     11 |       0.5862
+   -> le temoignage plafonne les essais a b+1 : l'avantage s'effondre (b=0 => equite).
+      La DIGUE = l'engagement temoigne, PAS la masse. Le critere 10^6 devient sans objet.
+
+## EXP-3 — la masse vs adversaire de TAILLE FIXE G (f=G/N -> 0 quand N grandit)
+   Regime B, b=1 (une abstention toleree). G absolu constant.
+   G=5 noeuds hostiles absolus :
+             N |    f=G/N |  avantage_B(b=1)
+           100 |   0.0500 |           0.0475
+          1000 |   0.0050 |           0.0050
+         10000 |   0.0005 |           0.0005
+        100000 |   0.0001 |          5.0e-05
+   G=50 noeuds hostiles absolus :
+             N |    f=G/N |  avantage_B(b=1)
+           100 |   0.5000 |           0.2500
+          1000 |   0.0500 |           0.0475
+         10000 |   0.0050 |           0.0050
+        100000 |   0.0005 |           0.0005
+   -> contre un adversaire ABSOLU, l'avantage -> 0 quand N grandit :
+      ICI « plus de monde = plus fort » est VRAI (dilution de f).
+
+## EXP-4 — adversaire a FRACTION constante f : la masse ne suffit plus
+   Regime B, b=1. G croit avec N (f fixe). Avantage vs N :
+           f | N=   100 | N=  1000 | N= 10000
+        0.01 |   0.0099 |   0.0099 |   0.0099
+        0.05 |   0.0475 |   0.0475 |   0.0475
+         0.1 |   0.0900 |   0.0900 |   0.0900
+         0.2 |   0.1600 |   0.1600 |   0.1600
+   -> a f FIXE l'avantage_B est PLAT en N : borne par la politique b, pas par la masse.
+      SYNTHESE : temoignage (plafonne K) + masse (dilue f absolu) + fade (borne b).
+
+[csv] l1-002-results.csv  (41 lignes)

@@ -1,0 +1,29 @@
+# L1-002 ROTATION simulation  (N=50, f=0.10 [5 adv], T=400, trials=20, seed=42, GRIND_MAX=30)
+
+PHI_T = fraction du temps ou l'adversaire TIENT le role.  Equite <=> PHI_T ~ f.
+
+## Regimes (feedback = pouvoir de grinding confere par le role)
+  B  feedback OFF, cooldown 0  (reference)       PHI_T=0.104 (f=0.10)  R_max=2 (p95=3)  early->late=0.10->0.11  [EQUITE]
+  C  feedback OFF, cooldown C=2                  PHI_T=0.102 (f=0.10)  R_max=2 (p95=3)  early->late=0.10->0.10  [EQUITE]
+  D  feedback rho=0.3, cooldown 0                PHI_T=0.214 (f=0.10)  R_max=10 (p95=15)  early->late=0.21->0.23  [biais]
+  E  feedback rho=0.9, cooldown 0  (danger)      PHI_T=0.645 (f=0.10)  R_max=51 (p95=68)  early->late=0.64->0.64  [CAPTURE]
+  F  feedback rho=0.9, cooldown C=2              PHI_T=0.422 (f=0.10)  R_max=23 (p95=32)  early->late=0.43->0.41  [CAPTURE]
+  G  feedback rho=0.9, cooldown C=n_adv+1        PHI_T=0.230 (f=0.10)  R_max=5 (p95=5)  early->late=0.23->0.23  [biais]
+
+## Balayage rho (cooldown 0) — ou bascule-t-on de l'equite a la capture ?
+    rho |  K_fb |   PHI_T |  R_max | verdict
+     rho=0.0                                     PHI_T=0.099 (f=0.10)  R_max=2 (p95=3)  early->late=0.09->0.10  [EQUITE]
+     rho=0.2                                     PHI_T=0.167 (f=0.10)  R_max=6 (p95=9)  early->late=0.16->0.17  [biais]
+     rho=0.4                                     PHI_T=0.287 (f=0.10)  R_max=13 (p95=18)  early->late=0.28->0.29  [biais]
+     rho=0.6                                     PHI_T=0.429 (f=0.10)  R_max=26 (p95=38)  early->late=0.41->0.43  [CAPTURE]
+     rho=0.8                                     PHI_T=0.582 (f=0.10)  R_max=44 (p95=58)  early->late=0.57->0.58  [CAPTURE]
+     rho=1.0                                     PHI_T=0.698 (f=0.10)  R_max=66 (p95=110)  early->late=0.66->0.70  [CAPTURE]
+
+## Balayage cooldown (feedback rho=0.9 FORT) — le cooldown sauve-t-il ?
+  viabilite petit reseau : C < 1/(2f) = 5.0
+     C=0                                         PHI_T=0.655 (f=0.10)  R_max=61 (p95=119)  early->late=0.63->0.67  [CAPTURE]
+     C=2                                         PHI_T=0.398 (f=0.10)  R_max=22 (p95=32)  early->late=0.39->0.38  [CAPTURE]
+     C=4                                         PHI_T=0.251 (f=0.10)  R_max=8 (p95=10)  early->late=0.26->0.25  [biais]
+     C=5                                         PHI_T=0.240 (f=0.10)  R_max=5 (p95=5)  early->late=0.25->0.23  [biais]
+     C=6                                         PHI_T=0.236 (f=0.10)  R_max=5 (p95=5)  early->late=0.24->0.23  [biais]
+     C=10                                        PHI_T=0.205 (f=0.10)  R_max=5 (p95=5)  early->late=0.21->0.20  [biais]
