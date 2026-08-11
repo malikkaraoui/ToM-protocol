@@ -89,7 +89,11 @@ jobs:
         run: cargo build -p tom-transport
 
       - name: Test
-        run: cargo test -p tom-transport
+        # --test-threads=1 : ces tests ouvrent de vrais sockets UDP/QUIC ; en
+        # parallèle ils se disputent ports/timing (flake gate_rejects_unlisted_peer,
+        # observé rouge/vert en alternance). Sérialisés ils sont stables — même
+        # discipline que le job rust-integration ci-dessous.
+        run: cargo test -p tom-transport -- --test-threads=1
 
       - name: Clippy
         run: cargo clippy -p tom-transport -- -D warnings
