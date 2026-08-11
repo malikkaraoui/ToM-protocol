@@ -19,6 +19,7 @@ ignore = [
     # cargo update -p rustls-webpki (0.103.9 → 0.103.13) — ignores retirés.
     "RUSTSEC-2026-0097", # rand 0.9.2 — unsound avec logger custom. Fix annoncé >=0.9.3 PAS ENCORE PUBLIÉ (cargo update sans effet, vérifié 2026-06-11). Exposition faible : pas de logger custom dans le workspace. À re-vérifier périodiquement. Nota : la contrainte rand de tom-gossip ("0.9.2" = caret ^0.9.2) acceptera 0.9.3 sans modification.
     "RUSTSEC-2026-0002", # lru IterMut unsound (le commentaire initial disait slab — erreur corrigée 2026-06-11). Usage DIRECT corrigé : tom-protocol bumpe lru 0.12→0.16.3. Reste lru 0.12.5 via ratatui 0.29 (tom-tui, UI seulement) — exposition : IterMut non utilisé par notre code.
+    "RUSTSEC-2026-0253", # lru LruCache::pop() — use-after-free potentiel (unsound, défaut de panic-safety). Publié APRÈS le 24/07 (CI vert sur 3c012cb, rouge depuis pour tout commit). Même exposition que 0002 : lru 0.16.3 dans tom-protocol (caches BORNÉS nonce anti-replay/backup — pop() ne panique pas en usage normal) + lru 0.12.5 via ratatui 0.29 (tom-tui UI). Unsound théorique, pas d'exploit ; à lever au patch lru amont.
     "RUSTSEC-2024-0436", # paste unmaintained — dep transitive, remplaçant: pastey
     "RUSTSEC-2023-0089", # atomic-polyfill unmaintained — dep transitive
     # RUSTSEC-2026-0194/0195 : quick-xml 0.38.4 (DoS CPU/mémoire sur XML non
