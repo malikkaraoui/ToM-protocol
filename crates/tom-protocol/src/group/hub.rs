@@ -219,7 +219,14 @@ impl GroupHub {
         initial_members: Vec<NodeId>,
         invite_only: bool,
     ) -> Vec<GroupAction> {
-        let group_id = GroupId::new();
+        // Well-known groups (le canal « log ») ont un group_id DÉTERMINISTE égal à
+        // leur nom : tous les nœuds convergent ainsi sur le même groupe sans se
+        // coordonner. Les groupes utilisateur gardent un id aléatoire unique.
+        let group_id = if group_name == crate::group::LOG_GROUP_ID {
+            GroupId::from(group_name.clone())
+        } else {
+            GroupId::new()
+        };
         let now = now_ms();
 
         let admin = GroupMember {

@@ -7,6 +7,16 @@ pub mod hub;
 pub mod manager;
 pub mod types;
 
+// ── Well-known group constants ───────────────────────────────────
+/// The well-known group ID for the public log channel. Every node targets this
+/// same ID for joining/creating. Le préfixe `__` le RÉSERVE au système : un
+/// groupe utilisateur ne portera jamais cet id, donc pas de collision (personne
+/// ne crée volontairement un groupe nommé `__tomlog__`).
+/// TODO(sécu, post-S1) : barrière DURE = refuser au protocole toute création
+/// utilisateur d'un `name` préfixé `__` (aujourd'hui la réservation est par
+/// convention, cf. relecture Fable BLOQUANT #1).
+pub const LOG_GROUP_ID: &str = "__tomlog__";
+
 pub use election::{elect_hub, ElectionReason, ElectionResult};
 pub use hub::{GroupHub, GroupHubSnapshot};
 pub use manager::{GroupManager, GroupManagerSnapshot};

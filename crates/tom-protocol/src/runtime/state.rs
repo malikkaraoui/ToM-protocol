@@ -3647,7 +3647,8 @@ impl RuntimeState {
     // ── Helper: group actions → effects ──────────────────────────────────
 
     /// Convert GroupActions into RuntimeEffects (Send, Broadcast, Event).
-    fn group_actions_to_effects(&self, actions: &[GroupAction]) -> Vec<RuntimeEffect> {
+    /// Public for S1 log-group orchestration.
+    pub fn group_actions_to_effects(&self, actions: &[GroupAction]) -> Vec<RuntimeEffect> {
         let mut effects = Vec::new();
         for action in actions {
             match action {

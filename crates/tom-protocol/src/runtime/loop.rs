@@ -8,6 +8,7 @@ use ed25519_dalek::Signer;
 use tom_transport::{BootstrapHint, TomNode};
 
 use crate::discovery::DiscoverySource;
+use crate::group::{LOG_GROUP_ID, GroupId, GroupPayload, GroupAction};
 use crate::types::{now_ms, NodeId};
 
 use super::bootstrap::{BootstrapPhase, BootstrapSource};
@@ -32,6 +33,10 @@ const TOM_GOSSIP_TOPIC: [u8; 32] = *b"tom-protocol-gossip-discovery-v1";
 /// Healthy peers emit gossip announces (~10s) + heartbeats, so 45s of total
 /// inbound silence means the links are dead even if QUIC still reports them.
 const LIVENESS_STALE_MS: u64 = 45_000;
+
+/// Timeout for waiting for a sync response when broadcasting a Join to the log group.
+/// If no peer responds with a Sync within this time, we create the group locally.
+const LOG_GROUP_WAIT_MS: u64 = 3_000;
 
 /// Whether inbound traffic has gone stale (zombie-connection detector).
 /// Saturating so a `last_inbound` slightly in the future never underflows to stale.
@@ -344,6 +349,14 @@ pub(super) async fn runtime_loop(
     // emit them into the void and the R13 offline gap-fill would silently no-op
     // on a cold restart. Instead we arm a flag and (re)try in reconnect_check.
     let mut rejoin_pending = state.group_manager.group_count() > 0;
+
+    // ── Log group orchestration (S1 étape 1) ──────────────────────────
+    // State machine: if enabled, tries to join the well-known "log" group
+    // by broadcasting a Join request to all peers. If no response within 3s,
+    // creates the group locally as the hub.
+    let log_group_id = GroupId::from(LOG_GROUP_ID.to_string());
+    let mut log_group_join_deadline: Option<u64> = None;
+    let mut log_group_broadcast_in_flight = false;
 
     // ── Transport relay discovery state (NOT in RuntimeState — pure transport concern)
     let mut discovered_transport_relays: std::collections::HashSet<tom_connect::RelayUrl> =
@@ -822,6 +835,72 @@ pub(super) async fn runtime_loop(
             // bootstrap phase and actively re-run discovery instead of freezing in a
             // stale Converged state because a relay/peer disappeared.
             _ = reconnect_check.tick() => {
+                let now = now_ms();
+
+                // S1: Log group orchestration (rejoin-or-create state machine)
+                if state.config.enable_log_group {
+                    let is_member = state.group_manager.is_in_group(&log_group_id);
+                    let has_connectivity = state.topology.online_count() > 0;
+
+                    if is_member {
+                        // Déjà membre : désarmer toute tentative en vol (permet un
+                        // re-join futur si on quitte ou perd le groupe).
+                        log_group_broadcast_in_flight = false;
+                        log_group_join_deadline = None;
+                    } else if has_connectivity && !log_group_broadcast_in_flight {
+                        // Broadcast a Join request to all known peers
+                        let peers: Vec<NodeId> = state.topology.peers()
+                            .map(|p| p.node_id)
+                            .collect();
+
+                        if !peers.is_empty() {
+                            let join_payload = GroupPayload::Join {
+                                group_id: log_group_id.clone(),
+                                username: state.config.username.clone(),
+                            };
+                            let actions = vec![GroupAction::Broadcast {
+                                to: peers,
+                                payload: join_payload,
+                            }];
+                            let effects = state.group_actions_to_effects(&actions);
+                            execute_effects(
+                                effects, &node_sender, &msg_tx, &status_tx, &event_tx, &metrics,
+                            );
+                            log_group_join_deadline = Some(now + LOG_GROUP_WAIT_MS);
+                            log_group_broadcast_in_flight = true;
+                            tracing::info!(
+                                "S1: log group join broadcast sent (deadline +{}ms)",
+                                LOG_GROUP_WAIT_MS
+                            );
+                        }
+                    } else if log_group_broadcast_in_flight && log_group_join_deadline.is_some() {
+                        // Check if the deadline has passed
+                        let deadline = log_group_join_deadline.unwrap();
+                        if now >= deadline && !is_member {
+                            // Timeout: create the group locally as the hub.
+                            // TODO(S1b convergence) : si deux nœuds créent « log » dans
+                            // la même fenêtre de 3 s sans se voir, ils portent le même
+                            // group_id déterministe mais des hubs distincts. La
+                            // réconciliation (rallier le plus petit NodeId) est reportée ;
+                            // l'election déterministe + rens() l'atténuent. Cas rare.
+                            let create_effects = state.handle_command(
+                                super::RuntimeCommand::CreateGroup {
+                                    name: LOG_GROUP_ID.to_string(),
+                                    hub_relay_id: state.local_id,
+                                    initial_members: vec![],
+                                    invite_only: false,
+                                },
+                            );
+                            tracing::info!("S1: log group creation deadline reached, creating locally");
+                            execute_effects(
+                                create_effects, &node_sender, &msg_tx, &status_tx, &event_tx, &metrics,
+                            );
+                            log_group_join_deadline = None;
+                            log_group_broadcast_in_flight = false;
+                        }
+                    }
+                }
+
                 // R13 cold-restart gap-fill: once connectivity is established
                 // (topology shows online peers — connected_peers() is empty under
                 // relay-only meshing, so it can't be the signal), (re)send Join +

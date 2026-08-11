@@ -122,6 +122,10 @@ pub struct RuntimeConfig {
     /// subnet dissolution timeout so bench R5 can observe Formed→Dissolved in
     /// CI. Never exposed to apps.
     pub subnet_inactivity_timeout_ms: Option<u64>,
+    /// Enable the public log group orchestration (S1 étape 1).
+    /// When true, the runtime automatically joins or creates the well-known
+    /// "log" group to collect logs from all nodes organically.
+    pub enable_log_group: bool,
 }
 
 impl Default for RuntimeConfig {
@@ -153,6 +157,7 @@ impl Default for RuntimeConfig {
             presence_clock_offset_ms: 0,
             rendezvous_namespace: None,
             subnet_inactivity_timeout_ms: None,
+            enable_log_group: true, // S1: Enable log group orchestration by default
         }
     }
 }
