@@ -122,11 +122,16 @@ struct SettingsView: View {
                     ))
                     .disabled(nodeService.state == .running)
 
-                    TextField("IPv4 host (optional)", text: Binding(
+                    TextField("Collecteur : IP ou nom .local", text: Binding(
                         get: { nodeService.udpLogHost },
                         set: { nodeService.udpLogHost = $0.trimmingCharacters(in: .whitespacesAndNewlines) }
                     ))
                     .disabled(nodeService.state == .running || !nodeService.udpLogExportEnabled)
+                    #if os(iOS)
+                    Text("iOS filtre le broadcast (.255) : indique l'IP ou le nom .local du collecteur en unicast (ex. MacBook-Pro-de-malik.local).")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    #endif
 
                     TextField("Port", text: Binding(
                         get: { nodeService.udpLogPort },

@@ -162,9 +162,33 @@ final class TomNodeService: ObservableObject {
     @Published var encryption: Bool = true
     @Published var enableDht: Bool = true
     @Published var n0Discovery: Bool = true
-    @Published var udpLogExportEnabled: Bool = true
-    @Published var udpLogHost: String = TomNodeService.defaultCollectorHost()
-    @Published var udpLogPort: String = "9999"
+    // Réglages d'export de logs UDP — PERSISTÉS (UserDefaults) pour survivre au
+    // relancement de l'app. Sur iOS le broadcast .255 est filtré par le système
+    // (pas d'entitlement multicast) : indiquer l'IP ou le nom .local du collecteur
+    // en UNICAST (un nom .local survit aux changements d'IP DHCP).
+    @Published var udpLogExportEnabled: Bool = TomNodeService.loadUdpLogEnabled() {
+        didSet { UserDefaults.standard.set(udpLogExportEnabled, forKey: Self.udpLogEnabledKey) }
+    }
+    @Published var udpLogHost: String = TomNodeService.loadUdpLogHost() {
+        didSet { UserDefaults.standard.set(udpLogHost, forKey: Self.udpLogHostKey) }
+    }
+    @Published var udpLogPort: String = TomNodeService.loadUdpLogPort() {
+        didSet { UserDefaults.standard.set(udpLogPort, forKey: Self.udpLogPortKey) }
+    }
+
+    private static let udpLogHostKey = "tom_udp_log_host"
+    private static let udpLogPortKey = "tom_udp_log_port"
+    private static let udpLogEnabledKey = "tom_udp_log_enabled"
+
+    private static func loadUdpLogHost() -> String {
+        UserDefaults.standard.string(forKey: udpLogHostKey) ?? defaultCollectorHost()
+    }
+    private static func loadUdpLogPort() -> String {
+        UserDefaults.standard.string(forKey: udpLogPortKey) ?? "9999"
+    }
+    private static func loadUdpLogEnabled() -> Bool {
+        UserDefaults.standard.object(forKey: udpLogEnabledKey) as? Bool ?? true
+    }
 
     private static func defaultUsername() -> String {
         #if os(iOS)
@@ -1801,36 +1825,41 @@ final class TomNodeService: ObservableObject {
         startNetworkLogExport(host: host, port: port)
     }
 
-    /// Start broadcasting logs over UDP for remote monitoring.
+    /// Démarre l'export des logs par UDP. Accepte une IP OU un hostname (.local /
+    /// DNS) via getaddrinfo — un nom .local survit aux changements d'IP DHCP du
+    /// collecteur. Sur iOS le broadcast .255 est filtré par le système (pas
+    /// d'entitlement multicast) : viser le collecteur en UNICAST (IP ou .local).
     private func startNetworkLogExport(host: String, port: UInt16) {
+        var hints = addrinfo()
+        hints.ai_family = AF_INET          // le collecteur écoute en IPv4
+        hints.ai_socktype = SOCK_DGRAM
+        var res: UnsafeMutablePointer<addrinfo>?
+        let gai = getaddrinfo(host, String(port), &hints, &res)
+        guard gai == 0, let info = res, let sa = info.pointee.ai_addr,
+              info.pointee.ai_family == AF_INET else {
+            let reason = gai == 0 ? "pas d'adresse IPv4" : String(cString: gai_strerror(gai))
+            appendLog(.warning, "UDP log export: résolution de '\(host)' impossible (\(reason))")
+            if res != nil { freeaddrinfo(res) }
+            udpLogAddr = nil
+            return
+        }
+        defer { freeaddrinfo(res) }
+
         udpLogSocket = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)
         guard udpLogSocket >= 0 else {
             appendLog(.warning, "UDP log socket failed")
             return
         }
-
-        // Enable broadcast so 255.255.255.255 works
+        // Autoriser le broadcast (.255) là où la plateforme le permet (tvOS/macOS).
         var broadcastEnable: Int32 = 1
         setsockopt(udpLogSocket, SOL_SOCKET, SO_BROADCAST, &broadcastEnable, socklen_t(MemoryLayout<Int32>.size))
 
         var addr = sockaddr_in()
-        addr.sin_family = sa_family_t(AF_INET)
-        addr.sin_port = port.bigEndian
-
-        let parseResult = host.withCString { hostPtr in
-            inet_pton(AF_INET, hostPtr, &addr.sin_addr)
-        }
-        guard parseResult == 1 else {
-            appendLog(.warning, "UDP log export skipped: invalid IPv4 host \(host)")
-            close(udpLogSocket)
-            udpLogSocket = -1
-            udpLogAddr = nil
-            return
-        }
-
+        memcpy(&addr, sa, Int(info.pointee.ai_addrlen))
         udpLogAddr = addr
 
-        appendLog(.info, "UDP log export → \(host):\(port)")
+        let resolvedIP = String(cString: inet_ntoa(addr.sin_addr))
+        appendLog(.info, "UDP log export → \(host):\(port) [\(resolvedIP)]")
     }
 
     private func stopNetworkLogExport() {
