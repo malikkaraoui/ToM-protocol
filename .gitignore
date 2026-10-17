@@ -78,3 +78,57 @@ apps/**/build-*/
 # Vault Obsidian local (notes perso, pas du code)
 .obsidian/
 .gstack/
+
+# ─────────────────────────────────────────────────────────────────────────────
+# harnais:registres -- marqueur d'idempotence, ne pas retirer (le bootstrap le cherche)
+# Registres d'exécution de l'orchestration — À AJOUTER AU .gitignore DU PROJET
+#
+# POURQUOI : ces deux fichiers sont un ÉTAT, pas une configuration. Ils sont écrits en
+# parallèle par l'orchestrateur et par chaque fenêtre, en continu, sans jamais être committés
+# par personne. Versionnés, ils produisent trois dégâts, tous observés :
+#   1. l'arbre de travail est sale en permanence, donc les intégrations se bloquent ;
+#   2. chaque branche en porte une version divergente, donc chaque merge les met en conflit —
+#      et un conflit sur un journal append-only n'a pas de résolution sensée ;
+#   3. une intégration `ff-only` échoue sur un fichier que personne n'a voulu modifier.
+# Hors git, ces trois problèmes disparaissent définitivement.
+#
+# CONTREPARTIE ASSUMÉE : plus d'historique git de ces registres, et pas de copie sur le dépôt
+# distant. Ils restent lisibles sur disque, `events.jsonl` reste append-only, et la preuve de
+# ce qui s'est passé reste le dépôt lui-même (commits, SHA, refs) — jamais le registre.
+#
+# IGNORER FICHIER PAR FICHIER, SURTOUT PAS `vault/runtime/` EN ENTIER : le `README.md` de ce
+# dossier porte la doctrine (état / événement / preuve, contrat heartbeat, réconciliation,
+# vocabulaire d'événement figé). C'est de la documentation, elle DOIT rester versionnée.
+# ─────────────────────────────────────────────────────────────────────────────
+
+vault/runtime/state.json
+vault/runtime/events.jsonl
+
+# Si le projet fait vivre plusieurs vaults (monorepo), préférer les motifs :
+#   **/vault/runtime/state.json
+#   **/vault/runtime/events.jsonl
+
+# Fichier log quotidien du superviseur (M0127) : le détail (appels d'outils), lu seulement sur
+# besoin — un état écrit en continu, même raison que events.jsonl. Un sous-dossier : `**/` couvre
+# aussi les vaults imbriqués, et le README.md de vault/runtime/ reste versionné.
+**/vault/runtime/log/
+
+# Journal tourné (M0130) : les fichiers jour des 7 derniers jours et les archives par semaine
+# (`journal/AAAA-MM-JJ.jsonl`, `journal/archives/AAAA-Sww.jsonl`). `events.jsonl` reste le fichier du jour.
+**/vault/runtime/journal/
+
+# Verrou d'entretien du journal (M0135) : un seul entretien par runtime ; générations `entretien.lock.<n>`
+# (M0136) et leur temporaire de rendu. Un verrou committé bloquerait l'entretien de tous.
+**/vault/runtime/entretien.lock*
+
+# Verrous et fichiers temporaires d'écriture atomique, s'il y en a : jamais suivis non plus.
+# Après un arrêt brutal, un verrou périmé committé bloquerait tout le monde.
+# vault/runtime/*.verrou
+# vault/runtime/*.tmp-*
+
+# Archive de l'essai d'équipement du guichet (M0152, F99/M0000) : preuve durable gardée sur le disque,
+# jamais committée (un rituel d'orchestrateur committe les archives non suivies d'echanges/archive/).
+**/archive/*-F99-M0000-essai-equipement-*.md
+# L'essai EN COURS (`<chemins.echanges>/F99.md`) est ignoré par une ligne CALCULÉE que le bootstrap ajoute
+# après ce fragment, depuis `chemins.echanges` de la config du projet : pas de motif en dur ici.
+/vault/echanges/F99.md

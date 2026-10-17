@@ -1,0 +1,80 @@
+#!/bin/sh
+# Git hook: commit-msg
+# Impose le trailer de signature du projet sur chaque commit, quelle que soit la signature que
+# l'outil appelant a proposee. JAMAIS bloquant : ce hook corrige le message et sort toujours 0.
+# Un hook de signature qui refuse un commit fait perdre le travail deja redige ; il doit
+# reparer, pas punir.
+#
+# La valeur du trailer n'est JAMAIS codee en dur ici. Elle est lue, dans l'ordre :
+#   1. variable d'environnement  HARNAIS_TRAILER
+#   2. fichier de config du projet  ${HARNAIS_CONFIG:-config/harnais.json}, cle "trailer"
+# Si aucune valeur n'est trouvee : le hook ne touche a rien et sort 0 (degradation controlee).
+#
+# Trailers concurrents retires avant d'ajouter le bon (decision 2026-09-23, "Retrait automatique",
+# #29). Motif ERE des lignes a retirer, lu dans l'ordre :
+#   1. variable d'environnement  TRAILERS_RETIRES (meme vide : vide = ne rien retirer)
+#   2. config, cle "trailers_retires" (meme vide : vide = ne rien retirer)
+#   3. defaut : toute ligne Co-Authored-By, sans casse (Git traite les cles de trailer sans casse)
+# La ligne exacte du trailer projet n'est JAMAIS retiree, meme si elle matche le motif.
+# Config illisible ou motif invalide : rien n'est retire, une ligne sur stderr, sortie 0.
+
+FICHIER_MSG="$1"
+[ -f "$FICHIER_MSG" ] || exit 0
+
+CONFIG="${HARNAIS_CONFIG:-config/harnais.json}"
+TRAILER="${HARNAIS_TRAILER:-}"
+MOTIF_DEFAUT='^[Cc][Oo]-[Aa][Uu][Tt][Hh][Oo][Rr][Ee][Dd]-[Bb][Yy]:'
+CONFIG_LISIBLE=0
+
+if [ -f "$CONFIG" ]; then
+  if [ -r "$CONFIG" ]; then
+    CONFIG_LISIBLE=1
+  else
+    echo "commit-msg: config $CONFIG illisible, aucun trailer retire" >&2
+  fi
+fi
+
+if [ -z "$TRAILER" ] && [ "$CONFIG_LISIBLE" = 1 ]; then
+  TRAILER=$(sed -n 's/.*"trailer"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$CONFIG" | head -1)
+fi
+
+# Aucune valeur configuree : ne rien imposer.
+[ -n "$TRAILER" ] || exit 0
+
+if [ -n "${TRAILERS_RETIRES+x}" ]; then
+  MOTIF="$TRAILERS_RETIRES"
+elif [ "$CONFIG_LISIBLE" = 1 ] && grep -q '"trailers_retires"[[:space:]]*:' "$CONFIG"; then
+  MOTIF=$(sed -n 's/.*"trailers_retires"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$CONFIG" | head -1)
+elif [ -f "$CONFIG" ] && [ "$CONFIG_LISIBLE" = 0 ]; then
+  MOTIF=""
+else
+  MOTIF="$MOTIF_DEFAUT"
+fi
+
+TMP="$FICHIER_MSG.harnais.$$"
+
+# 1. Retirer les trailers concurrents, en epargnant la ligne exacte du trailer projet.
+#    Motif et trailer passes par l'environnement (awk -v reinterpreterait les antislashs).
+if [ -n "$MOTIF" ]; then
+  if ! M="$MOTIF" T="$TRAILER" awk '$0 == ENVIRON["T"] || $0 !~ ENVIRON["M"]' "$FICHIER_MSG" > "$TMP" 2>/dev/null; then
+    echo "commit-msg: motif de retrait invalide ($MOTIF), aucun trailer retire" >&2
+    cp "$FICHIER_MSG" "$TMP"
+  fi
+else
+  cp "$FICHIER_MSG" "$TMP"
+fi
+
+# 2. Ajouter le trailer du projet s'il est absent (comparaison ligne entiere, litterale).
+if grep -Fxq "$TRAILER" "$TMP"; then
+  cp "$TMP" "$FICHIER_MSG"
+else
+  # Une ligne vide separe le corps du bloc de trailers, sauf si le message finit deja par une.
+  if [ -n "$(tail -n 1 "$TMP")" ]; then
+    printf '\n' >> "$TMP"
+  fi
+  printf '%s\n' "$TRAILER" >> "$TMP"
+  cp "$TMP" "$FICHIER_MSG"
+fi
+
+rm -f "$TMP"
+exit 0

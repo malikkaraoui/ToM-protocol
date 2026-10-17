@@ -1,0 +1,14 @@
+#!/bin/sh
+# Git hook: pre-merge-commit
+# Git ne lance pas `pre-commit` sur un merge sans conflit. Or c'est par là que des fichiers chargés
+# d'office enflent sans qu'aucun commit ne soit fautif : des branches parallèles, chacune sous le
+# seuil, qui s'additionnent à la fusion. Ce hook rejoue donc `pre-commit` sur le résultat du merge
+# (index comparé à HEAD, le premier parent) : même règle, mêmes messages, un seul code.
+# Limite : un merge en avance rapide ne crée pas de commit et ne lance aucun hook.
+
+HOOK="$(dirname "$0")/pre-commit"
+if [ ! -x "$HOOK" ]; then
+  echo "pre-merge-commit: $HOOK absent ou non executable, merge refuse (controle des fichiers charges d'office impossible)" >&2
+  exit 1
+fi
+exec "$HOOK"

@@ -1,0 +1,393 @@
+#!/bin/sh
+# Git hook: pre-push
+# Garde de la branche principale (convention §9 : rien ne merge sans doublage independant).
+# Decision Malik 2026-09-24 00:15 (#27 recadree) : « simple a efficace / on essai ».
+# Durcissement O1-O4 (#41, doublage R020) ; decision Malik 2026-09-24 00:55 sur O3 : sur la
+# principale, seuls passent les merges avec rapport GO et les commits qui ne touchent que vault/ ;
+# « tout le reste est refuse, et il faut passer par une branche, un doublage et un merge ».
+#
+# Entree (githooks(5), pre-push) : sur stdin, une ligne par ref poussee :
+#   <local-ref> SP <local-object-name> SP <remote-ref> SP <remote-object-name> LF
+# Ref inexistante au distant : remote-object-name tout a zero. Suppression : local-ref "(delete)"
+# et local-object-name tout a zero.
+#
+# Regle, pour chaque ligne dont remote-ref est refs/heads/<git.branche_principale> (cle du bloc
+# "git" de ${HARNAIS_CONFIG:-config/harnais.json} ; config ou cle absente : main) :
+#   1. plage introduite : remote_sha..local_sha ; remote_sha nul (ou inconnu localement) :
+#      local_sha --not --remotes. Suppression (local_sha nul) : laisser passer.
+#   2. (O3) chaque commit NON-merge de la chaine --first-parent de la plage ne touche que des
+#      chemins sous vault/ (diff-tree --no-renames : un renommage depuis l'exterieur compte comme
+#      exterieur). Les commits amenes par le second parent d'un merge ne sont pas controles un par
+#      un : le rapport GO du merge les couvre.
+#   3. pour chaque merge de la plage (>= 2 parents), T = second parent : il faut, dans l'ARBRE de
+#      local_sha (jamais le working tree), un fichier vault/revues/*.md dont le frontmatter
+#      (O2 : "---" en 1re ligne, "---" fermant obligatoire) porte exactement une ligne "verdict:",
+#      egale a GO, et (O1) exactement une ligne "tip:", egale au SHA complet de T. Le corps du
+#      rapport ne compte pas. Rapport malforme : ignore (echec ferme).
+#      Exception (option B, decision Malik 2026-09-24 00:28 « go pour b ») : si T est DEJA PUBLIE --
+#      ancetre de remote_sha quand il est non nul, sinon atteignable depuis une ref refs/remotes/* --
+#      le merge est ignore : il n'introduit aucun travail non double (ex. merge de main DANS une
+#      branche, convention §8 « base perimee »).
+#   4. sinon : refus (exit 1), message sur stderr.
+#   5. (M0292, niveaux de relecture, decision Malik 2026-10-15) le rapport GO porte au plus une ligne
+#      "niveau:" (N1, N2 ou N3 ; absente = N2 ; autre valeur ou deux lignes = rapport malforme, ignore).
+#      Plusieurs rapports GO pour T : le plus haut niveau compte. Hors N3, le diff du merge (M^1..M,
+#      --no-renames) est confronte a "niveaux.critiques" (motifs relatifs a la racine : "**" traverse
+#      les dossiers, "*" et "?" non, un motif vaut aussi pour tout ce qui est sous lui), lue dans la
+#      config du working tree ET dans celles des arbres M^1 et M (union : une branche n'affaiblit pas sa
+#      propre garde). Aucun nom de fichier n'est relu dans une sortie de git pour decider (loi des deux
+#      patchs, R166-1 puis R167-1) : git confronte lui-meme le diff aux motifs, en pathspec ":(glob)"
+#      (git diff --quiet : 1 = touche, 0 = non, autre = erreur -> refus). Chemin critique touche -> refus
+#      (seul N3 passe). N1 exige une liste non vide dans une config que la branche ne peut pas ecrire --
+#      l'arbre M^1, ou HARNAIS_CONFIG s'il est absolu (jamais le working tree ni l'arbre M, R166-2) -- et
+#      un diff hors vault/ (exclu par pathspec) d'au plus "niveaux.n1_max_lignes" lignes ajoutees +
+#      retirees (git diff --numstat sans -z : un nom, cite par git, tient sur sa ligne ; defaut 300, la
+#      plus petite des configs lues ; fichier binaire = 1 ligne) -> sinon refus (« passe en N2 »).
+#   6. (M0293, R168) ce que git lit pendant la decision et que la branche peut ecrire est neutralise : chaque
+#      motif vaut aussi pour "<motif>/**" (un motif a joker couvre ses sous-dossiers, R168-1) ; sous-modules
+#      toujours compares (--ignore-submodules=none : un .gitmodules "ignore = all" ne cache rien, R168-2) ;
+#      --numstat lu avec une source d'attributs vide (--attr-source=<arbre vide> : un .gitattributes "binary"
+#      ou "-diff" ne reduit pas le compte, R168-3 ; exige git >= 2.40, sinon N1 refuse avec message) ;
+#      GIT_{LITERAL,NOGLOB,GLOB,ICASE}_PATHSPECS effacees (R168-4).
+# Erreur interne (git absent, config illisible, commande git en echec) : refus sur la principale
+# seulement ; un push de branche de travail n'est jamais bloque par un bug du hook.
+# Limite connue : "git push --no-verify" saute ce hook (les mandats l'interdisent deja).
+
+CONFIG="${HARNAIS_CONFIG:-config/harnais.json}"
+REVUES="vault/revues"
+PRINCIPALE=main
+ERREUR=""
+
+if ! command -v git >/dev/null 2>&1; then
+  ERREUR="git introuvable dans le PATH"
+fi
+
+# (O4) Valeur chaine de la cle "branche_principale" DIRECTEMENT dans l'objet "git" de premier
+# niveau du JSON sur stdin ; rien si absente. Mini-lecteur JSON (chaines, echappements, imbrication),
+# sans dependance ; les echappements de la valeur sont rendus tels quels (pas de decodage \uXXXX).
+lire_principale() {
+  LC_ALL=C awk '
+    { texte = texte $0 "\n" }
+    END {
+      n = length(texte); prof = 0; cle = ""
+      for (i = 1; i <= n; i++) {
+        c = substr(texte, i, 1)
+        if (c == "\"") {
+          ch = ""
+          for (i++; i <= n; i++) {
+            c = substr(texte, i, 1)
+            if (c == "\\") { ch = ch c substr(texte, i + 1, 1); i++; continue }
+            if (c == "\"") break
+            ch = ch c
+          }
+          j = i + 1
+          while (j <= n && substr(texte, j, 1) ~ /[ \t\r\n]/) j++
+          if (substr(texte, j, 1) == ":") { cle = ch; continue }
+          if (cle == "branche_principale" && prof == 2 && chemin[2] == "git") { print ch; exit }
+          cle = ""
+        } else if (c == "{" || c == "[") {
+          prof++; chemin[prof] = (c == "{") ? cle : "["; cle = ""
+        } else if (c == "}" || c == "]") {
+          prof--; cle = ""
+        } else if (c == ",") {
+          cle = ""
+        }
+      }
+    }'
+}
+
+if [ -f "$CONFIG" ]; then
+  if [ -r "$CONFIG" ]; then
+    VAL=$(lire_principale < "$CONFIG") || VAL=""
+    [ -n "$VAL" ] && PRINCIPALE="$VAL"
+  else
+    ERREUR="config $CONFIG illisible (branche principale supposee: $PRINCIPALE)"
+  fi
+fi
+
+est_nul() {
+  case "$1" in
+    *[!0]*) return 1 ;;
+    *) return 0 ;;
+  esac
+}
+
+# T ($1) deja publie ? remote_sha ($2) non nul : T ancetre de remote_sha ; nul : T atteignable
+# depuis refs/remotes/*. Toute erreur git compte comme "non publie" (regle stricte appliquee).
+deja_publie() {
+  if ! est_nul "$2"; then
+    git merge-base --is-ancestor "$1" "$2" 2>/dev/null
+  else
+    [ -n "$(git for-each-ref --contains "$1" --count=1 --format='x' refs/remotes/ 2>/dev/null)" ]
+  fi
+}
+
+# Tips couverts par les rapports GO de l'arbre $1 : un SHA par ligne sur stdout (valeur de la
+# ligne "tip:" de chaque rapport valide). Code != 0 si git echoue.
+tips_go() {
+  LISTE=$(git -c core.quotePath=false ls-tree --name-only "$1" "$REVUES/") || return 1
+  printf '%s\n' "$LISTE" | while IFS= read -r F; do
+    case "$F" in
+      *.md) ;;
+      *) continue ;;
+    esac
+    # Frontmatter : de la 1re ligne "---" a la ligne "---" suivante, qui doit exister (O2).
+    # Exactement une ligne "verdict:" (egale a GO, espaces toleres) et une ligne "tip:" (O1).
+    # Rapport malforme ou contradictoire : rien n'est imprime, le fichier ne couvre rien.
+    git cat-file blob "$1:$F" 2>/dev/null | awk '
+        NR == 1 { if ($0 != "---") exit; next }
+        $0 == "---" { ferme = 1; exit }
+        /^verdict[[:space:]]*:/ { nv++; if ($0 ~ /^verdict:[[:space:]]*GO[[:space:]]*$/) go = 1 }
+        /^tip[[:space:]]*:/ { nt++; tip = $0; sub(/^tip:[[:space:]]*/, "", tip); sub(/[[:space:]]*$/, "", tip) }
+        /^niveau[[:space:]]*:/ { nn++; niv = $0; sub(/^niveau[[:space:]]*:[[:space:]]*/, "", niv); sub(/[[:space:]]*$/, "", niv) }
+        END {
+          if (nn == 0) niv = "N2"
+          if (ferme && nv == 1 && go && nt == 1 && tip != "" && nn <= 1 && niv ~ /^N[123]$/) print tip " " niv
+        }'
+  done
+}
+
+# (M0292) Niveau le plus haut parmi les rapports GO ($1, lignes "tip niveau") qui couvrent le tip $2 ;
+# rien si aucun ne le couvre.
+niveau_de() {
+  printf '%s\n' "$1" | awk -v t="$2" '$1 == t && $2 > max { max = $2 } END { if (max != "") print max }'
+}
+
+# (M0292) Bloc "niveaux" du JSON sur stdin : une ligne "C <motif>" par chaine de "niveaux.critiques",
+# "M <n>" pour "niveaux.n1_max_lignes" (entier). Meme mini-lecteur que lire_principale.
+lire_niveaux() {
+  LC_ALL=C awk '
+    { texte = texte $0 "\n" }
+    END {
+      n = length(texte); prof = 0; cle = ""
+      for (i = 1; i <= n; i++) {
+        c = substr(texte, i, 1)
+        if (c == "\"") {
+          ch = ""
+          for (i++; i <= n; i++) {
+            c = substr(texte, i, 1)
+            if (c == "\\") { ch = ch c substr(texte, i + 1, 1); i++; continue }
+            if (c == "\"") break
+            ch = ch c
+          }
+          j = i + 1
+          while (j <= n && substr(texte, j, 1) ~ /[ \t\r\n]/) j++
+          if (substr(texte, j, 1) == ":") { cle = ch; continue }
+          if (prof == 3 && chemin[2] == "niveaux" && chemin[3] == "[critiques" && ch != "") print "C " ch
+          cle = ""
+        } else if (c ~ /[0-9]/) {
+          nb = c
+          while (i < n && substr(texte, i + 1, 1) ~ /[0-9]/) { i++; nb = nb substr(texte, i, 1) }
+          if (prof == 2 && chemin[2] == "niveaux" && cle == "n1_max_lignes") print "M " nb
+          cle = ""
+        } else if (c == "{" || c == "[") {
+          prof++; chemin[prof] = (c == "{") ? cle : "[" cle; cle = ""
+        } else if (c == "}" || c == "]") {
+          prof--; cle = ""
+        } else if (c == ",") {
+          cle = ""
+        }
+      }
+    }'
+}
+
+# (M0292) Configs lues pour le merge $1 : working tree, arbre de $1^1, arbre de $1 (absentes ignorees).
+case "$CONFIG" in
+  /*) DANS_ARBRE="config/harnais.json" ;;
+  *) DANS_ARBRE="$CONFIG" ;;
+esac
+niveaux_du_merge() {
+  {
+    [ -r "$CONFIG" ] && lire_niveaux < "$CONFIG"
+    for R in "$1^1" "$1"; do
+      git cat-file blob "$R:$DANS_ARBRE" 2>/dev/null | lire_niveaux
+    done
+  } | sort -u
+}
+
+# (M0292, R166-2) Motifs critiques des seules configs que la branche mergee ne peut pas ecrire : l'arbre
+# de $1^1, et HARNAIS_CONFIG s'il est absolu (hors depot). C'est d'elles seules que vient la permission N1.
+critiques_de_confiance() {
+  {
+    case "$CONFIG" in
+      /*) [ -r "$CONFIG" ] && lire_niveaux < "$CONFIG" ;;
+    esac
+    git cat-file blob "$1^1:$DANS_ARBRE" 2>/dev/null | lire_niveaux
+  } | sed -n 's/^C //p'
+}
+
+# (M0292, R167) Le merge $1 touche-t-il un motif de $2 (un par ligne) ? Git confronte lui-meme le diff aux
+# motifs (pathspec ":(glob)"), jamais un nom relu dans sa sortie. Code : 1 touche, 0 non, autre = erreur.
+critique_touche() {
+  _m="$1"; _crit="$2"
+  set -f; _ifs=$IFS; IFS='
+'
+  set --
+  for _p in $_crit; do
+    while [ "${_p%/}" != "$_p" ]; do _p=${_p%/}; done
+    [ -n "$_p" ] && set -- "$@" ":(glob)$_p" ":(glob)$_p/**"
+  done
+  IFS=$_ifs; set +f
+  [ $# -gt 0 ] || return 0
+  git diff --quiet --no-renames --ignore-submodules=none "$_m^1" "$_m" -- "$@" 2>/dev/null
+}
+
+# (M0292) Pour le message seulement : un chemin du merge $1 couvert par $2 (jamais une decision).
+critique_affiche() {
+  _m="$1"; _crit="$2"
+  set -f; _ifs=$IFS; IFS='
+'
+  set --
+  for _p in $_crit; do
+    while [ "${_p%/}" != "$_p" ]; do _p=${_p%/}; done
+    [ -n "$_p" ] && set -- "$@" ":(glob)$_p" ":(glob)$_p/**"
+  done
+  IFS=$_ifs; set +f
+  git -c core.quotePath=false diff --name-only --no-renames --ignore-submodules=none "$_m^1" "$_m" -- "$@" 2>/dev/null | head -n 1
+}
+
+# (M0293) git >= 2.40 (requis par --attr-source) ? Lu dans "git version X.Y[.Z...]" ; illisible = non.
+git_au_moins_2_40() {
+  _v=$(git --version 2>/dev/null) || return 1
+  _v=${_v#git version }
+  _maj=${_v%%.*}; _min=${_v#*.}; _min=${_min%%[!0-9]*}
+  case "$_maj" in ''|*[!0-9]*) return 1 ;; esac
+  case "$_min" in ''|*[!0-9]*) return 1 ;; esac
+  [ "$_maj" -gt 2 ] || { [ "$_maj" -eq 2 ] && [ "$_min" -ge 40 ]; }
+}
+
+# (O3) Premier chemin hors vault/ touche par le commit $1 (rien si tous sous vault/).
+# Code != 0 si git echoue.
+chemin_hors_vault() {
+  CHEMINS=$(git -c core.quotePath=false diff-tree --no-commit-id --name-only -r --no-renames --root "$1") || return 1
+  printf '%s\n' "$CHEMINS" | while IFS= read -r P; do
+    case "$P" in
+      ''|vault/?*) ;;
+      *) printf '%s\n' "$P"; break ;;
+    esac
+  done
+}
+
+unset GIT_LITERAL_PATHSPECS GIT_NOGLOB_PATHSPECS GIT_GLOB_PATHSPECS GIT_ICASE_PATHSPECS
+REFUS=0
+
+while read -r LOCAL_REF LOCAL_SHA REMOTE_REF REMOTE_SHA; do
+  [ "$REMOTE_REF" = "refs/heads/$PRINCIPALE" ] || continue
+  est_nul "$LOCAL_SHA" && continue
+
+  if [ -n "$ERREUR" ]; then
+    echo "pre-push: erreur interne du hook, push vers $REMOTE_REF refuse par prudence : $ERREUR" >&2
+    REFUS=1
+    continue
+  fi
+
+  if ! est_nul "$REMOTE_SHA" && git cat-file -e "$REMOTE_SHA^{commit}" 2>/dev/null; then
+    set -- "$REMOTE_SHA..$LOCAL_SHA"
+  else
+    set -- "$LOCAL_SHA" --not --remotes
+  fi
+  MERGES=$(git rev-list --merges "$@" 2>/dev/null) || MERGES="#erreur"
+  CHAINE=$(git rev-list --first-parent --no-merges "$@" 2>/dev/null) || CHAINE="#erreur"
+  if [ "$MERGES" = "#erreur" ] || [ "$CHAINE" = "#erreur" ]; then
+    echo "pre-push: erreur interne du hook (git rev-list en echec sur $LOCAL_SHA), push vers $REMOTE_REF refuse par prudence" >&2
+    REFUS=1
+    continue
+  fi
+
+  # (O3) Commits directs sur la principale : seulement des chemins vault/.
+  for C in $CHAINE; do
+    if ! P=$(chemin_hors_vault "$C"); then
+      echo "pre-push: erreur interne du hook (git diff-tree en echec sur $C), push vers $REMOTE_REF refuse par prudence" >&2
+      REFUS=1
+      continue
+    fi
+    if [ -n "$P" ]; then
+      echo "pre-push: REFUS -- commit $C vers $REMOTE_REF touche un chemin hors vault/ : $P" >&2
+      echo "  sur $PRINCIPALE, seuls passent les merges avec rapport de doublage GO et les commits qui ne touchent que vault/" >&2
+      echo "  a faire : branche, doublage, merge --no-ff (convention §9)" >&2
+      REFUS=1
+    fi
+  done
+
+  [ -n "$MERGES" ] || continue
+
+  if ! GO=$(tips_go "$LOCAL_SHA"); then
+    echo "pre-push: erreur interne du hook (git ls-tree en echec sur $LOCAL_SHA), push vers $REMOTE_REF refuse par prudence" >&2
+    REFUS=1
+    continue
+  fi
+
+  for M in $MERGES; do
+    T=$(git rev-parse --verify -q "$M^2") || T=""
+    if [ -z "$T" ]; then
+      echo "pre-push: erreur interne du hook (second parent de $M illisible), push refuse par prudence" >&2
+      REFUS=1
+      continue
+    fi
+    deja_publie "$T" "$REMOTE_SHA" && continue
+    NIV=$(niveau_de "$GO" "$T")
+    if [ -z "$NIV" ]; then
+      echo "pre-push: REFUS -- merge $M vers $REMOTE_REF sans doublage GO." >&2
+      echo "  tip merge (second parent) : $T" >&2
+      echo "  manque : un fichier $REVUES/*.md, dans l'arbre pousse ($(printf '%.7s' "$LOCAL_SHA")), dont le frontmatter ferme porte exactement 'verdict: GO' et 'tip: $T' (et au plus une ligne 'niveau: N1|N2|N3')" >&2
+      echo "  a faire : committer le rapport de doublage GO dans le scratch, apres le merge --no-ff et avant le ff-only, puis repousser (convention §9)" >&2
+      REFUS=1
+      continue
+    fi
+    [ "$NIV" = N3 ] && continue
+    # (M0292) Niveau N1/N2 : chemins critiques, puis plancher N1.
+    NIVX=$(niveaux_du_merge "$M")
+    CRIT=$(printf '%s\n' "$NIVX" | sed -n 's/^C //p')
+    critique_touche "$M" "$CRIT"
+    case $? in
+      0) TOUCHE="" ;;
+      1) TOUCHE=$(critique_affiche "$M" "$CRIT"); [ -n "$TOUCHE" ] || TOUCHE="(nom illisible)" ;;
+      *) echo "pre-push: erreur interne du hook (git diff en echec sur $M ; motif de niveaux.critiques invalide ?), push vers $REMOTE_REF refuse par prudence" >&2
+         REFUS=1
+         continue ;;
+    esac
+    if [ -n "$TOUCHE" ]; then
+      printf 'pre-push: REFUS -- merge %s (tip %.7s, relecture %s) touche un chemin critique : %s\n' "$M" "$T" "$NIV" "$TOUCHE" >&2
+      echo "  niveaux.critiques (config/harnais.json) : un chemin critique n'entre sur $PRINCIPALE qu'avec une relecture N3" >&2
+      echo "  a faire : doublage N3 (convention §9), rapport GO avec 'niveau: N3', puis repousser" >&2
+      REFUS=1
+      continue
+    fi
+    [ "$NIV" = N1 ] || continue
+    if [ -z "$(critiques_de_confiance "$M")" ]; then
+      echo "pre-push: REFUS -- merge $M (tip $(printf '%.7s' "$T")) relu en N1, mais niveaux.critiques est absent ou vide dans la config d'avant le merge : aucun N1 permis" >&2
+      echo "  a faire : passe en N2 (doublage independant, rapport 'niveau: N2'), ou fais d'abord ecrire la liste des chemins critiques par le Cowork du projet" >&2
+      REFUS=1
+      continue
+    fi
+    MAX=$(printf '%s\n' "$NIVX" | sed -n 's/^M //p' | sort -n | head -n 1)
+    [ -n "$MAX" ] || MAX=300
+    # (M0293) --attr-source exige git >= 2.40 ; en dessous, aucun plafond fiable : N1 refuse, message clair.
+    if ! git_au_moins_2_40; then
+      echo "pre-push: REFUS -- merge $M (tip $(printf '%.7s' "$T")) relu en N1 : le plafond N1 exige git >= 2.40 (git --attr-source), trouve : $(git --version 2>/dev/null)" >&2
+      echo "  a faire : mets git a jour (>= 2.40), ou passe en N2 (doublage independant, rapport 'niveau: N2'), puis repousser" >&2
+      REFUS=1
+      continue
+    fi
+    if ! NUMSTAT=$(git --attr-source=4b825dc642cb6eb9a060e54bf8d69288fbee4904 diff --numstat --ignore-submodules=none --no-renames "$M^1" "$M" -- . ':(exclude)vault'); then
+      echo "pre-push: erreur interne du hook (git diff --numstat en echec sur $M), push vers $REMOTE_REF refuse par prudence" >&2
+      REFUS=1
+      continue
+    fi
+    if ! LIGNES=$(printf '%s\n' "$NUMSTAT" | awk -F '\t' '
+        NF < 3 { next }
+        { s += ($1 == "-" ? 1 : $1 + $2) }
+        END { print s + 0 }'); then
+      echo "pre-push: erreur interne du hook (git diff --numstat en echec sur $M), push vers $REMOTE_REF refuse par prudence" >&2
+      REFUS=1
+      continue
+    fi
+    if [ "$LIGNES" -gt "$MAX" ]; then
+      echo "pre-push: REFUS -- merge $M (tip $(printf '%.7s' "$T")) relu en N1 : $LIGNES lignes changees hors vault/, plafond niveaux.n1_max_lignes = $MAX" >&2
+      echo "  a faire : passe en N2 (doublage independant, rapport 'niveau: N2'), puis repousser" >&2
+      REFUS=1
+    fi
+  done
+done
+
+exit "$REFUS"

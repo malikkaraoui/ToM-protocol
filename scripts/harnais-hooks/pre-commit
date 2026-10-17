@@ -1,0 +1,691 @@
+#!/bin/sh
+# Git hook: pre-commit (rejoué par pre-merge-commit sur le résultat d'un merge sans conflit)
+# Deux garde-fous de taille sur des fichiers relus à CHAQUE démarrage de session. Le remède est
+# imprimé dans l'erreur, pour que la correction ne demande aucune recherche.
+#
+# 1. Index de reprise : refuse un commit qui le ferait grossir au-delà de la limite. Sans garde-fou,
+#    il atteint plusieurs centaines de kilo-octets et se paye à chaque reprise.
+#    Bloc `rotation` de premier niveau de la config (défauts entre accolades) ; une variable
+#    d'environnement non vide est prioritaire :
+#      index                ROTATION_INDEX    chemin de l'index surveillé   {vault/reprise/00_INDEX.md}
+#      index_limite_octets  ROTATION_LIMITE   limite en octets              {80000}
+#      remede               ROTATION_REMEDE   commande de rotation imprimée dans le message d'erreur
+#
+# 2. Fichiers chargés d'office (#113) : budget en CARACTÈRES et LARGEUR DE LIGNE. Un fichier
+#    d'instructions enfle de deux façons : en longueur, et en largeur (des puces qu'on allonge sans
+#    ajouter de ligne). Les deux sont bornées, sur la version INDEXÉE :
+#      - taille  > seuil : refus ; déjà au-dessus avant le commit et ne grossit pas : averti, accepté ;
+#        avertissement à partir de 80 % du seuil ;
+#      - largeur > seuil : refus de toute ligne trop large AJOUTÉE ou MODIFIÉE par le commit ; une
+#        ligne trop large déjà là et laissée intacte : avertie, acceptée.
+#    Dans un merge, « déjà là » se juge contre CHAQUE parent : ce qu'un parent portait déjà n'est
+#    pas une aggravation, la somme de deux croissances parallèles en est une.
+#    Bloc `instructions` de premier niveau de la config :
+#      max_caracteres  seuil de taille   {40000}  (INSTRUCTIONS_MAX_CARACTERES prioritaire ; s'il
+#                      relève le seuil, une ligne sur stderr le dit)
+#      max_ligne       seuil de largeur  {400}
+#      fichiers        liste de motifs, ou d'objets { motif, max_caracteres, max_ligne } ; le premier
+#                      motif qui reconnaît un chemin décide. La liste par défaut est TOUJOURS ajoutée
+#                      à la suite : la config règle des seuils, elle ne retire aucun fichier.
+#                        **/CLAUDE.md   **/.claude/rules/**/*.md   **/.claude/skills/**/SKILL.md
+#                        vault/reprise/00_INDEX.md (80000)   vault/reprise/CARNET_DE_BORD.md
+#    Motif : ancré à la racine du dépôt ; `**/` = zéro dossier ou plus, `*` et `?` ne passent pas `/` ;
+#    comparé SANS CASSE (ASCII). Seuil nul, négatif ou non entier : le défaut, et une ligne sur stderr.
+#    Rien ne désactive le contrôle.
+#
+# La config est lue DANS GIT, jamais au disque : version indexée de ${HARNAIS_CONFIG:-config/harnais.json}
+# pour un commit, version de <ref> en mode contrôle. Un seuil ne se relève que par un changement
+# committé. Config présente au disque mais absente de l'index : défauts, et une ligne sur stderr.
+#
+# Ce qui est jugé, c'est une ENTRÉE de l'arbre (mode, objet), lue en `-z` : aucun nom de fichier
+# n'est interprété ni passé à une commande. Une entrée est jugée sous tous ses noms : le sien, et
+# ceux que lui donnent les liens symboliques du dépôt (`CLAUDE.md -> docs/gros.md` : c'est
+# `docs/gros.md` qui est mesuré, à ce commit et aux suivants). Un lien surveillé dont la cible n'est
+# pas un fichier du dépôt est refusé : rien à mesurer.
+#
+# Mode contrôle (lecture seule, pour le doublage) :
+#   pre-commit --controle [<ref>] [--base <ref>] [--lignes]
+# juge TOUS les fichiers chargés d'office de <ref> (défaut HEAD) : une ligne OK / ATTENTION / BLOQUE
+# par fichier sur stdout, code 1 s'il y a un BLOQUE. Avec --base, même tolérance que le hook
+# (seul ce qui s'aggrave depuis la base bloque) ; sans, l'état absolu. --lignes : chaque ligne trop
+# large est listée (numéro, largeur) -- la liste de travail d'une purge.
+
+STATUT=0
+MODE=commit
+REF=""
+BASE=""
+LIGNES=0
+
+usage() {
+  echo "usage : pre-commit --controle [<ref>] [--base <ref>] [--lignes]" >&2
+  exit 2
+}
+# Tout texte qui porte un nom de fichier passe par printf : `echo` interprète les antislashs.
+dire() { printf '%s\n' "$*" >&2; }
+
+if [ "${1:-}" = "--controle" ]; then
+  MODE=controle
+  shift
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --base) [ $# -ge 2 ] || usage; BASE="$2"; shift 2 ;;
+      --lignes) LIGNES=1; shift ;;
+      -*) usage ;;
+      *) [ -z "$REF" ] || usage; REF="$1"; shift ;;
+    esac
+  done
+  REF="${REF:-HEAD}"
+  RACINE=$(git rev-parse --show-toplevel 2>/dev/null) && cd "$RACINE" || { echo "pre-commit: pas dans un depot git" >&2; exit 2; }
+  for V in "$REF" ${BASE:+"$BASE"}; do
+    git rev-parse -q --verify "$V^{commit}" >/dev/null 2>&1 || { echo "pre-commit: ref introuvable : $V" >&2; exit 2; }
+  done
+fi
+
+CONFIG="${HARNAIS_CONFIG:-config/harnais.json}"
+MAX_DEFAUT=40000
+LIGNE_DEFAUT=400
+INDEX_DEFAUT=vault/reprise/00_INDEX.md
+LIMITE_DEFAUT=80000
+TAB=$(printf '\t')
+
+# Lit les blocs "rotation" et "instructions" de premier niveau du JSON sur stdin (mini-lecteur sans
+# dépendance, comme le hook pre-push : chaînes, échappements, imbrication ; une clé de même nom dans
+# un autre bloc est ignorée) et rend le plan de contrôle, un enregistrement par ligne, champs séparés
+# par une tabulation :
+#   E <message>                        à écrire sur stderr
+#   R <index|limite|remede> <valeur>   réglage de rotation lu dans la config
+#   T <max_caracteres> <max_ligne> <nature> <expression régulière du motif>   dans l'ordre de la liste
+# Nature : `etat` pour un fichier dont le rôle est de porter de l'état daté (index, carnet), `-` sinon.
+lire_plan() {
+  LC_ALL=C awk '
+    function entier(v) { return (v ~ /^[1-9][0-9]*$/ && length(v) <= 9) }
+    function err(m) { gsub(/[\t\r\n]/, " ", m); print "E\t" m }
+    function montre(t, v) { return t == "s" ? "\"" v "\"" : (t == "{" ? "{...}" : (t == "[" ? "[...]" : v)) }
+    function niveau1(nom) { return prof >= 2 && type[1] == "{" && type[2] == "{" && nomc[2] == nom }
+    function liste() { return prof >= 3 && niveau1("instructions") && type[3] == "[" && nomc[3] == "fichiers" }
+    # Motif -> expression régulière ancrée, en minuscules (le chemin jugé l est aussi). Tout
+    # caractère autre que * et ? est littéral.
+    function ere(g,    i, c, r, n) {
+      g = tolower(g)
+      r = ""; n = length(g)
+      for (i = 1; i <= n; i++) {
+        c = substr(g, i, 1)
+        if (c == "*") {
+          if (substr(g, i, 3) == "**/") { r = r "(.*/)?"; i += 2 }
+          else if (substr(g, i, 2) == "**") { r = r ".*"; i++ }
+          else r = r "[^/]*"
+        } else if (c == "?") r = r "[^/]"
+        else if (index(".[]()+^$|{}\\", c)) r = r "\\" c
+        else r = r c
+      }
+      return "^" r "$"
+    }
+    function table(c, l, nat, g) { print "T\t" c "\t" l "\t" nat "\t" ere(g) }
+    function defauts() {
+      table(maxc, maxl, "-", "**/CLAUDE.md")
+      table(maxc, maxl, "-", "**/.claude/rules/**/*.md")
+      table(maxc, maxl, "-", "**/.claude/skills/**/SKILL.md")
+      table(80000, maxl, "etat", "vault/reprise/00_INDEX.md")
+      table(maxc, maxl, "etat", "vault/reprise/CARNET_DE_BORD.md")
+    }
+    # Une valeur commence (t : s chaîne, v nombre ou mot nu, { objet, [ liste), AVANT d y entrer.
+    function element(t, v, ech,    r) {
+      if (prof == 2 && niveau1("instructions")) {
+        if (cle == "max_caracteres") { gct = t; gcv = v }
+        else if (cle == "max_ligne") { glt = t; glv = v }
+        else if (cle == "fichiers") { ft = t }
+      } else if (prof == 2 && niveau1("rotation")) {
+        if (cle == "index") { rit = t; riv = v; rie = ech }
+        else if (cle == "index_limite_octets") { rlt = t; rlv = v }
+        else if (cle == "remede") { rrt = t; rrv = v }
+      } else if (prof == 3 && liste()) {
+        r = rang[3]; nb = r + 1; et[r] = t
+        if (t == "s") { mt[r] = t; mv[r] = v; me[r] = ech }
+      } else if (prof == 4 && liste() && type[4] == "{") {
+        r = rang[3]
+        if (cle == "motif") { mt[r] = t; mv[r] = v; me[r] = ech }
+        else if (cle == "max_caracteres") { ect[r] = t; ecv[r] = v }
+        else if (cle == "max_ligne") { elt[r] = t; elv[r] = v }
+      }
+    }
+    { texte = texte $0 "\n" }
+    END {
+      cfg = ENVIRON["H_CONFIG"]; dc = ENVIRON["H_MAX_DEFAUT"]; dl = ENVIRON["H_LIGNE_DEFAUT"]
+      n = length(texte); prof = 0; cle = ""; nb = 0
+      for (i = 1; i <= n; i++) {
+        c = substr(texte, i, 1)
+        if (c == "\"") {
+          ch = ""; ech = 0
+          for (i++; i <= n; i++) {
+            c = substr(texte, i, 1)
+            if (c == "\\") {
+              d = substr(texte, i + 1, 1); i++
+              if (d == "\\" || d == "\"" || d == "/") ch = ch d
+              else { ch = ch "\\" d; ech = 1 }
+              continue
+            }
+            if (c == "\"") break
+            ch = ch c
+          }
+          j = i + 1
+          while (j <= n && substr(texte, j, 1) ~ /[ \t\r\n]/) j++
+          if (substr(texte, j, 1) == ":") { cle = ch; i = j; continue }
+          element("s", ch, ech)
+        } else if (c == "{" || c == "[") {
+          element(c, "", 0)
+          nom = prof < 1 ? "" : (type[prof] == "{" ? cle : rang[prof])
+          prof++; type[prof] = c; nomc[prof] = nom; rang[prof] = 0; cle = ""
+        } else if (c == "}" || c == "]") {
+          if (prof > 0) prof--
+          cle = ""
+        } else if (c == ",") {
+          if (type[prof] == "[") rang[prof]++
+          cle = ""
+        } else if (c !~ /[ \t\r\n:]/) {
+          v = ""
+          while (i <= n && substr(texte, i, 1) !~ /[ \t\r\n,}\]]/) { v = v substr(texte, i, 1); i++ }
+          i--
+          element("v", v, 0)
+        }
+      }
+
+      # Rotation de l index. Valeur invalide : le défaut, et on le dit.
+      if (rit != "") {
+        if (rit == "s" && riv != "" && !rie && riv !~ /[\001-\037]/) print "R\tindex\t" riv
+        else err("rotation.index de " cfg " invalide (" montre(rit, riv) "), index par defaut (" ENVIRON["H_INDEX_DEFAUT"] ")")
+      }
+      if (rlt != "") {
+        if (rlt == "v" && entier(rlv)) print "R\tlimite\t" rlv
+        else err("rotation.index_limite_octets de " cfg " invalide (" montre(rlt, rlv) "), limite par defaut (" ENVIRON["H_LIMITE_DEFAUT"] " octets)")
+      }
+      if (rrt != "") {
+        if (rrt == "s" && rrv != "" && rrv !~ /[\001-\037]/) print "R\tremede\t" rrv
+        else err("rotation.remede de " cfg " invalide (" montre(rrt, rrv) "), remede par defaut")
+      }
+
+      # Seuils généraux. Jamais de valeur « désactivé » : invalide = défaut, et on le dit.
+      maxc = dc; origine = "par defaut"
+      if (gct != "") {
+        if (gct == "v" && entier(gcv)) { maxc = gcv; origine = "de " cfg }
+        else err("instructions.max_caracteres de " cfg " invalide (" montre(gct, gcv) "), seuil par defaut (" dc " caracteres)")
+      }
+      if (ENVIRON["H_ENV_POSE"] == "1") {
+        v = ENVIRON["H_ENV"]; versionne = maxc
+        if (entier(v)) maxc = v
+        else {
+          maxc = dc
+          if (v != "") err("INSTRUCTIONS_MAX_CARACTERES invalide (" v "), seuil par defaut (" dc " caracteres)")
+        }
+        # Une variable d environnement ne laisse aucune trace versionnée : un relèvement se dit.
+        if (maxc + 0 > versionne + 0) err("INSTRUCTIONS_MAX_CARACTERES releve le seuil de taille (" maxc " > " versionne " " origine ") : sans trace versionnee")
+      }
+      maxl = dl
+      if (glt != "") {
+        if (glt == "v" && entier(glv)) maxl = glv
+        else err("instructions.max_ligne de " cfg " invalide (" montre(glt, glv) "), largeur par defaut (" dl " caracteres)")
+      }
+
+      # Liste des fichiers : les entrées lisibles de la config, PUIS la liste par défaut, toujours.
+      # La config donne ses seuils à un motif (le premier qui reconnaît décide) ; ni un oubli ni
+      # une faute de frappe ne retirent un fichier du contrôle.
+      if (ft != "") {
+        if (ft != "[") err("instructions.fichiers de " cfg " invalide (liste attendue)")
+        else if (nb == 0) err("instructions.fichiers de " cfg " vide")
+        for (r = 0; r < nb; r++) {
+          if ((et[r] != "s" && et[r] != "{") || mt[r] != "s" || mv[r] == "" || me[r] || mv[r] ~ /[\001-\037]/) {
+            err("instructions.fichiers[" r "] de " cfg " invalide (motif attendu) : entree ignoree")
+            continue
+          }
+          c = maxc; l = maxl
+          if (et[r] == "{" && ect[r] != "") {
+            if (ect[r] == "v" && entier(ecv[r])) c = ecv[r]
+            else err("instructions.fichiers[" r "].max_caracteres de " cfg " invalide (" montre(ect[r], ecv[r]) "), seuil general applique (" maxc ")")
+          }
+          if (et[r] == "{" && elt[r] != "") {
+            if (elt[r] == "v" && entier(elv[r])) l = elv[r]
+            else err("instructions.fichiers[" r "].max_ligne de " cfg " invalide (" montre(elt[r], elv[r]) "), largeur generale appliquee (" maxl ")")
+          }
+          table(c, l, "-", mv[r])
+        }
+      }
+      defauts()
+    }'
+}
+
+# La config jugée est celle que git connaît : l'index pour un commit, <ref> en mode contrôle.
+if [ "$MODE" = commit ]; then CSPEC=":$CONFIG"; else CSPEC="$REF:$CONFIG"; fi
+plan() {
+  H_CONFIG="$CONFIG" H_MAX_DEFAUT="$MAX_DEFAUT" H_LIGNE_DEFAUT="$LIGNE_DEFAUT" \
+    H_INDEX_DEFAUT="$INDEX_DEFAUT" H_LIMITE_DEFAUT="$LIMITE_DEFAUT" \
+    H_ENV_POSE="${INSTRUCTIONS_MAX_CARACTERES+1}" H_ENV="${INSTRUCTIONS_MAX_CARACTERES:-}" lire_plan
+}
+if git cat-file -e "$CSPEC" 2>/dev/null; then
+  PLAN=$(git cat-file blob "$CSPEC" 2>/dev/null | plan) || PLAN=""
+else
+  if [ "$MODE" = commit ] && [ -e "$CONFIG" ]; then
+    dire "pre-commit: config $CONFIG absente de l'index (git add $CONFIG) : seuils, liste et rotation par defaut"
+  fi
+  PLAN=$(plan < /dev/null) || PLAN=""
+fi
+# Lecteur en panne (awk absent) : la liste et les seuils par défaut, jamais « rien à contrôler ».
+case "$PLAN" in
+  *"T$TAB"*) ;;
+  *)
+    echo "pre-commit: lecture de $CONFIG en echec, liste et seuils par defaut" >&2
+    PLAN="T$TAB$MAX_DEFAUT$TAB$LIGNE_DEFAUT$TAB-$TAB^(.*/)?claude\\.md\$
+T$TAB$MAX_DEFAUT$TAB$LIGNE_DEFAUT$TAB-$TAB^(.*/)?\\.claude/rules/(.*/)?[^/]*\\.md\$
+T$TAB$MAX_DEFAUT$TAB$LIGNE_DEFAUT$TAB-$TAB^(.*/)?\\.claude/skills/(.*/)?skill\\.md\$
+T${TAB}80000$TAB$LIGNE_DEFAUT${TAB}etat$TAB^vault/reprise/00_index\\.md\$
+T$TAB$MAX_DEFAUT$TAB$LIGNE_DEFAUT${TAB}etat$TAB^vault/reprise/carnet_de_bord\\.md\$" ;;
+esac
+C_INDEX=""; C_LIMITE=""; C_REMEDE=""
+while IFS= read -r L; do
+  case "$L" in
+    "E$TAB"*) dire "pre-commit: ${L#E?}" ;;
+    "R${TAB}index$TAB"*) C_INDEX="${L#R?index?}" ;;
+    "R${TAB}limite$TAB"*) C_LIMITE="${L#R?limite?}" ;;
+    "R${TAB}remede$TAB"*) C_REMEDE="${L#R?remede?}" ;;
+  esac
+done <<EOF
+$PLAN
+EOF
+
+# --- 1. Index de reprise : réglages (le contrôle lui-même est fait plus bas, sur l'entrée) --------
+
+INDEX="${ROTATION_INDEX:-${C_INDEX:-$INDEX_DEFAUT}}"
+LIMITE="${C_LIMITE:-$LIMITE_DEFAUT}"
+REMEDE="${ROTATION_REMEDE:-${C_REMEDE:-<commande de rotation de l’index du projet>}}"
+if [ -n "${ROTATION_LIMITE:-}" ]; then
+  case "$ROTATION_LIMITE" in
+    0* | *[!0-9]* | ??????????*) dire "pre-commit: ROTATION_LIMITE invalide ($ROTATION_LIMITE), limite appliquee : $LIMITE octets" ;;
+    *) LIMITE="$ROTATION_LIMITE" ;;
+  esac
+fi
+
+# --- 2. Les entrées à juger ---------------------------------------------------------------------
+
+# Enregistrements `-z` de git -> une ligne chacun. Un saut de ligne dans un nom devient l'octet 001 :
+# le nom ne sert qu'à reconnaître un motif et à l'affichage, le contenu est lu par son objet.
+# Commande git en échec : un enregistrement `!`, que le tri ci-dessous rend en refus.
+lignes() { tr '\n\000' '\001\n'; }
+arbre() { { git ls-tree -r -z --full-tree "$1" 2>/dev/null || printf '!\000'; } | lignes; }
+
+if [ "$MODE" = commit ]; then
+  ARBRE=$({ git ls-files -s -z 2>/dev/null || printf '!\000'; } | lignes)
+  COL_OBJET=2
+else
+  ARBRE=$(arbre "$REF")
+  COL_OBJET=3
+fi
+
+# Tri : dit, pour chaque entrée à juger, sous quels seuils et contre quels objets d'avant.
+# Entrée (sections) :
+#   =A  index            « mode objet étage <TAB> chemin »
+#   =T  arbre d'une ref  « mode type objet <TAB> chemin »
+#   =M  modifiés par le commit, deux lignes : « :mode mode objet objet statut » puis le chemin
+#   =P  arbre d'un parent de comparaison (parent d'un merge, ou la base du mode contrôle)
+#   =L  liens symboliques : « objet cible »
+# Sortie, champs séparés par une tabulation (jamais vides) :
+#   J <max_caracteres> <max_ligne> <nature> <index 0|1> <objet> <objets d'avant> <nom affiché> <chemin à indexer>
+#   X <nom affiché>     lien symbolique surveillé dont la cible n'est pas un fichier du dépôt
+#   !                   liste illisible
+#   FIN                 dernier enregistrement : son absence est une panne du tri
+trier() {
+  H_PLAN="$PLAN" H_MODE="$MODE" H_INDEX="$INDEX" LC_ALL=C awk '
+    function montrer(s) { gsub(/[\001-\037]/, "?", s); return s }
+    # Cible d un lien -> chemin depuis la racine du dépôt. RESOLU = 0 : absolue, ou hors du dépôt.
+    function resoudre(de, vers,    base, n, i, k, part, pile, r) {
+      RESOLU = 0
+      if (vers == "" || substr(vers, 1, 1) == "/") return ""
+      base = de
+      if (!sub(/\/[^\/]*$/, "", base)) base = ""
+      n = split((base == "" ? "" : base "/") vers, part, "/")
+      k = 0
+      for (i = 1; i <= n; i++) {
+        if (part[i] == "" || part[i] == ".") continue
+        if (part[i] == "..") { if (k == 0) return ""; k--; continue }
+        pile[++k] = part[i]
+      }
+      r = ""
+      for (i = 1; i <= k; i++) r = r (i > 1 ? "/" : "") pile[i]
+      RESOLU = 1
+      return r
+    }
+    function alias(e, nom, par) { na[e]++; an[e, na[e]] = nom; al[e, na[e]] = par }
+    # Objet du chemin dans le parent p (vide = absent). Parent 0 = HEAD, connu par le diff de l index.
+    function avant(p, chemin) {
+      if (p == 0) return (chemin in modif) ? vieux[chemin] : objet[chemin]
+      return pobjet[p, chemin]
+    }
+    # Premier motif du plan qui reconnaît le nom ; la nature est celle du premier motif qui en porte une.
+    function reconnu(nom,    j, jj) {
+      for (j = 1; j <= np; j++) if (nom ~ pe[j]) {
+        RC = pc[j]; RL = pl[j]; RN = "-"
+        for (jj = j; jj <= np; jj++) if (pn[jj] != "-" && nom ~ pe[jj]) { RN = pn[jj]; break }
+        return 1
+      }
+      return 0
+    }
+    BEGIN {
+      m = split(ENVIRON["H_PLAN"], t, "\n"); np = 0
+      for (i = 1; i <= m; i++) {
+        if (substr(t[i], 1, 2) != "T\t") continue
+        split(t[i], p, "\t"); np++
+        pc[np] = p[2]; pl[np] = p[3]; pn[np] = p[4]
+        pe[np] = substr(t[i], length(p[2]) + length(p[3]) + length(p[4]) + 6)
+      }
+      commit = (ENVIRON["H_MODE"] == "commit"); index_reprise = tolower(ENVIRON["H_INDEX"])
+      section = ""; attendu = 0; n = 0; kp = 0; panne = 0
+    }
+    attendu { modif[$0] = 1; vieux[$0] = (meta[3] ~ /^0+$/) ? "" : meta[3]; attendu = 0; next }
+    $0 == "=A" || $0 == "=T" || $0 == "=M" || $0 == "=L" { section = substr($0, 2); next }
+    $0 == "=P" { section = "P"; kp++; next }
+    $0 == "!" { panne = 1; next }
+    $0 == "" { next }
+    section == "M" { if (substr($0, 1, 1) == ":") { split($0, meta, " "); attendu = 1 } else panne = 1; next }
+    section == "L" { i = index($0, " "); cible[substr($0, 1, i - 1)] = substr($0, i + 1); next }
+    {
+      i = index($0, "\t")
+      if (!i) { panne = 1; next }
+      split(substr($0, 1, i - 1), meta, " "); chemin = substr($0, i + 1)
+      o = (section == "A") ? meta[2] : meta[3]
+      if (meta[1] != "100644" && meta[1] != "100755" && meta[1] != "120000") next
+      if (section == "P") { pobjet[kp, chemin] = o; next }
+      if (section == "A" && meta[3] != "0") next
+      objet[chemin] = o; lien[chemin] = (meta[1] == "120000"); ordre[++n] = chemin
+    }
+    END {
+      if (panne || attendu) { print "!"; print "FIN"; exit }
+      # Les noms que les liens symboliques donnent aux entrées : cible fichier, ou cible dossier.
+      for (i = 1; i <= n; i++) {
+        l = ordre[i]
+        if (!lien[l]) continue
+        c = resoudre(l, cible[objet[l]])
+        mort[l] = 1
+        if (!RESOLU) continue
+        if (c in objet) {
+          if (!lien[c]) { alias(c, l, l); mort[l] = 0 }
+          continue
+        }
+        prefixe = (c == "") ? "" : c "/"; k = length(prefixe)
+        for (j = 1; j <= n; j++) {
+          e = ordre[j]
+          if (lien[e] || substr(e, 1, k) != prefixe) continue
+          alias(e, l "/" substr(e, k + 1), l); mort[l] = 0
+        }
+      }
+      for (i = 1; i <= n; i++) {
+        e = ordre[i]
+        if (lien[e]) {
+          # Un lien surveillé sans cible mesurable : refus, jamais « rien à redire ».
+          if (mort[e] && (!commit || (e in modif)) && (reconnu(tolower(e)) || tolower(e) == index_reprise)) print "X\t" montrer(e)
+          continue
+        }
+        decide = 0; est_index = 0
+        for (a = 0; a <= na[e]; a++) {
+          nom = a ? an[e, a] : e; par = a ? al[e, a] : ""
+          if (commit && !(e in modif) && !(par != "" && (par in modif))) continue
+          if (tolower(nom) == index_reprise) est_index = 1
+          if (!decide && reconnu(tolower(nom))) { decide = 1; dc = RC; dl = RL; dn = RN; dnom = nom; dpar = par }
+        }
+        if (!decide && !est_index) continue
+        if (!decide) { dc = "-"; dl = "-"; dn = "etat"; dnom = e; dpar = "" }
+        # Les objets d avant : un par parent, si le nom décisif y désignait déjà cette entrée.
+        anciens = ""
+        for (q = (commit ? 0 : 1); q <= kp; q++) {
+          if (dpar != "" && avant(q, dpar) != objet[dpar]) continue
+          o = avant(q, e)
+          if (o != "") anciens = anciens (anciens == "" ? "" : " ") o
+        }
+        print "J\t" dc "\t" dl "\t" dn "\t" est_index "\t" objet[e] "\t" (anciens == "" ? "-" : anciens) "\t" montrer(dpar == "" ? dnom : dnom " -> " e) "\t" montrer(e)
+      }
+      print "FIN"
+    }'
+}
+
+# Ce que le tri lit : l'arbre jugé, ce que le commit modifie, les arbres de comparaison, les liens.
+entrees() {
+  if [ "$MODE" = commit ]; then
+    echo "=A"; printf '%s\n' "$ARBRE"
+    echo "=M"
+    # --no-renames : un fichier renommé compte comme un fichier neuf à son nouveau chemin. T : un
+    # fichier devenu lien symbolique (ou l'inverse) est une modification.
+    { git diff --cached --raw -z --no-renames --no-abbrev --diff-filter=AMT 2>/dev/null || printf '!\000'; } | lignes
+    # Merge en cours : chaque parent fusionné est un point de comparaison de plus. Git les nomme
+    # par MERGE_HEAD (merge repris à la main) ou, pendant un merge automatique -- MERGE_HEAD n'est
+    # pas encore écrit quand pre-merge-commit tourne --, par ses variables GITHEAD_<objet>.
+    TETES=$(git rev-parse --git-path MERGE_HEAD 2>/dev/null) || TETES=""
+    {
+      if [ -n "$TETES" ] && [ -f "$TETES" ]; then cat "$TETES"; fi
+      env | sed -n 's/^GITHEAD_\([0-9a-f]\{40,64\}\)=.*/\1/p'
+    } | LC_ALL=C awk '$1 ~ /^[0-9a-f]+$/ && !vu[$1]++ { print $1 }' |
+      while read -r T; do
+        git rev-parse -q --verify "$T^{commit}" >/dev/null 2>&1 || continue
+        echo "=P"; arbre "$T"
+      done
+  else
+    echo "=T"; printf '%s\n' "$ARBRE"
+    if [ -n "$BASE" ]; then echo "=P"; arbre "$BASE"; fi
+  fi
+  echo "=L"
+  printf '%s\n' "$ARBRE" | LC_ALL=C awk -v c="$COL_OBJET" '$1 == "120000" && $c ~ /^[0-9a-f]+$/ && !vu[$c]++ { print $c }' |
+    while read -r O; do
+      printf '%s ' "$O"
+      git cat-file blob "$O" 2>/dev/null | tr '\n\000' '\001\001'
+      echo
+    done
+}
+CIBLES=$(entrees | trier)
+
+# Mesure l'objet $1 contre les objets d'avant $2 (séparés par un espace ; `-` = aucun), largeur
+# maximale $3. Rend, séparés par un espace :
+#   <caractères de $1> <caractères d'avant> <lignes trop larges ajoutées ou modifiées> <héritées>
+#   <largeur maximale de $1> <détail des lignes fautives>
+# Caractères = octets UTF-8 hors octets de continuation (et hors octets nuls, qui couperaient la
+# lecture) : indépendant de la locale du poste. Une ligne trop large est « héritée » si la même
+# ligne, à l'identique, existait déjà dans un des objets d'avant (autant de fois) ; sinon elle est
+# ajoutée ou modifiée. Caractères d'avant = le plus gros des objets d'avant. Objet illisible : rien
+# n'est rendu, et l'appelant refuse.
+mesurer() {
+  H_NOUVEAU="$1" H_ANCIENS="$2" H_MAX="$3" H_TOUT="$LIGNES" LC_ALL=C awk '
+    function ligne(l, n, ancien,    k) {
+      k = length(l)
+      if (ancien) { if (k > max) tmp[l]++; return }
+      if (k > large) large = k
+      if (k <= max) return
+      if (vu[l] > 0) { vu[l]--; her++; return }
+      nouv++
+      if (tout || nouv <= 3) detail = detail (nouv > 1 ? " ; " : "") "ligne " n " : " k
+      else if (nouv == 4) detail = detail " ; ..."
+    }
+    # Le « x » écrit après le dernier octet dit si le blob finit par un saut de ligne : le compte des
+    # caractères est exact, et une dernière ligne sans saut de ligne est mesurée comme les autres.
+    function lire(o, ancien,    cmd, l, prec, vue, n, car) {
+      if (o !~ /^[0-9a-f]+$/ || system("git cat-file -e " o " 2>/dev/null") != 0) exit 1
+      cmd = "{ git cat-file blob " o " 2>/dev/null | tr -d \"\\000\\200-\\277\"; printf x; }"
+      vue = 0; n = 0; car = 0; prec = ""
+      while ((cmd | getline l) > 0) {
+        if (vue) { n++; car += length(prec) + 1; ligne(prec, n, ancien) }
+        prec = l; vue = 1
+      }
+      close(cmd)
+      prec = substr(prec, 1, length(prec) - 1)
+      if (prec != "") { n++; car += length(prec); ligne(prec, n, ancien) }
+      return car
+    }
+    BEGIN {
+      max = ENVIRON["H_MAX"] + 0; tout = (ENVIRON["H_TOUT"] == "1")
+      nouv = 0; her = 0; large = 0; detail = ""; ca = 0
+      if (ENVIRON["H_ANCIENS"] != "-") {
+        na = split(ENVIRON["H_ANCIENS"], anciens, " ")
+        for (i = 1; i <= na; i++) {
+          c = lire(anciens[i], 1)
+          if (c > ca) ca = c
+          for (l in tmp) if (tmp[l] > vu[l]) vu[l] = tmp[l]
+          split("", tmp)
+        }
+      }
+      cn = lire(ENVIRON["H_NOUVEAU"], 0)
+      print cn, ca, nouv, her, large, detail
+    }'
+}
+
+# Le remède dépend du rôle du fichier : un fichier de règles se purge vers l'état technique ; un
+# fichier d'état (index, carnet) garde son contenu, on replie ses lignes et on le fait tourner.
+purge() {
+  if [ "$2" = etat ]; then
+    dire "  Ce fichier est relu a chaque reprise : chaque caractere se paye a chaque demarrage."
+    dire "  Il porte de l'etat date, c'est son role : NE PAS le vider, ne rien en deplacer ailleurs."
+    dire "  Ligne trop large : la replier (une puce Markdown coupee en plusieurs lignes garde son rendu)."
+    dire "  Trop gros : l'index de reprise se purge par sa rotation ($REMEDE) ;"
+    dire "           le carnet de bord se reecrit (un instantane : ce qui n'est plus vrai en sort)."
+  else
+    dire "  Ce fichier est charge d'office a chaque session : chaque caractere se paye a chaque demarrage."
+    dire "  Purge  : n'y garder que des regles, en lignes courtes. L'etat (compteurs, Mxxxx, dates,"
+    dire "           historique, mesures) va dans vault/reprise/etat-technique.md, lu a la demande."
+    dire "           REMPLACER, jamais ajouter."
+  fi
+  dire "  Puis   : git add $1"
+  dire "  Etat de tous les fichiers charges d'office : sh $0 --controle (chaque ligne fautive : --controle --lignes)"
+  dire "  (Seuils et liste : bloc instructions de $CONFIG -- instructions.max_caracteres, max_ligne, fichiers.)"
+}
+
+NB_OK=0
+NB_ATTENTION=0
+NB_BLOQUE=0
+COMPLET=0
+ajouter() { RAISONS="$RAISONS$1
+"; }
+# Un fichier qu'on n'a pas pu juger est un refus, dans les deux modes.
+injugeable() {
+  if [ "$MODE" = commit ]; then dire "BLOQUE : $1"; else printf '%-9s %s\n' BLOQUE "$1"; fi
+  NB_BLOQUE=$((NB_BLOQUE + 1)); STATUT=1
+}
+
+while IFS="$TAB" read -r GENRE MAXC MAXL NATURE EST_INDEX OBJET ANCIENS F G; do
+  case "$GENRE" in
+    FIN) COMPLET=1; continue ;;
+    '!') injugeable "la liste des fichiers n'a pas pu etre lue (git en echec) : controle impossible."; continue ;;
+    X) injugeable "$MAXC est un lien symbolique dont la cible n'est pas un fichier du depot : rien a mesurer. Poser le fichier lui-meme, ou viser un fichier suivi par git."; continue ;;
+    J) ;;
+    *) continue ;;
+  esac
+
+  # Index de reprise : sa taille en octets, contre la limite de rotation.
+  if [ "$MODE" = commit ] && [ "$EST_INDEX" = 1 ]; then
+    if TAILLE=$(git cat-file -s "$OBJET" 2>/dev/null) && [ -n "$TAILLE" ]; then
+      if [ "$TAILLE" -gt "$LIMITE" ]; then
+        dire "BLOQUE : $F fait $TAILLE octets (limite $LIMITE)."
+        dire "  Remede : $REMEDE"
+        dire "  Puis   : git add $G vault/reprise/archive/index/"
+        dire "  (Limite : rotation.index_limite_octets de $CONFIG ; pour un seul commit : ROTATION_LIMITE=<octets> git commit ...)"
+        STATUT=1
+      fi
+    else
+      injugeable "$F n'a pas pu etre mesure (git en echec) : controle impossible."
+    fi
+  fi
+  [ "$MAXC" != - ] || continue
+
+  # Version de comparaison : HEAD (et les parents fusionnés), ou la base ; aucune = 0.
+  if [ "$MODE" = commit ]; then
+    AVANT="avant ce commit"; DEPUIS="par ce commit"
+  else
+    AVANT="dans $BASE"; DEPUIS="depuis $BASE"
+  fi
+  # shellcheck disable=SC2046
+  set -- $(mesurer "$OBJET" "$ANCIENS" "$MAXL")
+  if [ $# -lt 5 ]; then
+    # Mesure en panne (awk ou git) : jamais « rien a redire » sur un fichier qu'on n'a pas pu lire.
+    injugeable "$F n'a pas pu etre mesure (awk ou git en echec) : controle impossible."
+    continue
+  fi
+  NOUVEAU="$1"; ANCIEN="$2"; NB_NOUV="$3"; NB_HER="$4"; LARGE="$5"
+  shift 5
+  DETAIL="$*"
+  if [ "$LIGNES" = 1 ]; then RESUME="voir ci-dessous"; else RESUME="$DETAIL"; fi
+
+  VERDICT=OK
+  RAISONS=""
+  if [ "$NOUVEAU" -gt "$MAXC" ]; then
+    if [ "$NOUVEAU" -le "$ANCIEN" ]; then
+      [ "$VERDICT" = BLOQUE ] || VERDICT=ATTENTION
+      if [ "$MODE" = commit ]; then
+        ajouter "ATTENTION : $F fait $NOUVEAU caracteres (seuil $MAXC) -- deja au-dessus $AVANT ($ANCIEN), ne grossit pas : commit accepte."
+      else
+        ajouter "  - $NOUVEAU caracteres (seuil $MAXC) : deja au-dessus $AVANT ($ANCIEN), ne grossit pas"
+      fi
+    else
+      VERDICT=BLOQUE
+      if [ "$MODE" = commit ]; then
+        ajouter "BLOQUE : $F fait $NOUVEAU caracteres (seuil $MAXC ; $ANCIEN $AVANT)."
+      elif [ -n "$BASE" ]; then
+        ajouter "  - $NOUVEAU caracteres (seuil $MAXC ; $ANCIEN $AVANT)"
+      else
+        ajouter "  - $NOUVEAU caracteres (seuil $MAXC)"
+      fi
+    fi
+  elif [ "$NOUVEAU" -gt $((MAXC * 80 / 100)) ]; then
+    VERDICT=ATTENTION
+    if [ "$MODE" = commit ]; then
+      ajouter "ATTENTION : $F fait $NOUVEAU caracteres, plus de 80 % du seuil ($MAXC) : commit accepte, a alleger avant le refus."
+    else
+      ajouter "  - $NOUVEAU caracteres : plus de 80 % du seuil ($MAXC)"
+    fi
+  fi
+  if [ "$NB_NOUV" -gt 0 ]; then
+    VERDICT=BLOQUE
+    if [ "$MODE" = commit ]; then
+      ajouter "BLOQUE : $F a $NB_NOUV ligne(s) de plus de $MAXL caracteres, ajoutee(s) ou modifiee(s) $DEPUIS ($DETAIL)."
+    elif [ -n "$BASE" ]; then
+      ajouter "  - $NB_NOUV ligne(s) de plus de $MAXL caracteres, ajoutee(s) ou modifiee(s) $DEPUIS ($RESUME)"
+    else
+      ajouter "  - $NB_NOUV ligne(s) de plus de $MAXL caracteres ($RESUME)"
+    fi
+    if [ "$MODE" = controle ] && [ "$LIGNES" = 1 ]; then
+      ajouter "$(printf '%s\n' "$DETAIL" | awk '{ n = split($0, a, " ; "); for (i = 1; i <= n; i++) print "      " a[i] " caracteres" }')"
+    fi
+  fi
+  if [ "$NB_HER" -gt 0 ]; then
+    [ "$VERDICT" = BLOQUE ] || VERDICT=ATTENTION
+    if [ "$MODE" = commit ]; then
+      ajouter "ATTENTION : $F garde $NB_HER ligne(s) de plus de $MAXL caracteres, deja la $AVANT et laissee(s) intacte(s) : commit accepte."
+    else
+      ajouter "  - $NB_HER ligne(s) de plus de $MAXL caracteres, deja la $AVANT et laissee(s) intacte(s)"
+    fi
+  fi
+
+  case "$VERDICT" in
+    OK) NB_OK=$((NB_OK + 1)) ;;
+    ATTENTION) NB_ATTENTION=$((NB_ATTENTION + 1)) ;;
+    BLOQUE) NB_BLOQUE=$((NB_BLOQUE + 1)); STATUT=1 ;;
+  esac
+  if [ "$MODE" = commit ]; then
+    if [ -n "$RAISONS" ]; then
+      printf '%s' "$RAISONS" >&2
+      # Le remède suit tout refus et toute tolérance ; l'alerte des 80 % se suffit.
+      if [ "$NOUVEAU" -gt "$MAXC" ] || [ "$NB_NOUV" -gt 0 ] || [ "$NB_HER" -gt 0 ]; then purge "$G" "$NATURE"; fi
+    fi
+  else
+    printf '%-9s %s : %s caracteres (seuil %s), ligne la plus large %s (seuil %s)\n' "$VERDICT" "$F" "$NOUVEAU" "$MAXC" "$LARGE" "$MAXL"
+    printf '%s' "$RAISONS"
+  fi
+done <<EOF
+$CIBLES
+EOF
+
+# Le tri n'est pas allé au bout (awk absent ou en échec) : jamais « rien à contrôler ».
+if [ "$COMPLET" != 1 ]; then
+  injugeable "le tri des fichiers n'a pas abouti (awk ou git en echec) : controle impossible."
+fi
+
+if [ "$MODE" = controle ]; then
+  echo "controle-instructions : $((NB_OK + NB_ATTENTION + NB_BLOQUE)) fichier(s) charge(s) d'office dans $REF${BASE:+ (base $BASE)} -- $NB_OK OK, $NB_ATTENTION ATTENTION, $NB_BLOQUE BLOQUE"
+  if [ $((NB_ATTENTION + NB_BLOQUE)) -gt 0 ]; then
+    echo "  Purge : fichiers de regles (CLAUDE.md, rules, SKILL.md) -- regles seules, en lignes courtes ; l'etat va dans vault/reprise/etat-technique.md."
+    echo "          Index et carnet de reprise -- ils gardent leur etat : replier les lignes, l'index se purge par sa rotation."
+    echo "          REMPLACER, jamais ajouter. Chaque ligne fautive : --controle --lignes."
+  fi
+fi
+
+exit "$STATUT"
