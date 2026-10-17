@@ -15,9 +15,9 @@ ATV retirée (18/07 soir). Aucun nœud TEST-* dans la fenêtre (pollution harnai
 
 | De → Vers | Famille | Adresse | Kind | RTT |
 |---|---|---|---|---|
-| Mac → iPad | **v6-GUA** | `[2a01:e0a:14f:5da0:18f3:…]:60085` | DIRECT | 9 ms |
-| Mac → NAS | **v6-GUA** | `[2a01:e0a:14f:5da0:248f:…]:43925` | DIRECT | 5 ms |
-| Mac → iPhone | **v6-GUA** | `[2a01:e0a:14f:5da0:49bf:…]:64562` | DIRECT | 30 ms |
+| Mac → iPad | **v6-GUA** | `[<IPV6_DOMICILE>:18f3:…]:60085` | DIRECT | 9 ms |
+| Mac → NAS | **v6-GUA** | `[<IPV6_DOMICILE>:248f:…]:43925` | DIRECT | 5 ms |
+| Mac → iPhone | **v6-GUA** | `[<IPV6_DOMICILE>:49bf:…]:64562` | DIRECT | 30 ms |
 | iPad → Mac | **v6-GUA** | `[…:f42f:a9e9:820:861d]:55480` | DIRECT | 10 ms |
 | iPad → NAS | **v6-GUA** | `[…:248f:5dff:fea5:8ed1]:43925` | DIRECT | 7 ms |
 | iPad → iPhone | v4-LAN | `192.168.0.28:49945` | DIRECT | 9 ms |
@@ -98,7 +98,7 @@ est ignoré silencieusement (`ip.rs:415-445`). Un nœud peut donc être v4-only 
    `paths_by_peer` de TOUS les nœuds mais dans aucun `pairs_connectes`. 192.168.0.82 = le Mac
    lui-même (arp `permanent`) ; port 52655 = un nœud de harnais de la nuit (TEST-load, tués).
    → `paths_by_peer` retient des chemins vers des pairs morts ; candidat purge alignée
-   TOPOLOGY_TTL/liveness. Idem `iPad → 82.67.95.8:61809` (résiduel via IP publique Freebox).
+   TOPOLOGY_TTL/liveness. Idem `iPad → <IP_DOMICILE>:61809` (résiduel via IP publique Freebox).
 2. **iPhone → Mac absent de paths_by_peer** alors que Mac ∈ `pairs_connectes` de l'iPhone (et Mac
    voit l'iPhone en v6). Asymétrie d'observabilité (singleton last_path déjà vu au #33 ?) à
    revérifier après redeploy XCFramework ≥123.

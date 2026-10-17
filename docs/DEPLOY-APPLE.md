@@ -184,7 +184,7 @@ The node connects to a relay for bootstrap and NAT traversal. Configure in-app S
 
 Public relay (NAS, ARM64 Debian VM):
 - LAN: `http://192.168.0.21:3340`
-- WAN: `http://82.67.95.8:3340`
+- WAN: `http://<IP_DOMICILE>:3340`
 
 Run your own relay:
 ```bash

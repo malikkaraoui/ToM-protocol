@@ -54,7 +54,7 @@
 - ✅ **Anti-fantômes** : filtre de fraîcheur du rendez-vous DHT (rejet entrées >10min, tolérant skew) — un nœud mort n'est plus réinjecté/redialé.
 
 ### Infrastructure
-- ✅ NAS relay opérationnel : `tom-relay --dev` port 3340 (local + public `82.67.95.8:3340`) — ⚠️ **IP LAN DYNAMIQUE** (bail DHCP renouvelé à chaque redémarrage VM, ex. `.21`→`.83` le 2026-07-12) : `ping`/IP en dur ne sont PAS fiables pour vérifier la joignabilité, toujours tester le VRAI service (SSH/port relais) ou résoudre par hostname mDNS (`chk3wej...home`), jamais présumer le NAS mort sur un seul ping raté
+- ✅ NAS relay opérationnel : `tom-relay --dev` port 3340 (local + public `<IP_DOMICILE>:3340`) — ⚠️ **IP LAN DYNAMIQUE** (bail DHCP renouvelé à chaque redémarrage VM, ex. `.21`→`.83` le 2026-07-12) : `ping`/IP en dur ne sont PAS fiables pour vérifier la joignabilité, toujours tester le VRAI service (SSH/port relais) ou résoudre par hostname mDNS (`chk3wej...home`), jamais présumer le NAS mort sur un seul ping raté
 - ✅ mDNS local discovery activé par défaut
 - ✅ `tom-gateway` : CLI auto-config Freebox (crate 0.2.0)
 - ⚠️ **Diagnostic devices Apple** : `xcrun xctrace list devices` peut afficher à tort "Offline" des devices réellement appairés en WiFi (bug/lag de cet outil sur les devices réseau, pas USB) — utiliser `xcrun devicectl list devices` (le vrai outil derrière la fenêtre Xcode Devices) pour un état fiable.
@@ -117,7 +117,7 @@
 ### 🚧 Dette technique réseau réelle — flotte figée malgré fix Freebox (2026-07-13, session soir)
 > Contexte : iPhone en 3G/4G ne rejoignait pas le réseau ; en creusant, plusieurs couches de dette distinctes trouvées, **toutes non fermées**, listées ici pour ne rien perdre (même après priorisation).
 
-- [x] **Port relais NAS non forwardé (résolu manuellement, PAS automatiquement)** — `82.67.95.8:3340` (HTTP relais) et `7842` (QUIC relais, `tom-relay/src/defaults.rs:7`) n'avaient AUCUNE redirection Freebox, ni manuelle ni auto-UPnP (vérifié : 2 captures d'écran Freebox OS, onglets "Redirections de ports" et "Connexions entrantes", aucune règle présente). Confirmé par scan de port externe réel (yougetsignal.com, pas depuis le LAN) : `3340` fermé avant fix, ouvert après ajout manuel de 2 règles (TCP 3340 + UDP 7842 → SERVEUR). **Seul le port `43925` (dial QUIC direct du NAS, ancienne règle manuelle) était ouvert** — ce qui explique pourquoi le NAS "marchait" quand même pour certains chemins (dial direct) mais pas pour le fallback relais (indispensable en cellulaire/NAT restrictif).
+- [x] **Port relais NAS non forwardé (résolu manuellement, PAS automatiquement)** — `<IP_DOMICILE>:3340` (HTTP relais) et `7842` (QUIC relais, `tom-relay/src/defaults.rs:7`) n'avaient AUCUNE redirection Freebox, ni manuelle ni auto-UPnP (vérifié : 2 captures d'écran Freebox OS, onglets "Redirections de ports" et "Connexions entrantes", aucune règle présente). Confirmé par scan de port externe réel (yougetsignal.com, pas depuis le LAN) : `3340` fermé avant fix, ouvert après ajout manuel de 2 règles (TCP 3340 + UDP 7842 → SERVEUR). **Seul le port `43925` (dial QUIC direct du NAS, ancienne règle manuelle) était ouvert** — ce qui explique pourquoi le NAS "marchait" quand même pour certains chemins (dial direct) mais pas pour le fallback relais (indispensable en cellulaire/NAT restrictif).
 - [ ] **CAUSE RACINE confirmée via doc officielle Freebox (dev.freebox.fr) : UPnP IGD est désactivé PAR DÉFAUT sur toute Freebox** (`GET /api/v4/upnpigd/config/` → `"enabled": false` par défaut, `dev.freebox.fr/sdk/os/igd/`). Le code `procure_mapping()` livré ce jour (`crates/tom-protocol/src/runtime/embedded_relay.rs:168`, commit `865a85c`) parle UPnP générique — sur une Freebox stock ce service n'écoute même pas, silencieusement (aucun WARN/ERROR, juste `tracing::debug!` — trou d'observabilité en plus du trou fonctionnel). **PAS un bug du code (le code fait ce qu'il peut avec UPnP), c'est une limite de la stratégie "UPnP seul".**
 - [ ] **Chantier "tom-gateway" (R16c) — automatiser réellement le port-forward, PAS encore construit.** API native Freebox confirmée disponible et documentée : pairing par `app_token` (`POST /api/v4/login/authorize/` → popup sur écran LCD Freebox ou app Freebox, l'utilisateur valide UNE fois) puis gestion programmatique complète des redirections via `GET/POST/PUT/DELETE /api/v4/fw/redir/` (`dev.freebox.fr/sdk/os/nat/`) — plus robuste que l'UPnP générique (fonctionne même quand IGD est désactivé). C'est le vrai chemin "zéro friction" pour que n'importe quel utilisateur n'ait jamais à toucher l'admin Freebox. Pas commencé.
 - [ ] **SPOF réseau — seul le NAS tourne `--self-relay`** (vérifié : grep sur toutes les apps Swift iOS/tvOS/macOS, zéro référence à `self_relay`/`embedded_relay` côté appel — mais le FFI (`tom-protocol-ffi/src/lib.rs:246-247`) met `enable_embedded_relay`/`enable_embedded_relay_publication` à `true` par défaut si le champ JSON est absent, donc en théorie déjà actif partout sans configuration Swift explicite — **statut réel non encore confirmé sur le Mac/iPad**, à vérifier avant de conclure). Si confirmé inactif ou non-publié : construit pour être universel (ADR-006) mais dans les faits, un seul point de défaillance aujourd'hui.
@@ -169,7 +169,7 @@ Les 5 criticals de l'audit 6-agents sont corrigés (file:line revérifiés) :
 - [x] **Review Copilot x3 soldée** (2026-06-09) : handoffs FFI + transport + deps intégrés. Dette §25 effacée.
 - [x] **Push commits** — routine désormais (voir §Règle "commit push" CLAUDE.md), plus un item isolé
 - [x] **Rebuild xcframework** (2026-07-12) — 2 rebuilds ce jour (round 1 + round 2 red-team L1-003), synced vers `sdk/swift/TomProtocolKit/Artifacts/`, build 37
-- [ ] **Ouvrir IPv6 entrante Freebox** — port 43925 → `2a01:e0a:14f:5da0:248f:5dff:fea5:8ed1` (Freebox OS, règle pare-feu manuelle). Débloque connexion DIRECT QUIC NAS. **Action manuelle utilisateur, pas exécutable en autonomie.**
+- [ ] **Ouvrir IPv6 entrante Freebox** — port 43925 → `<IPV6_DOMICILE>:248f:5dff:fea5:8ed1` (Freebox OS, règle pare-feu manuelle). Débloque connexion DIRECT QUIC NAS. **Action manuelle utilisateur, pas exécutable en autonomie.**
 - [x] **Mettre `docs/TOM-TVOS-NODE-PLAN.md` à jour** — refléter l'état réel (2026-07-12, `c8ec8d2`) : doc réécrite, phases 1-5 marquées livrées, écart architecture TomCoreKit→wrapper local documenté
 - [ ] **Tests Swift/tvOS** — câbler XCTest dans `.xcodeproj` (fixtures identiques aux tests Rust)
 - [ ] **Durcir couche tvOS** : messages/groupes, persistance, reprise après veille
@@ -208,7 +208,7 @@ Les 5 criticals de l'audit 6-agents sont corrigés (file:line revérifiés) :
     en conditions réelles sur la Freebox de l'utilisatrice, PAS une supposition :
     nœud macOS relancé avec `RUST_LOG=debug` (le niveau par défaut masquait ce
     log), trace exacte : `getting a port mapping for 192.168.0.70:49850` →
-    `new port mapping Some(Upnp(Mapping { gateway: http://192.168.0.254:5678/control/wan_ip_connection, external_ip: 82.67.95.8, external_port: 58870 }))`.
+    `new port mapping Some(Upnp(Mapping { gateway: http://192.168.0.254:5678/control/wan_ip_connection, external_ip: <IP_DOMICILE>, external_port: 58870 }))`.
     La Freebox répond bien à UPnP IGD par défaut, un port UDP public est
     obtenu automatiquement pour le port QUIC principal, zéro manip manuelle.
     Confirme l'hypothèse de départ de R13 sur du matériel réel, pas en théorie.
@@ -313,7 +313,7 @@ gratuit, chiffré, sans blockchain ni fees (décision #7 : fondation universelle
 - Protocol convergence : stack TypeScript + Rust unifiées (détails non trouvés dans docs scannés)
 
 ### Améliorations infra
-- Push public relay (`82.67.95.8:3340`) — UDP 3340 déjà forwardé en Freebox
+- Push public relay (`<IP_DOMICILE>:3340`) — UDP 3340 déjà forwardé en Freebox
 - Clarifier la place de `tom-relay-ffi` (embedding Apple TV / mobile / démo embarquée ?) avant d'ouvrir un nouveau front
 
 ## Parking

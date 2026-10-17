@@ -46,7 +46,7 @@
 - Statut : traité
 - Résumé :
   - **Réussite** : iPhone en **5G hors-LAN** (CGNAT opérateur) rejoint le réseau ToM **décentralisé** (Pkarr/n0/DHT/IPv6, zéro relais à IP fixe) et échange avec le NAS **derrière la Freebox** — 0 échec.
-  - **NAS = nœud unifié** : service systemd `tom-node.service` (`tom-chat --bot`, role Peer, pas relais exclusif — ADR-006). Relais `tom-relay.service` séparé. IP publique `82.67.95.8`, forward NAT UDP+TCP 3340 OK (vérifié via SDK `tom-gateway`).
+  - **NAS = nœud unifié** : service systemd `tom-node.service` (`tom-chat --bot`, role Peer, pas relais exclusif — ADR-006). Relais `tom-relay.service` séparé. IP publique `<IP_DOMICILE>`, forward NAT UDP+TCP 3340 OK (vérifié via SDK `tom-gateway`).
   - **Fix clé** : défaut relais vide dans l'app (`TomNodeService.swift:50`) — le `.70` forcé bloquait le rendez-vous public. Rebuild iPhone → découverte organique OK.
   - **Limite actuelle** : lien via **fallback relais** (RTT 1.8–3.6s), pas de DIRECT. Cause : CGNAT 5G symétrique + firewall IPv6 Freebox. Hole-punch sans chemin direct viable.
 - Prochaine action : ouvrir IPv6 entrante Freebox (SDK `tom-gateway`) + instrumenter `path_kind` dans status `:8085` pour viser le DIRECT ; figer une identité persistante pour le nœud NAS.
@@ -105,5 +105,5 @@
   - **Feature `--bind-port`/`--bind-addr`** (commit `3c7b0b5`) : `TomNodeConfig.bind_addr` + env `TOM_BIND_ADDR`, branché sur `Endpoint::bind_addr()`, flags CLI `tom-chat`. Test `bind_addr_binds_fixed_port`. Gate workspace verte.
   - **Déploiement NAS vérifié** : `tom-node.service` mis à jour avec `--key-path /root/tom-node.key --bind-port 43925`. Identité **stable au restart** (node_id `11d5bb11…d2d759`), port `[::]:43925` persistant. → 2 blocages IPv6 du vault levés.
   - **Cadrage app macOS** (commit `58facce`) : `docs/superpowers/specs/2026-06-08-app-macos-tom-design.md`. Portage 1:1 natif validé + anti-veille `ProcessInfo.beginActivity`.
-- **Reste à faire (NAS)** : ouverture IPv6 entrante Freebox sur 43925 → `2a01:e0a:14f:5da0:248f:5dff:fea5:8ed1` (manuel Freebox OS, §22). Puis re-test DIRECT stable.
+- **Reste à faire (NAS)** : ouverture IPv6 entrante Freebox sur 43925 → `<IPV6_DOMICILE>:248f:5dff:fea5:8ed1` (manuel Freebox OS, §22). Puis re-test DIRECT stable.
 - **Reprise nouvelle fenêtre (macOS)** : lire la spec ci-dessus → `/superpowers:writing-plans` ou exécution directe. 5 lots : A=slice FFI darwin, B=cible Xcode (1 passage Xcode), C=portage TomNodeService (UIKit conditionnel + anti-veille), D=entitlements sandbox réseau, E=Makefile.

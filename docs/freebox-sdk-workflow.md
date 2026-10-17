@@ -218,7 +218,7 @@ GET /connection/
 ```json
 {
   "state": "up",
-  "ipv4": "82.67.95.8",
+  "ipv4": "<IP_DOMICILE>",
   "ipv6": "2a01:...",
   "bandwidth_down": 200000000,
   "bandwidth_up": 50000000

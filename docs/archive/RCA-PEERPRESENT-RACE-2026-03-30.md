@@ -25,7 +25,7 @@ Scénario 3 commandes (publisher + obs1 + obs2, sans relay externe) :
 
 ## Validation terrain (2026-03-30)
 
-Mac (observer) ↔ NAS (publisher + self-relay), WAN via `http://82.67.95.8:3340` :
+Mac (observer) ↔ NAS (publisher + self-relay), WAN via `http://<IP_DOMICILE>:3340` :
 
 - Discovery auto : PASS (PeerDiscovered via Announce, ~10s)
 - Path upgrade : Direct, 4-5ms RTT

@@ -3,7 +3,7 @@ Node ID: bd467afe98aaad1377f376375523cc83da555cee8a514f919f795733c3006256
 
 Ping mode → target: b7ec2e013be927f2614829d360d57018bdaf502ef3b85bb3ee40ef962ed08b43
 [2m2026-02-12T20:34:19.188285Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m remote server configuration might cause nat traversal issues [3mmax_local_addresses[0m[2m=[0m12 [3mremote_cid_limit[0m[2m=[0m5
-[2m2026-02-12T20:34:19.380369Z[0m [33m WARN[0m [2miroh_quinn_udp[0m[2m:[0m sendmsg error: Os { code: 65, kind: HostUnreachable, message: "No route to host" }, Transmit: { destination: [2a01:e0a:14f:5da0:248f:5dff:fea5:8ed1]:36842, src_ip: None, ecn: Some(Ect0), len: 1200, segment_size: None }
+[2m2026-02-12T20:34:19.380369Z[0m [33m WARN[0m [2miroh_quinn_udp[0m[2m:[0m sendmsg error: Os { code: 65, kind: HostUnreachable, message: "No route to host" }, Transmit: { destination: [<IPV6_DOMICILE>:248f:5dff:fea5:8ed1]:36842, src_ip: None, ecn: Some(Ect0), len: 1200, segment_size: None }
 [2m2026-02-12T20:34:24.290138Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m sent PATH_ABANDON after path was already discarded
 [2m2026-02-12T20:34:24.290372Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m sent PATH_ABANDON after path was already discarded
 [2m2026-02-12T20:34:25.606045Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m sent PATH_ABANDON after path was already discarded

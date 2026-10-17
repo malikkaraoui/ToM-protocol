@@ -2,7 +2,7 @@
 # Car test script — run campaign against NAS responder over cellular network.
 #
 # Two modes:
-#   MODE=direct  → relay accessible at http://82.67.95.8:3340 (port forwarded on Freebox)
+#   MODE=direct  → relay accessible at http://$TOM_HOME_HOST:3340 (port forwarded on Freebox)
 #   MODE=tunnel  → SSH tunnel to NAS, relay on localhost:3340 (fallback)
 #
 # Usage:
@@ -10,14 +10,16 @@
 #
 # Prerequisites:
 #   - Responder running on NAS: TOM_RELAY_URL=http://127.0.0.1:3340 /root/tom-stress --no-n0-discovery responder
-#   - For tunnel mode: sshpass + autossh installed, NAS SSH on 82.67.95.8:22
+#   - Env : TOM_HOME_HOST (hôte public du NAS) + TOM_NAS_SSH_PASS (les deux modes) (voir .env.example)
+#   - For tunnel mode: sshpass + autossh installed, NAS SSH on $TOM_HOME_HOST:22
 
 set -euo pipefail
 
 MODE="${1:-tunnel}"
 DURATION="${2:-3600}"
-NAS_EXT_IP="82.67.95.8"
-NAS_SSH_PASS="123audia4"
+TOM_HOME_HOST="${TOM_HOME_HOST:?TOM_HOME_HOST absent : exporter TOM_HOME_HOST = hôte public du NAS (voir .env.example), aucune valeur par défaut}"
+NAS_EXT_IP="$TOM_HOME_HOST"
+NAS_SSH_PASS="${TOM_NAS_SSH_PASS:?TOM_NAS_SSH_PASS absent : mot de passe SSH du NAS, jamais dans le dépôt (voir .env.example)}"
 RELAY_PORT=3340
 
 # Get responder node ID from NAS

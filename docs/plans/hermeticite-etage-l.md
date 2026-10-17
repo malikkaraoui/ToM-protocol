@@ -10,7 +10,7 @@
    `tom-transport/src/node.rs` : `configured_relays` vide → discovery HTTP
    (177) → DNS TXT `_relay._tcp.tom-protocol.org` (206-235) → fallback
    compile-time (237-243). Or `.cargo/config.toml` (machine, hors git) injecte
-   `TOM_EXTRA_FALLBACK_RELAY = "http://82.67.95.8:3340"` (le NAS PUBLIC de la
+   `TOM_EXTRA_FALLBACK_RELAY = "http://<IP_DOMICILE>:3340"` (le NAS PUBLIC de la
    flotte) dans tous les builds → `fallback_relay_urls()` non-vide
    (`config.rs:31-36`, `option_env!` ligne 24) → branche `(false, false)` →
    `RelayMode::custom(NAS)` (node.rs:246-248). **Tout nœud de banc « isolé »

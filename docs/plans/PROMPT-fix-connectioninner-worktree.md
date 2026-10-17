@@ -127,7 +127,7 @@ timeout 900 bash scripts/chaos/load-8-nas.sh 8 12 5 > /tmp/nas-load-fix.log 2>&1
 ## 7. Pièges (déjà payés — ne les rejoue pas)
 
 - **IP NAS DYNAMIQUE** : `192.168.0.83` au 22/07 (bail DHCP). Si `ssh`/`curl` timeout : `arp -a` →
-  cherche le hostname base32 sur une autre IP, mets à jour `NAS=` dans les 2 scripts. Témoin de vie : `nc 82.67.95.8 3340`.
+  cherche le hostname base32 sur une autre IP, mets à jour `NAS=` dans les 2 scripts. Témoin de vie : `nc <IP_DOMICILE> 3340`.
 - **Cross-compile** : `cargo zigbuild … --target aarch64-unknown-linux-musl --release`. `scp` d'un binaire
   pendant que le process tourne → « dest open Failure » : `deploy-nas.sh` stoppe le service AVANT (OK).
 - **`cargo … | tail` masque l'exit code** — utilise `> log 2>&1; echo EXIT=$?`.

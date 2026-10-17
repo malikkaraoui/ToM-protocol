@@ -92,7 +92,7 @@ test result: ok. 14 passed; 0 failed
 - **NAS** : `tom-relay --dev` (port 3340) + `tom-chat --username nas-publisher --bot --bot-ping 3 --embedded-relay --embedded-relay-publish`
 - **Mac obs1** : `tom-chat --username mac-obs1 --bot --bot-ping 3 --relay-discovery <NAS_NODE_ID>`
 - **Mac obs2** : `tom-chat --username mac-obs2 --bot --bot-ping 3 --relay-discovery <NAS_NODE_ID>`
-- **Tunnel SSH** : `ssh -f -N -L 3340:127.0.0.1:3340 -p 2222 root@82.67.95.8`
+- **Tunnel SSH** : `ssh -f -N -L 3340:127.0.0.1:3340 -p 2222 root@<HOST_SSH>`
 - **Durée** : 60 secondes
 
 ### Résultats

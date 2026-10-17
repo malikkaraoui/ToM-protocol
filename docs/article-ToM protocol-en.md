@@ -588,7 +588,7 @@ This is the distributed analog of Kerckhoffs's principle: security does not rely
 | Parameter | Value |
 |-----------|-------|
 | Sender | MacBook, Nomades school (Switzerland), guest WiFi |
-| Receiver | Freebox NAS (France, 82.67.95.8) |
+| Receiver | Freebox NAS (France, <IP_DOMICILE>) |
 | Protocol | Complete ProtocolRuntime (Router + Topology + Tracker) |
 | Encryption | E2E XChaCha20-Poly1305 enabled |
 | Signature | Ed25519 on each envelope |

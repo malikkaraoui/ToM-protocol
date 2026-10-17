@@ -36,7 +36,7 @@ apps/infra-web-client (localhost:5173 — EXISTANT)
    ├──→ 192.168.0.21:9090/status  (NAS — tom-tui --status-port 9090)
    └──→ [autres nœuds configurables dans l'UI]
 
-tom-relay (82.67.95.8:3340) : INCHANGÉ
+tom-relay (<IP_DOMICILE>:3340) : INCHANGÉ
    └── métriques transport déjà dans server/metrics.rs (iroh_metrics)
 ```
 

@@ -7,7 +7,7 @@ Prerequis : fix self-relay (5c38cdf), CLI tom-tui opérable (e6f5f3d)
 
 | Device | Rôle | Software | Réseau |
 |--------|------|----------|--------|
-| NAS | Publisher + self-relay (:3340) | tom-chat (ARM64 musl) | WAN 82.67.95.8:3340 |
+| NAS | Publisher + self-relay (:3340) | tom-chat (ARM64 musl) | WAN <IP_DOMICILE>:3340 |
 | Mac | Observer + bot-ping | tom-chat (native) | LAN/WAN |
 | Apple TV | Observer + auto-echo | app tvOS (FFI) | LAN WiFi |
 
@@ -16,7 +16,7 @@ Prerequis : fix self-relay (5c38cdf), CLI tom-tui opérable (e6f5f3d)
 ### NAS (SSH)
 
 ```bash
-ssh -p 2222 root@82.67.95.8
+ssh -p 2222 root@<HOST_SSH>
 systemctl stop tom-relay.service
 TOM_RELAY_URL=http://0.0.0.0:3340 /root/tom-chat \
   --username nas-pub --bot --bot-ping 5 --self-relay --relay-ttl 60 \
@@ -27,7 +27,7 @@ TOM_RELAY_URL=http://0.0.0.0:3340 /root/tom-chat \
 ### Mac
 
 ```bash
-TOM_RELAY_URL=http://82.67.95.8:3340 target/release/tom-chat \
+TOM_RELAY_URL=http://<IP_DOMICILE>:3340 target/release/tom-chat \
   --username mac-obs --bot --bot-ping 5 \
   --relay-discovery --relay-ttl 60 \
   --bootstrap <NAS_NODE_ID> \
@@ -37,7 +37,7 @@ TOM_RELAY_URL=http://82.67.95.8:3340 target/release/tom-chat \
 ### Apple TV (app TomNode)
 
 1. Settings :
-   - Relay URL : `http://82.67.95.8:3340`
+   - Relay URL : `http://<IP_DOMICILE>:3340`
    - Bootstrap Peer : `<NAS_NODE_ID>`
    - Auto-Echo : ON
    - DHT : ON, n0Discovery : ON
@@ -86,7 +86,7 @@ grep -c "^\[bot\] #" /tmp/atv-mac.log
 grep -c "ECHO:\|PONG:" /tmp/atv-mac.log
 
 # NAS
-ssh -p 2222 root@82.67.95.8 'grep -c "^\[bot\] #" /tmp/atv-nas.log'
+ssh -p 2222 root@<HOST_SSH> 'grep -c "^\[bot\] #" /tmp/atv-nas.log'
 
 # Apple TV (via UDP log)
 grep -c "MSG from\|ECHO" /tmp/atv-appletv.log
@@ -162,7 +162,7 @@ Le prochain cran pertinent est un **mini stress 10 min** sur cette base, sans ch
 ```bash
 # Mac : Ctrl+C tom-chat, kill nc
 # NAS :
-ssh -p 2222 root@82.67.95.8 'kill $(pidof tom-chat); systemctl start tom-relay.service'
+ssh -p 2222 root@<HOST_SSH> 'kill $(pidof tom-chat); systemctl start tom-relay.service'
 # Apple TV : Status → Stop
 ```
 

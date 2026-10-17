@@ -108,7 +108,7 @@ Jamais `sleep` ; jamais de tâche de fond vivante à la sortie ; jamais `stash` 
 1. CI rouge sur `main` depuis le 11/08 (dernier vert `31503186348`) : toolchain `stable` non épinglée → lint sur `tom-quinn/build.rs:5` ; 5 advisories RustSec (h2, rustls) ; `claude-atelier@0.28.2` 404.
 2. `main` sans protection ni ruleset ; Dependabot désactivé ; pas de `SECURITY.md`.
 3. Garde-fous locaux inopérants : 12 hooks référencés absents, appel en `|| exit 0` (14 occurrences) ; `settings.json` commité en `bypassPermissions`.
-4. Dépôt public : IP publique du domicile dans 60 lignes / 34 fichiers, dont `ssh root@82.67.95.8` (`CLAUDE.md:398`).
+4. Dépôt public : IP publique du domicile dans 60 lignes / 34 fichiers, dont `ssh root@<HOST_SSH>` (`CLAUDE.md:398`).
 5. Sain : build workspace OK, 1 500 tests Rust verts (2 tests réseau instables sous charge), 771 tests TS verts, secret scanning actif.
 6. Versions incohérentes : tag `v2.1.0` manuel sans release, PR #56, CHANGELOG sans 2.1.0 et deux « 1.0.0 ».
 7. Hygiène : `cargo fmt` en écart sur 164 fichiers ; `.playwright-mcp/` suivi ; 10 branches mortes.

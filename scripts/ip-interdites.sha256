@@ -1,0 +1,5 @@
+# SHA-256 des IPv4 et préfixes IPv6 /64 interdits (domicile et flotte). Format : voir verifier-ip-interdites.sh.
+# Lu par scripts/verifier-ip-interdites.sh. Jamais l'IP en clair ici.
+303111d782b400bdbc49dc9daa5c98e07c463127055576b7c54edf8963bf0939
+9308e98f8beee8cc5d7e1fc8095eaf9a43b97c9d9a7ef6525d75b626f96c1fc0
+079f3c1d7350db7331fabf5f2ccfd82a5bf5ea83266217c1401e410385fbe252

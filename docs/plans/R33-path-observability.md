@@ -10,7 +10,7 @@ Le réseau affichait « 100% RELAY » sur la flotte alors que les logs trace du 
 
 - NAS↔Mac : DIRECT IPv4 LAN (`192.168.0.82`, ~7 ms)
 - NAS↔iPad : Relay → **DIRECT IPv6 global** (`[2a01:…]`, ~4,5 ms) en ~3 s — **le fix #32 marche**
-- NAS↔AppleTV : DIRECT via hairpin NAT public (`82.67.95.8`, ~12 ms)
+- NAS↔AppleTV : DIRECT via hairpin NAT public (`<IP_DOMICILE>`, ~12 ms)
 
 L'affichage mentait pour deux raisons (vérifiées file:line avant le chantier) :
 
@@ -52,7 +52,7 @@ Snapshot `paths_by_peer` (iPad `:9091`, AppleTV `:9091`, NAS `:8085`) après ~2 
 | iPad (WiFi) | AppleTV | **DIRECT** `192.168.0.76:49796` | 11 ms |
 | AppleTV | iPad (WiFi) | **DIRECT** `192.168.0.23:59450` | 11 ms |
 | iPad | Mac | DIRECT `192.168.0.82` | 12 ms |
-| iPad | NAS | DIRECT (hairpin `82.67.95.8`) | 6 ms |
+| iPad | NAS | DIRECT (hairpin `<IP_DOMICILE>`) | 6 ms |
 | AppleTV | Mac | DIRECT `192.168.0.82` | 9 ms |
 | NAS | iPad / AppleTV | DIRECT (via `192.168.0.254`, NAT loopback box) | 5-10 ms |
 

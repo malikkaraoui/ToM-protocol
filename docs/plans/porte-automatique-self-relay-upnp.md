@@ -19,7 +19,7 @@ Preuve réelle sur la Freebox de l'utilisatrice (log `RUST_LOG=debug`) :
 getting a port mapping for 192.168.0.70:49850 -> None
 new port mapping Some(Upnp(Mapping {
     gateway: http://192.168.0.254:5678/control/wan_ip_connection,
-    external_ip: 82.67.95.8,
+    external_ip: <IP_DOMICILE>,
     external_port: 58870,
 }))
 ```
