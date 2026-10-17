@@ -1322,6 +1322,8 @@ impl Drop for ConnectionRef {
         // l'ancien checked_sub). Le verrou d'état n'est pris que pour la
         // TOUTE DERNIÈRE ref — jamais tenue sous un autre verrou en pratique
         // (le driver possède une ref tant qu'il vit).
+        // allow : fetch_update déprécié en 1.99 (→ try_update), mais try_update est instable sous la MSRV 1.88.
+        #[allow(deprecated)]
         let prev = self.ref_count.fetch_update(
             std::sync::atomic::Ordering::AcqRel,
             std::sync::atomic::Ordering::Acquire,
@@ -1388,6 +1390,8 @@ impl ConnectionInner {
     /// Un handle applicatif meurt. Au DERNIER : arme `app_closed` et
     /// réveille le driver, sans jamais toucher le verrou d'état.
     pub(crate) fn app_handle_dropped(&self) {
+        // allow : fetch_update déprécié en 1.99 (→ try_update), mais try_update est instable sous la MSRV 1.88.
+        #[allow(deprecated)]
         let prev = self.app_handle_count.fetch_update(
             std::sync::atomic::Ordering::AcqRel,
             std::sync::atomic::Ordering::Acquire,

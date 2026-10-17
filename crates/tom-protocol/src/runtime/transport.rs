@@ -4,6 +4,8 @@ use crate::types::NodeId;
 ///
 /// En production : impl par TomNode (iroh QUIC).
 /// En test : impl par MockTransport (enregistre les envois).
+// allow : l'expansion d'async_trait pose un #[must_use] nu sur des futures déjà #[must_use].
+#[allow(clippy::double_must_use)]
 #[async_trait::async_trait]
 pub trait Transport: Send {
     /// Envoyer des bytes bruts a un noeud cible.
