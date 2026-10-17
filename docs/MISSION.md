@@ -30,7 +30,8 @@ La cible est atteinte quand le réseau possède **simultanément** toutes ces pr
 - **L'infrastructure, ce sont les utilisateurs.** Aucun serveur, aucun serveur fédéré, aucun relais bénévole, aucun nœud de bootstrap contrôlé par une entité unique. *(brief l.54, l.66)*
 - Tout appareil avec CPU + connectivité + un minimum de stockage devient un nœud : smartphone, box internet, routeur, TV, terminal de paiement, objet connecté. *(brief l.50)*
 - **Utiliser = contribuer.** Participation automatique et invisible. Pas d'opt-in, pas de « merci de seeder ». *(brief l.53)*
-- **Amorçage, zéro dépense externe** *(décision 2026-10-17, fondateur)* : la découverte externe actuelle sert à l'**amorçage** du petit réseau (VM Freebox, iPhone, Apple TV, MacBook Pro, iPad) quand tout démarre en même temps. **Zéro dépense externe.** L'amorçage est une fonction temporaire et tournante, portée par le réseau, pas un bootstrap fixe *(`docs/plans/2026-03-30-bootstrap-pump-module.md`)*. Se passer de tout service externe reste à éclaircir (§8, question 2).
+- **Amorçage, zéro dépense externe** *(décision 2026-10-17, fondateur)* : la découverte externe actuelle sert à l'**amorçage** du petit réseau (VM Freebox, iPhone, Apple TV, MacBook Pro, iPad) quand tout démarre en même temps. **Zéro dépense externe.** Se passer de tout service externe reste à éclaircir (§8, question 2).
+- Cadre existant (plan du 2026-03-30, pas une décision du 2026-10-17) : l'amorçage est une fonction temporaire et tournante, portée par le réseau, pas un bootstrap fixe *(`docs/plans/2026-03-30-bootstrap-pump-module.md` l.18-27)*.
 
 ### 1.2 Rôle NON choisi — reçu du réseau lui-même
 - **Le rôle est reçu du réseau lui-même** *(décision 2026-10-17, fondateur)*. La personne qui rejoint le réseau (à l'ouverture de l'app de messagerie, par exemple) reçoit son rôle selon :
@@ -231,7 +232,7 @@ La cible §1 est atteinte quand **tous** ces critères sont vérifiés par un te
 - [ ] Charge ↑ → propagation de l'effort mesurée (plus de demande = plus de nœuds mobilisés).
 
 ### Réseau réellement distribué & zéro-config
-- [ ] Deux inconnus, sur deux réseaux différents, **sans aucune infra perso hardcodée**, échangent un message chiffré (découverte via DHT rendezvous + Pkarr uniquement).
+- [ ] Deux inconnus, sur deux réseaux différents, **sans aucune infra perso hardcodée**, échangent un message chiffré (découverte via DHT rendezvous + Pkarr uniquement — deux services tiers, voir §8 question 2).
 - [ ] Aucun nœud privilégié, aucun bootstrap contrôlé indispensable.
 
 ### Livraison / accessibilité (formes §2)
@@ -261,7 +262,7 @@ La cible §1 est atteinte quand **tous** ces critères sont vérifiés par un te
 4. **Jamais de** : serveur central, jeton-actif (argent, actif convertible) ou blockchain, ban permanent, rôle choisi manuellement, persistance au-delà du TTL, état protocolaire visible. Chacun viole un verrou. La note interne (le « grain de riz » de §1.7) n'est pas un jeton-actif.
 5. **Doc = code.** Si un écart doc/réalité est trouvé, corriger la doc immédiatement (comme fait pour les wire invariants le 2026-06-26).
 6. **Un chantier n'est PAS fini** tant que clippy + test workspace + FFI ne passent pas et que le critère §5 visé n'est pas coché avec preuve.
-7. **Zéro dépense externe** pour faire vivre le réseau *(décision 2026-10-17, fondateur)*. Un service payant (VPS, domaine, API) n'entre jamais dans le chemin nécessaire au fonctionnement.
+7. **Zéro dépense externe pour l'amorçage et les relais** *(décision 2026-10-17, fondateur, §1.1)*. Étendre cette règle à tout le fonctionnement du réseau est une question ouverte (§8, question 7).
 
 ---
 
@@ -284,6 +285,7 @@ La cible §1 est atteinte quand **tous** ces critères sont vérifiés par un te
 1. **Double dépense.** Chantier ouvert, hors périmètre tant qu'il n'y a pas d'argent. Ouvert : à quel moment il redevient un sujet, et si les témoins de §1.9 en sont la base.
 2. **Amorçage sans aucun service externe.** Aujourd'hui, la découverte « à connaissance nulle » depuis Internet repose sur des services tiers gratuits : la DHT Mainline publique (BitTorrent) et Pkarr/DNS de n0 (`dns.iroh.link`), ce dernier activé par défaut. Sans eux, un nouvel appareil ne trouve le réseau depuis Internet que s'il connaît déjà un point d'entrée (par exemple l'adresse publique de la Freebox). Ouvert : ces tiers gratuits sont-ils tolérés pour l'amorçage, ou la cible est-elle zéro tiers ? `n0_discovery` doit-il rester activé par défaut ?
 3. **Mathématiques des notes et des rôles.** Ouvert : la formule de la note (contribution, usage, décroissance), la pondération entre besoin du moment, note et contexte, la mesure de la « note de connexion » (fiable / pas fiable), les seuils.
-4. **Rôles imprévisibles ou annoncés à l'avance.** §1.2 garde « imprévisible » (texte du 2026-06-26, `docs/tom-whitepaper-v1.md` l.13 et l.15) ; un résumé hors dépôt parle de « rôles annoncés à l'avance ». Non retranché le 2026-10-17.
+4. **Rôles imprévisibles ou annoncés à l'avance.** §1.2 garde « imprévisible » (texte du 2026-06-26, `docs/tom-whitepaper-v1.md` l.13 et l.15) ; un résumé des fondateurs hors dépôt parle de « rôles annoncés à l'avance » (relevé dans `vault/reprise/2026-10-17-ETAT-DES-LIEUX.md` l.141). Non retranché le 2026-10-17.
 5. **Témoins.** « Jusqu'à 7 » : plafond ou cible ? Qui observe qui (voisins réseau, membres du même cercle) ?
 6. **Sous-réseaux.** Ouvert : ce qui rend un subnet « trop petit » ou « plus robuste », et ce qui se partage entre vases communicants (relais, backup, rôles).
+7. **Portée de « zéro dépense externe ».** Le fondateur l'a dit à propos de l'amorçage et des relais. Ouvert : la règle vaut-elle pour tout le fonctionnement (par exemple les seeds VPS de R17, `vault/40-roadmap.md:292-295`) ?
