@@ -13,7 +13,7 @@
 #   - ubuntu-latest → poste macOS : le job rust-macos est fidèle, les autres
 #     tournent sur l'OS local ;
 #   - Node 20 en CI : la version locale est affichée, un écart est signalé ;
-#   - cargo-deny-action@v2 → binaire `cargo deny` local.
+#   - cargo-deny-action@v2 → binaire `cargo deny` local, mêmes arguments.
 set -euo pipefail
 
 ROOT="$(git rev-parse --show-toplevel)"
@@ -163,7 +163,9 @@ job_rust_dht() {
 
 job_rust_security() {
 	need cargo-deny "cargo install cargo-deny"
-	step "rust-security: cargo deny" cargo deny check advisories bans sources
+	# Arguments effectifs de cargo-deny-action@v2 (défauts de son action.yml, visibles dans le log CI).
+	step "rust-security: cargo deny" cargo deny --log-level warn --manifest-path ./Cargo.toml \
+		--all-features check advisories bans sources
 }
 
 job_rust_ffi() {
