@@ -17,6 +17,8 @@
 # Exemptions temporaires : scripts/ip-interdites.exemptions (un chemin par ligne).
 # Limites : fichiers binaires (PDF compressés, images), fichiers non suivis et
 # écritures non standard (entier, hexadécimal, séparateurs exotiques) non vus.
+# Lit le DISQUE, pas les objets git : ne voit ni une IP dans un nom de fichier ou une cible
+# de lien, ni un fichier indexé supprimé du disque (issue #67 : git ls-files -s + cat-file).
 #
 # Ajouter une valeur : printf '%s' '<valeur>' | shasum -a 256 | cut -d' ' -f1 >> scripts/ip-interdites.sha256
 #
