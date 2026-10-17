@@ -189,7 +189,7 @@ jobs:
       - uses: actions/checkout@v4
 
       # advisories couvre la base RustSec (équivalent cargo-audit) ;
-      # 10 advisories préexistantes ignorées dans deny.toml (triage dû),
+      # 7 advisories ignorées dans deny.toml (chacune justifiée en ligne),
       # toute nouvelle advisory fait échouer ce job.
       - uses: EmbarkStudios/cargo-deny-action@v2
         with:
