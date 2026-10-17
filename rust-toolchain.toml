@@ -1,0 +1,8 @@
+# Toolchain épinglée = version stable exacte du dernier run CI (rustc 1.99.1,
+# run 39040092235). Sans épinglage, `dtolnay/rust-toolchain@stable` suit le
+# canal glissant et fait diverger CI et poste local (nouveaux lints).
+# La MSRV déclarée reste `rust-version` dans Cargo.toml.
+# Les builds tvOS/XCFramework forcent `cargo +nightly-…`, qui prime sur ce fichier.
+[toolchain]
+channel = "1.99.1"
+components = ["clippy", "rustfmt"]
