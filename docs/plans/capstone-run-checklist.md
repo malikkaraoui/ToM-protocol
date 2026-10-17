@@ -35,7 +35,7 @@
 
 - Flotte 5 nœuds UP en build 139 (Mac, iPad, iPhone Malik, iPhone Laura, NAS).
 - ⚠️ NAS : IP dynamique — vérifier l'IP du jour (le 21/07 : `.83`, plus `.21` ;
-  le relais public 82.67.95.8:3340 reste le témoin de vie). Binaire de banc
+  le relais public <IP_DOMICILE>:3340 reste le témoin de vie). Binaire de banc
   déjà déployé : `/root/tom-stress` (md5 `ea18a1c14899`).
 - Présence Malik ~20 min (deux actions : extinction t+4, rallumage t+10).
 - Kill de tout process de stress résiduel avant ET après (runbook).

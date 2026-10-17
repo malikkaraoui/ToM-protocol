@@ -1,7 +1,7 @@
 {"event":"started","name":"Commute-FR-CH","id":"e6c60a1b55b3db3f3b506eefc5cd33d12cc493f39e7fc03618632b9665b0cf30","mode":"connect-continuous","timestamp":"1770880389s"}
 {"event":"path_change","selected":"RELAY","rtt_ms":421.895042,"paths":["relay:Relay(RelayUrl(\"https://euc1-1.relay.n0.iroh-canary.iroh.link./\"))*"],"elapsed_s":0.5228875}
 {"event":"ping","seq":1,"rtt_ms":205.508125,"via":"RELAY","elapsed_s":0.728366541}
-{"event":"path_change","selected":"DIRECT","rtt_ms":63.216499999999996,"paths":["relay:Relay(RelayUrl(\"https://euc1-1.relay.n0.iroh-canary.iroh.link./\"))","ip:Ip(82.67.95.8:44640)*"],"elapsed_s":0.7915035}
+{"event":"path_change","selected":"DIRECT","rtt_ms":63.216499999999996,"paths":["relay:Relay(RelayUrl(\"https://euc1-1.relay.n0.iroh-canary.iroh.link./\"))","ip:Ip(<IP_DOMICILE>:44640)*"],"elapsed_s":0.7915035}
 {"event":"ping","seq":2,"rtt_ms":72.63104200000001,"via":"DIRECT","elapsed_s":1.802540416}
 {"event":"hole_punch","success":true,"time_to_direct_s":1.80256925,"relay_rtt_ms":205.508125,"direct_rtt_ms":72.63104200000001}
 {"event":"ping","seq":3,"rtt_ms":69.15291699999999,"via":"DIRECT","elapsed_s":2.87352175}

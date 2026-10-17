@@ -9,12 +9,12 @@
 # de déploiement obsolète pendant qu'un autre, réel, tournait déjà en parallèle).
 #
 # Usage: ./scripts/deploy-nas-node.sh [SSH_HOST] [SSH_PORT]
-# Défaut : hôte public (82.67.95.8:2222) — l'IP LAN du NAS change au fil des redémarrages
+# Défaut : hôte public $TOM_HOME_HOST (obligatoire si SSH_HOST absent), port 2222 — l'IP LAN du NAS change au fil des redémarrages
 # de VM (DHCP), l'hôte public via le port-forward Freebox est stable.
 
 set -euo pipefail
 
-SSH_HOST="${1:-82.67.95.8}"
+SSH_HOST="${1:-${TOM_HOME_HOST:?TOM_HOME_HOST absent : passer SSH_HOST en argument ou exporter TOM_HOME_HOST (voir .env.example)}}"
 SSH_PORT="${2:-2222}"
 BINARY="target/aarch64-unknown-linux-musl/release/tom-chat"
 REMOTE_BIN="/usr/local/bin/tom-chat"

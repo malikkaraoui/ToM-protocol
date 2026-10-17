@@ -45,7 +45,7 @@ Après un reboot de la Freebox, les clients connectés en WiFi ne peuvent plus c
 | `ping6 fe80::...` (Mac WiFi → VM) | OK — 0% loss, 10ms |
 | `arp -a` sur Mac | 192.168.0.83 → (incomplete) |
 | `arp -d 192.168.0.83` + retry | Toujours (incomplete) |
-| SSH WAN (82.67.95.8:2222) | OK |
+| SSH WAN (<IP_DOMICILE>:2222) | OK |
 | Mac reboot | Aucun effet |
 | Freebox reboot (2e fois) | Aucun effet |
 | Toggle WiFi Mac | Aucun effet |

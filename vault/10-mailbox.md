@@ -46,7 +46,7 @@
 - Statut : traité
 - Résumé :
   - **Réussite** : iPhone en **5G hors-LAN** (CGNAT opérateur) rejoint le réseau ToM **décentralisé** (Pkarr/n0/DHT/IPv6, zéro relais à IP fixe) et échange avec le NAS **derrière la Freebox** — 0 échec.
-  - **NAS = nœud unifié** : service systemd `tom-node.service` (`tom-chat --bot`, role Peer, pas relais exclusif — ADR-006). Relais `tom-relay.service` séparé. IP publique `82.67.95.8`, forward NAT UDP+TCP 3340 OK (vérifié via SDK `tom-gateway`).
+  - **NAS = nœud unifié** : service systemd `tom-node.service` (`tom-chat --bot`, role Peer, pas relais exclusif — ADR-006). Relais `tom-relay.service` séparé. IP publique `<IP_DOMICILE>`, forward NAT UDP+TCP 3340 OK (vérifié via SDK `tom-gateway`).
   - **Fix clé** : défaut relais vide dans l'app (`TomNodeService.swift:50`) — le `.70` forcé bloquait le rendez-vous public. Rebuild iPhone → découverte organique OK.
   - **Limite actuelle** : lien via **fallback relais** (RTT 1.8–3.6s), pas de DIRECT. Cause : CGNAT 5G symétrique + firewall IPv6 Freebox. Hole-punch sans chemin direct viable.
 - Prochaine action : ouvrir IPv6 entrante Freebox (SDK `tom-gateway`) + instrumenter `path_kind` dans status `:8085` pour viser le DIRECT ; figer une identité persistante pour le nœud NAS.

@@ -10,7 +10,8 @@
 # Usage: ./scripts/nas-node-ctl.sh [status|stop|start|restart|logs]
 set -euo pipefail
 
-NAS_SSH="ssh -p 2222 root@82.67.95.8"
+TOM_HOME_HOST="${TOM_HOME_HOST:?TOM_HOME_HOST absent : exporter TOM_HOME_HOST = hôte public du NAS (voir .env.example), aucune valeur par défaut}"
+NAS_SSH="ssh -p 2222 root@${TOM_HOME_HOST}"
 CMD="${1:-status}"
 
 case "$CMD" in

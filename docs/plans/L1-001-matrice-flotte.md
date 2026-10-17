@@ -34,7 +34,7 @@ cargo run -p tom-stress --bin tom-stress -- fleet-probe \
 
 # Depuis l'extérieur (4G), via la porte publique
 cargo run -p tom-stress --bin tom-stress -- fleet-probe \
-    --relay-url http://82.67.95.8:3340 --duration-secs 600
+    --relay-url http://<IP_DOMICILE>:3340 --duration-secs 600
 ```
 
 Sortie (toutes les 5s) — tableau par device + ligne JSONL de compteurs :

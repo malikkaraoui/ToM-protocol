@@ -588,7 +588,7 @@ C'est l'analogue distribué du principe de Kerckhoffs : la sécurité ne repose 
 | Paramètre | Valeur |
 |-----------|--------|
 | Émetteur | MacBook, école Nomades (Suisse), WiFi invité |
-| Récepteur | Freebox NAS (France, 82.67.95.8) |
+| Récepteur | Freebox NAS (France, <IP_DOMICILE>) |
 | Protocole | ProtocolRuntime complet (Router + Topology + Tracker) |
 | Chiffrement | E2E XChaCha20-Poly1305 activé |
 | Signature | Ed25519 sur chaque enveloppe |

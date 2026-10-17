@@ -10,7 +10,7 @@
 
 - NAS Debian (VM Freebox), IP LAN : `192.168.0.83`
 - Mac local : `192.168.0.70`
-- IP publique Freebox : `82.67.95.8`
+- IP publique Freebox : `<IP_DOMICILE>`
 - Objectif :
   1. diagnostiquer la capture réseau (`tcpdump`) côté NAS,
   2. valider la connectivité SSH en LAN,
@@ -28,7 +28,7 @@
   - `ping` NAS OK
   - `nc -vz 192.168.0.83 22` OK
 - Sur Mac (4G/WAN) :
-  - échecs intermittents/`Network is unreachable` vers `82.67.95.8:22`
+  - échecs intermittents/`Network is unreachable` vers `<IP_DOMICILE>:22`
 
 ---
 
@@ -88,8 +88,8 @@ Ajout d’une redirection NAT/PAT :
 ### Validation finale
 
 Depuis Mac en 4G :
-- `nc -4 -vz 82.67.95.8 2222` → **succeeded**
-- `ssh -p 2222 root@82.67.95.8` → **connexion réussie**
+- `nc -4 -vz <IP_DOMICILE> 2222` → **succeeded**
+- `ssh -p 2222 root@<HOST_SSH>` → **connexion réussie**
 
 Conclusion :
 - accès SSH WAN opérationnel via port WAN alternatif `2222`.
@@ -112,7 +112,7 @@ Conclusion :
 ✅ `tcpdump` installé et fonctionnel  
 ✅ Connectivité LAN validée  
 ✅ NAT WAN validé  
-✅ SSH distant validé sur `82.67.95.8:2222`  
+✅ SSH distant validé sur `<IP_DOMICILE>:2222`  
 ✅ Exposition WAN inutile (137/139/445) supprimée
 
 ---
@@ -124,8 +124,8 @@ Conclusion :
 - `nc -vz 192.168.0.83 22`
 
 ### WAN
-- `nc -4 -vz 82.67.95.8 2222`
-- `ssh -p 2222 root@82.67.95.8`
+- `nc -4 -vz <IP_DOMICILE> 2222`
+- `ssh -p 2222 root@<HOST_SSH>`
 
 ### Capture NAS
 - `tcpdump -ni eth0 -vv -l 'tcp port 22 or tcp port 2222'`

@@ -1559,17 +1559,17 @@ TOM_RELAY_DISCOVERY_URL=http://192.168.0.83:8080 \
 
 Infos capturées (app Freebox, 2026-03-05) :
 
-- **Nom box** : `Freebox Eric`
-- **IP accès distant** : `88.190.129.5`
-- **Port accès distant (HTTP)** : `40655`
+- **Nom box** : `<NOM_BOX>`
+- **IP accès distant** : `<IP_FLOTTE_2>`
+- **Port accès distant (HTTP)** : `<PORT_ADMIN_HTTP>`
 - **HTTPS distant** : activé
-- **Port accès distant sécurisé (HTTPS)** : `39202`
-- **Nom de domaine Freebox** : `b981gn6o.fbxos...` (tronqué dans la capture)
+- **Port accès distant sécurisé (HTTPS)** : `<PORT_ADMIN_HTTPS>`
+- **Nom de domaine Freebox** : `<DOMAINE_FBXOS>` (tronqué dans la capture)
 
 ### URL d'administration distante (Freebox OS)
 
-- HTTP : `http://88.190.129.5:40655`
-- HTTPS : `https://88.190.129.5:39202`
+- HTTP : `http://<IP_FLOTTE_2>:<PORT_ADMIN_HTTP>`
+- HTTPS : `https://<IP_FLOTTE_2>:<PORT_ADMIN_HTTPS>`
 
 > ⚠️ Cette configuration correspond à l'**administration Freebox OS**. Ce n'est **pas** une preuve que les ports relay ToM (3342/9092) sont exposés depuis Internet.
 

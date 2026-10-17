@@ -7711,7 +7711,7 @@ mod tests {
 
         // Simulate a UPnP mapping obtained from a public IP.
         let external_addr: std::net::SocketAddr =
-            "82.67.95.8:58870".parse().expect("valid public SocketAddr");
+            "1.2.3.4:58870".parse().expect("valid public SocketAddr");
 
         let effects = state.handle_command(RuntimeCommand::EmbeddedRelayPortMapped {
             external_addr,

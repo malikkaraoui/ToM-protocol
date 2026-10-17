@@ -98,7 +98,7 @@ est ignoré silencieusement (`ip.rs:415-445`). Un nœud peut donc être v4-only 
    `paths_by_peer` de TOUS les nœuds mais dans aucun `pairs_connectes`. 192.168.0.82 = le Mac
    lui-même (arp `permanent`) ; port 52655 = un nœud de harnais de la nuit (TEST-load, tués).
    → `paths_by_peer` retient des chemins vers des pairs morts ; candidat purge alignée
-   TOPOLOGY_TTL/liveness. Idem `iPad → 82.67.95.8:61809` (résiduel via IP publique Freebox).
+   TOPOLOGY_TTL/liveness. Idem `iPad → <IP_DOMICILE>:61809` (résiduel via IP publique Freebox).
 2. **iPhone → Mac absent de paths_by_peer** alors que Mac ∈ `pairs_connectes` de l'iPhone (et Mac
    voit l'iPhone en v6). Asymétrie d'observabilité (singleton last_path déjà vu au #33 ?) à
    revérifier après redeploy XCFramework ≥123.
