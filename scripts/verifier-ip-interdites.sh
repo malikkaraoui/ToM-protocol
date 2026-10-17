@@ -35,13 +35,12 @@ fi
 [[ -f "$exemptions" ]] || exemptions=/dev/null
 
 cd "$racine"
+# Tous les fichiers suivis, sans pré-sélection : un filtre `git grep` dépend de la
+# locale et ignore une ligne à l'encodage invalide (ex. Latin-1 sous UTF-8).
 # -z : noms séparés par NUL (certains contiennent « : » ou des espaces).
-# git grep sort en 1 quand rien ne correspond : ce n'est pas une erreur.
-{ git grep -z -l -I -i -E \
-    '[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}|[0-9a-f]{1,4}:[0-9a-f]{1,4}:[0-9a-f]{1,4}:[0-9a-f]{1,4}' \
-    -- . || [[ $? -eq 1 ]]; } \
+git ls-files -z -- . \
     | python3 -I -c '
-import hashlib, re, sys
+import hashlib, os, re, sys
 hashs_path, exempt_path = sys.argv[1], sys.argv[2]
 interdits = {l.split()[0].lower() for l in open(hashs_path) if l.strip() and not l.startswith("#")}
 exempts = {l.strip() for l in open(exempt_path) if l.strip() and not l.startswith("#")}
@@ -83,11 +82,17 @@ for chemin in sys.stdin.buffer.read().split(b"\0"):
     nom = chemin.decode("utf-8", "replace")
     if nom in exempts:
         continue
-    with open(chemin, "r", encoding="utf-8", errors="replace") as f:
-        for no, ligne in enumerate(f, 1):
-            if interdite(ligne):
-                print(f"{nom}:{no}: <IP_INTERDITE>")
-                trouve += 1
+    if not os.path.isfile(chemin) or os.path.islink(chemin):
+        continue  # supprimé localement, sous-module ou lien symbolique
+    with open(chemin, "rb") as f:
+        contenu = f.read()
+    if b"\0" in contenu[:8000]:
+        continue  # binaire (même heuristique que git)
+    # Décodage tolérant : un octet invalide devient U+FFFD, les chiffres ASCII restent.
+    for no, ligne in enumerate(contenu.decode("utf-8", "replace").splitlines(), 1):
+        if interdite(ligne):
+            print(f"{nom}:{no}: <IP_INTERDITE>")
+            trouve += 1
 if trouve:
     print(f"verifier-ip-interdites: {trouve} ligne(s) avec une IP interdite", file=sys.stderr)
     sys.exit(1)
