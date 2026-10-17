@@ -89,6 +89,8 @@ impl Gauge {
     }
 
     /// Decrement by one (saturating).
+    // allow : fetch_update déprécié en 1.99 (→ try_update), mais try_update est instable sous la MSRV 1.88.
+    #[allow(deprecated)]
     pub fn dec(&self) {
         self.0.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |v| {
             Some(v.saturating_sub(1))

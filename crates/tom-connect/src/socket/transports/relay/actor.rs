@@ -358,6 +358,8 @@ impl ActiveRelayActor {
     /// Returns `Ok(())` if the actor loop should shut down. Returns an error if dialing failed,
     /// or if the relay connection failed while connected. In both cases, the connection should
     /// be retried with a backoff.
+    // allow : RelayConnectionError embarque DialError (>128 o) ; n0-error refuse une source Box<_>.
+    #[allow(clippy::result_large_err)]
     async fn run_once(&mut self) -> Result<(), RelayConnectionError> {
         let client = match self.run_dialing().instrument(info_span!("dialing")).await {
             Some(client_res) => client_res.map_err(|err| e!(RelayConnectionError::Dial, err))?,
@@ -494,6 +496,8 @@ impl ActiveRelayActor {
     ///
     /// Returns `Ok` if the actor needs to shut down.  `Err` is returned if the connection
     /// to the relay server is lost.
+    // allow : RelayConnectionError embarque DialError (>128 o) ; n0-error refuse une source Box<_>.
+    #[allow(clippy::result_large_err)]
     async fn run_connected(
         &mut self,
         client: tom_relay::client::Client,
@@ -715,6 +719,8 @@ impl ActiveRelayActor {
     /// the actor should shut down, consult the [`ActiveRelayActor::stop_token`] and
     /// [`ActiveRelayActor::inactive_timeout`] for this, or the send was successful.
     #[instrument(name = "tx", skip_all)]
+    // allow : RelayConnectionError embarque DialError (>128 o) ; n0-error refuse une source Box<_>.
+    #[allow(clippy::result_large_err)]
     async fn run_sending<T>(
         &mut self,
         sending_fut: impl Future<Output = Result<T, RunError>>,
