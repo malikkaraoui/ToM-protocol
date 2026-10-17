@@ -555,3 +555,4 @@ cargo zigbuild -p tom-stress --target aarch64-unknown-linux-musl --release
 # TypeScript (legacy)
 pnpm install && pnpm build && pnpm test
 ```
+@~/.harnais/canon/templates/tronc/harnais.md

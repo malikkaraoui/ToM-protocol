@@ -46,7 +46,9 @@
       "sdk/swift/**/Artifacts/**",
       "docs/spec/vectors/**",
       "patches/**",
-      "graphify-out"
+      "graphify-out",
+      "config/harnais.json",
+      "vault/runtime"
     ]
   }
 }

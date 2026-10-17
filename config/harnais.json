@@ -1,0 +1,94 @@
+{
+  "harnais": {
+    "version": "v1.6.0"
+  },
+  "projet": {
+    "nom": "tom-protocol",
+    "racine": "/Users/malik/Documents/tom-protocol",
+    "timezone": "Europe/Paris"
+  },
+  "chemins": {
+    "vault": "vault",
+    "echanges": "vault/echanges",
+    "runtime": "vault/runtime",
+    "worktrees": ".claude/worktrees",
+    "doctrine_projet": []
+  },
+  "git": {
+    "branche_principale": "main",
+    "trailer": "Co-Authored-By: <signature du projet>",
+    "pousser_vault": true,
+    "trailers_retires": "^[Cc][Oo]-[Aa][Uu][Tt][Hh][Oo][Rr][Ee][Dd]-[Bb][Yy]:"
+  },
+  "modeles": {
+    "autorises": [
+      "claude-haiku-5-5",
+      "claude-sonnet-5",
+      "claude-opus-5",
+      "claude-opus-5-5",
+      "claude-fable-5",
+      "opus",
+      "sonnet",
+      "fable"
+    ],
+    "efforts_autorises": [
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max"
+    ],
+    "refutes": [],
+    "bareme": {
+      "defaut": "opus --effort medium",
+      "mecanique_leger": "claude-haiku-5-5 --effort low",
+      "merge_rituel": "opus --effort medium",
+      "realisation_standard": "opus --effort medium",
+      "doublage_adversarial": "opus --effort medium",
+      "conception_critique": "opus --effort medium"
+    }
+  },
+  "superviseur": {
+    "nom_bureau": "tom-protocol bureau",
+    "mode_bureau": "panneaux",
+    "plafond": 6,
+    "poll_ms": 10000,
+    "mtime_stable_ms": 5000,
+    "timeout_demarrage_min": 3,
+    "idle_avant_relance_min": 10,
+    "idle_apres_relance_min": 10,
+    "relances_max": 1,
+    "timeout_global_min": 240,
+    "grace_fermeture_s": 15,
+    "terminaison_frontmatter_silence_s": 300,
+    "verrou_rappel_min": 30
+  },
+  "gardes_deploiement": [],
+  "pieges_worktree": [],
+  "niveaux": {
+    "critiques": [],
+    "n1_max_lignes": 300
+  },
+  "outils": {
+    "recherche_vault": null
+  },
+  "rotation": {
+    "index": "vault/reprise/00_INDEX.md",
+    "index_limite_octets": 80000,
+    "remede": "<commande de rotation de l'index>"
+  },
+  "instructions": {
+    "max_caracteres": 40000,
+    "max_ligne": 400,
+    "fichiers": [
+      "**/CLAUDE.md",
+      "**/.claude/rules/**/*.md",
+      "**/.claude/skills/**/SKILL.md",
+      {
+        "motif": "vault/reprise/00_INDEX.md",
+        "max_caracteres": 80000
+      },
+      "vault/reprise/CARNET_DE_BORD.md"
+    ]
+  }
+}
