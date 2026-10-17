@@ -1484,9 +1484,18 @@ mod tests {
         let payload_b = b"from_B";
         b.sender().send_raw(id_a, payload_b).await.expect("B send");
 
-        // C sends to A (should be rejected by gate)
+        // C sends to A (should be rejected by gate). The gate may close C's
+        // connection before the send completes ("not allowed", code 1), at
+        // connect or at send time: that refusal is the expected behavior,
+        // not a test failure (#63). Any other error still fails the test.
         let payload_c = b"from_C";
-        c.sender().send_raw(id_a, payload_c).await.expect("C send");
+        match c.sender().send_raw(id_a, payload_c).await {
+            Ok(()) => {}
+            Err(
+                TomTransportError::Send { source, .. } | TomTransportError::Connect { source, .. },
+            ) if format!("{source:#}").contains("not allowed") => {}
+            Err(e) => panic!("C send failed with an error other than the gate refusal: {e:#}"),
+        }
 
         tokio::time::sleep(Duration::from_millis(500)).await;
 
