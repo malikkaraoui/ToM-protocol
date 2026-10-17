@@ -1,8 +1,10 @@
 # 🎯 MISSION — ToM Protocol : atteindre la cible finale
 
 > Document maître. Lu en premier par tout agent (Claude Code / Fable 5) qui reprend le projet.
-> Rédigé 2026-06-26. Ne PAS diluer la cible. Si un choix s'éloigne de la cible → il est refusé.
-> Sources : `_bmad-output/planning-artifacts/product-brief-tom-protocol-2026-01-30.md`, `CLAUDE.md` (7 verrous), `docs/audits/AUDIT-2026-06-26.md`.
+> Rédigé 2026-06-26, mis à jour 2026-10-17 (décisions du fondateur : §1.1, §1.2, §1.7, §1.9, §1.10, §6, §8). Ne PAS diluer la cible. Si un choix s'éloigne de la cible → il est refusé.
+> **Ce texte fait foi** (décision du fondateur : « le projet évolue, la dernière version fait foi ») sur le whitepaper v1, les résumés hors dépôt et tout autre document.
+> ⚠️ §3 et les statuts entre parenthèses de §5 datent de l'audit 2026-06-26 et n'ont pas été réaudités le 2026-10-17. Écarts code ↔ ce texte : `vault/decisions/2026-10-17-ADN-ecarts-et-cible.md`.
+> Sources : `_bmad-output/planning-artifacts/product-brief-tom-protocol-2026-01-30.md`, `CLAUDE.md` (7 verrous), `docs/audits/AUDIT-2026-06-26.md`, décisions du fondateur du 2026-10-17.
 
 ---
 
@@ -14,6 +16,7 @@
 4. **§4 = comment tu travailles** (agents, skills, journal, boucle, tests durs, auto-critique).
 5. **§5 = « cible atteinte » = quoi exactement** (Definition of Done mesurable).
 6. **§6 = garde-fous** (les 7 verrous, ne pas changer de cap).
+7. **§8 = questions ouvertes** (ce que le fondateur n'a pas tranché — ne jamais trancher à sa place).
 
 ---
 
@@ -27,10 +30,16 @@ La cible est atteinte quand le réseau possède **simultanément** toutes ces pr
 - **L'infrastructure, ce sont les utilisateurs.** Aucun serveur, aucun serveur fédéré, aucun relais bénévole, aucun nœud de bootstrap contrôlé par une entité unique. *(brief l.54, l.66)*
 - Tout appareil avec CPU + connectivité + un minimum de stockage devient un nœud : smartphone, box internet, routeur, TV, terminal de paiement, objet connecté. *(brief l.50)*
 - **Utiliser = contribuer.** Participation automatique et invisible. Pas d'opt-in, pas de « merci de seeder ». *(brief l.53)*
+- **Amorçage, zéro dépense externe** *(décision 2026-10-17, fondateur)* : la découverte externe actuelle sert à l'**amorçage** du petit réseau (VM Freebox, iPhone, Apple TV, MacBook Pro, iPad) quand tout démarre en même temps. **Zéro dépense externe.** L'amorçage est une fonction temporaire et tournante, portée par le réseau, pas un bootstrap fixe *(`docs/plans/2026-03-30-bootstrap-pump-module.md`)*. Se passer de tout service externe reste à éclaircir (§8, question 2).
 
-### 1.2 Rôle NON choisi — assigné par le besoin du réseau
-- Les rôles (client, relais, hub, backup…) sont **imposés dynamiquement et de façon imprévisible**, au dernier moment, en fonction du **besoin du réseau** et de la **capacité de l'appareil** — jamais choisis par l'utilisateur. *(brief l.65, verrou #3, ADR-006)*
+### 1.2 Rôle NON choisi — reçu du réseau lui-même
+- **Le rôle est reçu du réseau lui-même** *(décision 2026-10-17, fondateur)*. La personne qui rejoint le réseau (à l'ouverture de l'app de messagerie, par exemple) reçoit son rôle selon :
+  1. le **besoin du moment** du réseau ;
+  2. la **note** de ce client (§1.7) ;
+  3. un **contexte** : modèle d'appareil (puissance), place disponible, note de connexion (fiable / pas fiable).
+- Les rôles (client, relais, hub, backup, témoin…) ne sont **jamais choisis par l'utilisateur**. Ils sont imposés dynamiquement, au dernier moment, et de façon imprévisible *(brief l.65, verrou #3, ADR-006 — « imprévisible » vient du texte du 2026-06-26, voir §8 question 4)*.
 - Impossible à truquer : on ne peut pas décider d'être relais ni d'y échapper.
+- La formule qui combine besoin, note et contexte n'est pas fixée (§8, question 3).
 
 ### 1.3 Indébranchable — propagation « virus » proportionnelle à la demande
 - **Plus il y a de demande, plus l'effort se propage** à travers le réseau, **sans pouvoir être arrêté ni débranché.** Couper un nœud ne coupe rien : les messages se re-routent, les rôles se réassignent. *(brief l.194, ADR-009)*
@@ -49,13 +58,24 @@ La cible est atteinte quand le réseau possède **simultanément** toutes ces pr
 - **Intégration invisible** : livré comme couche SDK/protocole. L'utilisateur ouvre son app, ça marche. Zéro config, zéro friction. Personne ne sait qu'il utilise ToM — et c'est pour ça que ça marche. *(brief l.56, l.146, verrou #6)*
 - **Multi-plateforme par nature** : navigateur (WASM), iOS/tvOS/macOS, Android, Linux/Windows, IoT/routeurs/embarqué. Un cœur, des bindings partout.
 
-### 1.7 Économie non spéculative
-- Équilibre interne contribution/usage. **Pas de token, pas de frais, pas de blockchain, pas d'actif convertible.** Le score n'est pas un actif : c'est une mesure d'équilibre. *(brief l.67, verrou #4/#5)*
-- **Rien à voler** : pas de token, pas de datastore central. Attaquer ToM ne rapporte rien. *(brief l.58)*
+### 1.7 Économie non spéculative — le jeton est un grain de riz
+- **Jeton** *(décision 2026-10-17, fondateur)* : « un jeton, ça peut être un grain de riz ». C'est une **note interne au programme**, qui note les personnes qui participent au réseau. **Ce n'est pas de l'argent, ce n'est pas un actif.**
+- Équilibre interne contribution/usage. **Pas de frais, pas de blockchain, pas d'actif convertible.** La note n'est pas un actif : c'est une mesure d'équilibre. *(brief l.67, verrou #4/#5)*
+- **Rien à voler** : pas d'actif, pas de datastore central. Attaquer ToM ne rapporte rien. *(brief l.58)*
 
 ### 1.8 Souverain & libre
 - **N'appartient à personne.** Open source radical, n'évolue que par la communauté. Né d'un fork d'iroh 0.96 mais **autonome et souverain** (namespace `tom-*`, PAS compatible iroh — assumé). *(CLAUDE.md Fork Status, brief l.14, l.69)*
 - **Proposé gratuitement**, sous la forme la plus pertinente et la plus accessible possible.
+
+### 1.9 Tout le monde s'observe — les témoins
+- *(décision 2026-10-17, fondateur)* Pour les témoins : « tout le monde s'observe (jusqu'à 7), comme le vol des étourneaux ». *(métaphore développée dans `docs/plans/CARTE-rendezvous-tournant.md`)*
+- L'abandon de l'« Observateur » du 2026-07-12 (`vault/20-decisions.md`) **ne vise que le rôle « présence passive »**, jamais codé. Il ne vise pas les témoins.
+- **La double dépense reste un chantier ouvert.** Il n'y a pas d'argent dans le périmètre actuel (§8, question 1).
+
+### 1.10 Sous-réseaux = le cercle réel
+- *(décision 2026-10-17, fondateur)* **Pas de règle fixe** : le réseau s'adapte au besoin et au nombre d'utilisateurs.
+- Constat : chacun a un répertoire de contacts et parle très rarement en dehors. **Un subnet = ce cercle réel.**
+- Un subnet trop petit (en connexions possibles) s'appuie sur d'autres plus robustes : **vases communicants**, union des forces, partage de rôles.
 
 > **Résumé en une phrase** : un bus de données planétaire, chiffré, distribué sur les appareils des gens, où les rôles s'imposent selon le besoin, qui se propage comme un virus proportionnellement à la demande, qu'on ne peut ni arrêter ni débrancher, qui oublie ce qu'il a livré, et que personne ne possède.
 
@@ -238,19 +258,32 @@ La cible §1 est atteinte quand **tous** ces critères sont vérifiés par un te
 1. **§1 prime tout.** Une feature qui ne sert pas une propriété de §1 est refusée.
 2. **Anti-hallucination absolu** (CLAUDE.md §5) : jamais inventer un fait/API/chiffre. Incertain → « je ne peux pas l'affirmer » + hypothèses + comment vérifier.
 3. **Wire invariants `tom-*` sacrés** entre versions ToM (préfixe DNS `_tom`, SNI `.tom.invalid`, `X-Tom-*`, ALPN `tom-protocol/transport/0` et `/tom-gossip/1`). ToM n'est PAS compatible iroh — assumé.
-4. **Jamais de** : serveur central, token/blockchain, ban permanent, rôle choisi manuellement, persistance au-delà du TTL, état protocolaire visible. Chacun viole un verrou.
+4. **Jamais de** : serveur central, jeton-actif (argent, actif convertible) ou blockchain, ban permanent, rôle choisi manuellement, persistance au-delà du TTL, état protocolaire visible. Chacun viole un verrou. La note interne (le « grain de riz » de §1.7) n'est pas un jeton-actif.
 5. **Doc = code.** Si un écart doc/réalité est trouvé, corriger la doc immédiatement (comme fait pour les wire invariants le 2026-06-26).
 6. **Un chantier n'est PAS fini** tant que clippy + test workspace + FFI ne passent pas et que le critère §5 visé n'est pas coché avec preuve.
+7. **Zéro dépense externe** pour faire vivre le réseau *(décision 2026-10-17, fondateur)*. Un service payant (VPS, domaine, API) n'entre jamais dans le chemin nécessaire au fonctionnement.
 
 ---
 
 ## 7. Premier pas recommandé pour l'agent qui reprend
 
-1. Lire ce fichier, puis `docs/audits/AUDIT-2026-06-26.md`.
-2. Créer `docs/journal/JOURNAL.md` (première entrée : reprise).
-3. Ouvrir le chantier **« fermer les 2 bugs de verrous »** (#1 ACK entrant, #2 purge SQLite) — effort faible/trivial, fait passer 2 verrous au vert. Écrire d'abord les tests qui échouent (verrou #1 : ACK forgé doit être rejeté ; verrou #2 : table purgée ≤ TTL).
-4. Puis chantier **failover hub réel** (#3), puis **anti-squat DHT** + **CI/coverage complète**.
-5. En parallèle (agents à gogo), lancer le chantier **formes de livraison §2** (durcir `tom-sdk`, binding WASM, TestFlight).
-6. Après chaque chantier : `/angle-mort` + `/code-review`, entrée journal, cocher §5.
+1. Lire ce fichier, puis `vault/reprise/2026-10-17-ETAT-DES-LIEUX.md` et la carte des écarts `vault/decisions/2026-10-17-ADN-ecarts-et-cible.md`.
+2. Les chantiers du 2026-06-26 (ACK entrant, purge SQLite, failover hub, anti-squat DHT) sont signalés résolus dans `CLAUDE.md` (Known Limitations, réaudit 2026-07-12) : revérifier `fichier:ligne` avant de s'y fier.
+3. Les prochains chantiers vers §1 sont **proposés** dans la carte des écarts (§3 de la carte). Aucun ne démarre sans le go du fondateur.
+4. Les questions de §8 ne se tranchent pas en route : on les pose au fondateur.
+5. Après chaque chantier : `/angle-mort` + `/code-review`, entrée journal, cocher §5.
 
 **Le cap est vert. On le garde. On itère jusqu'à ce que toutes les cases de §5 soient cochées — pas avant.**
+
+---
+
+## 8. QUESTIONS OUVERTES (non tranchées — au fondateur de décider)
+
+> Recensées le 2026-10-17. Ce qui suit est **ouvert** : aucun agent ne tranche à la place du fondateur. Faits et preuves `fichier:ligne` : `vault/decisions/2026-10-17-ADN-ecarts-et-cible.md`.
+
+1. **Double dépense.** Chantier ouvert, hors périmètre tant qu'il n'y a pas d'argent. Ouvert : à quel moment il redevient un sujet, et si les témoins de §1.9 en sont la base.
+2. **Amorçage sans aucun service externe.** Aujourd'hui, la découverte « à connaissance nulle » depuis Internet repose sur des services tiers gratuits : la DHT Mainline publique (BitTorrent) et Pkarr/DNS de n0 (`dns.iroh.link`), ce dernier activé par défaut. Sans eux, un nouvel appareil ne trouve le réseau depuis Internet que s'il connaît déjà un point d'entrée (par exemple l'adresse publique de la Freebox). Ouvert : ces tiers gratuits sont-ils tolérés pour l'amorçage, ou la cible est-elle zéro tiers ? `n0_discovery` doit-il rester activé par défaut ?
+3. **Mathématiques des notes et des rôles.** Ouvert : la formule de la note (contribution, usage, décroissance), la pondération entre besoin du moment, note et contexte, la mesure de la « note de connexion » (fiable / pas fiable), les seuils.
+4. **Rôles imprévisibles ou annoncés à l'avance.** §1.2 garde « imprévisible » (texte du 2026-06-26, `docs/tom-whitepaper-v1.md` l.13 et l.15) ; un résumé hors dépôt parle de « rôles annoncés à l'avance ». Non retranché le 2026-10-17.
+5. **Témoins.** « Jusqu'à 7 » : plafond ou cible ? Qui observe qui (voisins réseau, membres du même cercle) ?
+6. **Sous-réseaux.** Ouvert : ce qui rend un subnet « trop petit » ou « plus robuste », et ce qui se partage entre vases communicants (relais, backup, rôles).
