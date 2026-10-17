@@ -85,7 +85,7 @@ Stateless, idempotent, secrets externalisés, IaC, fail fast, tests locaux avant
 ## §15 Token Management → `../templates/settings.json`
 
 Input : ne relire que si modifié. Routing : Haiku exploration / Sonnet dev / Opus archi. Début session : signaler modèle, proposer switch si surdimensionné (ex: Opus→dev → « tape `/model sonnet` »). `/compact` à **~60% fenêtre** — pas 75-98%. Déclencher aussi après explore, feature, switch.
-**QMD-first** : pour tout `.md`, utiliser `mcp__qmd__get`/`mcp__qmd__query` avant `Read`. `Read` sur `.md` uniquement si ligne exacte connue (offset+limit obligatoire).
+**QMD-first** : voir l'impératif en tête du `CLAUDE.md` racine.
 **Auto-métriques** : `model-metrics.sh` → `[METRICS]` — mécanique. Inclure en §1. Switch explicite → `python3 scripts/switch_model.py <model> [pane]` immédiat.
 
 ## §16 Orchestration → `./orchestration/`

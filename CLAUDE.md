@@ -1,5 +1,8 @@
 # ToM Protocol - Claude/LLM Documentation
 
+> **IMPÉRATIF — QMD d'abord pour tout `.md`** : chercher et lire avec `mcp__qmd__query` / `mcp__qmd__get` (serveur `qmd` de `.mcp.json`) avant tout `Read`. `Read` sur un `.md` seulement à ligne connue (offset + limit obligatoires).
+> Raison : rapide, économe en contexte.
+
 This document provides comprehensive guidance for LLMs working with the ToM Protocol codebase.
 
 ## Project Overview
