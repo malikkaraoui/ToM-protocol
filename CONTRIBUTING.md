@@ -159,6 +159,12 @@ pnpm --filter tom-protocol test
 pnpm --filter tom-protocol test:watch
 ```
 
+## Before Pushing
+
+`.husky/pre-push` runs `scripts/ci-local.sh`, which replays every job of `.github/workflows/ci.yml` (same commands, same order) and stops at the first failure.
+Red means no push: fix it, never bypass it (`--no-verify` is forbidden and no job can be skipped).
+Run it by hand with `./scripts/ci-local.sh`; it also fails when `ci.yml` changes without the script following.
+
 ## Architecture Overview
 
 ### Core Concepts
