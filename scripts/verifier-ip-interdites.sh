@@ -4,7 +4,7 @@
 # Le dépôt est public : les IP du domicile/de la flotte ne doivent jamais y
 # revenir. Elles ne sont PAS écrites ici : scripts/ip-interdites.sha256 contient
 # le SHA-256 (texte exact, sans retour à la ligne) de chaque élément interdit :
-#   - une IPv4 : « a.b.c.d » ;
+#   - une IPv4 : « a.b.c.d » en forme canonique (sans zéros de tête) ;
 #   - un préfixe IPv6 /64 : les 4 premiers groupes en minuscules, sans zéros de
 #     tête, séparés par « : » (ex. « 2001:db8:0:1 » pour 2001:0DB8:0000:0001::/64).
 # Le script hache chaque candidat trouvé dans les fichiers texte suivis par git et
@@ -58,10 +58,16 @@ v6 = re.compile(r"(?=((?:[0-9a-f]{1,4}:){3})([0-9a-f]{1,4}))", re.I)
 def norm6(groupes):
     return ":".join(g.lstrip("0").lower() or "0" for g in groupes)
 
+def norm4(octets):
+    return ".".join(str(int(o)) for o in octets)
+
 def interdite(ligne):
+    # Chaque candidat est ramené à sa forme canonique (zéros de tête retirés,
+    # minuscules) avant hachage : une même adresse a une seule empreinte.
     for m in v4.finditer(ligne):
+        tete = m.group(1).rstrip(".").split(".")
         for k in range(1, len(m.group(2)) + 1):
-            if h(m.group(1) + m.group(2)[:k]) in interdits:
+            if h(norm4(tete + [m.group(2)[:k]])) in interdits:
                 return True
     for m in v6.finditer(ligne):
         tete = m.group(1).rstrip(":").split(":")
