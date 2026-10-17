@@ -34,9 +34,10 @@ import hashlib, re, sys
 hashs_path, exempt_path = sys.argv[1], sys.argv[2]
 interdits = {l.split()[0].lower() for l in open(hashs_path) if l.strip() and not l.startswith("#")}
 exempts = {l.strip() for l in open(exempt_path) if l.strip() and not l.startswith("#")}
-# Lookahead : candidats qui se chevauchent, pour ne pas rater une IP collée à
-# d autres chiffres (ex. « x182.67… » contient aussi « 82.67… »).
-cand = re.compile(r"(?=(\d{1,3}(?:\.\d{1,3}){3}))")
+# Lookahead : un candidat par position de départ (chevauchements), et toutes les
+# longueurs du dernier octet, pour ne pas rater une IP collée à d autres
+# chiffres avant ou après (ex. « 1<ip>9 »).
+cand = re.compile(r"(?=(\d{1,3}\.\d{1,3}\.\d{1,3}\.)(\d{1,3}))")
 trouve = 0
 for chemin in sys.stdin.buffer.read().split(b"\0"):
     if not chemin:
@@ -46,11 +47,13 @@ for chemin in sys.stdin.buffer.read().split(b"\0"):
         continue
     with open(chemin, "r", encoding="utf-8", errors="replace") as f:
         for no, ligne in enumerate(f, 1):
-            for m in cand.finditer(ligne):
-                if hashlib.sha256(m.group(1).encode()).hexdigest() in interdits:
-                    print(f"{nom}:{no}: <IP_INTERDITE>")
-                    trouve += 1
-                    break
+            if any(
+                hashlib.sha256((m.group(1) + m.group(2)[:k]).encode()).hexdigest() in interdits
+                for m in cand.finditer(ligne)
+                for k in range(1, len(m.group(2)) + 1)
+            ):
+                print(f"{nom}:{no}: <IP_INTERDITE>")
+                trouve += 1
 if trouve:
     print(f"verifier-ip-interdites: {trouve} ligne(s) avec une IP interdite", file=sys.stderr)
     sys.exit(1)
