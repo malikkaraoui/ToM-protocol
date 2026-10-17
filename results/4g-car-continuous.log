@@ -3,26 +3,26 @@ Node ID: 6cb13e9e09c165465fefad24cbd1b5d4b51ed0426f34bee0430cf5478c79c24c
 
 Ping mode → target: 3ccfbf9124abb4f9c42c12eb94857b18f8671f0511be22e3159d43b78be31295
 [2m2026-02-13T07:02:26.820038Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m remote server configuration might cause nat traversal issues [3mmax_local_addresses[0m[2m=[0m12 [3mremote_cid_limit[0m[2m=[0m5
-[2m2026-02-13T07:02:27.007281Z[0m [33m WARN[0m [2miroh_quinn_udp[0m[2m:[0m sendmsg error: Os { code: 65, kind: HostUnreachable, message: "No route to host" }, Transmit: { destination: [2a01:e0a:14f:5da0:248f:5dff:fea5:8ed1]:56006, src_ip: None, ecn: Some(Ect0), len: 1200, segment_size: None }
+[2m2026-02-13T07:02:27.007281Z[0m [33m WARN[0m [2miroh_quinn_udp[0m[2m:[0m sendmsg error: Os { code: 65, kind: HostUnreachable, message: "No route to host" }, Transmit: { destination: [<IPV6_DOMICILE>:248f:5dff:fea5:8ed1]:56006, src_ip: None, ecn: Some(Ect0), len: 1200, segment_size: None }
   ping #1 recv failed: pong timeout (10s)
   ping #2 recv failed: pong timeout (10s)
   ping #3 recv failed: pong timeout (10s)
   ping #4 recv failed: pong timeout (10s)
   ping #5 recv failed: pong timeout (10s)
-[2m2026-02-13T07:03:28.647766Z[0m [33m WARN[0m [2miroh_quinn_udp[0m[2m:[0m sendmsg error: Os { code: 65, kind: HostUnreachable, message: "No route to host" }, Transmit: { destination: [2a01:e0a:14f:5da0:248f:5dff:fea5:8ed1]:56006, src_ip: None, ecn: Some(Ect0), len: 1200, segment_size: None }
+[2m2026-02-13T07:03:28.647766Z[0m [33m WARN[0m [2miroh_quinn_udp[0m[2m:[0m sendmsg error: Os { code: 65, kind: HostUnreachable, message: "No route to host" }, Transmit: { destination: [<IPV6_DOMICILE>:248f:5dff:fea5:8ed1]:56006, src_ip: None, ecn: Some(Ect0), len: 1200, segment_size: None }
   ping #6 recv failed: pong timeout (10s)
   ping #7 recv failed: pong timeout (10s)
   ping #8 recv failed: pong timeout (10s)
   ping #9 recv failed: pong timeout (10s)
   ping #10 recv failed: pong timeout (10s)
   ping #11 recv failed: pong timeout (10s)
-[2m2026-02-13T07:04:29.330534Z[0m [33m WARN[0m [2miroh_quinn_udp[0m[2m:[0m sendmsg error: Os { code: 65, kind: HostUnreachable, message: "No route to host" }, Transmit: { destination: [2a01:e0a:14f:5da0:248f:5dff:fea5:8ed1]:56006, src_ip: None, ecn: Some(Ect0), len: 1200, segment_size: None }
+[2m2026-02-13T07:04:29.330534Z[0m [33m WARN[0m [2miroh_quinn_udp[0m[2m:[0m sendmsg error: Os { code: 65, kind: HostUnreachable, message: "No route to host" }, Transmit: { destination: [<IPV6_DOMICILE>:248f:5dff:fea5:8ed1]:56006, src_ip: None, ecn: Some(Ect0), len: 1200, segment_size: None }
   ping #12 recv failed: pong timeout (10s)
   ping #13 recv failed: pong timeout (10s)
   ping #14 recv failed: pong timeout (10s)
   ping #15 recv failed: pong timeout (10s)
   ping #16 recv failed: pong timeout (10s)
-[2m2026-02-13T07:05:29.934031Z[0m [33m WARN[0m [2miroh_quinn_udp[0m[2m:[0m sendmsg error: Os { code: 65, kind: HostUnreachable, message: "No route to host" }, Transmit: { destination: [2a01:e0a:14f:5da0:248f:5dff:fea5:8ed1]:56006, src_ip: None, ecn: Some(Ect0), len: 1200, segment_size: None }
+[2m2026-02-13T07:05:29.934031Z[0m [33m WARN[0m [2miroh_quinn_udp[0m[2m:[0m sendmsg error: Os { code: 65, kind: HostUnreachable, message: "No route to host" }, Transmit: { destination: [<IPV6_DOMICILE>:248f:5dff:fea5:8ed1]:56006, src_ip: None, ecn: Some(Ect0), len: 1200, segment_size: None }
   ping #17 recv failed: pong timeout (10s)
   ping #18 recv failed: pong timeout (10s)
   ping #19 recv failed: pong timeout (10s)
@@ -43,7 +43,7 @@ Ping mode → target: 3ccfbf9124abb4f9c42c12eb94857b18f8671f0511be22e3159d43b78b
   ping #34 recv failed: pong timeout (10s)
   ping #35 recv failed: pong timeout (10s)
   ping #36 recv failed: pong timeout (10s)
-[2m2026-02-13T07:09:08.074240Z[0m [33m WARN[0m [2miroh_quinn_udp[0m[2m:[0m sendmsg error: Os { code: 65, kind: HostUnreachable, message: "No route to host" }, Transmit: { destination: [2a01:e0a:14f:5da0:248f:5dff:fea5:8ed1]:56006, src_ip: None, ecn: Some(Ect0), len: 1200, segment_size: None }
+[2m2026-02-13T07:09:08.074240Z[0m [33m WARN[0m [2miroh_quinn_udp[0m[2m:[0m sendmsg error: Os { code: 65, kind: HostUnreachable, message: "No route to host" }, Transmit: { destination: [<IPV6_DOMICILE>:248f:5dff:fea5:8ed1]:56006, src_ip: None, ecn: Some(Ect0), len: 1200, segment_size: None }
   ping #37 recv failed: pong timeout (10s)
   ping #38 recv failed: pong timeout (10s)
   ping #39 recv failed: pong timeout (10s)
@@ -156,7 +156,7 @@ Ping mode → target: 3ccfbf9124abb4f9c42c12eb94857b18f8671f0511be22e3159d43b78b
 [2m2026-02-13T07:24:46.033504Z[0m [33m WARN[0m [2miroh::socket::transports::relay::actor[0m[2m:[0m Failed to connect to relay server
 [2m2026-02-13T07:24:46.658326Z[0m [33m WARN[0m [2miroh::socket::remote_map::remote_state[0m[2m:[0m Address Lookup failed: Service 'dns' error: no calls succeeded: [Failed to resolve TXT recordFailed to resolve TXT recordFailed to resolve TXT record]
 [2m2026-02-13T07:24:47.452716Z[0m [33m WARN[0m [2miroh_quinn_proto::connection[0m[2m:[0m remote server configuration might cause nat traversal issues [3mmax_local_addresses[0m[2m=[0m12 [3mremote_cid_limit[0m[2m=[0m5
-[2m2026-02-13T07:24:47.602113Z[0m [33m WARN[0m [2miroh_quinn_udp[0m[2m:[0m sendmsg error: Os { code: 65, kind: HostUnreachable, message: "No route to host" }, Transmit: { destination: [2a01:e0a:14f:5da0:248f:5dff:fea5:8ed1]:56006, src_ip: None, ecn: Some(Ect0), len: 1200, segment_size: None }
+[2m2026-02-13T07:24:47.602113Z[0m [33m WARN[0m [2miroh_quinn_udp[0m[2m:[0m sendmsg error: Os { code: 65, kind: HostUnreachable, message: "No route to host" }, Transmit: { destination: [<IPV6_DOMICILE>:248f:5dff:fea5:8ed1]:56006, src_ip: None, ecn: Some(Ect0), len: 1200, segment_size: None }
   ping #115 recv failed: pong timeout (10s)
   ping #116 recv failed: pong timeout (10s)
   ping #117 recv failed: pong timeout (10s)

@@ -169,7 +169,7 @@ Les 5 criticals de l'audit 6-agents sont corrigés (file:line revérifiés) :
 - [x] **Review Copilot x3 soldée** (2026-06-09) : handoffs FFI + transport + deps intégrés. Dette §25 effacée.
 - [x] **Push commits** — routine désormais (voir §Règle "commit push" CLAUDE.md), plus un item isolé
 - [x] **Rebuild xcframework** (2026-07-12) — 2 rebuilds ce jour (round 1 + round 2 red-team L1-003), synced vers `sdk/swift/TomProtocolKit/Artifacts/`, build 37
-- [ ] **Ouvrir IPv6 entrante Freebox** — port 43925 → `2a01:e0a:14f:5da0:248f:5dff:fea5:8ed1` (Freebox OS, règle pare-feu manuelle). Débloque connexion DIRECT QUIC NAS. **Action manuelle utilisateur, pas exécutable en autonomie.**
+- [ ] **Ouvrir IPv6 entrante Freebox** — port 43925 → `<IPV6_DOMICILE>:248f:5dff:fea5:8ed1` (Freebox OS, règle pare-feu manuelle). Débloque connexion DIRECT QUIC NAS. **Action manuelle utilisateur, pas exécutable en autonomie.**
 - [x] **Mettre `docs/TOM-TVOS-NODE-PLAN.md` à jour** — refléter l'état réel (2026-07-12, `c8ec8d2`) : doc réécrite, phases 1-5 marquées livrées, écart architecture TomCoreKit→wrapper local documenté
 - [ ] **Tests Swift/tvOS** — câbler XCTest dans `.xcodeproj` (fixtures identiques aux tests Rust)
 - [ ] **Durcir couche tvOS** : messages/groupes, persistance, reprise après veille

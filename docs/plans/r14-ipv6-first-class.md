@@ -15,9 +15,9 @@ ATV retirée (18/07 soir). Aucun nœud TEST-* dans la fenêtre (pollution harnai
 
 | De → Vers | Famille | Adresse | Kind | RTT |
 |---|---|---|---|---|
-| Mac → iPad | **v6-GUA** | `[2a01:e0a:14f:5da0:18f3:…]:60085` | DIRECT | 9 ms |
-| Mac → NAS | **v6-GUA** | `[2a01:e0a:14f:5da0:248f:…]:43925` | DIRECT | 5 ms |
-| Mac → iPhone | **v6-GUA** | `[2a01:e0a:14f:5da0:49bf:…]:64562` | DIRECT | 30 ms |
+| Mac → iPad | **v6-GUA** | `[<IPV6_DOMICILE>:18f3:…]:60085` | DIRECT | 9 ms |
+| Mac → NAS | **v6-GUA** | `[<IPV6_DOMICILE>:248f:…]:43925` | DIRECT | 5 ms |
+| Mac → iPhone | **v6-GUA** | `[<IPV6_DOMICILE>:49bf:…]:64562` | DIRECT | 30 ms |
 | iPad → Mac | **v6-GUA** | `[…:f42f:a9e9:820:861d]:55480` | DIRECT | 10 ms |
 | iPad → NAS | **v6-GUA** | `[…:248f:5dff:fea5:8ed1]:43925` | DIRECT | 7 ms |
 | iPad → iPhone | v4-LAN | `192.168.0.28:49945` | DIRECT | 9 ms |
