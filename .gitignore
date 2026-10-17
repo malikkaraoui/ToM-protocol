@@ -9,8 +9,6 @@ target/
 # Worktrees
 .worktrees/
 
-# Graphify code knowledge graph (local index, ~22Mo)
-graphify-out/
 
 # Secrets
 .env

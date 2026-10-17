@@ -32,7 +32,6 @@
       ".claude",
       ".claude-backup-*",
       ".obsidian",
-      "graphify-out",
       "_bmad-output",
       "_bmad",
       "target",
@@ -46,7 +45,6 @@
       "sdk/swift/**/Artifacts/**",
       "docs/spec/vectors/**",
       "patches/**",
-      "graphify-out",
       "config/harnais.json",
       "vault/runtime"
     ]

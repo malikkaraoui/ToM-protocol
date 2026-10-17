@@ -14,7 +14,7 @@
 | XCFramework FFI | `sdk/swift/TomProtocolKit/Artifacts/TomProtocolFFI.xcframework`, `apps/tom-node-tvos/build/` | rebuild FFI multi-slices (voir §Rebuild XCFramework) |
 | Cruft mort | backup `.claude-backup-*`, worktrees orphelins `.claude/worktrees/*`, `logs/*`, `.DS_Store`, `.bak` | non régénéré (déchet pur) |
 
-**Gardé volontairement** : tout le code source, `deploy/` (binaires .app/relay/stress prêts à redéployer, 106M), `graphify-out/` (tracké).
+**Gardé volontairement** : tout le code source, `deploy/` (binaires .app/relay/stress prêts à redéployer, 106M).
 
 ## Séquence de régénération complète
 
