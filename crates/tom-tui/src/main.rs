@@ -1108,7 +1108,7 @@ async fn main() -> anyhow::Result<()> {
                         app.quit = true;
                     }
                     KeyCode::Enter if !app.input.is_empty() => {
-                        let text = app.input.drain(..).collect::<String>();
+                        let text = std::mem::take(&mut app.input);
                         handle_input(&mut app, &text, &handle).await;
                     }
                     KeyCode::Backspace => {
