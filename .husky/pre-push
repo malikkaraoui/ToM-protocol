@@ -3,8 +3,47 @@
 set -eu
 [ -n "${BASH_VERSION:-}" ] && set -o pipefail
 
+# Refs poussées, lues UNE seule fois sur stdin (format git pre-push :
+# « <local_ref> <local_sha> <remote_ref> <remote_sha> » par ligne).
+PUSH_REFS="$(cat)"
+
+# Vrai (code 0) SEULEMENT si tous les fichiers changés par TOUTES les refs
+# poussées sont sous vault/. Même règle que le job `changes` de ci.yml (#71).
+# Dans le doute, on rejoue tout :
+#   - suppression de ref (local_sha nul) → rien à tester pour cette ref ;
+#   - remote_sha connu → base = remote_sha ; ref neuve (remote_sha nul)
+#     → base = merge-base origin/main <local_sha> ;
+#   - base introuvable, diff en erreur, liste vide ou un seul chemin hors
+#     vault/ → tout rejouer ; aucune ref (stdin vide) → tout rejouer ;
+#   - --no-renames : un renommage src/x → vault/x compte comme du code.
+only_vault_changed() {
+	_seen=0
+	while read -r _lref _lsha _rref _rsha; do
+		[ -n "$_lsha" ] || continue
+		_seen=1
+		case "$_lsha" in *[!0]*) ;; *) continue ;; esac
+		case "$_rsha" in
+			*[!0]*) _base="$_rsha" ;;
+			*) _base="$(git merge-base origin/main "$_lsha" 2>/dev/null)" || return 1 ;;
+		esac
+		git cat-file -e "$_base^{commit}" 2>/dev/null || return 1
+		_files="$(git -c core.quotePath=false diff --no-renames --name-only "$_base" "$_lsha" --)" || return 1
+		[ -n "$_files" ] || return 1
+		printf '%s\n' "$_files" | grep -qv '^vault/' && return 1
+	done <<EOF
+$PUSH_REFS
+EOF
+	[ "$_seen" = 1 ]
+}
+
 # Contrôle obligatoire : rejoue tous les jobs de ci.yml. Rouge = push refusé, sans échappatoire.
-./scripts/ci-local.sh
+# Seule exception : un push qui ne touche que vault/ (règle ci-dessus).
+if only_vault_changed; then
+	echo "[pre-push] vault/ seul : CI locale sautée"
+else
+	echo "[pre-push] code touché : CI locale complète"
+	./scripts/ci-local.sh
+fi
 
 # Skip manually when needed (example: SKIP_OBSERVABILITY_SMOKE=1 git push)
 if [ "${SKIP_OBSERVABILITY_SMOKE:-0}" = "1" ]; then
