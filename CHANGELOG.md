@@ -1,5 +1,110 @@
 # Changelog
 
+## [2.2.0](https://github.com/malikkaraoui/ToM-protocol/compare/v2.1.0...v2.2.0) (2026-10-18)
+
+
+### Features
+
+* **app:** reset de cache — bouton Settings + API /reset partout (build 125) ([5a4c16a](https://github.com/malikkaraoui/ToM-protocol/commit/5a4c16afb54c263da9e62502497eecd3ec8490e8))
+* **banc:** courbe de masse Phase 1 in-process — débit/nœud + dédup hermétiques (build 137) ([17c6204](https://github.com/malikkaraoui/ToM-protocol/commit/17c62046b262094f6d870117ad8df367c98f9cb7))
+* **banc:** herméticité étage L — hermetic() + gate liste blanche entrantes ([237b9fe](https://github.com/malikkaraoui/ToM-protocol/commit/237b9fe42347ff891a256704d37d2c70bfda98a9))
+* **banc:** orchestrateur étage F V1 + compteur echoues honnête + AUTO-PING exclut TEST- (build 118) ([fb61303](https://github.com/malikkaraoui/ToM-protocol/commit/fb61303a1349eec1bb3171172b957bce2fc22a9d))
+* **banc:** r1+r3 multi-hop réel A-R-B et promotion par crédits constatés (5/5) ([bcb494f](https://github.com/malikkaraoui/ToM-protocol/commit/bcb494f3df5e60250df722af82fb810a372e8471))
+* **banc:** r2-l backup absent→retour (6/6) + attach_node réutilisable, KL [#14](https://github.com/malikkaraoui/ToM-protocol/issues/14) ([241b447](https://github.com/malikkaraoui/ToM-protocol/commit/241b4474268d6021cda39be6d7e67655cdbfdd5f))
+* **banc:** r4-f rendez-vous — deux inconnus se trouvent (multi-host PASS) ([2cbf964](https://github.com/malikkaraoui/ToM-protocol/commit/2cbf96437e9d033aa36df64155f85d33f05c7f60))
+* **banc:** r7-l anti-fantômes (PoP) + finding fuite mDNS entrante de la flotte locale ([62c1e1c](https://github.com/malikkaraoui/ToM-protocol/commit/62c1e1cd23add783945dedce45ef67d0d883d43f))
+* **banc:** rôles sous charge Phase A — R5 subnets + R8 arroseur (roles-charge) ([6a55f89](https://github.com/malikkaraoui/ToM-protocol/commit/6a55f89b634d664e260710c0aae49c4decf520a6))
+* **dht:** namespace de rendez-vous isolé pour bancs (P1) — préfixe tom-test- forcé ([dd27d88](https://github.com/malikkaraoui/ToM-protocol/commit/dd27d88500b78a11b4ba38e70c76c95c1da4156e))
+* **groupes:** etape 1 — canal "log" public auto-porte (orchestration runtime) ([0e41628](https://github.com/malikkaraoui/ToM-protocol/commit/0e4162834df34158407320fb52b7f3bc8ce602c6))
+* **ios:** cycle de vie arrière-plan propre + réveils BGTask + MetricKit ([#48](https://github.com/malikkaraoui/ToM-protocol/issues/48), build 98) ([8a4eeb2](https://github.com/malikkaraoui/ToM-protocol/commit/8a4eeb2ac9e3326c0b09d89a410fc290a889c520))
+* **ios:** log-udp via getaddrinfo (hostname .local) + persistance UserDefaults (build 141) ([61c62d1](https://github.com/malikkaraoui/ToM-protocol/commit/61c62d111ea58db3bbc4bd41a2bab551d20674d0))
+* **observabilite:** r14 lot a — historisation des bascules de chemin (build 128) ([7dcdaaf](https://github.com/malikkaraoui/ToM-protocol/commit/7dcdaafb722d51ced4a711f8f1b726aaf44420e7))
+* **outils:** iphone laura dans la flotte + matrice de chemins v4/v6 ([b55d8d2](https://github.com/malikkaraoui/ToM-protocol/commit/b55d8d20db25c99b33f0a6e95f6c63764a492254))
+* **reseau:** re-dial sur presence attestee + chemin mort, m1 (build 120) ([2b818f2](https://github.com/malikkaraoui/ToM-protocol/commit/2b818f27217921ff3f1522213c0ca734c7c1a8ab))
+* **runtime:** profileur de boucle — nomme tout await inline &gt;300 ms (BOUCLE TENUE) ([8066d7d](https://github.com/malikkaraoui/ToM-protocol/commit/8066d7dd591aea0cb1a6189dc54cc6ec987b4730))
+* **runtime:** r15-lite — relais habituel persisté par pair (build 129) ([ce2cbe2](https://github.com/malikkaraoui/ToM-protocol/commit/ce2cbe2dc07962300abb85c984076e7484bb062a))
+* **securite:** garde anti-retour des IP interdites (hashs SHA-256) ([d913824](https://github.com/malikkaraoui/ToM-protocol/commit/d913824e869dab6aa22d924cf91849f3fe775815))
+* **stress:** banc de test chaos étage L — invariants réels I1/I2/I3/I5 (build 116) ([6de11aa](https://github.com/malikkaraoui/ToM-protocol/commit/6de11aa347958c25d9c9ee9b1ff2d6740482dd4e))
+* **subnets:** timeout d'inactivité configurable test-only (P3) ([b54412e](https://github.com/malikkaraoui/ToM-protocol/commit/b54412ee30a4e7903ecf7ae0a34faef2e177a835))
+* **transparence:** marquage TEST- des nœuds de test — badge flotte + jamais cible auto (build 117) ([bd525c5](https://github.com/malikkaraoui/ToM-protocol/commit/bd525c5ba943aa604d8bcda8e6b86a9a3d89d3cd))
+* **transport:** re-sondage des chemins morts apres failover (lot c) ([b3dbd62](https://github.com/malikkaraoui/ToM-protocol/commit/b3dbd62cbb0043d521716ead0819c66e45c71a25))
+* **ux:** compte à rebours auto-start visible (décision 5 s conservée) — build 139 ([44904f5](https://github.com/malikkaraoui/ToM-protocol/commit/44904f51e9e006a4611f3e62604348fbdee70ac0))
+* **ux:** feedback reset visible (spinner+toast+haptique) + Makefile véridique (build 138) ([633565c](https://github.com/malikkaraoui/ToM-protocol/commit/633565c5d21e1d8f848b8b288dd88d3029f95e11))
+
+
+### Bug Fixes
+
+* **antispam:** rejeter CHAQUE message hors-budget (le dédup d'alerte avalait le rejet) ([e1dc778](https://github.com/malikkaraoui/ToM-protocol/commit/e1dc77838f07e7f2583c45e7a15280107832f41c))
+* **apps:** réception rétablie — décodage TomMessage tolérant ([#47](https://github.com/malikkaraoui/ToM-protocol/issues/47), build 96) ([a90a889](https://github.com/malikkaraoui/ToM-protocol/commit/a90a889b16c54710f5379f3e134f30a5e603ff91))
+* **backup:** budget memoire en octets — corrige l OOM du relais (build 126) ([76903f3](https://github.com/malikkaraoui/ToM-protocol/commit/76903f3be4fe4d1a634c23f09f63f5e395aa08ee))
+* **backup:** purger le store local à l'ACK quand l'émetteur est son propre gardien (ADR-009) ([ef28e6f](https://github.com/malikkaraoui/ToM-protocol/commit/ef28e6faca9aedf2eb266354bd2b3b84f7465a81))
+* **banc:** findings oracle (N≥2, quiescence, magic, teardown) + 8 tests mesure + ATV hors flotte ([97c83cc](https://github.com/malikkaraoui/ToM-protocol/commit/97c83cceafd2d85f77e58399860be7e1fdc9f74f))
+* **ci:** ci-local.sh passe à cargo deny les arguments de cargo-deny-action ([537e981](https://github.com/malikkaraoui/ToM-protocol/commit/537e9815fe98f38908141e7b6ba8e1daf435e0f6))
+* **ci:** épingler rustc 1.99.1 et neutraliser le lint cfg_aliases ([30649a6](https://github.com/malikkaraoui/ToM-protocol/commit/30649a6fac5a7e44250d3b6e307437450d31f35c))
+* **ci:** résorber les lints rustc/clippy 1.99.1 restants ([79428ed](https://github.com/malikkaraoui/ToM-protocol/commit/79428eded0edc5557896c98954137c90f3366de1))
+* **config:** qmd --index tom — étanchéité inter-projets ([19257e5](https://github.com/malikkaraoui/ToM-protocol/commit/19257e505f5602cd18ab96c8da132425482e0968))
+* **deps:** ignore RUSTSEC-2026-0253 (lru pop unsound), advisory publie apres 3c012cb ([fdae163](https://github.com/malikkaraoui/ToM-protocol/commit/fdae163f3754c9f49aa109f4e0b3a494a447b397))
+* **deps:** rétablit socket2 0.6.2 et windows-sys rétrogradés par la ré-résolution (R005) ([d15da52](https://github.com/malikkaraoui/ToM-protocol/commit/d15da521d6d54386fb6d7589ccf3b64c60b3427e))
+* **deps:** rustls 0.23.46 et h2 0.4.20 (RUSTSEC-2026-0258/0285/0346/0348/0349) ([568e7a9](https://github.com/malikkaraoui/ToM-protocol/commit/568e7a93420c9ab5bc4d0bd69eddbdef3577d617))
+* **deps:** rustls 0.23.46 et h2 0.4.20 dans le lock FFI ([448d07c](https://github.com/malikkaraoui/ToM-protocol/commit/448d07c7696b15abc9f33d545f1f1a49c5abf2ee))
+* **discovery:** filtre de fraîcheur du rendez-vous — fin des fantômes ([#45](https://github.com/malikkaraoui/ToM-protocol/issues/45), build 92) ([5d3f27b](https://github.com/malikkaraoui/ToM-protocol/commit/5d3f27ba3487dae720ed941ebdb9f789b2376fd1))
+* **ffi+dht:** borne tom_node_start (rc -2, 20s) + init DHT détachée — fin du start figé/zombie 3G ([1fa2ec1](https://github.com/malikkaraoui/ToM-protocol/commit/1fa2ec11a5550d30ba004cba729e954f94753fe7))
+* **ffi:** ack du drain 100% async — plus aucun worker tokio bloqué par les polls (build 103) ([2c44fd4](https://github.com/malikkaraoui/ToM-protocol/commit/2c44fd430f499e011ba21d63177a84f88e1c23f5))
+* **ffi:** harnais d'exemple en découverte publique OFF par défaut (build 107) ([5a3d406](https://github.com/malikkaraoui/ToM-protocol/commit/5a3d406ee652cede2381831c67ef3f061f31b925))
+* **ios:** durcit le cycle background — 4 findings de la revue oracle [#48](https://github.com/malikkaraoui/ToM-protocol/issues/48) ([09757ba](https://github.com/malikkaraoui/ToM-protocol/commit/09757bae2113b0268dffa9ebf7a7b9e510be4417))
+* **nas:** borne runtimemaxsec sur tom-node.service + doc validation nocturne ([803e745](https://github.com/malikkaraoui/ToM-protocol/commit/803e74545f9ddf06b55958329432b67ab79823fa))
+* **pre-push:** sauter la CI locale quand seul vault/ change ([#71](https://github.com/malikkaraoui/ToM-protocol/issues/71)) ([191c0f1](https://github.com/malikkaraoui/ToM-protocol/commit/191c0f1c64d41bfa21126c520865b4e32712923f))
+* **pre-push:** test vault seul en mémoire, sans pipe ni heredoc ([#71](https://github.com/malikkaraoui/ToM-protocol/issues/71)) ([8210373](https://github.com/malikkaraoui/ToM-protocol/commit/8210373750a7db63fde106a0cd6cb76181e7b562))
+* **pre-push:** test vault seul sans pipe et fail-closed (SIGPIPE sous pipefail, [#71](https://github.com/malikkaraoui/ToM-protocol/issues/71)) ([bf3548f](https://github.com/malikkaraoui/ToM-protocol/commit/bf3548fc507b7500045107e725de0340ef5e0810))
+* **quinn-proto:** un PATH_ABANDON non réciproqué ne tue plus la connexion — port [#436](https://github.com/malikkaraoui/ToM-protocol/issues/436) (build 105) ([cb1185b](https://github.com/malikkaraoui/ToM-protocol/commit/cb1185be04439bc38d4eb70a019918a2b5099721))
+* **reseau:** anti-ravivage m1 — filtre d'age au rejoin 15s + wart (build 121) ([2e4c2a4](https://github.com/malikkaraoui/ToM-protocol/commit/2e4c2a459fa4be091970c127b62b1769d698bd89))
+* **reseau:** anti-ravivage m2+m3 — ttl 24h base + eviction memoire (build 122) ([9b052c5](https://github.com/malikkaraoui/ToM-protocol/commit/9b052c5ea520736cfb9ffafe076dc3a66778dc5d))
+* **roles:** le relais ne crédite plus l'origine du message (usage ≠ contribution, PoP §1) ([2937330](https://github.com/malikkaraoui/ToM-protocol/commit/2937330d935ac34efa59cc74afd3061f2ae71489))
+* **runtime+ffi:** la boucle ne bloque plus jamais sur l'observabilité (build 101) ([6434674](https://github.com/malikkaraoui/ToM-protocol/commit/643467407b89ce8e9779b2fe4d343404510a1752))
+* **runtime:** borne le cache de reemission — la vraie cause de l OOM (build 127) ([9fbb32a](https://github.com/malikkaraoui/ToM-protocol/commit/9fbb32aa5d009a9385a08e581c5343fab9c42f8d))
+* **runtime:** borne les cartes par-pair a la topologie (build 130) ([e3c5f47](https://github.com/malikkaraoui/ToM-protocol/commit/e3c5f47ddc9c4e3a5dbe78213a12b3b633a5f4ac))
+* **runtime:** connected_peers répond HORS boucle — le poll de statut ne tient plus jamais la boucle ([a6146da](https://github.com/malikkaraoui/ToM-protocol/commit/a6146da2d0b68afbf8a412d0ae3d34b8d54806f2))
+* **runtime:** republish DHT 30 min détaché — dernier await inline du tick éliminé ([20f7d13](https://github.com/malikkaraoui/ToM-protocol/commit/20f7d1379606cc293bae4b511bed46f00d96d28e))
+* **securite:** binding announce direct avant credit online (build 119) ([1bc81b9](https://github.com/malikkaraoui/ToM-protocol/commit/1bc81b9c086482163472f77c1524fd7e8485c4d7))
+* **securite:** borne+assainit le username a l'ingest gossip/direct (build 123) ([da844c1](https://github.com/malikkaraoui/ToM-protocol/commit/da844c159d89b84669179b057f69668b41dc07e9))
+* **securite:** garde IP -- detecter une IP suivie d'un chiffre ([d93f57b](https://github.com/malikkaraoui/ToM-protocol/commit/d93f57b9bc19ac5e85d6473299fde8989e47c83e))
+* **securite:** garde IP -- forme canonique avant hachage ([a7912d1](https://github.com/malikkaraoui/ToM-protocol/commit/a7912d1c8ee158e0567a1e4871e7b8effed5861e))
+* **securite:** garde IP -- lecture de tous les fichiers suivis, sans dependance a la locale ([e7f6ce8](https://github.com/malikkaraoui/ToM-protocol/commit/e7f6ce8e6fa67a8045f9df5478d9c7ee88de2186))
+* **securite:** garde IP -- prefixe IPv6 /64 et code de sortie sans IP ([79e139b](https://github.com/malikkaraoui/ToM-protocol/commit/79e139b286389f8996b681b69a3f97cdb9d26128))
+* **securite:** retrait de l'IP publique du domicile (historique non reecrit) ([0b24450](https://github.com/malikkaraoui/ToM-protocol/commit/0b244500a9a7ae0a52d33828725f1ba6dc6d6304))
+* **securite:** retrait du prefixe IPv6 public du domicile (historique non reecrit) ([ec8b180](https://github.com/malikkaraoui/ToM-protocol/commit/ec8b180a5bdeedac7cd25a02f6d5cc6d5930c5fd))
+* **securite:** retrait IP ramenee par main + limites de la garde en en-tete ([#67](https://github.com/malikkaraoui/ToM-protocol/issues/67)) ([3ef96ea](https://github.com/malikkaraoui/ToM-protocol/commit/3ef96eabd8b7d80ccc7871827db01256e75e52ba))
+* **storage:** l'élagage 24h s'applique au load quel que soit le statut persisté ([73f9438](https://github.com/malikkaraoui/ToM-protocol/commit/73f943813d9d3fa16d1a9dd7042210959246a631))
+* **test:** --isolated coupe aussi le rendez-vous DHT partage, p3 (build 124) ([b216bff](https://github.com/malikkaraoui/ToM-protocol/commit/b216bff6afbafdcb4ddcb9fb2ec52e139c8a4aea))
+* **tests:** r15_relay_cache — renvoi périodique au lieu de timeouts secs ([7ccad68](https://github.com/malikkaraoui/ToM-protocol/commit/7ccad685d38f0d8b13b20f003128f2aa038d6d89))
+* **tests:** r15_relay_cache — transport relais requis + relais leurre anti faux-vert ([1e84b03](https://github.com/malikkaraoui/ToM-protocol/commit/1e84b03974ad80fd4932d4256cb0d2770e14d0f8))
+* **test:** tue le flake CI 1/256 des tests de falsification crypto (build 113) ([69a0ad3](https://github.com/malikkaraoui/ToM-protocol/commit/69a0ad39f04f68d9d3a0319b5b3eef7f5d5803b3))
+* **tom-quinn:** app_handle_count — le drop du dernier handle applicatif ferme la connexion ([cc41036](https://github.com/malikkaraoui/ToM-protocol/commit/cc4103629214b80fadb712d4e46eb65802cf7eeb))
+* **tom-transport:** test gate_rejects_unlisted_peer tolere le refus du filtre ([#63](https://github.com/malikkaraoui/ToM-protocol/issues/63)) ([b659f5a](https://github.com/malikkaraoui/ToM-protocol/commit/b659f5a6b0042b0acc8d6be53b876bff6ef1481a))
+* **tom-tui:** so_broadcast udplogger + collecteur versionné (build 136) ([0f3e0be](https://github.com/malikkaraoui/ToM-protocol/commit/0f3e0bef5b7182818c6165ad4b4d4502d400fd6b))
+* **torn-quinn:** panics teardown — drained sans erreur → restore invariant ([6e88e5a](https://github.com/malikkaraoui/ToM-protocol/commit/6e88e5a571166d4d4b7162ad334d0b7435d6fd35))
+* **transport+ffi:** tue les stalls 5-15 min — ref_count atomique + iroh[#4314](https://github.com/malikkaraoui/ToM-protocol/issues/4314) (build 100) ([43a449c](https://github.com/malikkaraoui/ToM-protocol/commit/43a449c59211beac10f07487dcea413383d60854))
+* **transport:** chemin zombie ne bloque plus la reouverture d'adresse ([a7f70a0](https://github.com/malikkaraoui/ToM-protocol/commit/a7f70a03479d8c7117b595f6b9758f3c6fc0ec83))
+* **transport:** close des connexions abandonnées en tâche détachée (anti pool-lock-hostage) ([12144a7](https://github.com/malikkaraoui/ToM-protocol/commit/12144a72672a8c1fd0e45e02cd693d1ced51597a))
+* **transport:** complète le port iroh[#4314](https://github.com/malikkaraoui/ToM-protocol/issues/4314) — poll par socket, fin de la surdité UDP ([7c28353](https://github.com/malikkaraoui/ToM-protocol/commit/7c283530e864a617bec648be4634bb7d8379d68f))
+* **transport:** fermer activement les connexions abandonnées du pool (fuite ConnectionInner) ([f406a83](https://github.com/malikkaraoui/ToM-protocol/commit/f406a83653b369d357dd0df206d6184bc9c302fe))
+* **transport:** get_or_connect réutilise l'inbound survivante ([#46](https://github.com/malikkaraoui/ToM-protocol/issues/46)c, build 95) ([46db6fe](https://github.com/malikkaraoui/ToM-protocol/commit/46db6fec83190b10e5702bf8fc90035a9c853ec5))
+* **transport:** l'emission ne resette plus l'idle per-path ([07e899d](https://github.com/malikkaraoui/ToM-protocol/commit/07e899da4c88fa002ab501035b09ee019472e5c7))
+* **transport:** le dial ne tient plus le verrou du pool — fin du verrou-otage (build 104) ([e0c8dd2](https://github.com/malikkaraoui/ToM-protocol/commit/e0c8dd233f1b1a11fd5df643dda4c5e7f012d462))
+* **transport:** lire les streams sur les connexions sortantes — récep. bidir. ([#46](https://github.com/malikkaraoui/ToM-protocol/issues/46)b, build 94) ([0ae8650](https://github.com/malikkaraoui/ToM-protocol/commit/0ae8650710d31f4d4a9eaec5838556cc517418c5))
+* **transport:** retire le dial proactif — restaure la réception des messages ([#46](https://github.com/malikkaraoui/ToM-protocol/issues/46), build 93) ([ee305ee](https://github.com/malikkaraoui/ToM-protocol/commit/ee305ee2f4254d40e15caf98750970b97117736a))
+
+
+### Performance Improvements
+
+* **runtime:** réintroduit le dial proactif transport — vitesse &lt;5s restaurée ([#47](https://github.com/malikkaraoui/ToM-protocol/issues/47), build 97) ([20cde21](https://github.com/malikkaraoui/ToM-protocol/commit/20cde214896b7462a4d3de322391020e2eef796b))
+* **transport:** re-probe des chemins morts a 15s (etait 30s) ([bd90030](https://github.com/malikkaraoui/ToM-protocol/commit/bd90030bd784387e3fb86982b965aa696b75f703))
+
+
+### Reverts
+
+* **transport:** retire le port iroh[#4314](https://github.com/malikkaraoui/ToM-protocol/issues/4314) — retour à la sémantique recv de midi (build 102) ([f5551a0](https://github.com/malikkaraoui/ToM-protocol/commit/f5551a0508962237d2a10bc4953efa3d7d16d6ec))
+
 ## [2.0.0](https://github.com/malikkaraoui/ToM-protocol/compare/v1.0.0...v2.0.0) (2026-07-15)
 
 
