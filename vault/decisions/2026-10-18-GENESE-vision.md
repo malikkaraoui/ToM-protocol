@@ -27,7 +27,8 @@ fait_foi: non (le texte qui fait foi reste docs/MISSION.md)
 > fondateur l'a posé : « le projet évolue, la dernière version fait foi » (MISSION l.5). L'ordre
 > pratique est : paroles du 18/10 > MISSION (17/10) > plans datés > documents de février > sources
 > fondatrices de janvier. Le code n'est jamais une source de vision : c'est l'état réel, qu'on compare.
-> **Une contrainte de plateforme (iOS, Apple TV, Freebox) n'est jamais une cause de vision** (18/10) :
+> **Une contrainte de plateforme (iOS, Apple TV, Freebox) n'est jamais une cause de vision** — règle de
+> méthode posée par le mandat M0016 à la suite des paroles du 18/10 (`vault/echanges/F01.md` l.32) :
 > quand une évolution vient d'elle, elle est marquée ⚠️.
 
 ---
@@ -83,7 +84,7 @@ et quand elle disparaît, il s'efface » (v0.1 l.134-135) [VÉRIFIÉ].
 - **Sources lues** : les 2 sources fondatrices (lues en entier), puis 264 fichiers du dépôt
   inventoriés dans `genese/00-inventaire.md`, répartis en 23 lots. Chaque lot a été lu par un
   lecteur Haiku frais, en lecture seule. Sorties brutes agrégées dans `genese/10-extraits.md`
-  (3 530 lignes, triées par thème puis par date).
+  (3 530 extraits — lignes de tableau —, triés par thème puis par date).
 - **Aucun extrait Haiku n'entre ici sans recontrôle** à son fichier:ligne. Les citations marquées
   [VÉRIFIÉ] ont été relues par moi ; la liste est en annexe.
 - **Code** : relu au commit `aaeee84`. Le diff `99aa090..aaeee84` ne touche que
@@ -141,7 +142,10 @@ elle est la plus récente et elle précise sans contredire.
 « organisme à rôles » du 20/07 est une *décision du fondateur* qui corrige une dérive de méthode
 (on testait un tuyau send/ACK).
 
-**Verdict : ✅ tient.** Huit mois, aucune contradiction sur la finalité. Seule réserve : la
+**Verdict : ✅ tient.** Huit mois, aucune contradiction sur la finalité. Un mot à tracer : Step2
+repense « la blockchain » (l.42-45) et la master map parle d'« une blockchain qui voyage léger »
+(MASTER-MAP l.14), alors que MISSION l.64 et l.262 disent « pas de blockchain » [VÉRIFIÉ] — même mot,
+deux sens (l'idée d'un état partagé sans maître ; le grand livre historique). Seule réserve : la
 validation tourne sur « UNE box, UN FAI, UN foyer » (VISION-CONSOLIDEE l.87) [VÉRIFIÉ] ; « petit
 c'est dur voire impossible » (18/10) implique que la flotte actuelle **ne peut pas** démontrer la
 vision, seulement ne pas la contredire.
@@ -197,8 +201,8 @@ cible WASM ni Android propre au projet : `git ls-files` ne trouve « wasm » et 
 **Pour passer un step.**
 1. **proposition** — Avant toute distribution large, un deuxième binding non-Apple (Linux headless
    ou Android) pour casser l'échantillon Apple.
-2. **proposition** — Écrire la règle du 18/10 dans MISSION : « une contrainte de plateforme n'est
-   jamais une cause de vision » (garde-fou §6).
+2. **proposition** — Écrire dans MISSION (garde-fou §6) la règle de méthode du mandat M0016, tirée des
+   paroles du 18/10 : « une contrainte de plateforme n'est jamais une cause de vision ».
 
 ---
 
@@ -218,7 +222,7 @@ retire aussi l'Archiveur et les validateurs de l'aléa ; ce texte est entré tel
 02/02 (`2cbf495`) [VÉRIFIÉ]. L'ordre de rédaction entre Step2 et wp-v1 n'est pas daté à l'heure
 près [HYPOTHÈSE : wp-v1 réécrit Step2]. Ensuite : ADR-006 « rôle par la topologie, pas par
 config » ; ADR-011 (10/07) « la présence n'est pas déclarée, elle est prouvée par le travail »
-(POP l.29) [VÉRIFIÉ] ; 12/07, l'Observateur est « abandonné » (`vault/20-decisions.md` l.31) ;
+(POP l.4) [VÉRIFIÉ] ; 12/07, l'Observateur est « abandonné » (`vault/20-decisions.md` l.31) ;
 17/10, le fondateur précise que l'abandon ne visait que la « présence passive »
 (`vault/20-decisions.md` l.32) [VÉRIFIÉ]. 24/07 : les 4 règles de la CARTE — l'aléa est l'état
 vivant du réseau, « vérifiable, partagé » ; la capacité est un ticket d'entrée, pas un classement
@@ -241,9 +245,10 @@ Step2 (le rôle est connu des pairs, qui vérifient) et ses « signatures crois�
 place au même instant. **Lecture logique [HYPOTHÈSE] :** imprévisible *avant* le tirage (personne
 ne peut se placer), annoncé et co-signé *après* (tout le monde peut vérifier). C'est exactement
 la forme « engagement avant révélation » (L1-002 H1, l.156-159) et « co-signature quorum q-of-n »
-(L1-002 H4, l.166-169) [VÉRIFIÉ]. Erreur de datation dans MISSION l.41 : « imprévisible » y est dit
-venir « du texte du 2026-06-26 » ; il est en réalité dans wp-v1 et le brief dès le 2026-01-30
-(`2cbf495`, brief l.65) [VÉRIFIÉ].
+(L1-002 H4, l.166-169) [VÉRIFIÉ]. Datation ambiguë dans MISSION l.41 : « imprévisible » y est dit
+venir « du texte du 2026-06-26 » (date du premier jet de MISSION, l.4) ; le mot est en réalité dans
+wp-v1 et le brief dès le 2026-01-30 (`2cbf495`, brief l.65) [VÉRIFIÉ]. Un lecteur peut croire à un
+ajout de juin.
 
 **Écart code.** ⛔ Deux rôles seulement : `enum PeerRole { Peer, Relay }`
 (`crates/tom-protocol/src/relay.rs:43-48`) [VÉRIFIÉ]. La promotion est un seuil fixe du score
@@ -257,7 +262,7 @@ plus bas, donc prévisible (ADN l.68) [VÉRIFIÉ].
    = empreinte du rôle + signatures) ; un pair n'applique `new_role` que si q signatures valides de
    voisins distincts sont présentes. C'est la variante « validation avant diffusion » du 18/10 ; elle
    réutilise le quorum déjà codé pour la présence (`presence/quorum.rs`).
-2. **proposition** — Corriger MISSION l.41 (date de « imprévisible ») et trancher la question 4 du
+2. **proposition** — Préciser MISSION l.41 (origine de « imprévisible » : 2026-01-30) et trancher la question 4 du
    §8 par la lecture « imprévisible jusqu'au tirage, co-signé ensuite » (voir question F1).
 3. **proposition** — Faire de la co-signature du rôle la même mécanique que celle de la graine
    (H4), pour un seul moteur au lieu de deux (CARTE l.101-106).
@@ -470,10 +475,15 @@ Freebox (README l.360) [VÉRIFIÉ] — utile, mais pas universel.
 
 **Verdict : ✅ tient**, avec une nuance de mots. « Relais externe » (v0.1) et « relais
 obligatoire » (ADR-001) ne se contredisent pas : le relais obligatoire est un *nœud du réseau*,
-pas un service externe. Le risque réel est ailleurs : le relais public de la flotte est encore
-**un seul** nœud (`vault/40-roadmap.md` l.123) [VÉRIFIÉ].
+pas un service externe. Le risque réel est ailleurs : le relais *publié* de la flotte serait encore
+**un seul** nœud — la source le dit, avec la réserve « statut réel non encore confirmé » pour les
+autres appareils, où le relais embarqué tourne aussi (`vault/40-roadmap.md` l.123 ; ADN l.66)
+[VÉRIFIÉ].
 
-**Écart code.** Relais = rôle `Relay` par seuil de score, pas par besoin (voir §3). L'en-tête
+**Écart code.** Relais = rôle `Relay` par seuil de score, pas par besoin (voir §3). ⛔ Sans relais
+configuré et avec `n0_discovery` actif (le défaut de l'app), le nœud retombe sur les relais par
+défaut de n0 — des relais tiers, externes, contraires à v0.1 l.65-66
+(`crates/tom-connect/src/defaults.rs:22-35` ; ADN l.31, qui les juge « cas résiduel ») [VÉRIFIÉ]. L'en-tête
 `.tom.invalid` du TLS est identifiable par une inspection de paquets ; arbitrage ouvert (charte
 l.262-265) [VÉRIFIÉ].
 
@@ -550,10 +560,13 @@ messages, taille 3 à 10, dissolution après 5 minutes (`discovery/subnet.rs:15-
 contacts et parle très rarement en dehors. Un subnet = ce cercle réel » ; un petit subnet s'appuie
 sur un plus robuste — vases communicants [VÉRIFIÉ].
 
-**Pourquoi ça a bougé.** *Décision du fondateur* (17/10). C'est un **retour aux sources** :
-« famille, équipe, événement » (v0.1 l.81-82) est déjà un cercle réel.
+**Pourquoi ça a bougé.** *Décision du fondateur* (17/10). C'est un **retour aux sources partiel** :
+« famille, équipe, événement » (v0.1 l.81-82) est déjà un cercle réel, mais v0.1 le fait naître de la
+**récurrence des échanges** et mourir sur inactivité — c'est-à-dire du trafic, ce que fait le code ;
+MISSION l.78 le rattache au répertoire de contacts.
 
-**Verdict : ✅ la vision tient ; ⛔ le code la contredit.** Les bornes fixes 3-10 et le minuteur de
+**Verdict : ⚠️ tension dans la vision ; ⛔ le code contredit MISSION.** Deux lectures du même cercle :
+née de la récurrence (v0.1) ou du répertoire (MISSION). Côté code, les bornes fixes 3-10 et le minuteur de
 5 minutes sont l'inverse de « pas de règle fixe » ; et les subnets ne servent à rien : ils
 produisent un événement d'observabilité, rien d'autre (`runtime/state.rs:3253-3263`) ; ni le
 routage, ni le backup, ni les rôles ne les consomment (ADN l.73) [VÉRIFIÉ].
@@ -563,7 +576,8 @@ routage, ni le backup, ni les rôles ne les consomment (ADN l.73) [VÉRIFIÉ].
 
 **Pour passer un step.**
 1. **proposition** — Prendre le cercle de contacts déclaré par l'application (le répertoire de
-   l'utilisateur, déjà local) comme graine du subnet, au lieu de l'inférer du trafic.
+   l'utilisateur, déjà local) comme graine du subnet, et la récurrence des échanges (v0.1) comme
+   signal de vie et d'extinction : les deux lectures ensemble, sans bornes fixes.
 2. **proposition** — Premier vase communicant concret : les membres d'un petit cercle choisissent
    leurs gardiens de backup et leurs relais dans un cercle voisin plus robuste.
 
@@ -614,17 +628,23 @@ nom » (VISION-CONSOLIDEE l.37) ; ToM « comme une socket » (FEUILLE-DE-ROUTE l
 
 **Pourquoi ça a bougé.** Ne bouge pas.
 
-**Verdict : ✅ tient.** La seule fuite d'état protocolaire vers l'application, ce sont des
-événements d'observabilité (subnets, backup, rôles) émis comme `ProtocolEvent`
-(`runtime/state.rs:3253-3263`, `:3850-3867`) [VÉRIFIÉ] ; CLAUDE.md (limite #8) les dit non
-transmis à l'utilisateur par le FFI (CLAUDE.md, limite #8) [VÉRIFIÉ sur le texte, non retesté]. L'app de test, elle, affiche tout — c'est un
-outil, pas un produit.
+**Verdict : ⚠️ tension.** La vision tient et n'a jamais bougé. Mais le code expose de l'état
+protocolaire interne au-delà de la couche : les événements de rôle, de backup et d'anti-spam
+traversent le FFI et atteignent l'interface. CLAUDE.md (limite #8, l.468) affirme le contraire ;
+le code le dément (ci-dessous). Écart corrigé à la relecture R015.
 
-**Écart code.** Néant sur le fond.
+**Écart code.** ⛔ `RolePromoted`, `RoleDemoted`, `BackupStored`, `SenderThrottled` sont convertis en
+événements FFI (`crates/tom-protocol-ffi/src/types.rs:489-560`), empilés dans la file d'événements
+(`lib.rs:686-690`) et rendus en JSON par `tom_node_receive_events` (`lib.rs:1305`) ; le SDK Swift
+les décode (`sdk/swift/TomProtocolKit/Sources/TomProtocolKit/TomModels.swift:428`) et l'app affiche
+`SenderThrottled` dans son fil d'activité « pour un humain »
+(`apps/tom-node-tvos/TomNode/Services/TomNodeService.swift:300-306`) [VÉRIFIÉ]. L'app est un outil de
+test, mais le SDK, lui, est la forme de livraison : tout intégrateur reçoit ces événements.
 
 **Pour passer un step.**
-1. **proposition** — Un test de contrat : aucun `ProtocolEvent` interne ne traverse la frontière
-   FFI d'un build de production.
+1. **proposition** — Filtrer à la frontière du SDK : les événements internes restent dans un canal
+   de diagnostic explicite, absent des builds de production ; puis un test de contrat qui le vérifie.
+2. **proposition** — Corriger la limite #8 de CLAUDE.md (hors périmètre de ce mandat : issue #78).
 
 ---
 
@@ -684,7 +704,7 @@ Août : l'entropie ; la masse seule ne protège pas du re-tirage (L1-002 l.84) [
 **Pourquoi ça a bougé.** *Technique* : la messagerie n'a pas besoin de consensus (ACK +
 TTL suffisent) ; *sécurité* : le consensus de la valeur bute sur l'entropie.
 
-**Verdict : ✅ tient**, une fois les couches séparées : L0 (messagerie) n'a pas de consensus et
+**Verdict : ⚠️ tension — la logique tient, la preuve manque.** Une fois les couches séparées : L0 (messagerie) n'a pas de consensus et
 n'en veut pas ; L1 ne fait qu'ancrer des faits co-signés ; le refus de la double dépense est
 local (règle d'or). L'article de février (« pas de consensus ») parle de L0, Step2 de L1 : pas de
 contradiction, un vocabulaire à préciser. Le vrai trou est ailleurs : l'entropie non biaisable
@@ -719,24 +739,27 @@ du mandat).
 vers une seule mécanique : **le travail constaté par un voisinage fixe d'environ sept nœuds.** Ce
 voisinage prouve la présence (ADR-011), co-signe le rôle (18/10), nourrit la note qui s'efface
 (verrou #4), sur-assigne l'abuseur (arroseur arrosé), porte le carnet de rendez-vous (CARTE) et,
-un jour, refuse la double dépense (règle d'or de Step2). La CARTE l'avait pressenti (« un seul
-moteur », CARTE l.101-106). Le 18/10 en donne la clef : la vérification se fait *avant*
+un jour, refuse la double dépense (règle d'or de Step2). La CARTE l'avait pressenti pour le
+rendez-vous, les gardiens et l'accueil (« un seul moteur », CARTE l.101-106) ; l'étendre à la
+présence, à la note et à la double dépense est **ma lecture** [HYPOTHÈSE]. Le 18/10 en donne la clef : la vérification se fait *avant*
 l'émission, par les voisins, pas *après*, par la sanction.
 
 **La vision est plus cohérente que ses documents.** Les vraies contradictions sont entre textes,
 pas entre idées : « imprévisible » vs « annoncé » (résoluble, §3) ; « exclu temporairement » vs
 « jamais d'exclusion » (§5) ; exception L2 actée puis absente de MISSION (§9) ; monnaie à terme
-jamais révoquée (§13) ; date fausse dans MISSION l.41 (§3).
+jamais révoquée (§13) ; datation ambiguë dans MISSION l.41 (§3).
 
 **Le code est en retard sur deux points de nature, pas de degré.**
 1. **Les rôles se déclarent encore** (`state.rs:943`) : c'est l'inverse du 18/10.
 2. **Le virus ne se propage pas** (`replicate_to` sans appelant) : la résilience par réplication
    annoncée par MISSION §1.3 n'existe qu'en tests.
-Les autres écarts (témoins 2-4, subnets à bornes fixes, n0 par défaut) sont des écarts de degré.
+Les autres écarts (témoins 2-4, subnets à bornes fixes, n0 et ses relais par défaut, événements
+internes exposés par le SDK) sont des écarts de degré.
 
 **La tension centrale est la masse.** « Plus il y a de monde plus le réseau est fort » est vrai
 pour la capacité, la résilience, l'anti-censure, et contre un attaquant de taille fixe ; faux
-contre un attaquant proportionnel (L1-002 l.89-98 ; charte l.90-91) [VÉRIFIÉ]. La vision tient
+contre un attaquant proportionnel (L1-002 l.89-98) [VÉRIFIÉ] ; la charte, elle, le dit « vrai SOUS »
+quatre conditions et « faux sinon » (charte l.90-91) [VÉRIFIÉ]. La vision tient
 si l'on dit : **la masse amplifie, les règles locales protègent.** Le 18/10 contient déjà cette
 réponse (co-signature + note), sans la nommer.
 
@@ -759,8 +782,8 @@ déjà posées dans MISSION §8 ne sont rappelées que si ce document apporte un
 - C. Imprévisible jusqu'au tirage, puis annoncé et co-signé par les ~7 voisins avant de prendre
   effet (lecture du 18/10).
 - **Recommandation : C.** Elle garde l'anti-positionnement de A et la vérifiabilité de B ; elle
-  correspond aux hypothèses H1/H4 de L1-002. Corollaire : corriger MISSION l.41 (« imprévisible »
-  date du 2026-01-30, pas du 2026-06-26).
+  correspond aux hypothèses H1/H4 de L1-002. Corollaire : préciser MISSION l.41 (« imprévisible »
+  figure dès le 2026-01-30, pas seulement dans le texte du 2026-06-26).
 
 **F2. Les 7 voisins : cible fixe ou plafond ?** (MISSION §8 q.5)
 - A. Plafond (« jusqu'à 7 », MISSION l.72) : de 2 à 7 selon la densité.
@@ -859,6 +882,10 @@ fichier:ligne avant d'entrer ici. Aucune citation du texte ne repose sur un extr
 - Git (17 commits) — `2cbf495`, `9048088`, `b800dbe`, `c34a3fd`, `094ec96`, `e5a9d2f`, `7291ac5`,
   `d54e5d3`, `2937330`, `666a234`, `95a804b`, `a623a38`, `987e169`, `02e0e0b`, `3bf7229`,
   `e6037e2`, `9558547`.
+
+**Ajoutées lors de la correction R015 (9)** — `crates/tom-protocol-ffi/src/types.rs:489-560`, `lib.rs:686-690`,
+`lib.rs:1305` ; `TomModels.swift:428` ; `TomNodeService.swift:300-306` ; `tom-connect/src/defaults.rs:22-35` ;
+ADN l.31 ; MISSION l.4 ; POP l.4. Total des vérifications : **189**.
 
 Les comptes regroupent les plages d'un même fichier citées ensemble ; ils comptent des
 vérifications, pas des lignes.
