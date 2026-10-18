@@ -16,6 +16,19 @@ PUSH_REFS="$(cat)"
 #   - base introuvable, diff en erreur, liste vide ou un seul chemin hors
 #     vault/ → tout rejouer ; aucune ref (stdin vide) → tout rejouer ;
 #   - --no-renames : un renommage src/x → vault/x compte comme du code.
+# Vrai si chaque ligne de $1 commence par vault/ (découpage sur saut de ligne,
+# glob coupé pendant la boucle).
+only_vault_paths() {
+	_ifs="$IFS"; IFS='
+'; set -f
+	_ok=0
+	for _f in $1; do
+		case "$_f" in vault/*) ;; *) _ok=1; break ;; esac
+	done
+	IFS="$_ifs"; set +f
+	return "$_ok"
+}
+
 only_vault_changed() {
 	_seen=0
 	while read -r _lref _lsha _rref _rsha; do
@@ -29,14 +42,11 @@ only_vault_changed() {
 		git cat-file -e "$_base^{commit}" 2>/dev/null || return 1
 		_files="$(git -c core.quotePath=false diff --no-renames --name-only "$_base" "$_lsha" --)" || return 1
 		[ -n "$_files" ] || return 1
-		# Pas de pipe : sous pipefail (bash = /bin/sh macOS), « printf | grep -q »
-		# peut renvoyer 141 (SIGPIPE) sur une grosse liste et masquer du code.
-		# Fail-closed : seul le code 1 de grep (aucun chemin hors vault/) passe ;
-		# 0 (code trouvé) ou ≥ 2 (erreur) → tout rejouer.
-		grep -qv '^vault/' <<FILES
-$_files
-FILES
-		[ $? -eq 1 ] || return 1
+		# Test en mémoire, sans pipe ni heredoc : sous pipefail (/bin/sh macOS =
+		# bash), « printf | grep -q » renvoie 141 (SIGPIPE) sur une grosse liste,
+		# et un heredoc dont le fichier temporaire échoue laisse grep muet ;
+		# dans les deux cas du code passait pour « vault seul ».
+		only_vault_paths "$_files" || return 1
 	done <<EOF
 $PUSH_REFS
 EOF

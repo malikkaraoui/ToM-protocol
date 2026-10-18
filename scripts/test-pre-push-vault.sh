@@ -7,7 +7,8 @@
 # pre-push). Le vrai ci-local.sh n'est jamais modifié ni exécuté.
 set -euo pipefail
 
-HOOK="${HOOK_PRE_PUSH:-$(git rev-parse --show-toplevel)/.husky/pre-push}"
+# Hook résolu relativement à ce script (pas au répertoire courant).
+HOOK="${HOOK_PRE_PUSH:-$(cd "$(dirname "$0")/.." && pwd)/.husky/pre-push}"
 [ -f "$HOOK" ] || { echo "hook introuvable : $HOOK" >&2; exit 1; }
 
 TMP="$(mktemp -d)"
@@ -63,7 +64,9 @@ FAIL=0
 run() {
 	local name="$1" want="$2" refs="$3" out mark="$TMP/mark"
 	rm -f "$mark"
-	if ! out="$(cd "$TMP/work" && printf '%s' "$refs" | CI_MARK="$mark" sh -e "$HOOK" 2>&1)"; then
+	# HOOK_WRAP : commandes shell exécutées avant le hook (ex. limites d'E/S).
+	if ! out="$(cd "$TMP/work" && printf '%s' "$refs" | CI_MARK="$mark" \
+		sh -c "${HOOK_WRAP:-:}; exec sh -e \"\$0\"" "$HOOK" 2>&1)"; then
 		echo "KO  $name : le hook a échoué"; echo "$out" | sed 's/^/    /'; FAIL=1; return
 	fi
 	local got
@@ -87,6 +90,10 @@ run "renommage code → vault/"   complète "refs/heads/r $R refs/heads/r $BASE"
 run "fichier « vault » sans /"  complète "refs/heads/n $N refs/heads/n $BASE"$'\n'
 run "liste > 64 Ko avec code"   complète "refs/heads/big $B refs/heads/big $BASE"$'\n'
 run "liste > 64 Ko vault seul"  sautée   "refs/heads/bigv $BV refs/heads/bigv $BASE"$'\n'
+# Écriture de fichiers temporaires impossible (ulimit -f) : un heredoc qui
+# échoue ne doit jamais faire passer du code pour « vault seul ».
+HOOK_WRAP="trap '' XFSZ; ulimit -f 1" \
+run "liste > 64 Ko avec code, E/S bridées" complète "refs/heads/big $B refs/heads/big $BASE"$'\n'
 run "aucun changement"          complète "refs/heads/v $BASE refs/heads/v $BASE"$'\n'
 run "stdin vide"                complète ""
 g update-ref -d refs/remotes/origin/main
