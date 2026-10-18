@@ -108,8 +108,10 @@ tout le contexte nécessaire est dans le fichier.
 - **Interdits permanents**, dans tout mandat : jamais de `sleep` (une attente n'est pas un
   travail) ; jamais de tâche de fond vivante à la sortie de la session ; `rm -rf` seulement sous
   forme gardée `"${VAR:?}/${SOUS:?}"`.
-- **Pièges du projet** : recopier verbatim `pieges_worktree[]` de la config (préparation d'un
-  worktree neuf, outils à relancer, contraintes de capture). Liste vide = rien à coller.
+- **Pièges du projet** : recopier verbatim `pieges_worktree[]` de la config (outils à relancer,
+  contraintes de capture). Liste vide = rien à coller. Worktree neuf : préparation par
+  `scripts/preparer-worktree.sh` (livré par M0302), hors du dépôt, dans `chemins.worktrees_hors_depot`
+  (absent = `~/.harnais/worktrees/<projet.nom>/`).
 - **`CLAUDE.md` imbriqués et rules à `paths:`** : ils font foi (§12). Un mandat qui change un
   comportement décrit dans l'un d'eux le met à jour **dans le même commit, en REMPLAÇANT le texte
   périmé, jamais en ajoutant** (consigne : gabarit §13).
@@ -238,15 +240,24 @@ ne liste plus aucun de ces fichiers. Un vault non committé est du travail perdu
 Le push de ces commits suit `git.pousser_vault` (§12) : `true`, ou clé absente → push +
 `git ls-remote` collé ; `false` → aucun push exigé pour un commit qui ne touche que `<vault>`, et le
 rapport l'écrit (« vault committé, non poussé : `git.pousser_vault: false` »). La clé ne règle que
-cela : une branche de code reste poussée. **Avant tout merge vers `<principale>`, la principale
-locale et `origin/<principale>` sont identiques** : avec `false`, les commits du vault en attente
-sont poussés d'abord — sinon le scratch, parti de `origin/<principale>`, diverge de la racine et le
+cela : une branche de code reste poussée. En mode `pr` (ci-dessous), ce commit va dans la branche du
+mandat et part avec la PR, jamais sur `<principale>`. En mode `direct`, **avant tout merge vers
+`<principale>`, la principale locale et `origin/<principale>` sont identiques** : avec `false`, les
+commits du vault en attente sont poussés d'abord — sinon le scratch diverge de la racine et le
 `ff-only` est refusé.
 
-Merge vers `<principale>` : scratch détaché + `merge --no-ff`, tests **sur ce résultat**, PUIS
-`merge --ff-only` depuis la racine + push + `ls-remote` collé (bloc exact : gabarit §9). Refus
-`ff-only` = rapport, **jamais de force** ; si `origin/<principale>` a bougé entre le scratch et le
-`ff-only`, refaire le scratch UNE fois. Le hook `pre-push` du harnais refuse tout push sur
+Merge vers `<principale>`, selon `git.mode_fusion` (config ; absent = `direct`) :
+
+- **`direct`** (inchangé) : scratch détaché + `merge --no-ff`, tests **sur ce résultat**, PUIS
+  `merge --ff-only` depuis la racine + push + `ls-remote` collé (bloc exact : gabarit §9). Refus
+  `ff-only` = rapport, **jamais de force** ; si `origin/<principale>` a bougé entre le scratch et le
+  `ff-only`, refaire le scratch UNE fois.
+- **`pr`** : **aucun push sur `<principale>`**. Branche du mandat poussée → `gh pr create` → rapport
+  de doublage `verdict: GO` committé SUR la branche → `gh pr merge --auto --<git.fusion_pr.methode>
+  --delete-branch --match-head-commit <HEAD>` (`<HEAD>` = commit du rapport, qui cite le tip doublé ;
+  `auto_merge: false` → PR ouverte sans `--auto`, fusion par Malik) → GitHub fusionne quand
+  `harnais-ok` est vert (bloc exact : gabarit §9). Refus ou `harnais-ok` rouge = rapport, jamais de
+  contournement. Le hook `pre-push` du harnais refuse tout push sur
 `<principale>` qui introduit un merge sans rapport de doublage `verdict: GO` citant le tip mergé,
 ou dont le `niveau:` ne couvre pas les chemins touchés (§9).
 
@@ -284,8 +295,9 @@ tour. Le doubleur classe chaque point ; `verdict: RESERVE` exige au moins une r�
 
 Doublage N2/N3 **indépendant** : session séparée ou sous-agent frais, worktree détaché **lecture
 seule**, auteur ≠ doubleur. Numérotation `R0xx` continue (`state.json.next_revue_id` relu à l'instant T),
-rapport dans `vault/revues/AAAA-MM-JJ-R0xx-<slug>.md`. Ce rapport est committé dans le scratch de merge, après le
-`merge --no-ff` et avant le `ff-only`, pour partir dans le même push que le merge (gabarit §9).
+rapport dans `vault/revues/AAAA-MM-JJ-R0xx-<slug>.md`. En mode `direct`, ce rapport est committé dans le scratch de merge, après le
+`merge --no-ff` et avant le `ff-only`, pour partir dans le même push que le merge ; en mode `pr`, il
+est committé sur la branche du mandat après `gh pr create`, avant `gh pr merge` (gabarit §9).
 
 Garde d'entrée : « les fichiers de la branche sont **intacts** côté `<principale>` depuis le
 merge-base » (`git log $(git merge-base origin/<principale> <tip>)..origin/<principale> -- <chemins>`
