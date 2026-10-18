@@ -7,6 +7,8 @@
 # La CI n'a aucun filtre de chemins (`paths:`). Elle saute ses jobs de test
 # uniquement quand seul vault/ change (job `changes`) ; ce script, lui, les
 # lance toujours tous. Il n'existe volontairement aucun moyen d'en sauter un.
+# C'est le hook .husky/pre-push qui ne l'appelle pas quand le push ne touche
+# que vault/ (même règle que `changes`, #71 ; témoins : test-pre-push-vault.sh).
 # Les deux méta-jobs de la CI ne sont pas rejoués : `changes` (détection) et
 # `harnais-ok` (agrégat des résultats, seul check requis sur main). Si ci.yml
 # change (job ajouté, retiré, filtre de chemins), le contrôle de dérive

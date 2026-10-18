@@ -1,17 +1,27 @@
 #!/usr/bin/env bash
 # scripts/pre-push-gate.sh — Pre-push gate for claude-atelier projects
 #
-# 5 checks: secrets → tracked sensitive files → lint → build → tests
+# CANONIQUE : ce fichier vit dans claude-atelier et est distribué à l'identique
+# dans tous les projets. Toute amélioration se fait ICI puis se redistribue —
+# jamais dans une copie locale (leçon : 4 variantes divergentes découvertes le
+# 2026-08-06, chacune avec une amélioration que les autres n'avaient pas).
+#
+# 6 checks : [0] sync remote + email auteur → [1] secrets (diff + full-tree)
+#          → [2] fichiers sensibles trackés → [3] lint → [4] build → [5] tests
+#          → [6] review (pluggable)
 # Exit codes: 0 = pass, 1 = blocked
 #
 # Usage:
-#   bash scripts/pre-push-gate.sh          # run all 5 checks
-#   bash scripts/pre-push-gate.sh --quick  # secrets + tracked files only (2 checks)
+#   bash scripts/pre-push-gate.sh          # tous les checks
+#   bash scripts/pre-push-gate.sh --quick  # checks 0-2 uniquement
 #
-# Stack auto-detection: the script detects the stack from the project
-# files and adjusts lint/build/test commands accordingly.
+# Spécifique projet : si scripts/pre-push-gate-step6.sh existe, il est sourcé
+# comme étape 6 (ex. workflow handoff Copilot de Boites-a-livres). Le reste du
+# fichier doit rester identique au canonique.
 
 set -euo pipefail
+
+GATE_VERSION="2.0.0"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -21,21 +31,57 @@ NC='\033[0m'
 pass()  { echo -e "${GREEN}[PASS]${NC} $1"; }
 fail()  { echo -e "${RED}[FAIL]${NC} $1"; exit 1; }
 warn()  { echo -e "${YELLOW}[WARN]${NC} $1"; }
-step()  { echo -e "\n${YELLOW}[$1/5]${NC} $2"; }
+step()  { echo -e "\n${YELLOW}[$1/6]${NC} $2"; }
+
+echo -e "pre-push-gate v${GATE_VERSION}"
 
 QUICK=false
 [[ "${1:-}" == "--quick" ]] && QUICK=true
 
-# ─── 0/5 Email d'auteur (anti-typo hmail) ────────────────────────────────────
-#
-# Un typo `hmail` (au lieu de `gmail`) a rendu 148 commits NON ATTRIBUÉS sur
-# GitHub (email inconnu du compte → invisibles dans l'activité). Ce gate bloque
-# tout commit à pousser dont l'auteur OU le committer n'est pas l'email gmail
-# lié au compte. Les comptes de service (github noreply, bots) sont tolérés.
+# ─── 0/6-a Remote sync check ──────────────────────────────────────────────────
+# Si le remote a des commits que le local n'a pas, les intégrer maintenant
+# plutôt que de se faire rejeter après 6 checks.
+if git rev-parse --abbrev-ref --symbolic-full-name '@{u}' >/dev/null 2>&1; then
+    git fetch --quiet 2>/dev/null || true
+    LOCAL=$(git rev-parse HEAD 2>/dev/null)
+    REMOTE=$(git rev-parse '@{u}' 2>/dev/null || echo "$LOCAL")
+    BASE=$(git merge-base "$LOCAL" "$REMOTE" 2>/dev/null || echo "$LOCAL")
+    if [[ "$LOCAL" == "$REMOTE" ]]; then
+        : # Déjà synchronisé, rien à faire
+    elif [[ "$BASE" == "$LOCAL" ]]; then
+        # Remote ahead, local behind → rebase simple
+        echo -e "${YELLOW}[SYNC]${NC} Remote a des commits non intégrés — rebase automatique..."
+        if ! git pull --rebase --quiet; then
+            git rebase --abort 2>/dev/null || true
+            echo -e "${RED}[FAIL]${NC} Rebase échoué et annulé. Résous manuellement puis relance."
+            exit 1
+        fi
+        echo -e "${GREEN}[SYNC]${NC} Rebase OK — local à jour avec remote."
+    elif [[ "$BASE" == "$REMOTE" ]]; then
+        : # Local ahead (fast-forward possible), rien à faire
+    else
+        # Divergence réelle : local ET remote ont chacun des commits
+        if [[ "${FORCE_PUSH:-}" == "1" ]]; then
+            echo -e "${YELLOW}[SYNC]${NC} FORCE_PUSH=1 — divergence acceptée (rebase intentionnel)."
+        else
+            echo -e "${RED}[FAIL]${NC} Branches divergentes (local et remote ont chacun des commits)."
+            echo -e "         Fais 'git pull --rebase' manuellement, ou FORCE_PUSH=1 si rebase intentionnel."
+            exit 1
+        fi
+    fi
+fi
 
-echo -e "\n${YELLOW}[0/5]${NC} Email d'auteur des commits à pousser..."
+# ─── 0/6-b Email d'auteur (anti-typo hmail) ──────────────────────────────────
+# Un typo `hmail` (au lieu de `gmail`) a rendu 172 commits NON ATTRIBUÉS sur
+# GitHub, sur DEUX projets à 24 h d'écart (1RR : 39, partie politique : 133) —
+# deux réécritures d'historique pour le corriger. Ce check bloque tout commit à
+# pousser dont l'auteur OU le committer n'est pas l'email attendu. Les comptes
+# de service (github noreply, bots) sont tolérés.
+# Override : GATE_ALLOWED_EMAIL env, ou `git config gate.allowedemail`.
 
-ALLOWED_EMAIL="karaoui.malik@gmail.com"
+step 0 "Sync remote + email d'auteur..."
+
+ALLOWED_EMAIL="${GATE_ALLOWED_EMAIL:-$(git config gate.allowedemail 2>/dev/null || echo "karaoui.malik@gmail.com")}"
 EMAIL_RANGE="origin/main..HEAD"
 git rev-parse --verify -q origin/main >/dev/null 2>&1 || EMAIL_RANGE="HEAD"
 BAD_EMAILS=$(git log "$EMAIL_RANGE" --format='%ae%n%ce' 2>/dev/null | sort -u \
@@ -45,11 +91,16 @@ if [[ -n "$BAD_EMAILS" ]]; then
     echo "$BAD_EMAILS" | sed 's/^/    /'
     fail "Email d'auteur/committer ≠ ${ALLOWED_EMAIL}. Corriger AVANT push (git commit --amend --reset-author, ou filter-branch pour plusieurs commits)."
 fi
-pass "Emails d'auteur OK (${ALLOWED_EMAIL})"
+pass "Sync remote OK · emails d'auteur OK (${ALLOWED_EMAIL})"
 
-# ─── 1/5 Secrets in staged diff ──────────────────────────────────────────────
+# ─── Auto-sync SECURITY.md ────────────────────────────────────────────────────
+if [[ -f "scripts/update-security.js" ]] && [[ -f "package.json" ]]; then
+    node scripts/update-security.js 2>/dev/null || true
+fi
 
-step 1 "Audit secrets dans le diff..."
+# ─── 1/6 Secrets ──────────────────────────────────────────────────────────────
+
+step 1 "Audit secrets (diff + full-tree)..."
 
 SECRET_PATTERNS='(api_key|api[-_]?secret|secret[-_]?key|access[-_]?token|auth[-_]?token|password|private_key|BEGIN RSA|BEGIN OPENSSH|BEGIN EC|sk-[a-zA-Z0-9]{20,}|AIza[a-zA-Z0-9_-]{35}|AKIA[A-Z0-9]{16}|ghp_[a-zA-Z0-9]{36}|gho_[a-zA-Z0-9]{36}|ya29\.[a-zA-Z0-9_-]+)'
 
@@ -65,9 +116,23 @@ if git diff HEAD 2>/dev/null | grep -iEq "$SECRET_PATTERNS"; then
     warn "Pattern suspect detecte dans les changements non staged. Verifier avant push."
 fi
 
+# Filet full-tree : un secret DEJA commite (hors diff) doit aussi bloquer le push.
+# Le scan de diff ci-dessus rate les clés introduites lors d'un commit anterieur
+# et jamais re-touchees (cas de la clé web Firebase du 10/07). On rescanne donc
+# TOUT l'arbre tracké, mais uniquement sur des formats de clés à haute confiance,
+# pour éviter les faux positifs des mots génériques (api_key, password...).
+HARDSECRET='(sk-[a-zA-Z0-9]{20,}|AIza[a-zA-Z0-9_-]{35}|AKIA[A-Z0-9]{16}|ghp_[a-zA-Z0-9]{36}|gho_[a-zA-Z0-9]{36}|ya29\.[a-zA-Z0-9_-]+|-----BEGIN (RSA|OPENSSH|EC) PRIVATE KEY-----)'
+if git grep -InE "$HARDSECRET" -- ':!scripts/pre-push-gate.sh' 2>/dev/null | grep -q .; then
+    echo ""
+    git grep -InE "$HARDSECRET" -- ':!scripts/pre-push-gate.sh' 2>/dev/null \
+        | sed -E 's/(AIza|AKIA|sk-|ghp_|gho_)[A-Za-z0-9_-]+/\1…[masque]/g' | head -20
+    echo ""
+    fail "SECRET present dans un fichier tracke (hors diff). Rotation + purge necessaires."
+fi
+
 pass "Aucun secret detecte"
 
-# ─── 2/5 Tracked sensitive files ─────────────────────────────────────────────
+# ─── 2/6 Tracked sensitive files ─────────────────────────────────────────────
 
 step 2 "Fichiers sensibles trackes..."
 
@@ -82,17 +147,16 @@ pass "Aucun fichier sensible tracke"
 
 # Quick mode stops here
 if $QUICK; then
-    echo -e "\n${GREEN}GATE RAPIDE PASSEE${NC} (2/5 checks, --quick mode)"
+    echo -e "\n${GREEN}GATE RAPIDE PASSEE${NC} (checks 0-2, --quick mode)"
     exit 0
 fi
 
 # ─── Stack detection ─────────────────────────────────────────────────────────
 #
-# A repo can carry more than one stack at once (e.g. this one: Rust workspace
-# + legacy TS package.json at root) — detect ALL of them and gate on each,
-# instead of stopping at the first match. A single `unknown` used to mean
-# Rust changes silently skipped lint/build/test whenever package.json was
-# also present.
+# Un repo peut porter plusieurs stacks à la fois (ex. workspace Rust + package.json
+# legacy à la racine) — détecter TOUTES et gater sur chacune, au lieu de s'arrêter
+# à la première. Un simple `unknown` faisait sauter lint/build/test Rust en silence
+# dès qu'un package.json était aussi présent.
 
 detect_stacks() {
     local stacks=()
@@ -110,7 +174,7 @@ detect_stacks() {
 
 read -ra STACKS <<< "$(detect_stacks)"
 
-# ─── 3/5 Lint ─────────────────────────────────────────────────────────────────
+# ─── 3/6 Lint ─────────────────────────────────────────────────────────────────
 
 step 3 "Lint (${STACKS[*]})..."
 
@@ -167,7 +231,7 @@ case "$STACK" in
 esac
 done
 
-# ─── 4/5 Build ────────────────────────────────────────────────────────────────
+# ─── 4/6 Build ────────────────────────────────────────────────────────────────
 
 step 4 "Build (${STACKS[*]})..."
 
@@ -210,19 +274,18 @@ case "$STACK" in
 esac
 done
 
-# ─── 5/5 Tests ─────────────────────────────────────────────────────────────────
+# ─── 5/6 Tests ────────────────────────────────────────────────────────────────
 
 step 5 "Tests (${STACKS[*]})..."
 
 for STACK in "${STACKS[@]}"; do
 case "$STACK" in
     rust)
-        # HERMÉTICITÉ (#5) : la gate LOCALE ne lance QUE les tests unitaires
-        # (--lib, hermétiques). Les tests d'INTÉGRATION (tests/) créent de vrais
-        # nœuds qui bindent le LAN + publient au rendezvous DHT partagé →
-        # ils rejoignaient la flotte de PROD (« anonymous » en DIRECT sur les
-        # appareils de l'utilisateur). La CI GitHub (runner isolé, hors LAN)
-        # exécute la couverture d'intégration complète — voir .github/workflows.
+        # HERMÉTICITÉ : la gate LOCALE ne lance QUE les tests unitaires
+        # (--lib, hermétiques). Les tests d'INTÉGRATION (tests/) peuvent créer
+        # de vrais nœuds/serveurs qui touchent le LAN ou des services partagés
+        # (incident tom-protocol : des nœuds de test rejoignaient la flotte de
+        # PROD). La CI (runner isolé) exécute la couverture d'intégration.
         if cargo test --workspace --lib 2>&1 | tail -30; then
             pass "Tests OK (cargo test --lib ; intégration → CI isolée)"
         else
@@ -266,6 +329,23 @@ case "$STACK" in
         ;;
 esac
 done
+
+# ─── 6/6 Review (pluggable) ──────────────────────────────────────────────────
+
+step 6 "Review..."
+
+STEP6_LOCAL="$(cd "$(dirname "$0")" && pwd)/pre-push-gate-step6.sh"
+if [[ -f "$STEP6_LOCAL" ]]; then
+    # Étape 6 spécifique au projet (ex. dette handoff Copilot)
+    # shellcheck disable=SC1090
+    source "$STEP6_LOCAL"
+elif [[ -f ".claude/hooks/guard-review-auto.sh" ]] || [[ -f "hooks/guard-review-auto.sh" ]]; then
+    # Gate §25 = hook guard-review-auto.sh (PreToolUse sur git push, exit 2 si diff ≥ 50 lignes)
+    # Cette étape est informative uniquement — le hook est le vrai verrou.
+    pass "Review oracle gate active via hook guard-review-auto.sh — §25 OK"
+else
+    warn "Pas de review gate configurée (ni step6 local, ni hook guard-review-auto). Voir §25."
+fi
 
 # ─── Done ──────────────────────────────────────────────────────────────────────
 
