@@ -4,10 +4,13 @@
 # Mêmes commandes, même ordre, mêmes options que la CI. S'arrête au premier
 # échec (code ≠ 0) et affiche la durée de chaque étape.
 #
-# La CI n'a aucun filtre de chemins (`paths:`) : chaque push lance tous les
-# jobs, donc ce script les lance tous aussi. Il n'existe volontairement aucun
-# moyen d'en sauter un. Si ci.yml change (job ajouté, retiré, filtre de
-# chemins), le contrôle de dérive ci-dessous échoue : mettre ce script à jour.
+# La CI n'a aucun filtre de chemins (`paths:`). Elle saute ses jobs de test
+# uniquement quand seul vault/ change (job `changes`) ; ce script, lui, les
+# lance toujours tous. Il n'existe volontairement aucun moyen d'en sauter un.
+# Les deux méta-jobs de la CI ne sont pas rejoués : `changes` (détection) et
+# `harnais-ok` (agrégat des résultats, seul check requis sur main). Si ci.yml
+# change (job ajouté, retiré, filtre de chemins), le contrôle de dérive
+# ci-dessous échoue : mettre ce script à jour.
 #
 # Écarts inévitables avec les runners GitHub (signalés, pas masqués) :
 #   - ubuntu-latest → poste macOS : le job rust-macos est fidèle, les autres
@@ -23,6 +26,8 @@ CI_YML=".github/workflows/ci.yml"
 # Ordre identique à ci.yml.
 JOBS=(typescript observability-smoke rust-protocol rust-transport rust-integration
 	rust-fork rust-dht rust-security rust-ffi rust-macos rust-stress rust-poc)
+# Méta-jobs de ci.yml sans commande de test : jamais rejoués, exclus du contrôle de dérive.
+META_JOBS=(changes harnais-ok)
 
 SUMMARY=()
 CURRENT=""
@@ -95,7 +100,7 @@ check_drift() {
 		die "$CI_YML filtre désormais par chemins : adapter ci-local.sh"
 	fi
 	local ci_jobs mine
-	ci_jobs="$(awk "$AWK_JOBS" "$CI_YML")"
+	ci_jobs="$(awk "$AWK_JOBS" "$CI_YML" | grep -vxF -f <(printf '%s\n' "${META_JOBS[@]}"))"
 	mine="$(printf '%s\n' "${JOBS[@]}")"
 	if [ "$ci_jobs" != "$mine" ]; then
 		echo "[ci-local] jobs ci.yml : $(echo "$ci_jobs" | tr '\n' ' ')" >&2

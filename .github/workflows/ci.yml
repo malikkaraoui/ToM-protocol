@@ -1,14 +1,68 @@
 name: CI
 
+# Flux par pull request (harnais, modèle ~/.harnais/canon/templates/ci/) :
+# le workflow tourne TOUJOURS (aucun filtre paths: au déclencheur) pour que le
+# check requis `harnais-ok` existe sur chaque PR. Les jobs de test sont sautés
+# par `if:` au niveau du job quand seul vault/ change (job `changes`).
+# `harnais-ok` est le SEUL check à rendre obligatoire (ruleset de main).
 on:
+  pull_request:
   push:
     branches: [main]
-  pull_request:
-    branches: [main]
+  merge_group:
+    types: [checks_requested]
+
+permissions:
+  contents: read
 
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      code: ${{ steps.detect.outputs.code }}
+    steps:
+      # fetch-depth: 0 récupère tout l'historique, nécessaire pour comparer à la base.
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Détecter si le code change (hors vault/)
+        id: detect
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+          EVENT_BEFORE: ${{ github.event.before }}
+        run: |
+          set -u
+          # code=false SEULEMENT si la liste des fichiers changés est non vide et ne contient que vault/.
+          # Toute autre situation (base introuvable, erreur git, merge_group, SHA nul) donne code=true :
+          # on lance les tests plutôt que de les sauter à tort.
+          code=true
+          case "$EVENT_NAME" in
+            pull_request)
+              base="origin/$BASE_REF"
+              range="$base...HEAD" ;;
+            push)
+              base="$EVENT_BEFORE"
+              range="$base..HEAD" ;;
+            *)
+              base="" ;;
+          esac
+          # --no-renames : un renommage de code vers vault/ doit compter comme un changement de code.
+          if [ -n "$base" ] \
+            && git cat-file -e "$base^{commit}" 2>/dev/null \
+            && git diff --no-renames --name-only "$range" > "$RUNNER_TEMP/changed.txt" 2>/dev/null \
+            && [ -s "$RUNNER_TEMP/changed.txt" ] \
+            && [ -z "$(grep -v '^vault/' "$RUNNER_TEMP/changed.txt")" ]; then
+            code=false
+          fi
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+          echo "Événement : $EVENT_NAME, code=$code"
+          cat "$RUNNER_TEMP/changed.txt" 2>/dev/null || true
+
   typescript:
     name: TypeScript (build + test + lint)
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -30,6 +84,8 @@ jobs:
 
   observability-smoke:
     name: Observability smoke (relay + discovery)
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -54,6 +110,8 @@ jobs:
 
   rust-protocol:
     name: Rust protocol (build + test + clippy)
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -75,6 +133,8 @@ jobs:
 
   rust-transport:
     name: Rust transport (build + test + clippy)
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -100,6 +160,8 @@ jobs:
 
   rust-integration:
     name: Rust cross-crate integration (multi-node, real network)
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -127,6 +189,8 @@ jobs:
 
   rust-fork:
     name: Rust fork crates (build + test + clippy)
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -162,6 +226,8 @@ jobs:
 
   rust-dht:
     name: Rust DHT discovery (build + test + clippy)
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -184,6 +250,8 @@ jobs:
 
   rust-security:
     name: Rust supply chain (cargo-deny)
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -197,6 +265,8 @@ jobs:
 
   rust-ffi:
     name: Rust FFI (build + clippy)
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -243,6 +313,8 @@ jobs:
   # FFI builde sur macOS — jamais vérifié en CI auparavant (ubuntu only).
   rust-macos:
     name: Rust macOS (FFI build)
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
@@ -265,6 +337,8 @@ jobs:
 
   rust-stress:
     name: Rust stress (build + clippy + localhost test)
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -287,6 +361,8 @@ jobs:
 
   rust-poc:
     name: Rust PoC (build + clippy + localhost test)
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -316,3 +392,47 @@ jobs:
       - name: Localhost NAT test
         run: ./scripts/test-localhost.sh
         timeout-minutes: 3
+
+  # Contrôle final : seul check requis par le ruleset de main. Son nom sert de clé.
+  # Il échoue si `changes` n'est pas vert, si un job a échoué ou été annulé, ou si
+  # un job a été sauté alors que du code a changé. Garde anti-oubli : la liste
+  # `needs` doit couvrir tous les autres jobs de ce fichier (un job absent de
+  # `needs` ne bloquerait rien).
+  harnais-ok:
+    name: harnais-ok
+    needs: [changes, typescript, observability-smoke, rust-protocol, rust-transport, rust-integration, rust-fork, rust-dht, rust-security, rust-ffi, rust-macos, rust-stress, rust-poc]
+    # always() : le job tourne même si un job a échoué ou a été sauté, pour trancher explicitement.
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Agréger les résultats des jobs requis
+        env:
+          NEEDS_JSON: ${{ toJSON(needs) }}
+        run: |
+          set -euo pipefail
+          echo "$NEEDS_JSON" | jq -r 'to_entries[] | "  \(.key) = \(.value.result)"'
+          # 1. needs couvre tous les jobs du workflow (hors harnais-ok).
+          wf_jobs="$(awk '/^jobs:/ { f = 1; next } f && /^[^ \t#]/ { f = 0 } f && /^  [A-Za-z0-9_-]+:[ \t]*$/ { sub(/^  /, ""); sub(/:.*/, ""); print }' .github/workflows/ci.yml | grep -vx 'harnais-ok' | sort)"
+          need_jobs="$(echo "$NEEDS_JSON" | jq -r 'keys[]' | sort)"
+          if [ "$wf_jobs" != "$need_jobs" ]; then
+            echo "::error::needs de harnais-ok incomplet. Jobs : $(echo $wf_jobs) / needs : $(echo $need_jobs)"
+            exit 1
+          fi
+          # 2. changes doit être vert.
+          changes="$(echo "$NEEDS_JSON" | jq -r '.changes.result')"
+          code="$(echo "$NEEDS_JSON" | jq -r '.changes.outputs.code // ""')"
+          if [ "$changes" != "success" ]; then
+            echo "::error::Le job changes n'est pas vert ($changes)"
+            exit 1
+          fi
+          # 3. chaque job : vert, ou sauté parce que seul vault/ change.
+          bad="$(echo "$NEEDS_JSON" | jq -r --arg code "$code" 'to_entries[]
+            | select(.key != "changes")
+            | select(.value.result != "success" and (.value.result != "skipped" or $code != "false"))
+            | "\(.key)=\(.value.result)"')"
+          if [ -n "$bad" ]; then
+            echo "::error::Jobs non verts (code=$code) : $(echo $bad)"
+            exit 1
+          fi
+          echo "harnais-ok : OK (code=$code)"

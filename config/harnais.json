@@ -18,7 +18,9 @@
     "branche_principale": "main",
     "trailer": "Co-Authored-By: <signature du projet>",
     "pousser_vault": true,
-    "trailers_retires": "^[Cc][Oo]-[Aa][Uu][Tt][Hh][Oo][Rr][Ee][Dd]-[Bb][Yy]:"
+    "trailers_retires": "^[Cc][Oo]-[Aa][Uu][Tt][Hh][Oo][Rr][Ee][Dd]-[Bb][Yy]:",
+    "mode_fusion": "pr",
+    "fusion_pr": {"auto_merge": true, "methode": "merge"}
   },
   "modeles": {
     "autorises": [
