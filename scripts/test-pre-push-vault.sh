@@ -45,6 +45,17 @@ branch code;    C="$(commit c crates/x.rs)"
 branch mixed;   M="$(commit m vault/notes.md scripts/y.sh)"
 branch novault; N="$(commit n vault)"                       # fichier « vault » sans slash
 branch ren;     mkdir -p "$TMP/work/vault"; g mv README.md vault/README.md; g commit -qm ren; R="$(g rev-parse HEAD)"
+# Liste > 64 Ko (buffer pipe) avec un chemin de code trié avant vault/ :
+# piège « printf | grep -q » sous pipefail (SIGPIPE → code masqué).
+branch big
+mkdir -p "$TMP/work/vault/notes" "$TMP/work/aaa"
+echo code > "$TMP/work/aaa/code.rs"
+for i in $(seq -w 1 1500); do : > "$TMP/work/vault/notes/note-au-nom-long-et-descriptif-$i.md"; done
+g add -A >/dev/null && g commit -qm big; B="$(g rev-parse HEAD)"
+branch bigv
+mkdir -p "$TMP/work/vault/notes"
+for i in $(seq -w 1 1500); do : > "$TMP/work/vault/notes/note-au-nom-long-et-descriptif-$i.md"; done
+g add -A >/dev/null && g commit -qm bigv; BV="$(g rev-parse HEAD)"
 g checkout -q main
 
 FAIL=0
@@ -74,6 +85,8 @@ run "refs multiples vault+code" complète "refs/heads/v $V refs/heads/v $BASE"$'
 run "suppression + code"        complète "(delete) $Z refs/heads/v $BASE"$'\n'"refs/heads/c $C refs/heads/c $BASE"$'\n'
 run "renommage code → vault/"   complète "refs/heads/r $R refs/heads/r $BASE"$'\n'
 run "fichier « vault » sans /"  complète "refs/heads/n $N refs/heads/n $BASE"$'\n'
+run "liste > 64 Ko avec code"   complète "refs/heads/big $B refs/heads/big $BASE"$'\n'
+run "liste > 64 Ko vault seul"  sautée   "refs/heads/bigv $BV refs/heads/bigv $BASE"$'\n'
 run "aucun changement"          complète "refs/heads/v $BASE refs/heads/v $BASE"$'\n'
 run "stdin vide"                complète ""
 g update-ref -d refs/remotes/origin/main

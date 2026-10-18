@@ -29,7 +29,14 @@ only_vault_changed() {
 		git cat-file -e "$_base^{commit}" 2>/dev/null || return 1
 		_files="$(git -c core.quotePath=false diff --no-renames --name-only "$_base" "$_lsha" --)" || return 1
 		[ -n "$_files" ] || return 1
-		printf '%s\n' "$_files" | grep -qv '^vault/' && return 1
+		# Pas de pipe : sous pipefail (bash = /bin/sh macOS), « printf | grep -q »
+		# peut renvoyer 141 (SIGPIPE) sur une grosse liste et masquer du code.
+		# Fail-closed : seul le code 1 de grep (aucun chemin hors vault/) passe ;
+		# 0 (code trouvé) ou ≥ 2 (erreur) → tout rejouer.
+		grep -qv '^vault/' <<FILES
+$_files
+FILES
+		[ $? -eq 1 ] || return 1
 	done <<EOF
 $PUSH_REFS
 EOF
