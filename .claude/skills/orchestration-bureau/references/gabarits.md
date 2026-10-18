@@ -49,6 +49,7 @@ sinon `LANCEMENT_REFUSE commande-invalide` : `cd` du projet, `&&`, `claude`, `--
    (`docs(vault): reconciliation orchestrateur -- <raison>`). Le commit est OBLIGATOIRE.
    Push : si git.pousser_vault vaut false dans config/harnais.json, ne pousse pas et note
    « vault committe, non pousse » ; sinon (true ou cle absente) push, colle git ls-remote.
+   Mode `pr` (`git.mode_fusion: "pr"`) : ce commit va sur la branche du mandat, jamais sur la principale.
 3. Si rien a committer dans ce scope : note-le, passe directement a la mission principale.
 4. PREMIER mandat d'un projet equipe par `harnais equiper` (fichiers du harnais encore non suivis :
    .claude/skills/orchestration-bureau/, vault/, config/harnais.json, scripts/harnais-hooks/, .gitignore,
@@ -221,9 +222,16 @@ git -C $S add -- vault/revues/<AAAA-MM-JJ-Rxxx-slug>.md && git -C $S commit -m "
 git -C $R merge --ff-only $(git -C $S rev-parse HEAD)     # depuis la racine ; refus = rapport
 git -C $R push origin $P && git ls-remote origin refs/heads/$P    # ls-remote collé au rapport
 git -C $R worktree remove $S      # puis idem pour le worktree de doublage
+
+# Mode `pr` (git.mode_fusion: "pr") : aucun push sur P. Ordre : push, PR, rapport GO sur la branche, auto-merge.
+git -C $R push -u origin <branche> && git -C $R ls-remote origin refs/heads/<branche>   # collé
+gh pr create -B $P -H <branche> -t "<Mxxxx> -- <sujet>" -b "Rapport de doublage : vault/revues/<AAAA-MM-JJ-Rxxx-slug>.md (tip <tip>)"
+cp -- $R/vault/revues/<AAAA-MM-JJ-Rxxx-slug>.md <worktree-du-mandat>/vault/revues/ && git -C <worktree-du-mandat> add -- vault/revues/<AAAA-MM-JJ-Rxxx-slug>.md && git -C <worktree-du-mandat> commit -m "docs(revues): <Rxxx> -- GO" -m "<git.trailer>" && git -C <worktree-du-mandat> push origin <branche>   # frontmatter : verdict: GO + tip: <sha 40 de <tip>>
+gh pr merge <branche> --auto --<git.fusion_pr.methode> --delete-branch --match-head-commit <HEAD>   # HEAD = commit du rapport
+gh pr view <branche> --json state,autoMergeRequest,mergedAt   # collé : merge en attente de harnais-ok
 ```
 
-Le rapport de doublage GO est committé dans le scratch **après** le `merge --no-ff` et **avant** le
+En mode `direct`, le rapport de doublage GO est committé dans le scratch **après** le `merge --no-ff` et **avant** le
 `ff-only`, pour partir dans le **même push** que le merge : le hook `pre-push` refuse tout push sur
 `<principale>` qui introduit un merge sans rapport GO pour le tip mergé dans l'arbre poussé.
 Un rapport de doublage couvre une seule branche ; son frontmatter, fermé par `---`, porte

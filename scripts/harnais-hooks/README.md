@@ -12,7 +12,7 @@ Quatre hooks, tous en `sh` POSIX, sans dépendance :
 | `pre-commit` | Refuse un commit qui ferait dépasser la limite d'octets à l'index de reprise, ou qui fait sortir un fichier chargé d'office (`CLAUDE.md`, rules, `SKILL.md`, index, carnet) de son budget : taille en caractères, largeur de ligne. **Imprime le remède.** | Oui (c'est son objet) |
 | `pre-merge-commit` | Rejoue `pre-commit` sur le résultat d'un merge sans conflit (git ne le fait pas). | Oui |
 | `commit-msg` | Impose le trailer de signature du projet, quelle que soit la signature proposée par l'outil appelant. | **Jamais** (`exit 0` en toute circonstance) |
-| `pre-push` | Sur la branche principale, ne laisse passer que les merges couverts par un rapport de doublage GO (`tip:` = le tip mergé) d'un niveau qui couvre les chemins touchés (`niveau:`, `niveaux` de la config), et les commits qui ne touchent que `vault/`. | Oui, **sur la branche principale seulement** |
+| `pre-push` | Sur la branche principale, en mode `direct` (défaut) : ne laisse passer que les merges couverts par un rapport de doublage GO (`tip:` = le tip mergé) d'un niveau qui couvre les chemins touchés (`niveau:`, `niveaux` de la config), et les commits qui ne touchent que `vault/`. En mode `pr` (`git.mode_fusion`) : refuse tout push sur la principale, la fusion passe par une pull request. | Oui, **sur la branche principale seulement** |
 
 ## Activation
 
@@ -255,14 +255,24 @@ Entrée (`githooks(5)`, section pre-push) : une ligne par ref poussée,
 distant = `<remote-object-name>` tout à zéro ; suppression = `<local-ref>` `(delete)` et
 `<local-object-name>` tout à zéro.
 
-**La règle, en une phrase (décision Malik du 2026-09-24 00:55, #41)** : sur `main`, seuls passent
-les merges avec rapport GO et les commits qui ne touchent que `vault/`. « Tout le reste est refusé,
-et il faut passer par une branche, un doublage et un merge. »
+**La règle, en une phrase (décision Malik du 2026-09-24 00:55, #41), en mode `direct`** : sur `main`,
+seuls passent les merges avec rapport GO et les commits qui ne touchent que `vault/`. « Tout le reste
+est refusé, et il faut passer par une branche, un doublage et un merge. »
 
 Branche principale : clé `"branche_principale"` du bloc `"git"` de `HARNAIS_CONFIG` (défaut
 `config/harnais.json`). Seul ce bloc compte : une clé de même nom dans un autre bloc est ignorée
 (O4, témoin P28). Config absente, clé absente ou JSON illisible par le mini-lecteur : `main`.
 Config présente mais non lisible (droits) : erreur interne, refus sur `main`.
+
+**Mode de fusion** : clé `"mode_fusion"` du même bloc `"git"` (témoin M0300-8 : une clé d'un autre bloc
+est ignorée).
+
+- `"direct"` ou clé absente : le comportement décrit ci-dessous, inchangé.
+- `"pr"` : **tout push vers la principale est refusé**, création, mise à jour et suppression comprises.
+  La fusion passe par une pull request, faite par GitHub : `gh pr create --base <principale> --head
+  <branche>`, puis `gh pr merge --auto`. Les branches de mandat ne sont pas contrôlées par ce hook : la
+  preuve GO accompagne la PR, pas le push, et le trailer reste vérifié par `commit-msg`.
+- Autre valeur : erreur interne, refus sur `main` par prudence (témoin M0300-7).
 
 Pour chaque ligne visant `refs/heads/<branche principale>` :
 

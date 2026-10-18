@@ -49,6 +49,12 @@
 #      --numstat lu avec une source d'attributs vide (--attr-source=<arbre vide> : un .gitattributes "binary"
 #      ou "-diff" ne reduit pas le compte, R168-3 ; exige git >= 2.40, sinon N1 refuse avec message) ;
 #      GIT_{LITERAL,NOGLOB,GLOB,ICASE}_PATHSPECS effacees (R168-4).
+# (M0300) Mode de fusion, cle "mode_fusion" du bloc "git" (absente = "direct") :
+#   direct : comportement ci-dessus, inchange.
+#   pr     : tout push vers la principale est refuse (creation, mise a jour ou suppression) : la fusion
+#            passe par une pull request, faite par GitHub. Les branches de mandat ne sont pas controlees
+#            ici : la preuve GO accompagne la PR, pas le push. Le trailer reste verifie par commit-msg.
+#   autre valeur : erreur interne, refus sur la principale par prudence.
 # Erreur interne (git absent, config illisible, commande git en echec) : refus sur la principale
 # seulement ; un push de branche de travail n'est jamais bloque par un bug du hook.
 # Limite connue : "git push --no-verify" saute ce hook (les mandats l'interdisent deja).
@@ -65,8 +71,9 @@ fi
 # (O4) Valeur chaine de la cle "branche_principale" DIRECTEMENT dans l'objet "git" de premier
 # niveau du JSON sur stdin ; rien si absente. Mini-lecteur JSON (chaines, echappements, imbrication),
 # sans dependance ; les echappements de la valeur sont rendus tels quels (pas de decodage \uXXXX).
-lire_principale() {
-  LC_ALL=C awk '
+# (M0300) Generalise : $1 = cle lue dans le bloc "git" (branche_principale, mode_fusion).
+lire_git() {
+  LC_ALL=C awk -v voulue="$1" '
     { texte = texte $0 "\n" }
     END {
       n = length(texte); prof = 0; cle = ""
@@ -83,7 +90,7 @@ lire_principale() {
           j = i + 1
           while (j <= n && substr(texte, j, 1) ~ /[ \t\r\n]/) j++
           if (substr(texte, j, 1) == ":") { cle = ch; continue }
-          if (cle == "branche_principale" && prof == 2 && chemin[2] == "git") { print ch; exit }
+          if (cle == voulue && prof == 2 && chemin[2] == "git") { print ch; exit }
           cle = ""
         } else if (c == "{" || c == "[") {
           prof++; chemin[prof] = (c == "{") ? cle : "["; cle = ""
@@ -98,12 +105,23 @@ lire_principale() {
 
 if [ -f "$CONFIG" ]; then
   if [ -r "$CONFIG" ]; then
-    VAL=$(lire_principale < "$CONFIG") || VAL=""
+    VAL=$(lire_git branche_principale < "$CONFIG") || VAL=""
     [ -n "$VAL" ] && PRINCIPALE="$VAL"
   else
     ERREUR="config $CONFIG illisible (branche principale supposee: $PRINCIPALE)"
   fi
 fi
+
+# (M0300) Mode de fusion : absent = direct. Config illisible : deja une erreur interne (ci-dessus).
+MODE=direct
+if [ -f "$CONFIG" ] && [ -r "$CONFIG" ]; then
+  VAL=$(lire_git mode_fusion < "$CONFIG") || VAL=""
+  [ -n "$VAL" ] && MODE="$VAL"
+fi
+case "$MODE" in
+  direct|pr) ;;
+  *) [ -n "$ERREUR" ] || ERREUR="git.mode_fusion inconnu : $MODE (attendu : direct ou pr)" ;;
+esac
 
 est_nul() {
   case "$1" in
@@ -273,6 +291,15 @@ REFUS=0
 
 while read -r LOCAL_REF LOCAL_SHA REMOTE_REF REMOTE_SHA; do
   [ "$REMOTE_REF" = "refs/heads/$PRINCIPALE" ] || continue
+
+  # (M0300) Mode pr : aucun push vers la principale, suppression comprise (avant est_nul).
+  if [ "$MODE" = pr ]; then
+    echo "pre-push: REFUS -- push vers $REMOTE_REF : git.mode_fusion = pr, la principale ne recoit que des fusions faites par GitHub" >&2
+    echo "  a faire : pousse la branche de mandat, puis passer par une pull request : gh pr create --base $PRINCIPALE --head <branche>, puis gh pr merge --auto" >&2
+    REFUS=1
+    continue
+  fi
+
   est_nul "$LOCAL_SHA" && continue
 
   if [ -n "$ERREUR" ]; then
