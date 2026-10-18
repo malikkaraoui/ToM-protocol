@@ -33,7 +33,7 @@ fait_foi: non (le texte qui fait foi reste docs/MISSION.md)
 >
 > **Dates des deux sources fondatrices (corrigé en V2).** Le PDF du livre blanc v0.1 porte une date
 > de création **2025-09-28** et un titre interne « whitepaper-v0.2-FR.pdf » (métadonnées XMP du
-> PDF) [VÉRIFIÉ]. Le PDF de Step2 est un export iOS daté du **2026-01-30 07:06** [VÉRIFIÉ]. Ce
+> PDF) [VÉRIFIÉ]. Le PDF de Step2 est un export iOS daté du **2026-01-30 07:06 UTC** [VÉRIFIÉ]. Ce
 > sont des dates d'export de PDF, pas des dates de rédaction : le texte existait au plus tard à ces
 > dates. wp-v1 n'est pas daté ; sa première trace est le premier commit, le 2026-02-02 (`2cbf495`).
 > L'ordre de rédaction entre Step2 et wp-v1 n'est pas établi.
@@ -62,9 +62,9 @@ interprétations fausses étiquetées [VÉRIFIÉ]. Corrections, une ligne chacun
 3. Règle « la plus récente prime » présentée comme consigne du mandat ; « change » au lieu de « précise » quand le 18/10 change une position.
 4. §1 : « aucune contradiction sur la finalité » était faux — le volet valeur/paiement de Step2 est abandonné ou en sommeil, sans révocation écrite.
 5. §1 : simulateur « 10/100/1000/10000 déjà évoqué » faux — M0014 proposait 10/100/500.
-6. §2 : cause TS→Rust corrigée (raison écrite : « No need for JSON wire format compatibility ») ; « 99,5 % » et « navigateur/NAT » ne sont plus des causes.
+6. §2 : cause TS→Rust corrigée — le kickoff n'écrit pas pourquoi Rust (« No need for JSON wire format compatibility » vise le refus de coexistence) ; raison écrite après coup dans l'article l.954 ; « 99,5 % » et « navigateur/NAT » ne sont plus des causes.
 7. §2 : la tâche de fond iOS est justifiée par écrit par la vision (15/07) ; le lien avec v0.1 est une tension (« connecté en permanence »), pas une confirmation.
-8. §2/F9 : « le seul SDK réel est Swift » faux — `tom-sdk` (Rust) et `tom-tui` existent, compilation Linux aarch64 documentée.
+8. §2/F9 : « le seul SDK réel est Swift » faux — `tom-sdk` (Rust) et `tom-tui` existent, compilation Linux aarch64 documentée, et une interface C publique (en-tête cbindgen) existe déjà ; il manque sa stabilisation et un consommateur non-Swift.
 9. §3 : « la red team a montré » (ADN l.65) faux — c'est un constat d'écart de l'ADN ; « grindable » absent de L1-002.
 10. §3 : « exactement H1/H4 » remplacé par « analogue » — H1/H4 portent sur la graine, H1 « NON prouvée », H4 « à spécifier ».
 11. §3 : « même jour (30/01) » pour wp-v1 retiré (non daté) ; « wp-v1 retire » remplacé par « n'a pas ».
@@ -78,10 +78,11 @@ interprétations fausses étiquetées [VÉRIFIÉ]. Corrections, une ligne chacun
 19. §9 : l'exception L2 n'a jamais été dans MISSION ; MASTER-MAP se contredit (l.23 vs l.184) ; cause « fantômes ravivés » fausse (« cohérence stricte »).
 20. §10 : « jamais exercé par un banc » périmé (banc R5 du 21/07) ; « retour aux sources partiel » passé en [HYPOTHÈSE].
 21. §11/§14 : cryptographe externe signalé comme dépense externe, voies gratuites ajoutées ; ADR-004 de février = TweetNaCl ; conciliation L0/L1 en [HYPOTHÈSE].
-22. §13 : observateurs d'un wallet ≠ ~7 voisins (deux objets) ; « grain de riz » n'est pas la cause du passage en L2 (décision du 17/10, passage en L2 les 05-06/07).
+22. §13 : observateurs d'un wallet ≠ ~7 voisins (deux objets) ; « grain de riz » n'est pas la cause du passage en L2 (décision du 17/10, passage en L2 le 05/07).
 23. Thèmes ouverts : « mainteneurs en rotation » faux — la source dit « gouvernance (rotation, pas de capture) ».
 24. Cohérence : « un seul moteur » devient une [HYPOTHÈSE] avec quatre tensions (vivacité, Sybil/éclipse, petite échelle, mémoire) ; la masse n'est pas mesurée (simulations).
-25. Questions : F1 option D (certificat porté, sans annonce) ; F3 option C (garder la phrase du fondateur) ; F4 option D (jeton = note) ; F5 option C (hypothèse « Snap à Hash » du fondateur) ; F6 trois conditions ; F8 deux défauts et option C ; F9 reformulée (ABI C).
+25. Questions : F1 option D (certificat porté, sans annonce) ; F3 option C (garder la phrase du fondateur) ; F4 option D (jeton = note), sans fermer la valeur ; F5 option C (hypothèse « Snap à Hash » du fondateur) ; F6 conditions (gardiens, borne globale, anti-concentration) ; F8 deux défauts et option C, signalée comme changement de vision ; F9 reformulée (stabiliser l'interface C existante).
+26. Après la revue R016 (tour 1, RESERVE) : cause « Rust » non écrite au kickoff ; date du v0.1 dans le §1 ; passage en L2 daté du 05/07, avant la revue Fable ; MISSION l.47 traitée comme une cible, pas un état ; interface C existante ; F4 ne ferme plus la valeur.
 
 ---
 
@@ -161,7 +162,7 @@ distincte : « tant que l'utilité est là, le protocole vit et quand elle dispa
   et `tom-stress/src/fleet_probe.rs`) [VÉRIFIÉ] ; le diff `aaeee84..be8e18e` ne touche que le vault
   [VÉRIFIÉ]. Les numéros de ligne de code cités restent valides au commit `be8e18e`.
 - **V2 (M0017)** : 8 auditeurs Sonnet frais, un par groupe de sections, ont ouvert à la source chaque
-  phrase de cause, chaque date, chaque attribution forte et chaque [VÉRIFIÉ] de la V1 (≈ 360 points).
+  phrase de cause, chaque date, chaque attribution forte et chaque [VÉRIFIÉ] de la V1 (341 points).
   J'ai recontrôlé moi-même chaque point repris avant de corriger. Bilan en fin de document.
 
 ## Chronologie des pivots (dates vérifiées dans git ou dans la source)
@@ -198,7 +199,7 @@ Les dates de commit sont des dates d'**entrée dans git**, pas toujours de la d�
 
 ## 1. Finalité, échelle, couche universelle
 
-**Au départ (janvier).** Deux élans. Le premier est politique et pratique : « communiquer
+**Au départ (v0.1 au plus tard le 28/09/2025 ; Step2 au plus tard le 30/01/2026).** Deux élans. Le premier est politique et pratique : « communiquer
 librement, sur l'internet existant » (v0.1 l.15-16) ; un smartphone est déjà un petit serveur, sa
 puissance doit servir l'utilisateur et non la publicité (v0.1 l.18-23). Le second est structurel :
 un « BUS de communication mondial, ultra léger, résilient, gratuit dans l'esprit » (Step2 l.13-15),
@@ -208,8 +209,8 @@ puissance déjà présente aux extrémités (Step2 l.321-325). [VÉRIFIÉ]
 
 **Trajectoire.** Le brief (daté du 30/01) et wp-v1 (non daté, dans git le 02/02) posent la formule
 « comme TCP/IP » (wp-v1 l.11 ; brief l.14) et l'échelle « From 3 nodes to 30 to 300 to 3 million »
-(brief l.203) [VÉRIFIÉ]. Le brief exclut déjà toute valeur : « No speculative token … no convertible
-asset » (brief l.58) [VÉRIFIÉ] ; wp-v1 garde une L1 avec wallets et observateurs (wp-v1 l.131,
+(brief l.203) [VÉRIFIÉ]. Le brief exclut déjà la valeur spéculative ou convertible : « No
+speculative token … no convertible asset » (brief l.58) [VÉRIFIÉ] ; wp-v1 garde une L1 avec wallets et observateurs (wp-v1 l.131,
 l.173-187) mais « pas de cryptomonnaie à acheter, vendre, ou accumuler » (wp-v1 l.263-265)
 [VÉRIFIÉ]. Le 06/02 entrent dans git le verrou #7 — « ToM is an invisible universal foundation, not
 an application » (LOCKED l.196) — et la consigne « No blockchain: This is a transport protocol, not a
@@ -217,13 +218,15 @@ ledger » (`fbf4ba2:CLAUDE.md`) [VÉRIFIÉ]. En juillet, la vision « n'est pas 
 finis — c'est une asymptote » (VISION-CONSOLIDEE l.96) [VÉRIFIÉ]. Le 20/07, un « recadrage
 fondateur » de **méthode de test** : le réseau « n'est pas un tuyau send/ACK : c'est un organisme à
 rôles tournants. La livraison de message est UNE fonction » (prisme-des-roles l.4, l.12-13)
-[VÉRIFIÉ]. L'idée de rôles tournants n'est pas neuve (Step2 l.46-62) ; ce qui change le 20/07, c'est
-la façon de tester.
+[VÉRIFIÉ] ; il vaut pour « toute analyse ET tout scénario de test » (prisme-des-roles l.6-7). L'idée
+de rôles tournants n'est pas neuve (Step2 l.46-62) ; que le 20/07 change surtout la façon
+d'analyser et de tester, pas la finalité, est ma lecture [HYPOTHÈSE].
 
 **Aujourd'hui.** MISSION l.25 : « une COUCHE DE TRANSPORT universelle — comme TCP/IP — pas une
 application » [VÉRIFIÉ] ; « pas de blockchain, pas d'actif convertible » (MISSION l.64) ; « pas
-d'argent dans le périmètre actuel » (MISSION l.74) [VÉRIFIÉ]. Le 18/10 **change** l'échelle cible
-(« plusieurs millions voire milliards », contre « 3 million » dans le brief) [VÉRIFIÉ]. La phrase
+d'argent dans le périmètre actuel » (MISSION l.74) [VÉRIFIÉ]. Le 18/10 **élargit** l'échelle visée
+(« plusieurs millions voire milliards ») ; le brief donnait une suite de paliers jusqu'à « 3
+million », pas un plafond [VÉRIFIÉ]. La phrase
 « fluide, robuste, et naturellement beau » porte, dans le verbatim, sur « le mécanisme global »
 (la multi-signature des rôles), pas sur la finalité.
 
@@ -231,17 +234,18 @@ d'argent dans le périmètre actuel » (MISSION l.74) [VÉRIFIÉ]. Le 18/10 **ch
 abandonné ou mis en sommeil : la valeur.** Step2 vise une L1 avec « Validateur : il participe à des
 quorums de validation pour la L1 » (l.60), « une architecture capable d'évoluer vers le paiement »
 (l.40), des jetons qu'« on en dépense en utilisant le réseau » (l.138), un chapitre entier sur la
-double dépense (§3, l.169-330) et « une voie vers une monnaie ou un jeton utilitaire natif »
+double dépense (§3, l.169-319) et « une voie vers une monnaie ou un jeton utilitaire natif »
 (l.369-370) [VÉRIFIÉ]. MISSION (17/10) dit l'inverse : pas d'argent, pas d'actif, pas de blockchain,
 double dépense « hors périmètre tant qu'il n'y a pas d'argent » (MISSION l.62-74, l.285) [VÉRIFIÉ].
-Étapes écrites : 30/01 le brief exclut tout actif convertible ; 06/02 « No blockchain » ; 05-06/07
-la valeur devient une couche L2 « bonus » conditionnelle ; 16/07 « si M1.2/M1.4 ne tiennent pas, L2
-est abandonné sans honte » (VISION-CONSOLIDEE l.35) ; 17/10 décision du fondateur « ce n'est pas de
+Étapes écrites : 30/01 le brief exclut tout actif convertible ; 06/02 « No blockchain » ; 05/07
+la valeur devient une couche L2 « bonus, dernières étapes » (`bcd8978`) ; 16/07 elle devient
+conditionnelle : « si M1.2/M1.4 ne tiennent pas, L2 est abandonné sans honte » (VISION-CONSOLIDEE
+l.35) ; 17/10 décision du fondateur « ce n'est pas de
 l'argent, ce n'est pas un actif » (MISSION l.63) [VÉRIFIÉ]. Par qui : le brief et la décision du
 17/10 sont signés du fondateur (`author: Malik` ; « décision 2026-10-17, fondateur ») [VÉRIFIÉ].
 **Pourquoi : cause non écrite dans les sources.** [HYPOTHÈSE] le recentrage sur un PoC de transport
 (le brief range « L1 engine implementation » hors du PoC, l.186) puis les murs de sécurité de la
-valeur (entropie, Sybil : MASTER-MAP l.175-186) ont poussé la valeur à plus tard.
+valeur (entropie, Sybil : MASTER-MAP l.175-188) ont poussé la valeur à plus tard.
 
 **Verdict : ⚠️ tension.** La finalité « couche de transport universelle » tient du début à la fin.
 Mais **ce n'est pas vrai qu'il n'y a « aucune contradiction sur la finalité »** (V1) : le volet
@@ -278,7 +282,8 @@ navigateur un nœud, puis un SDK, puis une couche que les fabricants embarquent 
 les OS (brief l.94-104) [VÉRIFIÉ]. Implémentation d'abord en JavaScript pour le navigateur
 (brief l.185), un cœur Rust/C pour l'IoT ensuite (brief l.202) [VÉRIFIÉ].
 
-**Trajectoire.** Le 09-11/02, le PoC iroh remplace le transport WebRTC + serveur de signalisation :
+**Trajectoire.** Le 09-11/02, un PoC iroh teste le remplacement du transport WebRTC + serveur de
+signalisation (le remplacement effectif suit le portage Rust) :
 « Jusqu'ici, tout le transport de ToM reposait sur WebRTC et un signaling server WebSocket. C'est
 fonctionnel, mais c'est une corde ombilicale. Un vrai protocole P2P doit percer les NAT tout seul »
 (`docs/medium-article.md` l.63-65, article dans git le 24/02) [VÉRIFIÉ]. Le 18/02, la coexistence
@@ -287,8 +292,9 @@ wire format compatibility » (rust-port-kickoff l.21) [VÉRIFIÉ]. Le kickoff se
 validated `tom-transport` crate (QUIC via iroh, 99.5% reliability on 4G CGNAT) » (l.5) [VÉRIFIÉ] :
 c'est le contexte, pas la raison écrite. Le TypeScript n'est pas supprimé : il reste en « legacy »
 et MISSION prévoit même de le moderniser pour le WASM (MISSION l.93). Le 15/07, la tâche de fond iOS
-devient un non-objectif : « Ce n'est donc pas un trou à combler, c'est un choix » ; un daemon
-« serait contraire à la vision (couche invisible, pas un service toujours-actif énergivore) »
+devient un non-objectif : « On ne fait PAS de background daemon » ; « Pas de push APNs/VoIP, pas de
+wakeup permanent : ce serait contraire à la vision (couche invisible, pas un service toujours-actif
+énergivore) » ; « Ce n'est donc pas un trou à combler, c'est un choix »
 (`CLAUDE.md`, limite #4, entrée par `dd8c99c` le 15/07) [VÉRIFIÉ] ; au premier plan on contribue
 pleinement, en arrière-plan quelques minutes de sursis, le filet est le backup 24 h
 (FEUILLE-DE-ROUTE l.17) [VÉRIFIÉ]. La passation du 18/10 au matin, résumé de l'orchestrateur sur des
@@ -300,12 +306,18 @@ décisions du 17/10 (pas une parole verbatim), ajoute la logique « temps d'écr
 protocolaire au même titre que TCP/IP. » Le verbatim contient les deux formules ; il ne contredit
 pas MISSION, il dit que la plateforme n'est qu'un hôte.
 
-**Pourquoi ça a bougé.** Bascule Rust : la seule raison écrite au kickoff est « No need for JSON
-wire format compatibility » [VÉRIFIÉ] ; le besoin de percer les NAT sans serveur de signalisation est
-écrit comme raison du PoC iroh (medium-article l.65) [VÉRIFIÉ]. Que le 99,5 % en 4G ait *causé* la
-bascule est [HYPOTHÈSE] (la V1 l'écrivait comme un fait). Tâche de fond : le déclencheur est la
-suspension iOS ⚠️ (contrainte de plateforme), mais la décision écrite du 15/07 se justifie par la
-vision (« contraire à la vision ») [VÉRIFIÉ]. Le lien avec v0.1 (« le temps passé à l'utiliser
+**Pourquoi ça a bougé.** Bascule Rust : le kickoff du 18/02 n'écrit **pas** pourquoi Rust ; sa
+phrase « No need for JSON wire format compatibility » (l.21) justifie une autre décision, le refus
+de garder le TypeScript **à côté** [VÉRIFIÉ]. Une raison du choix de Rust est écrite après coup dans
+l'article daté « Février 2026 » (dans git le 24/02) : « Langage | Rust | Sécurité mémoire,
+performances, cross-compilation ARM » (`docs/article-ToM protocol.md` l.954) ; le même article
+place le choix d'iroh, bibliothèque Rust, comme suite de l'étude des NAT (l.918) [VÉRIFIÉ]. Le
+besoin de percer les NAT sans serveur de signalisation est écrit comme raison du PoC iroh
+(medium-article l.65) [VÉRIFIÉ]. Que le 99,5 % en 4G ait *causé* la bascule est [HYPOTHÈSE] (la V1
+l'écrivait comme un fait). Tâche de fond : le déclencheur est la
+suspension iOS ⚠️ (contrainte de plateforme ; l'entrée s'intitule « Suspension iOS/tvOS —
+NON-OBJECTIF ASSUMÉ »), mais la décision écrite du 15/07 justifie le refus du push et du réveil
+permanent par la vision (« ce serait contraire à la vision ») [VÉRIFIÉ]. Le lien avec v0.1 (« le temps passé à l'utiliser
 travaille pour vous », l.22-23) est ma lecture [HYPOTHÈSE] ; v0.1 dit aussi, quatre lignes plus
 haut, que le smartphone est « connecté en permanence » (l.18) : c'est une **tension**, pas une
 confirmation.
@@ -314,19 +326,24 @@ confirmation.
 non-Apple (WASM, Kotlin/JNI, Python) « reste à faire en totalité — pas commencé »
 (`docs/journal/JOURNAL.md` l.115, entrée du 02/07) [VÉRIFIÉ]. Mais il existe déjà un SDK cœur Rust,
 `crates/tom-sdk` (membre du workspace, « SDK cœur Rust … P0 », MISSION l.91), et le client
-`tom-tui` se compile pour Linux aarch64 musl (README l.358) [VÉRIFIÉ]. Ce qui manque, ce sont les
-bindings non-Swift du FFI. Risque : que des choix d'API soient pris pour iOS et présentés comme
-universels.
+`tom-tui` se compile pour Linux aarch64 musl (README l.358) [VÉRIFIÉ]. Et le FFI expose déjà une
+**interface C publique** : en-tête généré `crates/tom-protocol-ffi/include/tom_protocol_ffi.h`
+(« génération du header C public … check de drift en CI », `cbindgen.toml` l.1-3), 24 fonctions
+`extern "C"` dans `src/lib.rs` [VÉRIFIÉ]. Ce qui manque : la stabiliser et la versionner, la faire
+entrer dans le workspace, et un premier consommateur non-Swift. Risque : que des choix d'API soient
+pris pour iOS et présentés comme universels.
 
-**Écart code.** FFI vers Swift seulement (`crates/tom-protocol-ffi`, exclu du workspace) ; aucune
+**Écart code.** Interface C consommée par Swift seulement (`crates/tom-protocol-ffi`, posée sur
+`tom-protocol`, exclue du workspace) ; aucune
 cible WASM ni Android construite par le projet : `git ls-files` ne trouve « wasm » et « android »
 dans les noms de fichiers que sous `patches/netwatch-*` et `patches/netdev-*` [VÉRIFIÉ]. Le code
 hérité du fork contient des `cfg` WASM (par ex. `tom-quinn-proto/Cargo.toml`), sans cible
 construite.
 
 **Pour passer un step.**
-1. **proposition** — Avant toute distribution large, un binding non-Swift du cœur (ABI C stable
-   au-dessus de `tom-sdk`, puis Kotlin/JNI ou WASM), pour casser l'échantillon Apple.
+1. **proposition** — Avant toute distribution large, un premier consommateur non-Swift de
+   l'interface C existante (stabilisée et versionnée), puis Kotlin/JNI ou WASM, pour casser
+   l'échantillon Apple.
 2. **proposition** — Écrire dans MISSION (garde-fou §6) la règle de méthode du mandat M0016, tirée des
    paroles du 18/10 : « une contrainte de plateforme n'est jamais une cause de vision ».
 
@@ -436,7 +453,9 @@ soient **les mêmes** 7 (témoins de présence = garants du rôle) est ma lectur
 source ne le dit. Si on l'adopte, le 18/10 **change** le rôle des 7 : de témoins (« je t'ai vu ») à
 garants (« je confirme ton rôle »).
 
-**Pourquoi ça a bougé.** Le quorum de 2 à 4 a deux causes écrites : *terrain* — 44 à 50 pairs
+**Pourquoi ça a bougé.** ADR-011 (la présence par le travail) et le quorum de 2 à 4 ont deux causes
+écrites — la première déclenche ADR-011 en entier, la seconde fonde le quorum lui-même (L1-003
+l.54-58) : *terrain* — 44 à 50 pairs
 « Online » alors que `connected_peers()` ≈ 0, sur une flotte de ~5 appareils Apple, à cause d'un bug
 générique (tout pair découvert marqué `Online` sans preuve) (POP l.8-14) ; *sécurité* — « Ferme
 l'eclipse par relais unique (kill-shot #3 red-team Fable) » (`vault/20-decisions.md` l.28)
@@ -661,7 +680,7 @@ Relays are not optional - they ARE the architecture » (`fbf4ba2:CLAUDE.md` l.54
 formule est conservée lors du passage à QUIC (`CLAUDE.md` l.129). Février, le PoC iroh (09/02) :
 « Le relay est un tremplin, pas une destination » (`docs/medium-article-poc.md` l.29, dans git le
 24/02) [VÉRIFIÉ]. 11/02 : *plan* du fork d'iroh, « never depending on n0-computer's roadmap again »
-(FORK-ARCHITECTURE l.8-11) ; le fork lui-même commence le 27/02 (`294ea5c`) [VÉRIFIÉ]. 20/03 : relais
+(FORK-ARCHITECTURE l.8-11) ; le fork lui-même commence le 27/02 (`294ea5c`, tom-quinn) [VÉRIFIÉ]. 20/03 : relais
 embarqué dans chaque nœud (`bd6c442`) [VÉRIFIÉ]. 22/06 : un relais n'est publié au gossip que s'il
 est joignable de l'extérieur (`9d80e1b`, ADR-010) [VÉRIFIÉ]. 13/07 : mapping UPnP automatique
 (`865a85c`) [VÉRIFIÉ]. 16/07, à propos d'une hypothèse de pare-feu IPv6 sur la box : « Décision
@@ -675,8 +694,9 @@ reçoivent des tâches simples » (CARTE l.14-15) [VÉRIFIÉ] ; l'appliquer au r
 
 **Pourquoi ça a bougé.** Qu'un relais de première rencontre soit nécessaire à cause des NAT et du
 CGNAT : la source dit « First contact goes through a relay » (README l.49) mais n'écrit pas la cause
-comme un changement de vision [HYPOTHÈSE]. « On ne touche pas aux réglages box » est une *décision
-produit* qui protège l'universalité (ne rien exiger de la box) [VÉRIFIÉ] ; ⚠️ `tom-gateway`, outil
+comme un changement de vision [HYPOTHÈSE]. « On NE touche PAS les réglages box » est une *décision
+produit* [VÉRIFIÉ] ; qu'elle protège l'universalité (ne rien exiger de la box) est ma lecture
+[HYPOTHÈSE] ; ⚠️ `tom-gateway`, outil
 qui « configures a Freebox router (port forwarding) » (README l.360), est lui une réponse propre à
 une plateforme [VÉRIFIÉ] — utile, mais pas universel.
 
@@ -748,7 +768,7 @@ ne l'a pas touchée [VÉRIFIÉ]. La V1 écrivait « n'y figure plus » : faux, r
 
 **Pourquoi ça a bougé.** Exception L2 : *sécurité*, le mur n°4 de la revue Fable (MASTER-MAP l.184
 l'énonce) [VÉRIFIÉ]. Extension aux pairs : *terrain* — « 1286 pairs », « 951 peers queued » au
-démarrage, une « mémoire sans oubli » (anti-ravivage l.9-14) ; le même document conclut que « le
+démarrage (anti-ravivage l.9-10), une « mémoire sans oubli » (l.40) ; le même document conclut que « le
 "ravivage" de `last_seen` par gossip/DHT n'existe plus » (l.35) [VÉRIFIÉ]. La cause écrite de la
 règle est la « cohérence stricte » (l.84), pas des fantômes ravivés (V1 : faux).
 
@@ -781,8 +801,9 @@ règle est la « cohérence stricte » (l.84), pas des fantômes ravivés (V1 : 
    validé, nombre de copies fixe par message (borne globale, pas seulement le budget local de
    64 Mio), purge des copies tierces à la livraison (`ConfirmDelivery` conditionnel, CLAUDE.md,
    limite #14).
-2. **proposition** — En attendant, corriger le README (l.52), MISSION l.47 et CLAUDE.md limite #14 :
-   « l'émetteur garde la copie » est la vérité actuelle.
+2. **proposition** — En attendant, corriger le README (l.52) et CLAUDE.md limite #14 : « l'émetteur
+   garde la copie » est la vérité actuelle. MISSION l.47 est une **cible** (§1, « Non négociable »,
+   l.13) : ne pas la réécrire, au plus ajouter une note d'état hors du §1.
 3. **proposition** — Inscrire dans MISSION le sort de l'exception L2 (question F5) — elle n'y a
    jamais figuré.
 
@@ -924,12 +945,18 @@ ne tiennent pas, L2 est abandonné sans honte » (VISION-CONSOLIDEE l.35) [VÉRI
 **Aujourd'hui.** MISSION l.62-65 : pas de frais, pas d'actif convertible ; l.74 : double dépense,
 chantier ouvert, pas d'argent dans le périmètre [VÉRIFIÉ].
 
-**Pourquoi ça a bougé.** Passage de la valeur en L2 conditionnelle (juillet) : *sécurité* — la
-revue Fable du 06/07 place l'entropie en mur n°1 et le Sybil en mur n°2, « le plus grand trou non
-résolu » (MASTER-MAP l.175-186) ; « C'est le verrou qui conditionne toute notion de « valeur »
-(L2) » (FEUILLE-DE-ROUTE l.81) [VÉRIFIÉ]. « Pas d'argent » : *décision du fondateur* du **17/10** (MISSION
-l.63, l.74) [VÉRIFIÉ] — trois mois après le passage en L2, ce n'est donc pas la cause de celui-ci.
-Pourquoi le fondateur a sorti l'argent du périmètre : **cause non écrite dans les sources**.
+**Pourquoi ça a bougé.** Deux temps à séparer. (1) **05/07** : la valeur est rangée en couche L2,
+« bonus, dernières étapes », dès la première version de la master map (`bcd8978`, l.38) [VÉRIFIÉ] —
+**avant** la revue Fable du 06/07. Pourquoi : **cause non écrite dans les sources** [HYPOTHÈSE : la
+séparation en couches, posée le même jour (« la double dépense est une propriété de la couche
+d'ATTESTATION (L1), pas du transport (L0) », l.40)]. (2) **06-16/07** : la L2 devient
+**conditionnelle**, avec une cause écrite, *sécurité* : la revue Fable du 06/07 place l'entropie en
+mur n°1 et le Sybil en mur n°2, « Le plus grand trou non résolu reste #1+#2 » (MASTER-MAP l.188) ;
+« C'est le verrou qui conditionne toute notion de « valeur » (L2) » (FEUILLE-DE-ROUTE l.81, 16/07) ;
+« (2028+, conditionnel) » (VISION-CONSOLIDEE l.35, 16/07) [VÉRIFIÉ]. « Pas d'argent » : *décision
+du fondateur* du **17/10** (MISSION l.63, l.74) [VÉRIFIÉ] — trois mois après le passage en L2, ce
+n'est donc pas la cause de celui-ci. Pourquoi le fondateur a sorti l'argent du périmètre : **cause
+non écrite dans les sources**.
 
 **Verdict : ⚠️ tension.** La règle d'or de Step2 est saine ; la juger compatible avec le verrou #3
 (« L1 observes and anchors — it does not arbitrate ») est ma lecture [HYPOTHÈSE] : ce n'est pas la
@@ -977,7 +1004,7 @@ miroir jamais chef » est celle du journal `vault/30-discoveries.md` l.16 [VÉRI
 
 **Pourquoi ça a bougé.** Que la messagerie n'ait pas besoin de consensus parce que l'ACK et le TTL
 suffisent : **cause non écrite dans les sources** [HYPOTHÈSE]. *Sécurité* : le consensus de la
-valeur bute sur l'entropie (MASTER-MAP l.186 ; FEUILLE-DE-ROUTE l.81 ; L1-002 l.84) [VÉRIFIÉ].
+valeur bute sur l'entropie (MASTER-MAP l.188 ; FEUILLE-DE-ROUTE l.81 ; L1-002 l.84) [VÉRIFIÉ].
 
 **Verdict : ⚠️ tension — la logique tient peut-être, la preuve manque.** Lecture proposée
 [HYPOTHÈSE] : une fois les couches séparées, L0 (messagerie) n'a pas de consensus et n'en veut pas ;
@@ -1076,8 +1103,8 @@ tient si l'on dit : **la masse amplifie, les règles locales protègent** — fo
 [HYPOTHÈSE], qui ne figure pas dans le 18/10.
 
 **La plateforme a façonné les pratiques ; la vision, peut-être pas — deux points à surveiller.**
-Pas de tâche de fond mobile : déclenchée par iOS ⚠️, justifiée par écrit par la vision (« contraire à
-la vision », CLAUDE.md limite #4) [VÉRIFIÉ], mais en **tension** avec v0.1 : « le temps passé à
+Pas de tâche de fond mobile : déclenchée par iOS ⚠️, et le refus du push et du réveil permanent est
+justifié par écrit par la vision (« ce serait contraire à la vision », CLAUDE.md limite #4) [VÉRIFIÉ], mais en **tension** avec v0.1 : « le temps passé à
 l'utiliser travaille pour vous » (l.22-23) va dans le sens ; « connecté en permanence » (l.18) va
 contre. Échantillon Apple + une Freebox : qu'il oriente les SDK et les outils (`tom-gateway`) est
 ma lecture [HYPOTHÈSE]. Pour éprouver la vision à grande échelle, L1-002 demande « simulation
@@ -1105,9 +1132,13 @@ déjà posées dans MISSION §8 ne sont rappelées que si ce document apporte un
   n'est visible qu'au moment où il sert, et il est déjà vérifiable. Cela colle au mot du
   fondateur : « validé avant même son émission » — pas « annoncé quelques tours avant » (mandat
   M0017, point 20) [VÉRIFIÉ pour le verbatim ; le mécanisme est une proposition].
-- **Recommandation : D** pour les rôles exercés au contact (relayer un message, garder une copie,
-  témoigner). Limite : un rôle qu'il faut **trouver** avant usage (un relais, un gardien de
-  rendez-vous) doit être annoncé ; pour ceux-là, C avec une fenêtre courte. Les deux variantes du
+- **Recommandation : D** pour les rôles exercés au contact (garder une copie, témoigner, relayer
+  un message pour un pair déjà en lien). Limite : un rôle qu'il faut **trouver** avant usage (un
+  relais de première rencontre, un gardien de rendez-vous) doit être annoncé ; pour ceux-là, C avec
+  une fenêtre courte. ⚠️ Trou commun à C et D : un tiers qui reçoit le certificat ne sait pas si les
+  signataires sont **vraiment** les voisins du nœud — sept identités Sybil peuvent signer un
+  certificat valide. D ne vaut que si la règle « qui devient voisin » (F2, réserve 3 ; « Cohérence
+  d'ensemble », tension 2) est résolue. Les deux variantes du
   18/10 correspondent à D (« donné par plusieurs … repris ») et à C (« avant la diffusion, une
   validation ») [HYPOTHÈSE de lecture]. Ni D ni C ne sont « exactement » H1/H4 de L1-002, qui
   portent sur la graine et sont non prouvées (§3). Corollaire : préciser MISSION l.41
@@ -1121,8 +1152,10 @@ déjà posées dans MISSION §8 ne sont rappelées que si ce document apporte un
   « tour de garde » (CARTE l.95) ; (2) le seuil q se fixe par simulation **et** par la vivacité
   mesurée (combien des 7 sont en ligne quand on en a besoin, mobiles compris) ; (3) une règle sur
   **qui** devient voisin, pour qu'un attaquant ne puisse pas s'installer autour d'une victime
-  (voir « Cohérence d'ensemble », tensions 1 à 3). Que B soit « ce que vise le 18/10 » est ma
-  lecture : le 18/10 donne « 7 », pas « fixe » [HYPOTHÈSE].
+  (voir « Cohérence d'ensemble », tensions 1 à 3). Attention à la règle de priorité : MISSION
+  (17/10, « jusqu'à 7 ») est plus récente que la CARTE (24/07, « nombre FIXE ») ; B ne s'appuie que
+  sur le « au nombre de 7 » du 18/10, qui donne un nombre, pas « fixe ». Que B soit « ce que vise le
+  18/10 » est donc ma lecture [HYPOTHÈSE] — au fondateur de dire si 7 est un plafond ou une cible.
 
 **F3. Comment écrire « plus il y a de monde, plus c'est fort » ?**
 - A. Tel quel (c'est la phrase du fondateur, 18/10).
@@ -1133,7 +1166,9 @@ déjà posées dans MISSION §8 ne sont rappelées que si ce document apporte un
 - **Recommandation : C.** Elle ne réécrit pas la parole du fondateur, et elle ne promet pas plus
   que ce qui est établi. Ce qui est établi n'est pas une mesure : ce sont des **simulations**
   (EXP-3, EXP-4 de L1-002) qui supposent elles-mêmes H1 (« ne valide pas H1, il la SUPPOSE »,
-  L1-002 l.72-79) [VÉRIFIÉ].
+  L1-002 l.72-79) [VÉRIFIÉ], et qui ne portent que sur le **tirage de la graine** : elles ne
+  disent rien de la capacité ni de la résilience. La condition de C vaut donc pour l'attaque du
+  tirage ; pour le reste, la charte pose ses quatre conditions (charte l.90-91).
 
 **F4. La « monnaie ou jeton utilitaire natif à terme » de Step2 (l.369-372) est-elle révoquée ?**
 - A. Révoquée : ToM ne portera jamais de valeur convertible.
@@ -1146,9 +1181,13 @@ déjà posées dans MISSION §8 ne sont rappelées que si ce document apporte un
   dire : dans Step2, les jetons « On en gagne en contribuant, on en dépense en utilisant le
   réseau » (l.138) — ils se dépensent ; la note de MISSION est « une mesure d'équilibre » (l.64),
   elle ne se dépense pas [VÉRIFIÉ].
-- **Recommandation : D, et A pour la monnaie convertible**, écrites noir sur blanc dans MISSION
-  (R4 : une décision révoquée se trace). C'est ce qui suit le plus près MISSION du 17/10, plus
-  récente que Step2. Le portefeuille scellé de L2 reste une question séparée (F5).
+- **Recommandation : D**, plus « **pas de jeton-actif natif** » (MISSION l.262), écrits noir sur
+  blanc dans MISSION (R4 : une décision révoquée se trace). Pas plus loin : MISSION laisse ouverte
+  la question de l'argent — double dépense « hors périmètre **tant qu'il n'y a pas** d'argent », « à
+  quel moment il redevient un sujet » (MISSION l.74, l.285) [VÉRIFIÉ] — et l'hypothèse du fondateur
+  citée en F5 parle de « dépenser ou encaisser de l'argent » avec l'aval du réseau. Fermer toute
+  valeur (option A) contredirait donc MISSION et F5. Transporter ou garder de la valeur reste
+  ouvert (option B, et F5).
 
 **F5. L'exception au TTL de 24 h pour L2, « actée » le 2026-07-06 (MASTER-MAP l.184), vit-elle
 encore ?** MISSION l.55 dit « purge globale sans exception », l.262 « jamais de persistance au-delà
@@ -1164,13 +1203,17 @@ du TTL » ; la MASTER-MAP se contredit elle-même (l.23 contre l.184).
   dépenser ou encaisser de l'argent seulement avec l'aval du réseau ». L'historique reste chez
   l'utilisateur (comme Step2 l.317-318 : « l'historique quitte la L1 ») ; le réseau ne tient
   qu'une empreinte de l'état présent. Elle **vise** à éviter toute persistance réseau au-delà de
-  24 h. Point à éclaircir [HYPOTHÈSE] : « le réseau garderait » une empreinte ; pour rester dans
-  les 24 h, cette empreinte doit être **ré-ancrée** à chaque fenêtre (par le propriétaire ou par
-  l'activité), sinon un wallet inactif plus de 24 h perd son ancre et la garde contre la double
-  dépense tombe.
-- **Recommandation : explorer C d'abord**, parce qu'elle seule garde le verrou #2 intact ; B
-  seulement en dernier recours, et alors écrite dans MISSION comme un affaiblissement assumé du
-  verrou, pas comme une précision. Ne rien inscrire tant qu'il n'y a pas d'argent dans le périmètre
+  24 h. Deux points à éclaircir [HYPOTHÈSE] : (1) « le réseau garderait » une empreinte ; pour
+  rester dans les 24 h, elle doit être **ré-ancrée** à chaque fenêtre, sinon un wallet inactif plus
+  de 24 h perd son ancre — mais un ré-ancrage sans fin est une persistance par renouvellement,
+  le « ledger creep » que VISION-CONSOLIDEE redoute (« Chaque exception de persistance "juste pour
+  ce cas" est un pas vers le grand livre honni », l.89) [VÉRIFIÉ] ; (2) pour refuser un retour à un
+  état ancien, il faut que quelqu'un se souvienne du dernier état au-delà de 24 h (Step2 l.272) :
+  le mur n°4 peut revenir par cette porte.
+- **Recommandation : explorer C d'abord**, parce qu'elle est la seule piste qui *pourrait* garder
+  le verrou #2 intact [HYPOTHÈSE, non établi — voir les deux points ci-dessus] ; B seulement en
+  dernier recours, et alors écrite dans MISSION comme un affaiblissement assumé du verrou, pas
+  comme une précision. Ne rien inscrire tant qu'il n'y a pas d'argent dans le périmètre
   (MISSION l.74).
 
 **F6. Le « virus » doit-il vraiment se propager maintenant ?**
@@ -1181,18 +1224,27 @@ du TTL » ; la MASTER-MAP se contredit elle-même (l.23 contre l.184).
   garde, pas le nombre total de copies dans le réseau ; il faut un nombre de copies fixe par
   message (k petit) et la purge des copies tierces à la livraison (`ConfirmDelivery` conditionnel,
   CLAUDE.md limite #14) ; (3) un mobile sans tâche de fond **ne peut pas** être gardien
-  (FEUILLE-DE-ROUTE l.17) : les gardiens sont les nœuds 24/24.
-- B. Assumer « le gardien est l'émetteur » pour l'instant et corriger la documentation (README
-  l.52, MISSION l.47, CLAUDE.md limite #14).
-- **Recommandation : B tout de suite** (la documentation ne doit pas mentir), **puis A** avec les
-  trois conditions ci-dessus. Câbler A sans borne globale ni purge rouvrirait la classe de bug
+  (FEUILLE-DE-ROUTE l.17) : les gardiens sont des nœuds 24/24. ⚠️ Dans un réseau de millions de
+  téléphones et de rares box, cela concentre le backup sur peu de nœuds — la leçon de la Freebox
+  devenue « l'aspirateur » (design-carnet l.21-22). Il faut donc, en plus, l'éligibilité par
+  « TICKET D'ENTRÉE » et le « Tirage égal entre éligibles » de la CARTE (l.95), et l'indicateur de
+  concentration de la charte (l.39-41) [VÉRIFIÉ].
+- B. Assumer « le gardien est l'émetteur » pour l'instant et corriger la documentation **d'état**
+  (README l.52, CLAUDE.md limite #14). MISSION l.47 est dans le §1, « LA CIBLE. Non négociable »
+  (MISSION l.13) : c'est une cible, pas un état ; on ne la réécrit pas d'après le code, au plus une
+  note d'état hors du §1 (« pas encore codé ») [VÉRIFIÉ].
+- **Recommandation : B tout de suite** (la documentation d'état ne doit pas mentir), **puis A** avec
+  les conditions ci-dessus. Câbler A sans borne globale ni purge rouvrirait la classe de bug
   « rétention sans budget » déjà vue quatre fois (CLAUDE.md limite #11) [VÉRIFIÉ].
 
 **F7. « Exclu temporairement » (wp-v1 l.315) : à retirer ?**
 - A. Retirer (le verrou #5 interdit l'exclusion).
 - B. Remplacer par « surveillance renforcée et sur-assignation ».
 - **Recommandation : B** : elle garde l'intention (repérer les fermes d'identités, wp-v1 l.313-315)
-  dans la forme permise. À trancher avec le « hors jeu » du 18/10 (§5) : si « hors jeu » veut dire
+  dans la forme permise. ⚠️ La « surveillance » de wp-v1 l.313 repose sur la « corrélation
+  d'adresses IP ou d'ASN » et des « patterns de connexion » [VÉRIFIÉ] : des métadonnées, contre
+  « Pas de collecte centrale de métadonnées » (v0.1 l.96-97). B ne garde que la sur-assignation et
+  des signaux locaux, jamais un fichage centralisé. À trancher avec le « hors jeu » du 18/10 (§5) : si « hors jeu » veut dire
   « plus de rôle tant que la note est basse », B et le 18/10 disent la même chose.
 
 **F8. L'équilibre ≈ 0 de Step2 redevient-il la formule de la note ?** (MISSION §8 q.3)
@@ -1208,21 +1260,27 @@ du TTL » ; la MASTER-MAP se contredit elle-même (l.23 contre l.184).
   des métadonnées (qui reçoit combien), contre « Pas de collecte centrale de métadonnées » (v0.1
   l.96-97) [VÉRIFIÉ].
 - **Recommandation : C**, qui garde l'esprit « l'arroseur arrosé » sans pénaliser le récepteur ni
-  ficher l'usage. MISSION l.64 parle d'« équilibre contribution/usage » mais l.43 dit que la formule
-  « n'est pas fixée » [VÉRIFIÉ] : la porte est ouverte.
+  ficher l'usage. ⚠️ **C est un changement de vision**, pas une précision : tous les textes, MISSION
+  l.64 compris (le plus récent), posent l'« équilibre contribution/usage » dans la note
+  [VÉRIFIÉ] ; MISSION l.43 (« n'est pas fixée ») vise la formule, pas le principe. Si le fondateur
+  tient à l'équilibre dans la note, la variante est B avec l'usage réduit à l'**émission**.
 
 **F9. Quelle forme pour la couche universelle au-delà de Swift ?** (La V1 demandait « quel est le
 premier SDK non-Apple ? » : prémisse fausse. `crates/tom-sdk`, SDK cœur Rust, est membre du
 workspace (MISSION l.91), `tom-tui` existe, et la compilation Linux aarch64 musl est documentée,
 README l.358 [VÉRIFIÉ].)
-- A. Une **ABI C stable** au-dessus de `tom-sdk` : tout langage, tout OS, l'embarqué et l'IoT
-  (box, routeurs, objets branchés) s'y branchent.
+Une interface C publique existe déjà : en-tête généré `crates/tom-protocol-ffi/include/tom_protocol_ffi.h`
+(cbindgen, « check de drift en CI »), 24 fonctions `extern "C"`, posée sur `tom-protocol` ; seul
+Swift la consomme et le crate est exclu du workspace [VÉRIFIÉ].
+- A. **Stabiliser cette interface C** (versionnage, contrat de compatibilité, entrée dans le
+  workspace) et lui donner un premier consommateur non-Swift : tout langage, tout OS, l'embarqué
+  et l'IoT (box, routeurs, objets branchés) s'y branchent.
 - B. Kotlin/JNI pour Android.
 - C. WASM pour le navigateur (le parcours du brief, l.94-104).
 - **Recommandation : A**, parce que c'est elle qui fait de ToM une couche « au même titre que
   TCP/IP » (18/10) : une interface C stable est ce que les systèmes embarquent. B et C se posent
-  ensuite dessus. Le FFI actuel (`tom-protocol-ffi`) est taillé pour Swift et exclu du workspace :
-  il ne suffit pas tel quel.
+  ensuite dessus. Le travail n'est pas de créer l'interface, mais de la rendre stable et utilisée
+  hors Apple.
 
 ---
 
