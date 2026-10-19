@@ -60,6 +60,7 @@ fichiers disjoints, sinon séquentiel avec garde de précondition (§3). Plafond
 
 ## 3. Poser un mandat — le cœur
 
+Pose : **toujours via `scripts/poser-mandat <Fxx> <fichier-mandat>`**, jamais en écrivant `Fxx.md` à la main.
 Avant d'écrire : archiver l'ancien mandat de la fenêtre (copie vers
 `<echanges>/archive/AAAA-MM-JJ-Fxx-<id>-<slug>.md`, **jamais de suppression**). **JAMAIS de
 modification d'un mandat après son lancement** — une décision qui tombe en vol attend le rapport
@@ -152,7 +153,7 @@ tâche, du mécanique léger à la conception critique irréversible. Règles in
 
 Un démon déterministe (composant `superviseur/`, **pas un LLM**, zéro dépendance) lance chaque
 mandat `pret-a-lancer`, écoute les événements de session, ferme la fenêtre à `reponse-disponible`,
-et journalise dans `events.jsonl` — **seule écriture qu'il fait dans le dépôt**. Autorité complète :
+et journalise dans `events.jsonl` — **seules écritures qu'il fait dans le dépôt** (plus, si un `Fxx.md` est écrasé en cours de session, la copie sous `archive/`, `MANDAT_ECRASE`). Autorité complète :
 `superviseur/README.md`.
 
 Il ne fait JAMAIS : écrire `state.json`, le carnet, `vault/reprise/`, ni le frontmatter d'un
