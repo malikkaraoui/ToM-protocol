@@ -5,10 +5,13 @@
 # Un hook de signature qui refuse un commit fait perdre le travail deja redige ; il doit
 # reparer, pas punir.
 #
-# La valeur du trailer n'est JAMAIS codee en dur ici. Elle est lue, dans l'ordre :
-#   1. variable d'environnement  HARNAIS_TRAILER
-#   2. fichier de config du projet  ${HARNAIS_CONFIG:-config/harnais.json}, cle "trailer"
-# Si aucune valeur n'est trouvee : le hook ne touche a rien et sort 0 (degradation controlee).
+# La valeur du trailer ne vient JAMAIS de la config du projet (M0372) : c'est LA SIGNATURE DU HARNAIS, rangee
+# dans ${HARNAIS_HOME:-$HOME/.harnais}/reglages.json (page Reglages du tableau).
+# M0375 : cascade surcharge du projet > valeur commune > valeur integree, la meme que superviseur/reglages.mjs
+# (que ce hook ne peut pas importer : il est copie dans chaque projet). Le nom du projet vient de projet.nom de CONFIG.
+# M0374 : signature ABSENTE -> la valeur par defaut integree s'applique, en silence.
+# Entree illisible ou invalide -> la valeur en vigueur suivante s'applique, une ligne sur stderr.
+# Dans tous les cas le hook sort 0 : il ne bloque jamais un commit.
 #
 # Trailers concurrents retires avant d'ajouter le bon (decision 2026-09-23, "Retrait automatique",
 # #29). Motif ERE des lignes a retirer, lu dans l'ordre :
@@ -22,7 +25,6 @@ FICHIER_MSG="$1"
 [ -f "$FICHIER_MSG" ] || exit 0
 
 CONFIG="${HARNAIS_CONFIG:-config/harnais.json}"
-TRAILER="${HARNAIS_TRAILER:-}"
 MOTIF_DEFAUT='^[Cc][Oo]-[Aa][Uu][Tt][Hh][Oo][Rr][Ee][Dd]-[Bb][Yy]:'
 CONFIG_LISIBLE=0
 
@@ -34,12 +36,52 @@ if [ -f "$CONFIG" ]; then
   fi
 fi
 
-if [ -z "$TRAILER" ] && [ "$CONFIG_LISIBLE" = 1 ]; then
-  TRAILER=$(sed -n 's/.*"trailer"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$CONFIG" | head -1)
+# Signature du harnais (M0375) : la cascade est résolue en node, comme superviseur/reglages.mjs (même règle,
+# même validation : parité testée par commit-msg.test.mjs). Lecture de <HARNAIS_HOME>/reglages.json, et de l'ancien
+# fichier `signature` (M0372) tant que reglages.json n'existe pas. Sortie : la valeur sur stdout ; une alerte sur stderr.
+# Sans node, ou en cas d'échec : valeur par défaut intégrée, une ligne sur stderr. Le hook ne bloque jamais.
+SIGNATURE_DEFAUT='Co-Authored-By: Malik & Claude'
+TRAILER=$(HH="${HARNAIS_HOME:-$HOME/.harnais}" CFG="$CONFIG" node -e '
+const fs = require("fs");
+const path = require("path");
+const DEFAUT = "Co-Authored-By: Malik & Claude";
+const valide = (v) => typeof v === "string" && v.trim() !== "" && v === v.trim() && !/[\r\n]/.test(v) &&
+  v.length <= 200 && /^[\p{L}\p{M}\p{N} ._:&@+,()-]+$/u.test(v) && /^[A-Za-z][A-Za-z0-9-]*: [^\s].*$/.test(v);
+const objet = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
+const home = process.env.HH;
+const alerte = [];
+let nom = null;
+try { nom = JSON.parse(fs.readFileSync(process.env.CFG, "utf8")).projet.nom; } catch (e) { nom = null; }
+let lu = null;
+try { lu = fs.readFileSync(path.join(home, "reglages.json"), "utf8"); }
+catch (e) { if (e.code !== "ENOENT") { alerte.push("illisible"); lu = ""; } }
+let store = { commun: {}, projets: {} };
+if (lu === null) {
+  try {
+    const v = fs.readFileSync(path.join(home, "signature"), "utf8").replace(/\n$/, "");
+    if (valide(v)) store.commun.signature = v; else alerte.push("invalide");
+  } catch (e) { if (e.code !== "ENOENT") alerte.push("illisible"); }
+} else if (lu !== "") {
+  try {
+    const d = JSON.parse(lu);
+    if (objet(d)) store = { commun: objet(d.commun) ? d.commun : {}, projets: objet(d.projets) ? d.projets : {} };
+    else alerte.push("illisible");
+  } catch (e) { alerte.push("illisible"); }
+}
+let valeur = null;
+const pj = nom && objet(store.projets) ? store.projets[nom] : undefined;
+if (objet(pj) && Object.hasOwn(pj, "signature")) { if (valide(pj.signature)) valeur = pj.signature; else alerte.push("invalide"); }
+if (valeur === null && objet(store.commun) && Object.hasOwn(store.commun, "signature")) {
+  if (valide(store.commun.signature)) valeur = store.commun.signature; else alerte.push("invalide");
+}
+if (valeur === null) valeur = DEFAUT;
+process.stdout.write(valeur + "\n");
+if (alerte.length) process.stderr.write("commit-msg: signature du harnais illisible ou invalide (" + path.join(home, "reglages.json") + ") : la valeur en vigueur suivante est appliquee. La corriger dans la page Reglages du tableau.\n");
+') || TRAILER=""
+if [ -z "$TRAILER" ]; then
+  TRAILER="$SIGNATURE_DEFAUT"
+  echo "commit-msg: node indisponible ou en echec : la valeur par defaut du harnais est appliquee." >&2
 fi
-
-# Aucune valeur configuree : ne rien imposer.
-[ -n "$TRAILER" ] || exit 0
 
 if [ -n "${TRAILERS_RETIRES+x}" ]; then
   MOTIF="$TRAILERS_RETIRES"

@@ -11,7 +11,7 @@ Quatre hooks, tous en `sh` POSIX, sans dépendance :
 |---|---|---|
 | `pre-commit` | Refuse un commit qui ferait dépasser la limite d'octets à l'index de reprise, ou qui fait sortir un fichier chargé d'office (`CLAUDE.md`, rules, `SKILL.md`, index, carnet) de son budget : taille en caractères, largeur de ligne. **Imprime le remède.** | Oui (c'est son objet) |
 | `pre-merge-commit` | Rejoue `pre-commit` sur le résultat d'un merge sans conflit (git ne le fait pas). | Oui |
-| `commit-msg` | Impose le trailer de signature du projet, quelle que soit la signature proposée par l'outil appelant. | **Jamais** (`exit 0` en toute circonstance) |
+| `commit-msg` | Impose la signature du harnais (cascade des réglages : surcharge du projet, valeur commune, sinon la valeur par défaut intégrée), quelle que soit la signature proposée par l'outil appelant. | **Jamais** (`exit 0` en toute circonstance) |
 | `pre-push` | Sur la branche principale, en mode `direct` (défaut) : ne laisse passer que les merges couverts par un rapport de doublage GO (`tip:` = le tip mergé) d'un niveau qui couvre les chemins touchés (`niveau:`, `niveaux` de la config), et les commits qui ne touchent que `vault/`. En mode `pr` (`git.mode_fusion`) : refuse tout push sur la principale, la fusion passe par une pull request. | Oui, **sur la branche principale seulement** |
 
 ## Activation
@@ -210,13 +210,16 @@ merge reste en cours : alléger le fichier, `git add`, `git commit` (ou `git mer
 
 ### `commit-msg`
 
-La valeur du trailer n'est jamais dans le hook. Elle est cherchée, dans l'ordre :
+La valeur du trailer ne vient jamais de la config du projet : c'est la **signature du harnais**. Elle se lit dans
+`${HARNAIS_HOME:-~/.harnais}/reglages.json` (page Réglages du tableau), selon la cascade : **surcharge du projet**
+(`projets.<nom>.signature`, `<nom>` = `projet.nom` de la config) > **valeur commune** (`commun.signature`) >
+**valeur par défaut intégrée** (`Co-Authored-By: Malik & Claude`, identique à `SIGNATURE_PAR_DEFAUT` dans
+`superviseur/signature.mjs`). Tant que `reglages.json` n'existe pas, l'ancien fichier `${HARNAIS_HOME}/signature`
+(M0372) vaut la valeur commune. Entrée absente : défaut, en silence. Entrée illisible ou invalide : elle est ignorée,
+la valeur en vigueur suivante s'applique, et une ligne sur stderr. Le hook sort 0 dans tous les cas. La cascade est
+résolue en `node` (le hook ne peut pas importer `superviseur/reglages.mjs`) ; `commit-msg.test.mjs` vérifie la parité.
 
-1. `HARNAIS_TRAILER` (variable d'environnement) ;
-2. le fichier de configuration du projet — `HARNAIS_CONFIG`, défaut `config/harnais.json`, clé
-   `"trailer"`.
-
-**Si aucune valeur n'est trouvée, le hook ne touche à rien et sort 0** : dégradation contrôlée,
+**Le hook ne bloque jamais un commit** : dégradation contrôlée,
 jamais un commit perdu parce qu'une configuration manquait.
 
 **Retrait des trailers concurrents — décision du 2026-09-23 (Malik, « Retrait automatique »,

@@ -216,9 +216,9 @@ explicite du fondateur.
 ```
 R=<projet.racine> ; P=<git.branche_principale> ; S=$R/<chemins.worktrees>/<Fxx>-merge   # <tip> = tip de la branche doublée
 git -C $R fetch origin && git -C $R worktree add --detach $S origin/$P
-git -C $S merge --no-ff <tip> -m "Merge <branche> [<Rxxx>]" -m "<git.trailer>"   # tests SUR ce résultat
+git -C $S merge --no-ff <tip> -m "Merge <branche> [<Rxxx>]" -m "<signature du harnais>"   # tests SUR ce résultat
 cp -- $R/vault/revues/<AAAA-MM-JJ-Rxxx-slug>.md $S/vault/revues/   # le rapport rendu, copié explicitement dans le scratch
-git -C $S add -- vault/revues/<AAAA-MM-JJ-Rxxx-slug>.md && git -C $S commit -m "docs(revues): <Rxxx> -- GO" -m "<git.trailer>"   # frontmatter : verdict: GO + tip: <sha 40 de <tip>>
+git -C $S add -- vault/revues/<AAAA-MM-JJ-Rxxx-slug>.md && git -C $S commit -m "docs(revues): <Rxxx> -- GO" -m "<signature du harnais>"   # frontmatter : verdict: GO + tip: <sha 40 de <tip>>
 git -C $R merge --ff-only $(git -C $S rev-parse HEAD)     # depuis la racine ; refus = rapport
 git -C $R push origin $P && git ls-remote origin refs/heads/$P    # ls-remote collé au rapport
 git -C $R worktree remove $S      # puis idem pour le worktree de doublage
@@ -226,7 +226,7 @@ git -C $R worktree remove $S      # puis idem pour le worktree de doublage
 # Mode `pr` (git.mode_fusion: "pr") : aucun push sur P. Ordre : push, PR, rapport GO sur la branche, auto-merge.
 git -C $R push -u origin <branche> && git -C $R ls-remote origin refs/heads/<branche>   # collé
 gh pr create -B $P -H <branche> -t "<Mxxxx> -- <sujet>" -b "Rapport de doublage : vault/revues/<AAAA-MM-JJ-Rxxx-slug>.md (tip <tip>)"
-cp -- $R/vault/revues/<AAAA-MM-JJ-Rxxx-slug>.md <worktree-du-mandat>/vault/revues/ && git -C <worktree-du-mandat> add -- vault/revues/<AAAA-MM-JJ-Rxxx-slug>.md && git -C <worktree-du-mandat> commit -m "docs(revues): <Rxxx> -- GO" -m "<git.trailer>" && git -C <worktree-du-mandat> push origin <branche>   # frontmatter : verdict: GO + tip: <sha 40 de <tip>>
+cp -- $R/vault/revues/<AAAA-MM-JJ-Rxxx-slug>.md <worktree-du-mandat>/vault/revues/ && git -C <worktree-du-mandat> add -- vault/revues/<AAAA-MM-JJ-Rxxx-slug>.md && git -C <worktree-du-mandat> commit -m "docs(revues): <Rxxx> -- GO" -m "<signature du harnais>" && git -C <worktree-du-mandat> push origin <branche>   # frontmatter : verdict: GO + tip: <sha 40 de <tip>>
 gh pr merge <branche> --auto --<git.fusion_pr.methode> --delete-branch --match-head-commit <HEAD>   # HEAD = commit du rapport
 gh pr view <branche> --json state,autoMergeRequest,mergedAt   # collé : merge en attente de harnais-ok
 ```
